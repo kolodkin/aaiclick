@@ -135,6 +135,35 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
     await run_smoke_flow("k8s_e2e_smoke", kubernetes_e2e_user_repo)
 ```
 
+## Heavy setup once, tests only assert
+
+When 2+ tests run the same heavy setup (a job run, seeded objects, a server) and then each assert something different, run the setup once in a module-scoped fixture. Each test then holds only its assertions — the setup unit and the test unit stay separate.
+
+- **Fixture base**: in `aaiclick/`, build on `orch_shared_ctx` (resets once per module). Never mix it with `orch_ctx` in one module — `orch_ctx` resets before every test and wipes the shared state, so move the tests to their own module. `test_e2e/web` has no per-test reset; plain module fixtures work.
+- **Read-only tests only**: a test that mutates the shared state keeps its own setup.
+- **Skip** when the setup inputs vary (parametrize instead), when it's one cheap call, or when each test must watch a fresh run.
+
+```python
+# GOOD — one job run, each test asserts one aspect
+@pytest.fixture(scope="module")
+async def failing_job(orch_shared_ctx) -> Job:
+    job = await create_job("fail", "...sample_tasks.failing_task")
+    await run_job_tasks(job)
+    return job
+
+async def test_failing_job_status(failing_job):
+    assert failing_job.status == JOB_FAILED
+
+async def test_failing_job_logs_traceback(failing_job):
+    ...
+
+# BAD — the same job run copied into every test
+async def test_failing_job_status(orch_ctx):
+    job = await create_job("fail", "...sample_tasks.failing_task")
+    await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+```
+
 ## Parametrize input/expected clusters
 
 When several tests drive the same call and differ only in inputs and expected values, fold them into one `@pytest.mark.parametrize`. Consolidate only when **all** of these hold:

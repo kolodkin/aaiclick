@@ -507,6 +507,19 @@ async def orch_ctx(orch_module_ctx):
         yield
 
 
+@pytest.fixture(scope="module")
+async def orch_shared_ctx(orch_module_ctx):
+    """Module-scoped orch context, reset once before the module's first test.
+
+    For modules whose tests only assert on state built once by a
+    module-scoped setup fixture (a job run, seeded objects). Must not be
+    mixed with ``orch_ctx`` in one module: its per-test reset would wipe
+    the shared state.
+    """
+    await per_test_reset(reset_ch=True, reset_sql=True)
+    yield
+
+
 @pytest.fixture
 async def orch_ctx_no_ch(orch_module_ctx_no_ch):
     """Per-test state reset on top of the module-scoped no-ch orch context.

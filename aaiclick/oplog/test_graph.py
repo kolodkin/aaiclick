@@ -4,6 +4,8 @@ Tests for oplog graph traversal: backward_oplog, forward_oplog, oplog_subgraph.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import pytest
 
 from aaiclick.data.object_context import create_object_from_value
@@ -18,21 +20,25 @@ from aaiclick.oplog.lineage import (
 from aaiclick.orchestration.orch_context import task_scope
 
 
-async def _run_pipeline():
-    """Run a create/concat pipeline and return (a.table, b.table, result.table).
+class PipelineTables(NamedTuple):
+    a: str
+    b: str
+    result: str
 
-    Must be called inside an active orch_context.
-    """
+
+@pytest.fixture(scope="module")
+async def pipeline(orch_shared_ctx) -> PipelineTables:
+    """One create/concat pipeline shared by the read-only graph tests."""
     async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2, 3])
         b = await create_object_from_value([4, 5, 6])
         result = await a.concat(b)
-        return a.table, b.table, result.table
+        return PipelineTables(a.table, b.table, result.table)
 
 
-async def test_backward_oplog(orch_ctx):
+async def test_backward_oplog(pipeline):
     """backward_oplog returns the 3 upstream nodes with exact structure and edges."""
-    a_table, b_table, result_table = await _run_pipeline()
+    a_table, b_table, result_table = pipeline
 
     async with lineage_context():
         nodes = await backward_oplog(result_table)
@@ -54,17 +60,15 @@ async def test_backward_oplog(orch_ctx):
     }
 
 
-async def test_forward_oplog(orch_ctx):
+async def test_forward_oplog(pipeline):
     """forward_oplog includes the seed table plus its downstream consumers."""
-    a_table, b_table, result_table = await _run_pipeline()
-
     async with lineage_context():
-        nodes = await forward_oplog(a_table)
+        nodes = await forward_oplog(pipeline.a)
 
     by_table = {n.table: n for n in nodes}
-    assert set(by_table) == {a_table, result_table}
-    assert by_table[a_table].operation == "create_from_value"
-    assert by_table[result_table].operation == "concat"
+    assert set(by_table) == {pipeline.a, pipeline.result}
+    assert by_table[pipeline.a].operation == "create_from_value"
+    assert by_table[pipeline.result].operation == "concat"
 
 
 @pytest.mark.parametrize(
@@ -77,17 +81,15 @@ async def test_forward_oplog(orch_ctx):
         pytest.param("backward", "x\\' OR true --", id="backward-backslash"),
     ],
 )
-async def test_oplog_subgraph_treats_table_name_as_data(orch_ctx, direction, table):
+async def test_oplog_subgraph_treats_table_name_as_data(pipeline, direction, table):
     """A hostile table name matches nothing instead of widening the query to the whole log."""
-    await _run_pipeline()
-
     async with lineage_context():
         graph = await oplog_subgraph(table, direction=direction)
 
     assert graph.nodes == []
 
 
-async def test_invalid_direction(orch_ctx):
+async def test_invalid_direction(orch_shared_ctx):
     """oplog_subgraph raises ValueError for unknown direction."""
     async with lineage_context():
         with pytest.raises(ValueError, match="direction"):
