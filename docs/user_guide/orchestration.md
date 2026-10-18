@@ -135,6 +135,9 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 # Stop with Ctrl+C / SIGTERM.
 ```
 
+Auth is off in local mode, so `--host` accepts loopback addresses only
+(`127.0.0.1`, `localhost`, `::1`). Serving other machines needs distributed mode.
+
 ## Distributed mode
 
 Independent worker processes claim tasks from the shared PostgreSQL queue and

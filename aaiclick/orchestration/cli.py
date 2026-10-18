@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import signal
 
-from aaiclick.backend import is_local
+from aaiclick.backend import LOOPBACK_HOSTS, is_local
 
 from .background import BackgroundWorker
 from .execution import mp_worker_main_loop
@@ -65,6 +65,11 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
             "'local start' requires local mode (chdb + SQLite). "
             "Use `worker start` + `background start` + "
             "`uvicorn aaiclick.server.app:app` in distributed mode."
+        )
+    if host not in LOOPBACK_HOSTS:
+        raise RuntimeError(
+            f"'local start' runs with auth disabled and binds loopback only, not {host!r}. "
+            "Use distributed mode to serve other machines."
         )
 
     # Inline: keep the [server] extra optional — users without it never hit this import.

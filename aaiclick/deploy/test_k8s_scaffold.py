@@ -24,7 +24,7 @@ EXPECTED_TEMPLATES = {
 def test_init_helm_writes_chart_tree(tmp_path):
     target = tmp_path / "aaiclick-chart"
     written = init_helm(target, image_tag="v9.9.9")
-    assert written == target.resolve()
+    assert written.path == target.resolve()
     assert (target / "Chart.yaml").is_file()
     assert (target / "values.yaml").is_file()
     assert {p.name for p in (target / "templates").iterdir()} == EXPECTED_TEMPLATES

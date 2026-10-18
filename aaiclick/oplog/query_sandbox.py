@@ -63,6 +63,11 @@ class QueryResult(BaseModel):
     truncated: bool = False
 
 
+READONLY_SETTINGS = {"readonly": 2, "allow_ddl": 0}
+"""Read-only enforced in the engine, so the text guards are a first line rather
+than the only one. Level 2 rather than 1 because 1 also forbids the settings
+sent alongside the query."""
+
 DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 
@@ -76,6 +81,8 @@ _AST_SETTINGS = "Set"
 # Every IN-family function ClickHouse exposes — in, notIn, globalIn,
 # nullIn, globalNotNullIn, inIgnoreSet, … — reads a table named on its right.
 _IN_FUNCTION_RE = re.compile(r"^(global)?(not)?(null)?in(ignoreset)?$", re.IGNORECASE)
+# Value-list constructors on the right of IN: ``x IN (a, b)`` parses to ``tuple``.
+_IN_VALUE_FUNCTIONS = frozenset({"tuple", "array"})
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 
 
@@ -138,7 +145,7 @@ class _TableReads:
     tables: set[str] = field(default_factory=set)
     """``TableIdentifier`` names in table position."""
     functions: set[str] = field(default_factory=set)
-    """Table functions in table position — ``merge``, ``remote``, ``url``, …"""
+    """Table functions in table position or on the right of IN — ``merge``, ``remote``, ``url``, …"""
     opaque: set[str] = field(default_factory=set)
     """Table expressions of a kind this walk does not recognize."""
     in_tables: set[str] = field(default_factory=set)
@@ -177,8 +184,16 @@ def _table_reads(rows: list[_AstRow]) -> _TableReads:
         elif name.startswith(_AST_FUNCTION) and _IN_FUNCTION_RE.match(name.removeprefix(_AST_FUNCTION)):
             for operands in _direct_children(rows, index):
                 args = _direct_children(rows, operands)
-                if len(args) == 2 and rows[args[1]].text.startswith(_AST_IDENTIFIER):
-                    reads.in_tables.add(_node_name(rows[args[1]].text).removeprefix(_AST_IDENTIFIER))
+                if len(args) != 2:
+                    continue
+                right = _node_name(rows[args[1]].text)
+                if right.startswith(_AST_IDENTIFIER):
+                    reads.in_tables.add(right.removeprefix(_AST_IDENTIFIER))
+                elif right.startswith(_AST_FUNCTION):
+                    # ``x IN url(...)`` runs a table function outside table position.
+                    function = right.removeprefix(_AST_FUNCTION)
+                    if function not in _IN_VALUE_FUNCTIONS:
+                        reads.functions.add(function)
     return reads
 
 
@@ -196,6 +211,8 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> None:
 
     The right-hand side of ``IN`` is held to the same check — see
     ``_TableReads.in_tables`` for why an array column is rejected there too.
+    A function there is a table function unless it builds a value list
+    (``tuple`` / ``array``), so ``x IN url(...)`` is rejected like ``FROM url(...)``.
 
     A CTE name is a table identifier no graph contains, so ``WITH`` queries are
     rejected; the ``query_table`` tool description tells the caller to write
@@ -250,11 +267,7 @@ async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResul
             # the whole result, and ``break`` truncates instead of failing.
             "max_result_rows": ROW_LIMIT_CEILING + 1,
             "result_overflow_mode": "break",
-            # Enforce read-only in the engine, so validate_select_safety's
-            # keyword regex is a first line rather than the only one. Level 2
-            # rather than 1 because 1 also forbids the settings set alongside it.
-            "readonly": 2,
-            "allow_ddl": 0,
+            **READONLY_SETTINGS,
         },
     )
 

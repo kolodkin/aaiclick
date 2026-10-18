@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from datetime import timedelta
 
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import User
@@ -22,9 +23,14 @@ from aaiclick.auth.view_models import (
     RefreshRequest,
     TokenPair,
 )
+from aaiclick.datetime_utils import utc_now
 
 from . import users
 from .errors import Conflict, Invalid, MfaRequired, Unauthorized
+
+MAX_FAILED_LOGINS = 5
+"""Consecutive failed passwords or codes before login locks."""
+LOGIN_LOCKOUT = timedelta(minutes=15)
 
 
 async def _mint_pair(*, user: User, secret: str) -> TokenPair:
@@ -47,11 +53,18 @@ async def _authenticates(user: User | None, password: str) -> bool:
 
     bcrypt runs even when the answer is already no — unknown user, disabled,
     no password set — so response time does not reveal which usernames exist.
+    A locked user is refused outright, and a wrong password counts toward the
+    lock, so no caller can be used to brute-force a password.
     """
     if user is None or user.disabled or user.password_hash is None:
         await asyncio.to_thread(security.verify_password, password, _dummy_password_hash())
         return False
-    return await asyncio.to_thread(security.verify_password, password, user.password_hash)
+    if user.locked_until is not None and user.locked_until > utc_now():
+        raise Unauthorized("too many failed attempts — try again later")
+    if await asyncio.to_thread(security.verify_password, password, user.password_hash):
+        return True
+    await store.record_failed_login(user.id, limit=MAX_FAILED_LOGINS, lockout=LOGIN_LOCKOUT)
+    return False
 
 
 @functools.cache
@@ -62,9 +75,13 @@ def _dummy_password_hash() -> str:
 
 async def _accepts_totp(user: User, secret: str, code: str) -> bool:
     """Whether ``code`` is a live code for ``secret`` not already used — a code
-    admits once, so one read over a shoulder or off the wire cannot be replayed."""
+    admits once, so one read over a shoulder or off the wire cannot be replayed.
+    A refused code counts toward the lock, like a wrong password."""
     step = security.verify_totp(secret, code)
-    return step is not None and await store.claim_totp_step(user.id, step)
+    if step is not None and await store.claim_totp_step(user.id, step):
+        return True
+    await store.record_failed_login(user.id, limit=MAX_FAILED_LOGINS, lockout=LOGIN_LOCKOUT)
+    return False
 
 
 async def login(request: LoginRequest, *, secret: str) -> TokenPair:
@@ -77,6 +94,8 @@ async def login(request: LoginRequest, *, secret: str) -> TokenPair:
             raise MfaRequired("multi-factor code required")
         if not await _accepts_totp(user, user.totp_secret, request.totp_code):
             raise Unauthorized("invalid multi-factor code")
+    if user.failed_logins:
+        await store.clear_failed_logins(user.id)
     return await _mint_pair(user=user, secret=secret)
 
 

@@ -71,7 +71,7 @@ def fileserver():
         pytest.param(
             "https://example.com/data.parquet",
             {"where": "1=1; DROP TABLE users"},
-            "must not contain",
+            "single expression",
             id="where-with-semicolon",
         ),
     ],
@@ -234,7 +234,7 @@ async def test_url_aggregation_on_result(ctx, fileserver):
         pytest.param(
             "https://example.com/data.parquet",
             {"where": "1=1; DROP TABLE users"},
-            "must not contain",
+            "single expression",
             id="where-with-semicolon",
         ),
     ],

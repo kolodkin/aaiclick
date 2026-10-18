@@ -35,6 +35,28 @@ async def test_local_mode_returns_synthetic_admin(monkeypatch):
     assert principal.role == "admin" and principal.kind == "none"
 
 
+@pytest.mark.parametrize(
+    "host, status",
+    [
+        pytest.param("127.0.0.1:5255", 200, id="ipv4-loopback"),
+        pytest.param("localhost", 200, id="localhost"),
+        pytest.param("[::1]:5255", 200, id="ipv6-loopback"),
+        pytest.param("evil.example:5255", 400, id="rebound-domain"),
+        pytest.param("127.0.0.1.evil.example", 400, id="loopback-prefix"),
+    ],
+)
+async def test_local_mode_answers_only_loopback_hosts(monkeypatch, anon_client, host, status):
+    """DNS rebinding reaches an open local server through the browser; its Host header gives it away."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
+    response = await anon_client.get("/health", headers={"host": host})
+    assert response.status_code == status
+
+
+async def test_enabled_ignores_host_header(enabled, anon_client):
+    response = await anon_client.get("/health", headers={"host": "aaiclick.example.com"})
+    assert response.status_code == 200
+
+
 async def test_enabled_missing_token_unauthorized(enabled):
     with pytest.raises(Unauthorized):
         await auth.resolve_principal(authorization=None)
@@ -62,6 +84,20 @@ async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
         await auth.resolve_principal(authorization=f"Bearer {created.token}")
 
 
+async def test_demoted_owner_cannot_regain_admin_with_an_old_token(enabled, orch_ctx, anon_client):
+    """An admin token minted before a demotion must not let its owner promote themselves back."""
+    user = await users.create_user(CreateUserRequest(username="demoted", password="pw", role="admin"))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="admin"))
+    await users.set_role(user.id, "viewer")
+
+    res = await anon_client.put(
+        f"{API_PREFIX}/users/{user.id}/role",
+        json={"role": "admin"},
+        headers={"Authorization": f"Bearer {created.token}"},
+    )
+    assert res.status_code == 403
+
+
 async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
     with pytest.raises(Unauthorized):
         await auth.resolve_principal(authorization="Bearer aaic_not-a-real-token")
@@ -76,7 +112,7 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
     ],
 )
 def test_check_scope_admits_down_the_ladder(held, required):
-    principal = auth.Principal(user_id=1, role="viewer", scope=held, kind="token")
+    principal = auth.Principal(user_id=1, role="admin", scope=held, kind="token")
     auth.check_scope(principal, required)
 
 
@@ -88,7 +124,7 @@ def test_check_scope_admits_down_the_ladder(held, required):
     ],
 )
 def test_check_scope_forbids_up_the_ladder(held, required):
-    principal = auth.Principal(user_id=1, role="viewer", scope=held, kind="token")
+    principal = auth.Principal(user_id=1, role="admin", scope=held, kind="token")
     with pytest.raises(Forbidden):
         auth.check_scope(principal, required)
 
@@ -108,7 +144,12 @@ def test_unscoped_principal_is_bounded_by_role_alone():
         pytest.param(auth.Principal(user_id=5, role="member"), "write", id="member-session-writes"),
         pytest.param(auth.Principal(user_id=5, role="admin"), "admin", id="admin-session-admins"),
         pytest.param(
-            auth.Principal(user_id=5, role="admin", scope="read", kind="token"), "read", id="token-stands-alone"
+            auth.Principal(user_id=5, role="admin", scope="read", kind="token"), "read", id="token-below-role"
+        ),
+        pytest.param(
+            auth.Principal(user_id=5, role="viewer", scope="admin", kind="token"),
+            "read",
+            id="token-capped-by-demoted-owner",
         ),
         pytest.param(auth.Principal(user_id=None, role="admin", kind="none"), "admin", id="local-mode-is-admin"),
     ],

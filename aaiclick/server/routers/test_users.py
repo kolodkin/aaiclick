@@ -2,7 +2,7 @@ from aaiclick.auth.view_models import CreateUserRequest
 from aaiclick.internal_api import users
 from aaiclick.server.app import API_PREFIX
 
-from ..conftest import bearer
+from ..conftest import api_token_headers, bearer
 
 
 def admin() -> dict[str, str]:
@@ -61,3 +61,13 @@ async def test_admin_sets_a_role(orch_ctx, app_client, enabled):
     assert res.status_code == 200 and res.json()["role"] == "admin"
     bad = await app_client.put(f"{API_PREFIX}/users/{created.id}/role", json={"role": "superadmin"}, headers=admin())
     assert bad.status_code == 422
+
+
+async def test_an_admin_api_token_cannot_create_users(orch_ctx, app_client, enabled):
+    """A leaked token must not mint an account that outlives its revocation."""
+    res = await app_client.post(
+        f"{API_PREFIX}/users",
+        json={"username": "foothold", "password": "pw", "role": "admin"},
+        headers=await api_token_headers("admin"),
+    )
+    assert res.status_code == 403 and res.json()["code"] == "forbidden"

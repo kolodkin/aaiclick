@@ -322,6 +322,13 @@ jobs:
             --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
             --image-tag "${{ inputs.tag }}-rc"
           docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" up -d --quiet-pull
+          # init generated the database passwords; later steps dial them from the host.
+          uv run --no-project python - "$RUNNER_TEMP/stack/docker-compose.yaml" >> "$GITHUB_ENV" <<'PY'
+          import sys, yaml
+          env = {n: s.get("environment") or {} for n, s in yaml.safe_load(open(sys.argv[1]))["services"].items()}
+          print(f"STACK_PG_PASSWORD={env['postgres']['POSTGRES_PASSWORD']}")
+          print(f"STACK_CH_PASSWORD={env['clickhouse']['CLICKHOUSE_PASSWORD']}")
+          PY
 
       - name: Wait for infra health
         run: |
@@ -358,28 +365,27 @@ jobs:
           echo "compose migrate never completed" >&2
           exit 1
 
-      # Credentials are the scaffolded template's placeholders
-      # (aaiclick/deploy/templates/compose/docker-compose.yaml).
+      # Credentials are the ones `compose init` generated, exported above.
       - name: Run database migrations
         env:
-          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:change-me-postgres@localhost:5432/aaiclick"
-          AAICLICK_CH_URL: "clickhouse://default:change-me-clickhouse@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:${{ env.STACK_PG_PASSWORD }}@localhost:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:${{ env.STACK_CH_PASSWORD }}@localhost:8123/default"
         run: uv run --no-project python -m aaiclick migrate upgrade head
 
       - name: Run tests against installed package (distributed backend)
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
-          AAICLICK_CH_URL: "clickhouse://default:change-me-clickhouse@localhost:8123/default"
-          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:change-me-postgres@localhost:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:${{ env.STACK_CH_PASSWORD }}@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:${{ env.STACK_PG_PASSWORD }}@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: change-me-clickhouse
+          CLICKHOUSE_PASSWORD: ${{ env.STACK_CH_PASSWORD }}
           CLICKHOUSE_DB: default
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: change-me-postgres
+          POSTGRES_PASSWORD: ${{ env.STACK_PG_PASSWORD }}
           POSTGRES_DB: aaiclick
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp

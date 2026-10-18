@@ -43,9 +43,11 @@ var. These variables tune the enforced (distributed) case:
 Password-reset variables are listed in their own section.
 
 !!! warning "Distributed without a secret is a hard error"
-    In distributed mode with `AAICLICK_JWT_SECRET` unset, the server refuses to
-    start. In local mode auth is disabled, every request is allowed, and the
-    server logs a single startup `WARNING`.
+    In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the scaffold's
+    `change-me-...` placeholder, the server refuses to start. In local mode auth
+    is disabled, every request is allowed, and the server logs a single startup
+    `WARNING`. `local start` binds loopback only, and the server answers only a
+    loopback `Host` header, so DNS rebinding cannot reach it from a web page.
 
 # Data Model
 
@@ -71,6 +73,8 @@ one-line code change rather than a hand-written constraint migration.
 | `totp_secret`   | `String \| None`                | Base32 TOTP seed; set by MFA setup, live once `mfa_enabled` |
 | `mfa_enabled`   | `Boolean`, default `false`      | Login demands a TOTP code |
 | `totp_last_step`| `BigInteger \| None`            | Time step of the last accepted code; refuses replays |
+| `failed_logins` | `Integer`, default `0`          | Consecutive failed passwords or codes; reset on success |
+| `locked_until`  | `datetime \| None`              | Login refused until then |
 | `created_at`    | `datetime` (`utc_now`)          |                        |
 
 `password_hash` is nullable: a user created without one can never pass the
@@ -152,7 +156,7 @@ aaiclick/
       auth.py        /auth/login, /auth/refresh, /auth/logout, /auth/me,
                      /auth/me/password, /auth/me/mfa/*, /auth/tokens,
                      /auth/password-reset*
-      users.py       /users   (admin-only)
+      users.py       /users   (admin-only, session-only)
       audit.py       /audit   (admin-only)
   __main__.py        aaiclick user|token|audit commands
 ```
@@ -183,6 +187,9 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
   `totp_code`; a correct password without one answers `401`
   `code="mfa_required"` so the client can prompt for the code and retry — see
   [Multi-Factor Auth](#multi-factor-auth).
+- Five failed passwords or codes in a row — at login, password change or MFA
+  changes — lock the account for 15 minutes (`401`, "too many failed
+  attempts"), so neither can be brute-forced; a successful login resets the count.
 - Access JWT claims: `sub=<user_id>`, `role`, `exp`, `type="access"`.
 - Refresh token: a random opaque secret; only its `sha256` is stored in
   `refresh_tokens`.
@@ -325,12 +332,11 @@ every level beneath it. `read` is the default at every mint site.
 A caller mints at or below `ROLE_SCOPES[their role]` — you delegate what you
 hold, never more. Above the ceiling is `422` naming the caller's own level.
 
-!!! important "A token stands on its own scope"
-    The ceiling applies **at mint**, not on every request. Once issued, the
-    token's scope is its authority — a GitHub PAT, not a live projection of its
-    owner. Demote the owner from admin to viewer and an outstanding `admin`
-    token keeps working: **revoke it** to take it away. What does still stop it
-    is being disabled, which `resolve_api_token` checks.
+!!! important "A token never outranks its owner"
+    The ceiling applies at mint **and** on every request: a token holds the
+    lower of its own scope and its owner's current role. Demote the owner from
+    admin to viewer and an outstanding `admin` token drops to `read` at once.
+    Disabling the owner stops it outright, which `resolve_api_token` checks.
 
 | Route                          | Guard                          | Purpose                                         |
 |--------------------------------|--------------------------------|-------------------------------------------------|
@@ -481,7 +487,7 @@ Only an admin may invite, and may grant any role; anyone else is `403`.
 Inviting needs a **session**: the route guards on `require_session`, so an API
 token cannot mint an invite. An account is exactly the permanent foothold a
 leaked token must not be able to create for itself — the same reason token
-management is session-only.
+management and every `/users` route are session-only.
 
 `aaiclick user invite <username> [--role viewer|member|admin] [--email]` is
 the CLI form; the in-process CLI is admin-equivalent and caps against nothing.

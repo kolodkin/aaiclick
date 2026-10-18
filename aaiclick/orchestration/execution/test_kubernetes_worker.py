@@ -31,7 +31,7 @@ def test_build_pod_manifest_shape():
         image_tag="reg/aaiclick-job:abc",
         task_id=7,
         run_epoch=2,
-        env={"AAICLICK_SQL_URL": "u"},
+        env_secret="p",
         service_account="sa",
         image_pull_secret="regcred",
         resources={"limits": {"cpu": "1"}},
@@ -45,7 +45,8 @@ def test_build_pod_manifest_shape():
     c = spec["containers"][0]
     assert c["image"] == "reg/aaiclick-job:abc"
     assert c["resources"] == {"limits": {"cpu": "1"}}
-    assert {"name": "AAICLICK_SQL_URL", "value": "u"} in c["env"]
+    assert c["envFrom"] == [{"secretRef": {"name": "p"}}]
+    assert "env" not in c
     assert c["command"][-4:] == ["--task-id", "7", "--run-epoch", "2"]
 
 
@@ -56,7 +57,7 @@ def test_build_pod_manifest_omits_optional_fields():
         image_tag="img",
         task_id=1,
         run_epoch=0,
-        env={},
+        env_secret="n",
         service_account=None,
         image_pull_secret=None,
         resources=None,
@@ -114,21 +115,21 @@ def test_collect_returns_row():
     assert out.success is True and out.result_ref == native_ref(5)
 
 
-def test_module_pod_uses_shim_and_runner_env():
-    m = kw._build_pod_manifest(
-        name="p",
-        namespace="default",
-        image_tag="aaiclick-job:abc",
-        task_id=7,
-        run_epoch=2,
-        env={"AAICLICK_SQL_URL": "u"},
-        service_account=None,
-        image_pull_secret=None,
-        resources=None,
+async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
+    """The runner env carries database passwords; anyone who can ``get pods``
+    must not read them, so they travel in a per-attempt Secret."""
+    monkeypatch.setattr(kw, "build_runner_env", lambda: {"AAICLICK_SQL_URL": "postgresql://u:hunter2@db/x"})
+    created: list[dict] = []
+    monkeypatch.setattr(
+        kw, "_kubectl_create_from_file", AsyncMock(side_effect=lambda m, verb="create": created.append(m))
     )
-    c = m["spec"]["containers"][0]
-    assert "--task-id" in c["command"] and "7" in c["command"]
-    assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
+
+    await _vehicle().launch(Task(id=7, job_id=1, entrypoint="m.f", name="t", run_epoch=2), execution_worker_id=1)
+
+    secret, pod = created
+    assert secret["kind"] == "Secret" and secret["stringData"] == {"AAICLICK_SQL_URL": "postgresql://u:hunter2@db/x"}
+    assert pod["kind"] == "Pod" and "hunter2" not in json.dumps(pod)
+    assert pod["spec"]["containers"][0]["envFrom"] == [{"secretRef": {"name": secret["metadata"]["name"]}}]
 
 
 async def test_module_pod_wait_reads_result_row(monkeypatch):

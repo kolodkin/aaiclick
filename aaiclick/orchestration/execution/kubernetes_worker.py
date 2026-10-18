@@ -90,7 +90,7 @@ def _build_pod_manifest(
     image_tag: str,
     task_id: int,
     run_epoch: int,
-    env: dict[str, str],
+    env_secret: str,
     service_account: str | None,
     image_pull_secret: str | None,
     resources: dict | None,
@@ -99,13 +99,15 @@ def _build_pod_manifest(
     retries). Optional cluster fields are omitted when unset so the cluster
     defaults apply.
 
-    Module Pods run the aaiclick shim with the full runner ``env``; shell and
-    jvm Pods are built by :func:`build_shell_pod_manifest`."""
+    Module Pods run the aaiclick shim with the full runner env, read from the
+    per-attempt Secret ``env_secret`` so the database URLs (passwords included)
+    never appear in the Pod spec. Shell and jvm Pods are built by
+    :func:`build_shell_pod_manifest`."""
     container: dict = {
         "name": "task",
         "image": image_tag,
         "command": [*REMOTE_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
-        "env": [{"name": k, "value": v} for k, v in env.items()],
+        "envFrom": [{"secretRef": {"name": env_secret}}],
     }
     if resources:
         container["resources"] = resources
@@ -173,10 +175,10 @@ class _PodHandle:
             self.started.set()
 
 
-async def _kubectl_delete(handle: _PodHandle) -> None:
-    await cli.run(
-        _kubectl_bin(), "delete", "pod", handle.name, "-n", handle.namespace, "--ignore-not-found", check=False
-    )
+async def _kubectl_delete(name: str, namespace: str) -> None:
+    """Delete an attempt's Pod and its same-named env Secret."""
+    resources = [f"pod/{name}", f"secret/{name}"]
+    await cli.run(_kubectl_bin(), "delete", *resources, "-n", namespace, "--ignore-not-found", check=False)
 
 
 # Phase reported by ``_pod_status`` when the API says the Pod no longer exists
@@ -214,17 +216,17 @@ async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
     return phase, exit_code
 
 
-def _build_command_env_secret(name: str, namespace: str, command_env: dict[str, str]) -> dict:
-    """Manifest of the per-attempt Secret a shell Pod reads ``command_env``
-    from. ``stringData`` carries the values verbatim (no env-file format
-    limits), and the Secret shares the Pod's name so ``cleanup_argv`` deletes
-    both in one call."""
+def _build_env_secret(name: str, namespace: str, env: dict[str, str]) -> dict:
+    """Manifest of the per-attempt Secret a Pod reads its env from
+    (``envFrom``). ``stringData`` carries the values verbatim (no env-file
+    format limits), and the Secret shares the Pod's name so one delete removes
+    both."""
     return {
         "apiVersion": "v1",
         "kind": "Secret",
         "metadata": {"name": name, "namespace": namespace},
         "type": "Opaque",
-        "stringData": command_env,
+        "stringData": env,
     }
 
 
@@ -348,12 +350,6 @@ async def _pod_json(handle: _PodHandle) -> dict | None:
         return {}
 
 
-async def _kubectl_delete_shell(handle: _ShellPodHandle) -> None:
-    """Delete the Pod and its per-attempt Secret (absent without ``command_env``)."""
-    resources = [f"pod/{handle.name}", f"secret/{handle.name}"]
-    await cli.run(_kubectl_bin(), "delete", *resources, "-n", handle.namespace, "--ignore-not-found", check=False)
-
-
 class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
     """Shell and jvm tasks on the Kubernetes runner — the file data plane
     through the ``io-in`` / ``io`` helpers (see the module docstring)."""
@@ -369,9 +365,7 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
         try:
             (io_dir / _IN_READY).touch()
             if self._spec.command_env:
-                await _kubectl_create_from_file(
-                    _build_command_env_secret(name, self._spec.namespace, self._spec.command_env)
-                )
+                await _kubectl_create_from_file(_build_env_secret(name, self._spec.namespace, self._spec.command_env))
             manifest = build_shell_pod_manifest(
                 name=name,
                 namespace=self._spec.namespace,
@@ -469,7 +463,7 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
             return exit_code, str(e), None
 
     async def terminate(self, handle: _ShellPodHandle) -> None:
-        await _kubectl_delete_shell(handle)
+        await _kubectl_delete(handle.name, handle.namespace)
         handle.deleted = True
 
     async def output_argv(self, handle: _ShellPodHandle) -> list[str] | None:
@@ -480,7 +474,7 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
 
     async def cleanup(self, handle: _ShellPodHandle) -> None:
         if not handle.deleted:
-            await _kubectl_delete_shell(handle)
+            await _kubectl_delete(handle.name, handle.namespace)
         shutil.rmtree(handle.io_dir, ignore_errors=True)
 
 
@@ -502,20 +496,24 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         self._spec = spec
 
     async def launch(self, task: Task, execution_worker_id: int) -> _PodHandle:
-        env = build_runner_env()
         name = _pod_name(task.id, task.run_epoch)
-        manifest = _build_pod_manifest(
-            name=name,
-            namespace=self._spec.namespace,
-            image_tag=self._spec.image_tag,
-            task_id=task.id,
-            run_epoch=task.run_epoch,
-            env=env,
-            service_account=self._spec.service_account,
-            image_pull_secret=self._spec.image_pull_secret,
-            resources=self._spec.resources,
-        )
-        await _kubectl_create_from_file(manifest, "apply")
+        try:
+            await _kubectl_create_from_file(_build_env_secret(name, self._spec.namespace, build_runner_env()))
+            manifest = _build_pod_manifest(
+                name=name,
+                namespace=self._spec.namespace,
+                image_tag=self._spec.image_tag,
+                task_id=task.id,
+                run_epoch=task.run_epoch,
+                env_secret=name,
+                service_account=self._spec.service_account,
+                image_pull_secret=self._spec.image_pull_secret,
+                resources=self._spec.resources,
+            )
+            await _kubectl_create_from_file(manifest, "apply")
+        except BaseException:
+            await _kubectl_delete(name, self._spec.namespace)
+            raise
         return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
 
     async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
@@ -550,7 +548,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         return await check_task_cancelled(task.id)
 
     async def terminate(self, handle: _PodHandle) -> None:
-        await _kubectl_delete(handle)
+        await _kubectl_delete(handle.name, handle.namespace)
         handle.deleted = True
 
     def collect(
@@ -571,7 +569,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     async def cleanup(self, handle: _PodHandle) -> None:
         if handle.deleted:
             return
-        await _kubectl_delete(handle)
+        await _kubectl_delete(handle.name, handle.namespace)
 
 
 async def _run_task_in_pod(

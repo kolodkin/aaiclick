@@ -69,7 +69,8 @@ async def test_query_object_job_scope_by_id_and_name():
         await create_object_from_value([5, 6], name="result", scope="job")
 
     by_id = await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object="result"))
-    by_name = await viewer.query_object(ObjectQueryRequest(scope="job:viewer_job", object="result"))
+    # A where routes through the parse-tree scope check, which must accept the job's own table.
+    by_name = await viewer.query_object(ObjectQueryRequest(scope="job:viewer_job", object="result", where="1 = 1"))
     assert by_id.data == by_name.data == [["5"], ["6"]]
 
 
@@ -78,6 +79,9 @@ async def test_query_object_job_scope_by_id_and_name():
     [
         pytest.param({"object": "orders", "where": "1 = 1; DROP TABLE x"}, id="separator"),
         pytest.param({"object": "orders", "where": "id IN (SELECT 1)"}, id="subquery"),
+        pytest.param({"object": "orders", "where": "1) --"}, id="paren-breakout"),
+        pytest.param({"object": "orders", "where": "name IN p_secrets OR 1"}, id="in-other-table"),
+        pytest.param({"object": "orders", "where": "id IN url('http://x/y', CSV, 'a Int64')"}, id="in-table-function"),
         pytest.param({"object": "orders", "fields": ["nope"]}, id="unknown-field"),
         pytest.param({"object": "orders", "fields": ["aai_id"]}, id="aai_id-field"),
         pytest.param({"object": "orders", "order_by": [OrderBy("nope", "ASC")]}, id="unknown-order-col"),

@@ -6,9 +6,10 @@ metadata:
 ---
 # The kubernetes runner creates one pod per task via kubectl and reads its
 # logs, so the worker needs exactly these verbs in its own namespace. A shell
-# task's in.json / out.json move through kubectl cp / exec (pods/exec); its
-# command_env rides in a per-attempt Secret (never on the kubectl argv), which
-# the worker creates and deletes but never reads back.
+# task's in.json / out.json move through kubectl cp / exec (pods/exec). Each
+# Pod's env (a module task's runner env with the DB URLs, a shell task's
+# command_env) rides in a per-attempt Secret, never in the Pod spec or on the
+# kubectl argv; the worker creates and deletes it but never reads it back.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

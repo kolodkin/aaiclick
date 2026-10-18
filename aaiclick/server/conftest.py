@@ -58,7 +58,7 @@ def _admin_headers() -> dict[str, str]:
 @pytest.fixture
 async def app_client() -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver", headers=_admin_headers()) as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1", headers=_admin_headers()) as client:
         yield client
 
 
@@ -66,7 +66,7 @@ async def app_client() -> AsyncIterator[httpx.AsyncClient]:
 async def anon_client() -> AsyncIterator[httpx.AsyncClient]:
     """An unauthenticated client — for asserting 401 on protected routes."""
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
         yield client
 
 

@@ -107,3 +107,15 @@ async def test_admin_reset_clears_mfa(orch_ctx):
     row = await store.get_user_by_id(view.id)
     assert row is not None and row.totp_secret is None
     assert await auth.login(LoginRequest(username="lost", password="pw"), secret=SECRET)
+
+
+async def test_repeated_bad_codes_lock_login(orch_ctx):
+    """Three codes are live at once; without a limit a leaked password plus guessing finds one."""
+    _, secret = await _enrolled()
+    wrong = str((int(_next_code(secret)) + 1) % 10**security.TOTP_DIGITS).zfill(security.TOTP_DIGITS)
+    for _ in range(auth.MAX_FAILED_LOGINS):
+        with pytest.raises(Unauthorized, match="invalid multi-factor code"):
+            await auth.login(LoginRequest(username="alice", password="pw", totp_code=wrong), secret=SECRET)
+
+    with pytest.raises(Unauthorized, match="too many failed attempts"):
+        await auth.login(LoginRequest(username="alice", password="pw", totp_code=_next_code(secret)), secret=SECRET)

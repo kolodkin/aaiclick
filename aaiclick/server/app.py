@@ -10,12 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.backend import is_local
-from aaiclick.deploy.placeholders import warn_if_placeholder_credentials
+from aaiclick.deploy.placeholders import require_no_placeholder_credentials
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
 
 from .audit import AuditMiddleware
-from .auth import PrincipalAuthMiddleware, require_principal, warn_if_open
+from .auth import LoopbackHostMiddleware, PrincipalAuthMiddleware, require_principal, warn_if_open
 from .errors import register_exception_handlers
 from .events import live_events
 from .events import router as events_router
@@ -52,7 +52,7 @@ async def _seed_admin() -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     warn_if_open()
-    warn_if_placeholder_credentials()
+    require_no_placeholder_credentials()
     if config.auth_enabled():
         # Fail at startup, not on the first login: a distributed server
         # without a signing secret would pass health and 500 every login.
@@ -77,6 +77,7 @@ app = FastAPI(
 )
 
 register_exception_handlers(app)
+app.add_middleware(LoopbackHostMiddleware)
 # Outermost so it sees the final status of every request, including the /mcp mount.
 app.add_middleware(AuditMiddleware)
 

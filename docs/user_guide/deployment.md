@@ -8,13 +8,19 @@ python -m aaiclick compose init [--path docker-compose.yaml]   # docker-runner s
 python -m aaiclick k8s init [--path ./aaiclick-chart]          # helm chart
 ```
 
-Both come up unedited, and neither is production-ready until you replace the
-credentials below.
+Both come up unedited. `init` fills every credential with a random value and
+prints the admin login once:
 
-# What you must replace
+```text
+Wrote /path/to/docker-compose.yaml
+Admin login: admin / <generated> (change it after first login)
+```
 
-Every shipped credential reads `change-me-...`. The server logs one `WARNING`
-naming each one still unreplaced, on every startup.
+# Credentials
+
+The raw templates spell each credential `change-me-...`. The server refuses to
+start while any of them is still a placeholder, so a template copied by hand
+fails loudly instead of running with public secrets.
 
 | Value                | Compose                                                    | Helm (`values.yaml`)                                 |
 |----------------------|------------------------------------------------------------|------------------------------------------------------|
@@ -24,14 +30,13 @@ naming each one still unreplaced, on every startup.
 | ClickHouse password  | `clickhouse.CLICKHOUSE_PASSWORD` + every `AAICLICK_CH_URL` | `devDependencies.clickhouse.password` + `env.chUrl`  |
 
 Database passwords appear twice — on the database service and in every URL that
-dials it. Change both sides together or the stack stops connecting. In the URL,
+dials it. To set your own, change both sides together. In the URL,
 percent-encode `@`, `:` and `/` (`p@ss` → `p%40ss`); the service side takes the
 password as is.
 
 !!! warning "The signing secret is what forges tokens"
     Anyone holding `AAICLICK_JWT_SECRET` can mint an admin token for your
-    deployment. Replace it before the server is reachable by anyone else, and
-    keep it out of version control.
+    deployment. Keep the generated value out of version control.
 
 The seed admin (username `admin`, overridable with `AAICLICK_ADMIN_USERNAME`) is
 inserted only on first startup, while the users table is empty. Change its

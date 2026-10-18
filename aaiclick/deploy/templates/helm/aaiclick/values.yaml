@@ -9,9 +9,10 @@ imagePullSecrets: []
 
 # Connection URLs consumed by every aaiclick component. The defaults point
 # at the in-cluster dev dependencies below; production installs override
-# them (ideally via --set-file / an external secret manager). Every
-# `change-me-...` value below is warned about at startup until replaced —
-# the full list is in docs/user_guide/deployment.md.
+# them (ideally via --set-file / an external secret manager). `k8s init`
+# filled every credential below with a random value; the server refuses to
+# start with the raw template's placeholders. The full list is in
+# docs/user_guide/deployment.md.
 env:
   sqlUrl: postgresql+asyncpg://aaiclick:change-me-postgres@aaiclick-postgres:5432/aaiclick
   chUrl: clickhouse://default:change-me-clickhouse@aaiclick-clickhouse:8123/default

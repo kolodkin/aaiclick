@@ -28,6 +28,8 @@ def test_quote_sql_literal(value, expected):
         pytest.param("event = 'DROP TABLE'", id="keyword-inside-literal"),
         pytest.param("p_value > 1 AND t_stamp < now()", id="prefixed-column-names"),
         pytest.param("replaceAll(name, 'a', 'b') = 'x'", id="function-call"),
+        pytest.param("note = '-- ) # /*' AND `odd)col#` = 1", id="markers-inside-literal-and-identifier"),
+        pytest.param("(a = 1 OR b = 2) AND (c = 3)", id="balanced-parentheses"),
     ],
 )
 def test_validate_where_expression_accepts(expr):
@@ -42,6 +44,13 @@ def test_validate_where_expression_accepts(expr):
         pytest.param("EXISTS (SELECT 1)", id="exists-subquery"),
         pytest.param("a = 1 UNION ALL SELECT 1", id="union"),
         pytest.param("DELETE FROM x", id="dml"),
+        pytest.param("1) --", id="close-paren-and-comment"),
+        pytest.param("1) OR (1", id="close-and-reopen-paren"),
+        pytest.param("(1", id="unclosed-paren"),
+        pytest.param("1 /* x */", id="block-comment"),
+        pytest.param("1 # x", id="hash-comment"),
+        pytest.param("`a'` = 1) -- '", id="quote-inside-identifier"),
+        pytest.param("x = 'open", id="unterminated-literal"),
     ],
 )
 def test_validate_where_expression_rejects(expr):

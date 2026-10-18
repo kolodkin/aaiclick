@@ -69,9 +69,12 @@ with the Object API (`obj.view(...)` + `select_sql(columns=...)`), so the
 table name is produced inside `aaiclick/data` like for every other consumer;
 the SPA, MCP, and CLI never see one. The `where` expression is the one
 free-text input: `validate_where_expression` (`aaiclick/data/sql_utils.py`,
-shared with the lineage agent's SQL guards) rejects statement separators,
-DDL/DML keywords, and `SELECT` / `FROM` / `JOIN` / `UNION` / `WITH`, so it has
-no table position and cannot reach another object. Columns come from the
+shared with the lineage agent's SQL guards) rejects comments, unbalanced
+parentheses, statement separators, DDL/DML keywords, and `SELECT` / `FROM` /
+`JOIN` / `UNION` / `WITH`, so it cannot leave its `WHERE (...)`. The built
+SELECT then passes the lineage sandbox's scope check against the object's own
+table (catching `x IN other_table` and table functions) and runs with
+`readonly=2`. Columns come from the
 object's registered schema, so there is no `DESCRIBE` step. Free-form SQL
 across objects is in `future.md`.
 
