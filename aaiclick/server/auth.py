@@ -33,7 +33,6 @@ from aaiclick.auth.models import (
     ROLE_ADMIN,
     ROLE_SCOPES,
     SCOPE_ADMIN,
-    SCOPE_LEVELS,
     SCOPE_WRITE,
     Role,
     ScopeLevel,
@@ -166,7 +165,7 @@ def principal_to_scope(principal: Principal) -> ScopeLevel:
     ceiling = ROLE_SCOPES[principal.role]
     if principal.scope is None:
         return ceiling
-    return min(principal.scope, ceiling, key=SCOPE_LEVELS.index)
+    return principal.scope if scope_admits(ceiling, principal.scope) else ceiling
 
 
 def check_scope(principal: Principal, required: ScopeLevel) -> None:
