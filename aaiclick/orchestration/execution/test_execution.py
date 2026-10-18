@@ -5,6 +5,7 @@
 import asyncio
 import inspect
 import time
+from contextlib import suppress
 
 import pytest
 from pydantic import BaseModel
@@ -533,6 +534,33 @@ async def test_execute_task_no_parameters(orch_ctx, entrypoint):
     await execute_task(task)  # Should not raise
     with pytest.raises(RuntimeError, match="No task is currently executing"):
         get_current_task_info()
+
+
+@pytest.mark.parametrize(
+    "entrypoint, pins_left",
+    [
+        pytest.param("aaiclick.orchestration.fixtures.sample_tasks.simple_task", set(), id="success-releases"),
+        pytest.param("aaiclick.orchestration.fixtures.sample_tasks.failing_task", {"t_input"}, id="failure-keeps"),
+    ],
+)
+async def test_execute_task_releases_pins_only_on_success(orch_ctx, entrypoint, pins_left):
+    """A failed attempt keeps its input pins so the retry can still read them."""
+    job = await create_job("pins_on_success", entrypoint)
+    (task,) = await get_tasks_for_job(job.id)
+    async with get_sql_session() as session:
+        await session.execute(
+            text("INSERT INTO table_pin_refs (table_name, task_id) VALUES ('t_input', :tid)"), {"tid": task.id}
+        )
+        await session.commit()
+
+    with suppress(ValueError):
+        await execute_task(task)
+
+    async with get_sql_session() as session:
+        rows = await session.execute(
+            text("SELECT table_name FROM table_pin_refs WHERE task_id = :tid"), {"tid": task.id}
+        )
+        assert {r[0] for r in rows} == pins_left
 
 
 # run_job_tasks tests

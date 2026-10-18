@@ -95,8 +95,8 @@ class TablePinRef(SQLModel, table=True):
     """Junction table: which consumer tasks hold a pin on which tables.
 
     Producer inserts one row per downstream consumer task. Each consumer
-    deletes its own row during deserialization (after incref commits the
-    run_ref). Table is droppable when no pin_refs AND no run_refs remain.
+    deletes its own rows once it succeeds; a failed attempt keeps them for
+    the retry. Table is droppable when no pin_refs AND no run_refs remain.
     """
 
     __tablename__: ClassVar[str] = "table_pin_refs"
