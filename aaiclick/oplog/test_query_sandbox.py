@@ -90,6 +90,15 @@ async def test_sandboxed_select_rejects_out_of_scope_table(orch_ctx, table):
         pytest.param("SELECT * FROM url('http://x/y', CSV, 'a String')", "url", id="url"),
         pytest.param("SELECT * FROM file('/etc/passwd', 'LineAsString')", "file", id="file"),
         pytest.param("SELECT * FROM cluster('c', currentDatabase(), 'p_sales')", "cluster", id="cluster"),
+        # On the right of IN a table function sits outside table position.
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE id IN url('http://x/y', CSV, 'a String')", "url", id="in-url"
+        ),
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE id NOT IN file('/etc/passwd', 'LineAsString')",
+            "file",
+            id="not-in-file",
+        ),
     ],
 )
 async def test_sandboxed_select_rejects_table_functions(orch_ctx, sql, function):
@@ -348,6 +357,13 @@ async def test_liveness_reports_missing_tables():
             [(1,)],
             ["id"],
             id="in-with-graph-table",
+        ),
+        # A value list of columns parses to Function tuple, not a table function.
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE id IN (id, id + 1)",
+            [(1,)],
+            ["id"],
+            id="in-with-value-tuple",
         ),
     ],
 )
