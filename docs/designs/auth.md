@@ -155,7 +155,7 @@ aaiclick/
       auth.py        /auth/login, /auth/refresh, /auth/logout, /auth/me,
                      /auth/me/password, /auth/me/mfa/*, /auth/tokens,
                      /auth/password-reset*
-      users.py       /users   (admin-only)
+      users.py       /users   (admin-only, session-only)
       audit.py       /audit   (admin-only)
   __main__.py        aaiclick user|token|audit commands
 ```
@@ -483,7 +483,7 @@ Only an admin may invite, and may grant any role; anyone else is `403`.
 Inviting needs a **session**: the route guards on `require_session`, so an API
 token cannot mint an invite. An account is exactly the permanent foothold a
 leaked token must not be able to create for itself — the same reason token
-management is session-only.
+management and every `/users` route are session-only.
 
 `aaiclick user invite <username> [--role viewer|member|admin] [--email]` is
 the CLI form; the in-process CLI is admin-equivalent and caps against nothing.

@@ -1,4 +1,9 @@
-"""User administration routes (admin-only)."""
+"""User administration routes (admin-only, signed-in session only).
+
+``require_session`` as well as ``require_admin``: creating a user or setting a
+password is a permanent foothold, which a leaked API token must not be able to
+mint for itself — the same rule as invites and token management.
+"""
 
 from __future__ import annotations
 
@@ -17,14 +22,14 @@ from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.view_models import Page
 
-from ..auth import require_admin
+from ..auth import require_admin, require_session
 from ..deps import orch_scope
 from ..errors import problem_responses
 
 router = APIRouter(
     prefix="/users",
     tags=["users"],
-    dependencies=[Depends(orch_scope), Depends(require_admin)],
+    dependencies=[Depends(orch_scope), Depends(require_session), Depends(require_admin)],
 )
 
 
