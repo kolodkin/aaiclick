@@ -108,7 +108,8 @@ Rule of thumb: keep a unit test if deleting it leaves a behavior unproven; skip 
 2. **Add a unit test only when the e2e can't reach it cheaply**: a pure function with many input shapes (one parametrized test), races and failure paths (two workers claiming one row, a dead worker, retry backoff), environment edges (non-UTC `TZ`, `file://` vs `git://`), and behavior the e2e runs but never asserts.
 3. **Skip when a higher level already proves it**: delegation and routing tests (A calls B with X), factory tests the e2e's submission covers. Router tests assert HTTP plumbing only — status, envelope, error codes, query binding — not business logic.
 4. **Every new test fails before the fix**, for the intended reason. If it passes on the old code, change the setup until it can fail (force `TZ`, use `file://` so `--depth` bites).
-5. **Share helpers instead of copying them.** Check `aaiclick/testing.py`, `test_e2e/job_wait.py` and `test_e2e/runner_flow.py` before writing a fixture, a waiter or a CLI call.
+5. **Run once, assert many.** An e2e is expensive and checks many things at once. Run the job once in a module-scoped fixture and point several small tests at its result — one per feature asserted. A new behavior on an existing flow extends that flow's fixture or adds an assertion test against it, not a new run.
+6. **Share helpers instead of copying them.** Check `aaiclick/testing.py`, `test_e2e/job_wait.py` and `test_e2e/runner_flow.py` before writing a fixture, a waiter or a CLI call.
 
 ```python
 # BAD — asserts A called B; every runner e2e runs the real build task
@@ -116,6 +117,17 @@ async def test_run_image_build_delegates(monkeypatch):
     monkeypatch.setattr(image_build_task, "build_image_to_tag", fake_build)
     await run_image_build(git_remote=remote, git_sha=sha)
     assert calls[0][1] == f"{registry}/aaiclick-job:{sha}"
+
+# GOOD — one run in a module fixture, one test per asserted feature
+@pytest.fixture(scope="module")
+async def retried_run(orch_module_ctx_no_ch):
+    job = await retry_pipeline(marker_file=...)
+    await run_until_terminal(job.id)
+    return await get_tasks_for_job(job.id)
+
+async def test_retry_completes(retried_run): ...
+async def test_retry_records_both_attempts(retried_run): ...
+async def test_success_releases_input_pins(retried_run): ...
 
 # GOOD — runner-specific suite is a marker plus the shared flow
 @pytest.mark.kubernetes_e2e
