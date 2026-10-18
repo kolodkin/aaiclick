@@ -35,6 +35,7 @@ context manager:
 |-------------------------|----------------------------------------------------------------|
 | `orch_module_ctx`       | `orch_context()` (with chdb)                                   |
 | `orch_module_ctx_no_ch` | `orch_context()` + per-module chdb tempdir for the child       |
+| `orch_shared_ctx`       | `orch_module_ctx`, reset once — for shared module setup        |
 
 **Function-scoped** — declare as a test parameter:
 
@@ -93,6 +94,11 @@ migrates that tempdir first — with chdb + Postgres the child's
     The two module-scoped fixtures require conflicting chdb setups.
     Put mp-worker tests in a separate `_mp.py` file.
 
+!!! tip "Don't mix `orch_ctx` and `orch_shared_ctx` in one module"
+    `orch_ctx` resets before every test and wipes the shared state.
+    Put shared-setup tests in their own module (e.g.
+    `test_execution_shared_runs.py`).
+
 # Per-xdist-worker Isolation
 
 `worker_databases()` gives each xdist worker its own
@@ -123,6 +129,8 @@ engine gets it. `reset_sql_tables` therefore deletes children before parents.
 2. Declare fixtures by parameter name (`orch_ctx`, `ctx`, `fast_poll`).
    Autouse worker-isolation fixtures fire implicitly.
 3. mp-worker tests go in a dedicated `_mp.py` module.
+   Tests asserting on one shared setup → a module fixture on
+   `orch_shared_ctx`, in a module without `orch_ctx`.
 4. Helpers reusable across subpackages → `aaiclick/testing.py`.
    Otherwise → a local helper module next to the tests.
 5. Flows shared by the runner e2e suites → `test_e2e/runner_flow.py`;

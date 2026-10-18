@@ -44,7 +44,6 @@ from aaiclick.orchestration.execution.runner import (
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.fixtures.dict_return_pipelines import (
     spawn_bad_entry_type,
-    spawn_dicts,
     spawn_duplicate_handle,
     spawn_group,
     spawn_group_data,
@@ -555,25 +554,6 @@ async def test_run_job_tasks_single_task(orch_ctx):
         assert tasks[0].status == TASK_COMPLETED
 
 
-async def test_run_job_tasks_failing_task(orch_ctx):
-    """Test running a job with a failing task."""
-    job = await create_job("test_job_fail", "aaiclick.orchestration.fixtures.sample_tasks.failing_task")
-
-    await run_job_tasks(job)
-
-    assert job.status == JOB_FAILED
-    assert job.error is not None
-    assert "intentionally" in job.error
-
-    # Verify task failed in database
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id))
-        tasks = list(result.scalars().all())
-        assert len(tasks) == 1
-        assert tasks[0].status == TASK_FAILED
-        assert tasks[0].error is not None
-
-
 async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
     """Task stdout/stderr is readable cross-host via the CH task_logs stream."""
     job = await create_job("test_job_ch_log", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
@@ -587,19 +567,6 @@ async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
     by_text = {line.text: line.stream for line in logs.lines}
     assert by_text.get("This is stdout") == "stdout"
     assert by_text.get("Error message") == "stderr"
-
-
-async def test_run_job_tasks_failing_task_logs_traceback(orch_ctx):
-    """The run's own log ends with the exception and its traceback on stderr
-    — each retry keeps why it failed, not only the task's latest error."""
-    job = await create_job("test_job_ch_traceback", "aaiclick.orchestration.fixtures.sample_tasks.failing_task")
-
-    await run_job_tasks(job)
-
-    task = (await get_tasks_for_job(job.id))[0]
-    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.stream == "stderr"]
-    assert "Traceback (most recent call last):" in errors
-    assert errors[-1] == "ValueError: This task failed intentionally"
 
 
 async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
@@ -748,38 +715,12 @@ async def test_shell_task_invalid_out_json_fails_task(orch_ctx):
 # Dict-returned DAGs (the JSON form of task_result / task / group)
 
 
-async def test_run_job_tasks_dict_return_spawns_children(orch_ctx):
-    """A task returning ``task`` dicts with handles spawns the children and
-    its result is the finalize child's: double(1) + double(2) = 6."""
-    job = await create_job("dict_return", create_task(spawn_dicts, {"n": 1}, name="dict_return"))
-    await run_job_tasks(job)
-    assert job.status == JOB_COMPLETED, job.error
-    async with object_context():
-        assert await get_job_result(job) == 6
-
-
 async def test_run_job_tasks_dict_return_group_results(orch_ctx):
     job = await create_job("dict_return_group", create_task(spawn_group, {"n": 1}, name="dict_return_group"))
     await run_job_tasks(job)
     assert job.status == JOB_COMPLETED, job.error
     async with object_context():
         assert await get_job_result(job) == 6
-
-
-async def test_run_job_tasks_dict_return_wires_data_flow_edges(orch_ctx):
-    """A handle in a child's kwargs is a dependency edge, as a Task kwarg is in
-    Python — otherwise a second worker claims ``fin`` before ``w1``/``w2``
-    complete (an internal check: ``run_job_tasks`` runs children in id order
-    and cannot show the race)."""
-    job = await create_job("dict_return_edges", create_task(spawn_dicts, {"n": 1}, name="dict_return_edges"))
-    await run_job_tasks(job)
-    tasks = await get_tasks_for_job(job.id)
-    doubles = [t for t in tasks if t.entrypoint.endswith(".double")]
-    fin = next(t for t in tasks if t.entrypoint.endswith(".total"))
-    assert len(doubles) == 2
-    async with get_sql_session() as session:
-        rows = (await session.execute(select(Dependency.previous_id).where(Dependency.next_id == fin.id))).all()
-    assert {r[0] for r in rows} >= {d.id for d in doubles}
 
 
 async def test_run_job_tasks_dict_return_group_depends_on_is_an_edge(orch_ctx):
