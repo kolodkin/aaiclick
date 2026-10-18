@@ -24,6 +24,7 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     orch_module_ctx,
     orch_module_ctx_no_ch,
     orch_shared_ctx,
+    orch_shared_ctx_no_ch,
     worker_databases,
 )
 

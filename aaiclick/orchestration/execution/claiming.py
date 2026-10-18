@@ -5,7 +5,7 @@ See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ...datetime_utils import utc_now
 from ..background.handler import cancelling_transition, roll_up_job
@@ -288,25 +288,6 @@ async def release_cancelled_run(task_id: int, expected_epoch: int | None = None)
         return True
 
 
-async def check_task_cancelled(task_id: int) -> bool:
-    """
-    Check if a task has been cancelled.
-
-    Used by the worker's cancellation monitor to detect when a running
-    task's job has been cancelled via cancel_job().
-
-    Args:
-        task_id: Task ID to check
-
-    Returns:
-        bool: True if task status is PENDING_CANCELLED_CLEANUP or CANCELLED
-    """
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task.status).where(Task.id == task_id))
-        status = result.scalar_one_or_none()
-        return status in CANCELLING_TASK_STATUSES
-
-
 async def check_run_aborted(task_id: int, expected_epoch: int) -> bool:
     """Return True when a worker's current run should abort.
 
@@ -371,6 +352,13 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
         job = (await session.execute(handler.lock_query(select(Job).where(Job.id == job_id)))).scalar_one()
 
         affected = sorted({task_id} | await _downstream_task_ids(session, task_id))
+
+        # A cleared run may be killed before it drops its own run_refs; no cleanup pass sees a PENDING task.
+        run_ids = (await session.execute(select(Task.run_ids).where(col(Task.id).in_(affected)))).scalars()
+        last_runs = [str(r[-1]) for r in run_ids if r]
+        if last_runs:
+            rph, rparams = in_clause(last_runs, "rid")
+            await session.execute(text(f"DELETE FROM table_run_refs WHERE run_id IN ({rph})"), rparams)
 
         ph, params = in_clause(affected, "id")
         await session.execute(

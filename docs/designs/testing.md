@@ -31,11 +31,12 @@ context manager:
 
 **Module-scoped** — one entry per test module, explicit via `orch_ctx*`:
 
-| Fixture                 | Enters                                                         |
-|-------------------------|----------------------------------------------------------------|
-| `orch_module_ctx`       | `orch_context()` (with chdb)                                   |
-| `orch_module_ctx_no_ch` | `orch_context()` + per-module chdb tempdir for the child       |
-| `orch_shared_ctx`       | `orch_module_ctx`, reset once — for shared module setup        |
+| Fixture                 | Enters                                                           |
+|-------------------------|------------------------------------------------------------------|
+| `orch_module_ctx`       | `orch_context()` (with chdb)                                     |
+| `orch_module_ctx_no_ch` | `orch_context()` + per-module chdb tempdir for the child         |
+| `orch_shared_ctx`       | `orch_module_ctx`, reset once — for shared module setup          |
+| `orch_shared_ctx_no_ch` | `orch_module_ctx_no_ch`, SQL reset once — shared mp-worker setup |
 
 **Function-scoped** — declare as a test parameter:
 

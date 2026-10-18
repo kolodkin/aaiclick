@@ -520,6 +520,13 @@ async def orch_shared_ctx(orch_module_ctx):
     yield
 
 
+@pytest.fixture(scope="module")
+async def orch_shared_ctx_no_ch(orch_module_ctx_no_ch):
+    """``orch_shared_ctx`` for mp-worker modules: the child owns chdb, so only SQL is reset."""
+    await per_test_reset(reset_ch=False, reset_sql=True)
+    yield
+
+
 @pytest.fixture
 async def orch_ctx_no_ch(orch_module_ctx_no_ch):
     """Per-test state reset on top of the module-scoped no-ch orch context.

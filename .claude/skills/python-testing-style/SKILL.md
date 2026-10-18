@@ -127,7 +127,8 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
 
 When 2+ tests run the same heavy setup (a job run, seeded objects, a server) and then each assert something different, run the setup once in a module-scoped fixture. Each test then holds only its assertions — the setup unit and the test unit stay separate.
 
-- **Fixture base**: in `aaiclick/`, build on `orch_shared_ctx` (resets once per module). Never mix it with `orch_ctx` in one module — `orch_ctx` resets before every test and wipes the shared state, so move the tests to their own module. `test_e2e/web` has no per-test reset; plain module fixtures work.
+- **Extend, don't add a run**: a new behavior on an existing flow gets an assertion test on that flow's fixture, not a new run.
+- **Fixture base**: in `aaiclick/`, build on `orch_shared_ctx` (resets once per module), or `orch_shared_ctx_no_ch` in an mp-worker `_mp.py` module. Never mix it with the per-test `orch_ctx` / `orch_ctx_no_ch` in one module — they reset before every test and wipe the shared state, so move the tests to their own module. `test_e2e/web` has no per-test reset; plain module fixtures work.
 - **Read-only tests only**: a test that mutates the shared state keeps its own setup.
 - **Skip** when the setup inputs vary (parametrize instead), when it's one cheap call, or when each test must watch a fresh run.
 

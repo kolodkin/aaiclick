@@ -6,6 +6,7 @@ from sqlmodel import select
 from ...datetime_utils import utc_now
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
+from ..lifecycle.db_lifecycle import TableRunRef
 from ..models import (
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
@@ -209,6 +210,20 @@ async def test_clear_clears_task_fields(orch_ctx):
     assert reset.completed_at is None
     assert reset.error is None
     assert reset.result is None
+
+
+async def test_clear_drops_last_run_refs(orch_ctx):
+    """A cleared run may be killed before it drops its run_refs; clear_task drops them."""
+    job = await create_job("clear_run_refs", EP)
+    t = _task(job.id, status=TASK_RUNNING)
+    t.run_ids = [111, 222]
+    await _insert(t, TableRunRef(table_name="t_old", run_id="111"), TableRunRef(table_name="t_live", run_id="222"))
+
+    await clear_task(t.id)
+
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(TableRunRef.run_id))).scalars().all()
+    assert rows == ["111"]
 
 
 async def test_clear_nonexistent_task_raises(orch_ctx):

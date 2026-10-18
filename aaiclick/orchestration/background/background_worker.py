@@ -165,26 +165,39 @@ class BackgroundWorker:
     async def _do_cleanup(self) -> None:
         # Failure first: its fail-fast sweep cancels group siblings, which the
         # cancelled pass can then settle in the same cycle.
-        await self._process_failure_cleanup()
-        await self._process_cancelled_cleanup()
-        await self._cleanup_unreferenced_tables()
-        await self._cleanup_expired_jobs()
-        await self._cleanup_dead_workers()
-        await self._check_schedules()
-        await self._run_sandbox_files()
+        for cleanup_pass in (
+            self._process_failure_cleanup,
+            self._process_cancelled_cleanup,
+            self._cleanup_unreferenced_tables,
+            self._cleanup_expired_jobs,
+            self._cleanup_dead_workers,
+            self._check_schedules,
+            self._run_sandbox_files,
+        ):
+            # One failing pass (e.g. a DB restart) must not stop the loop or the other passes.
+            try:
+                await cleanup_pass()
+            except Exception:
+                logger.exception("Background pass %s failed", cleanup_pass.__name__)
 
-    async def _clean_task_refs(self, session: AsyncSession, tasks: list[CleanupTask]) -> None:
-        """Drop the last run's run_refs (batched) and every pin_ref (per task)."""
+    async def _clean_task_refs(
+        self, session: AsyncSession, tasks: list[CleanupTask], pin_tasks: list[CleanupTask]
+    ) -> None:
+        """Drop the last run's run_refs of ``tasks`` (batched) and every pin_ref of ``pin_tasks``.
+
+        A task scheduled for retry keeps its pins: they hold its input tables
+        for the next attempt.
+        """
         run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
         if run_ids_to_clean:
             await self._handler.clean_task_runs(session, run_ids_to_clean)
-        for t in tasks:
+        for t in pin_tasks:
             await self._handler.clean_task_pins(session, t.task_id)
 
     async def _process_failure_cleanup(self) -> None:
         """Process tasks in PENDING_FAILURE_CLEANUP status.
 
-        1. Batch-clean run_refs and pin_refs for all failed tasks
+        1. Batch-clean run_refs for all failed tasks, pin_refs for exhausted ones
         2. Transition each to PENDING (retries remaining) or FAILED (exhausted)
         3. Check job completion for jobs with newly-FAILED tasks
         """
@@ -193,13 +206,13 @@ class BackgroundWorker:
             if not tasks:
                 return
 
-            await self._clean_task_refs(session, tasks)
+            exhausted = [t for t in tasks if not t.has_retries]
+            await self._clean_task_refs(session, tasks, exhausted)
 
             # Transition each task and collect jobs that need completion check
             failed_job_ids: set[int] = set()
             for task in tasks:
-                has_retries = task.attempt < task.max_retries
-                if has_retries:
+                if task.has_retries:
                     retry_after = utc_now() + timedelta(
                         seconds=RETRY_BASE_DELAY * (2**task.attempt),
                     )
@@ -247,7 +260,7 @@ class BackgroundWorker:
             if not tasks:
                 return
 
-            await self._clean_task_refs(session, tasks)
+            await self._clean_task_refs(session, tasks, tasks)
 
             for task in tasks:
                 await self._handler.transition_cancelled_cleanup(session, task.task_id)

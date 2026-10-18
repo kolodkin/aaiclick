@@ -23,7 +23,7 @@ from .claiming import (
     JobAlreadyTerminal,
     JobNotFound,
     cancel_job,
-    check_task_cancelled,
+    check_run_aborted,
     claim_next_task,
     release_cancelled_run,
     update_job_status,
@@ -188,8 +188,8 @@ async def test_cancel_preserves_completed_tasks(orch_ctx):
     assert statuses == [TASK_COMPLETED, TASK_PENDING_CANCELLED_CLEANUP]
 
 
-async def test_check_task_cancelled(orch_ctx):
-    """Test check_task_cancelled returns correct values."""
+async def test_check_run_aborted_on_cancel(orch_ctx):
+    """A cancelled job aborts its runs before the background worker settles them."""
     job = await create_job("check_cancelled", SIMPLE_TASK)
 
     async with get_sql_session() as session:
@@ -197,15 +197,12 @@ async def test_check_task_cancelled(orch_ctx):
         task_id = task.id
 
     # Task is PENDING, not cancelled
-    assert await check_task_cancelled(task_id) is False
+    assert await check_run_aborted(task_id, 0) is False
 
     # Cancel the job (marks tasks PENDING_CANCELLED_CLEANUP) — the run must abort now,
     # before the background worker settles the task to CANCELLED.
     await cancel_job(job.id)
-    assert await check_task_cancelled(task_id) is True
-
-    # Non-existent task returns False
-    assert await check_task_cancelled(999999999) is False
+    assert await check_run_aborted(task_id, 0) is True
 
 
 async def test_update_task_status_refuses_overwrite_cancelled(orch_ctx):

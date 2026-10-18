@@ -1,11 +1,15 @@
 """Tests for multiprocessing worker."""
 
+import asyncio
+
 import pytest
 from sqlmodel import select
 
-from ..factories import create_job
-from ..models import TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, Task
+from ..background.test_cancelled_cleanup import run_cancelled_cleanup
+from ..factories import create_job, create_task
+from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING, Task
 from ..orch_context import get_sql_session
+from .claiming import cancel_job
 from .mp_worker import mp_worker_main_loop
 
 pytestmark = pytest.mark.usefixtures("fast_poll")
@@ -75,3 +79,27 @@ async def test_mp_worker_main_loop_rejects_bad_runner(monkeypatch):
     monkeypatch.setenv("AAICLICK_RUNNER", "podman")
     with pytest.raises(ValueError, match="AAICLICK_RUNNER"):
         await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+
+
+async def _task_row(job_id: int) -> Task:
+    async with get_sql_session() as session:
+        return (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
+
+
+async def test_mp_worker_kills_cancelled_module_task(orch_ctx_no_ch):
+    """Cancelling a running module task kills its child instead of waiting for
+    it to finish; the task then settles to CANCELLED."""
+    job = await create_job(
+        "test_mp_cancel",
+        create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 60.0, "steps": 600}),
+    )
+    loop = asyncio.create_task(mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1))
+    while (await _task_row(job.id)).run_statuses != [TASK_RUNNING]:
+        await asyncio.sleep(0.05)
+
+    await cancel_job(job.id)
+    await asyncio.wait_for(loop, timeout=15)
+
+    assert (await _task_row(job.id)).execution_worker_id is None
+    await run_cancelled_cleanup()
+    assert (await _task_row(job.id)).status == TASK_CANCELLED

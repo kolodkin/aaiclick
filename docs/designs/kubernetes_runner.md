@@ -75,7 +75,7 @@ per-attempt Secret and `in.json` / `out.json` moved through the `io-in` /
 
 # The vehicle
 
-`KubernetesVehicle` implements the six `TaskVehicle` methods; `drive_vehicle` is
+`KubernetesVehicle` implements the five `TaskVehicle` methods; `drive_vehicle` is
 reused verbatim (heartbeating, cancellation polling, terminate-on-cancel,
 cancelled-overrides-result are all generic).
 
@@ -83,7 +83,6 @@ cancelled-overrides-result are all generic).
 |------------------|-----------------------------------------------------------------------------------|
 | `launch`         | `kubectl create` a per-attempt Secret holding the runner env (DB URLs), then `kubectl apply` a bare-Pod manifest reading it via `envFrom` (image_tag, `--task-id` / `--run-epoch`); handle = pod name + namespace + host log path |
 | `wait`           | Poll Pod phase to terminal/timeout, fetch `kubectl logs` to the host file, read the `remote_task_results` row and stash it on the handle; return `(exit_code, error)` |
-| `poll_cancelled` | `check_task_cancelled(task.id)` — reused unchanged from the Docker runner          |
 | `terminate`      | `kubectl delete` the Pod and its Secret (cancellation / timeout path)             |
 | `collect`        | Return the stashed result row; synthesize failure if absent; cancellation overrides |
 | `cleanup`        | `kubectl delete` the Pod and its Secret (idempotent); always runs, after logs are captured |
@@ -104,7 +103,7 @@ kubectl failure reports an empty phase and is retried.
 $ kubectl get pod aaiclick-task-7-1 -n jobs -o jsonpath='{.status.phase} {...exitCode}'
 Running                                   → ("Running", -1)   keep polling
 
-# meanwhile: cancel_job(7) → poll_cancelled → terminate → kubectl delete pod
+# meanwhile: cancel_job(7) → check_run_aborted → terminate → kubectl delete pod
 
 # poll 2 — the Pod is gone
 $ kubectl get pod aaiclick-task-7-1 -n jobs ...
@@ -169,8 +168,8 @@ from the job: a `NULL` `image_source` is a host subprocess; otherwise
 the worker loop already turns into a failed task. The job row is read only for
 `resources`, on both container runners.
 
-In-flight cancellation works from day one: `poll_cancelled` is wired to
-`check_task_cancelled`, so the driver deletes the Pod when a run is aborted,
+In-flight cancellation works from day one: the driver polls
+`check_run_aborted` and deletes the Pod when a run is cancelled or cleared,
 identical to the Docker `docker kill` path.
 
 # End-to-end test

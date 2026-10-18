@@ -7,6 +7,8 @@ Also tests clean_task_run for crash recovery.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -313,3 +315,19 @@ async def test_delete_job_data_keeps_job_when_log_purge_fails(bg_db, orch_ctx):
 
     async with AsyncSession(bg_db) as session:
         assert (await session.execute(text(f"SELECT id FROM jobs WHERE id = {job_id}"))).scalar_one() == job_id
+
+
+async def test_failing_pass_does_not_stop_the_others(bg_db, monkeypatch):
+    """One pass raising (e.g. a DB restart) is logged; the passes after it still run."""
+    worker = make_worker(bg_db)
+
+    async def _process_failure_cleanup():
+        raise RuntimeError("db down")
+
+    later = AsyncMock(__name__="_run_sandbox_files")
+    monkeypatch.setattr(worker, "_process_failure_cleanup", _process_failure_cleanup)
+    monkeypatch.setattr(worker, "_run_sandbox_files", later)
+
+    await worker._do_cleanup()
+
+    later.assert_awaited_once()

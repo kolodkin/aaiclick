@@ -377,9 +377,6 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
                 run_id=run_id,
             ):
                 kwargs = await deserialize_task_params(task.kwargs)
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    lifecycle.release_pins()  # FIFO: after every INCREF from deserialization
                 if inspect.iscoroutinefunction(func):
                     result = await func(**kwargs)
                 else:
@@ -396,14 +393,17 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
                 # dependencies table. The PIN handler fans out: queries
                 # downstream task_ids and inserts one pin_ref per consumer.
                 pin_target = result.data if isinstance(result, TaskResult) else result
-                if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
-                    lifecycle = get_data_lifecycle()
-                    if lifecycle is not None:
-                        lifecycle.pin(pin_target.table)
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None and isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+                    lifecycle.pin(pin_target.table)
 
                 # Register returned tasks INSIDE task_scope so the registry
                 # (ContextVar) that was populated during func() is still active.
                 data_result = await register_returned_tasks(result, task.id, task.job_id)
+
+                # Last, once nothing can fail: a failed attempt's pins hold its inputs for the retry.
+                if lifecycle is not None:
+                    lifecycle.release_pins()
 
     return data_result
 

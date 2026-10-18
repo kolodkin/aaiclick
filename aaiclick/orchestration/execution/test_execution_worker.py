@@ -444,9 +444,6 @@ class _StillRunningVehicle:
     async def wait(self, handle, timeout):
         return -1, "Task timed out after 1s", None
 
-    async def poll_cancelled(self, task):
-        return False
-
     async def terminate(self, handle):
         pass
 

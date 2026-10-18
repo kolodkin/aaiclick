@@ -137,10 +137,8 @@ class _ChildHandle(NamedTuple):
 class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
     """``TaskVehicle`` for the multiprocessing runner.
 
-    ``poll_cancelled`` returns False — module tasks have never had in-flight
-    cancellation on this runner, and shell tasks poll cancellation inside the
-    child (``_child_run_task``); timeout (inside ``wait``) is the parent's
-    only kill path."""
+    The driver kills the child once the run is cancelled or cleared; shell
+    tasks also poll inside the child (``_child_run_task``)."""
 
     def __init__(self, shell_spec: ShellSpec | None = None) -> None:
         self._shell_spec = shell_spec
@@ -159,15 +157,14 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
         result = await _poll_child(handle.proc, handle.result_queue, timeout)
         return (0 if result.success else -1), (None if result.success else result.error), result
 
-    async def poll_cancelled(self, task: Task) -> bool:
-        return False
-
     async def terminate(self, handle: _ChildHandle) -> None:
         handle.proc.kill()
 
     def collect(
         self, handle: _ChildHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult
     ) -> RunnerResult:
+        if was_cancelled:
+            return RunnerResult(False, None, "cancelled")
         return payload
 
     async def cleanup(self, handle: _ChildHandle) -> None:
@@ -236,6 +233,11 @@ async def _poll_child(
             )
 
         if not proc.is_alive():
+            # The child may have put its result and exited after the last get timed out.
+            try:
+                return result_queue.get_nowait()
+            except queue.Empty:
+                pass
             return RunnerResult(
                 success=False,
                 result_ref=None,
