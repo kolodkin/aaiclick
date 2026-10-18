@@ -20,7 +20,7 @@ FORBIDDEN_KEYWORDS_RE = re.compile(
 SUBQUERY_KEYWORDS_RE = re.compile(r"\b(SELECT|FROM|JOIN|UNION|WITH)\b", re.IGNORECASE)
 # Any quoted token — string literal or backtick/double-quoted identifier —
 # matched in one left-to-right pass so a quote inside one cannot open another.
-QUOTED_TOKEN_RE = re.compile(r"'(?:\\.|''|[^'\\])*'|`(?:\\.|``|[^`\\])*`|\"(?:\\.|\"\"|[^\"\\])*\"", re.DOTALL)
+QUOTED_TOKEN_RE = re.compile(STRING_LITERAL_RE.pattern + r"|`(?:\\.|``|[^`\\])*`|\"(?:\\.|\"\"|[^\"\\])*\"", re.DOTALL)
 # ClickHouse comment openers: ``--``, ``/*`` and ``#``.
 COMMENT_OPENER_RE = re.compile(r"--|/\*|#")
 
@@ -51,12 +51,11 @@ def validate_where_expression(expr: str) -> str | None:
             break
     if depth != 0:
         return "Unbalanced parentheses in a where expression."
-    scan = normalize_sql_for_scan(expr)
-    if ";" in scan:
+    if ";" in bare:
         return "Only a single expression is allowed."
-    if FORBIDDEN_KEYWORDS_RE.search(scan):
+    if FORBIDDEN_KEYWORDS_RE.search(bare):
         return "DDL/DML keywords are rejected in a where expression."
-    if SUBQUERY_KEYWORDS_RE.search(scan):
+    if SUBQUERY_KEYWORDS_RE.search(bare):
         return "Subqueries are not allowed in a where expression."
     return None
 

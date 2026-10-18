@@ -187,9 +187,9 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
   `totp_code`; a correct password without one answers `401`
   `code="mfa_required"` so the client can prompt for the code and retry — see
   [Multi-Factor Auth](#multi-factor-auth).
-- Five failed passwords or codes in a row lock login for 15 minutes (`401`,
-  "too many failed attempts"), so neither can be brute-forced; a success resets
-  the count.
+- Five failed passwords or codes in a row — at login, password change or MFA
+  changes — lock the account for 15 minutes (`401`, "too many failed
+  attempts"), so neither can be brute-forced; a successful login resets the count.
 - Access JWT claims: `sub=<user_id>`, `role`, `exp`, `type="access"`.
 - Refresh token: a random opaque secret; only its `sha256` is stored in
   `refresh_tokens`.

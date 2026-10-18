@@ -1205,7 +1205,7 @@ class Object:
             select_cols = columns_str
 
         insert_cols_str = ", ".join(target_columns)
-        where_clause = f" WHERE {where}" if where else ""
+        where_clause = f" WHERE ({where})" if where else ""
         limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
         insert_query = (

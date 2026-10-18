@@ -271,7 +271,7 @@ async def _create_from_tabular(
 
     obj = await create_object(schema)
 
-    where_clause = f" WHERE {where}" if where else ""
+    where_clause = f" WHERE ({where})" if where else ""
     limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
     insert_cols_str = ", ".join(schema.columns)
@@ -327,7 +327,7 @@ async def _create_from_json(
 
     insert_cols_str = ", ".join(quote_identifier(c) for c in schema_columns)
 
-    where_clause = f" WHERE {where}" if where else ""
+    where_clause = f" WHERE ({where})" if where else ""
     limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
     insert_query = (

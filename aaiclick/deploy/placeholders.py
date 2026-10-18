@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import os
 import re
-import secrets
 from pathlib import Path
 from typing import NamedTuple
+
+from aaiclick.auth.security import generate_secret
 
 PLACEHOLDER_MARKER = "change-me"
 ADMIN_PASSWORD_PLACEHOLDER = f"{PLACEHOLDER_MARKER}-admin-password"
@@ -42,7 +43,7 @@ def fill_placeholders(text: str, values: dict[str, str]) -> str:
     ``values`` maps token → secret; pass the same dict for every file of one
     scaffold so a token repeated across files (a password and the URL that
     dials it) gets the same value."""
-    return _PLACEHOLDER_RE.sub(lambda m: values.setdefault(m.group(), secrets.token_urlsafe(24)), text)
+    return _PLACEHOLDER_RE.sub(lambda m: values.setdefault(m.group(), generate_secret()), text)
 
 
 def placeholder_env_vars() -> list[str]:

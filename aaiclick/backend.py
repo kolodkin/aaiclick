@@ -24,6 +24,9 @@ import os
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+"""Loopback names, as a bind address (``::1``) or a ``Host`` header (``[::1]``)."""
+
 
 def get_root() -> Path:
     """Return the base directory for all local-mode state.

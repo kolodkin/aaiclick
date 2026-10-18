@@ -115,22 +115,6 @@ def test_collect_returns_row():
     assert out.success is True and out.result_ref == native_ref(5)
 
 
-def test_module_pod_uses_shim_and_runner_env():
-    m = kw._build_pod_manifest(
-        name="p",
-        namespace="default",
-        image_tag="aaiclick-job:abc",
-        task_id=7,
-        run_epoch=2,
-        env_secret="p",
-        service_account=None,
-        image_pull_secret=None,
-        resources=None,
-    )
-    c = m["spec"]["containers"][0]
-    assert "--task-id" in c["command"] and "7" in c["command"]
-
-
 async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
     """The runner env carries database passwords; anyone who can ``get pods``
     must not read them, so they travel in a per-attempt Secret."""

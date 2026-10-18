@@ -38,6 +38,7 @@ from aaiclick.auth.models import (
     ScopeLevel,
     scope_admits,
 )
+from aaiclick.backend import LOOPBACK_HOSTS
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import ProblemCode
@@ -201,7 +202,6 @@ def warn_if_open() -> None:
         logger.warning("local mode — auth is disabled, server is open")
 
 
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
 # The Host header's name part: a bracketed IPv6 address, or everything before the port.
 _HOST_NAME_RE = re.compile(r"^(\[[^\]]*\]|[^:]*)")
 

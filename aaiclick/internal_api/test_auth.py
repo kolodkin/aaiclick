@@ -63,6 +63,17 @@ async def test_a_successful_login_resets_the_failure_count(orch_ctx):
         await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
 
 
+async def test_password_change_guesses_count_toward_the_lock(orch_ctx):
+    """A stolen session must not be a way to guess the current password without limit."""
+    view = await users.create_user(CreateUserRequest(username="alice", password="pw"))
+    for _ in range(auth.MAX_FAILED_LOGINS):
+        with pytest.raises(Unauthorized):
+            await auth.change_password(view.id, ChangePasswordRequest(current_password="nope", new_password="x"))
+
+    with pytest.raises(Unauthorized, match="too many failed attempts"):
+        await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
+
+
 async def test_login_unknown_user_raises(orch_ctx):
     with pytest.raises(Unauthorized):
         await auth.login(LoginRequest(username="ghost", password="pw"), secret=SECRET)

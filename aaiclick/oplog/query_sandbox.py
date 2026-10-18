@@ -63,6 +63,11 @@ class QueryResult(BaseModel):
     truncated: bool = False
 
 
+READONLY_SETTINGS = {"readonly": 2, "allow_ddl": 0}
+"""Read-only enforced in the engine, so the text guards are a first line rather
+than the only one. Level 2 rather than 1 because 1 also forbids the settings
+sent alongside the query."""
+
 DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 
@@ -262,11 +267,7 @@ async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResul
             # the whole result, and ``break`` truncates instead of failing.
             "max_result_rows": ROW_LIMIT_CEILING + 1,
             "result_overflow_mode": "break",
-            # Enforce read-only in the engine, so validate_select_safety's
-            # keyword regex is a first line rather than the only one. Level 2
-            # rather than 1 because 1 also forbids the settings set alongside it.
-            "readonly": 2,
-            "allow_ddl": 0,
+            **READONLY_SETTINGS,
         },
     )
 
