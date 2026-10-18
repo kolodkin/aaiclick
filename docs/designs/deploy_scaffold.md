@@ -81,7 +81,8 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
 - Distributed URLs enforce auth, so the server carries starter `AAICLICK_JWT_SECRET` /
   `AAICLICK_ADMIN_PASSWORD` values — without them it refuses to start or cannot be logged in to.
 - Every shipped credential reads `change-me-...`, and the server warns at startup for each one
-  still unreplaced; the user-facing list is `docs/user_guide/deployment.md`.
+  still unreplaced; the user-facing list is `docs/user_guide/deployment.md`. The JWT secret is
+  the exception: `init` fills it with a random value, and the server refuses the placeholder.
 - No profiles: `docker compose up` always brings up the whole stack. CI jobs that only need
   the infra services still run the full stack — simpler than maintaining profile splits.
 
@@ -176,5 +177,6 @@ behind for debugging.
   simpler for users and CI alike.
 - **Working placeholders over helm `required`**: every credential is a literal
   `change-me-...` default, so a first install works unmodified. `required` would fail every
-  install and e2e gate instead. Cost: a well-known secret until replaced, which the startup
-  warning and the user guide chase.
+  install and e2e gate instead. Cost: well-known passwords until replaced, which the startup
+  warning and the user guide chase. The JWT secret alone forges admin tokens, so `init`
+  generates it rather than shipping it.

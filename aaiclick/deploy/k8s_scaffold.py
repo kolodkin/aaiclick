@@ -5,7 +5,8 @@ See docs/designs/deploy_scaffold.md — "Scaffold package and CLI", "Helm chart 
 Mirrors ``compose_scaffold.py``: the chart ships as package data
 (``templates/helm/aaiclick``) and every file is rendered on write by
 replacing the image-tag token, so ``Chart.yaml``'s ``appVersion`` and the
-``values.yaml`` image tags pin to the installed aaiclick version.
+``values.yaml`` image tags pin to the installed aaiclick version; the JWT
+secret placeholder is filled with a fresh random value.
 
 Invoked via ``python -m aaiclick k8s init``.
 """
@@ -23,6 +24,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from .compose_scaffold import IMAGE_TAG_TOKEN, default_image_tag
+from .placeholders import fill_jwt_secret
 
 _CHART_ROOT = files("aaiclick.deploy") / "templates" / "helm" / "aaiclick"
 
@@ -37,7 +39,7 @@ def _render_tree(src: Traversable, dst: Path, image_tag: str) -> None:
         if entry.is_dir():
             _render_tree(entry, dst / entry.name, image_tag)
         else:
-            (dst / entry.name).write_text(entry.read_text().replace(IMAGE_TAG_TOKEN, image_tag))
+            (dst / entry.name).write_text(fill_jwt_secret(entry.read_text().replace(IMAGE_TAG_TOKEN, image_tag)))
 
 
 def init_helm(target_dir: Path, *, image_tag: str | None = None, force: bool = False) -> Path:

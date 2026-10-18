@@ -7,7 +7,7 @@ the user's directory and the user owns it from there. The template ships as
 package data (``templates/compose/docker-compose.yaml``) and is rendered on
 write by replacing the image-tag token with the installed aaiclick version,
 so the scaffold pins to the GHCR images matching the wheel the user
-installed.
+installed, and by filling in a fresh random JWT signing secret.
 
 Invoked via ``python -m aaiclick compose init``.
 """
@@ -19,6 +19,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from .. import ghcr
+from .placeholders import fill_jwt_secret
 
 IMAGE_TAG_TOKEN = "__AAICLICK_IMAGE_TAG__"
 
@@ -42,5 +43,5 @@ def init_compose(target: Path, *, image_tag: str | None = None, force: bool = Fa
     if target.exists() and not force:
         raise ComposeFileExists(f"{target} already exists. Pass --force to overwrite.")
     template = (_TEMPLATES / "compose" / "docker-compose.yaml").read_text()
-    target.write_text(template.replace(IMAGE_TAG_TOKEN, image_tag or default_image_tag()))
+    target.write_text(fill_jwt_secret(template.replace(IMAGE_TAG_TOKEN, image_tag or default_image_tag())))
     return target.resolve()

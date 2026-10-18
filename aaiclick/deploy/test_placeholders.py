@@ -9,7 +9,12 @@ import yaml
 from . import placeholders
 from .compose_scaffold import init_compose
 from .k8s_scaffold import init_helm
-from .placeholders import PLACEHOLDER_MARKER, placeholder_env_vars, warn_if_placeholder_credentials
+from .placeholders import (
+    JWT_SECRET_PLACEHOLDER,
+    PLACEHOLDER_MARKER,
+    placeholder_env_vars,
+    warn_if_placeholder_credentials,
+)
 
 
 def test_placeholder_env_vars_lists_only_unreplaced_values(monkeypatch):
@@ -53,19 +58,25 @@ def _compose_credentials(text: str) -> dict[str, str]:
     }
 
 
-def test_scaffolded_compose_credentials_all_carry_the_marker(tmp_path):
-    """The marker is the contract between the templates and the startup
-    warning: a credential shipped without it is never flagged as unreplaced."""
-    target = tmp_path / "docker-compose.yaml"
-    init_compose(target, image_tag="v1.0.0")
-
-    credentials = _compose_credentials(target.read_text())
+def _assert_marked_except_jwt_secret(credentials: dict[str, str], jwt_key: str) -> None:
+    """Every credential carries the marker (the contract with the startup
+    warning) except the JWT secret, which the scaffold fills with a random value."""
     assert credentials
+    jwt_secret = credentials.pop(jwt_key)
+    assert PLACEHOLDER_MARKER not in jwt_secret
+    assert len(jwt_secret) >= 32
     for where, value in credentials.items():
         assert PLACEHOLDER_MARKER in value, where
 
 
-def test_scaffolded_helm_credentials_all_carry_the_marker(tmp_path):
+def test_scaffolded_compose_credentials(tmp_path):
+    target = tmp_path / "docker-compose.yaml"
+    init_compose(target, image_tag="v1.0.0")
+
+    _assert_marked_except_jwt_secret(_compose_credentials(target.read_text()), "server.AAICLICK_JWT_SECRET")
+
+
+def test_scaffolded_helm_credentials(tmp_path):
     target = tmp_path / "aaiclick-chart"
     init_helm(target, image_tag="v1.0.0")
 
@@ -78,5 +89,14 @@ def test_scaffolded_helm_credentials_all_carry_the_marker(tmp_path):
         "devDependencies.postgres.password": values["devDependencies"]["postgres"]["password"],
         "devDependencies.clickhouse.password": values["devDependencies"]["clickhouse"]["password"],
     }
-    for where, value in credentials.items():
-        assert PLACEHOLDER_MARKER in value, where
+    _assert_marked_except_jwt_secret(credentials, "auth.jwtSecret")
+
+
+def test_each_scaffold_gets_its_own_jwt_secret(tmp_path):
+    first, second = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    init_compose(first, image_tag="v1.0.0")
+    init_compose(second, image_tag="v1.0.0")
+
+    secrets = {_compose_credentials(t.read_text())["server.AAICLICK_JWT_SECRET"] for t in (first, second)}
+    assert len(secrets) == 2
+    assert JWT_SECRET_PLACEHOLDER not in secrets

@@ -11,7 +11,8 @@ imagePullSecrets: []
 # at the in-cluster dev dependencies below; production installs override
 # them (ideally via --set-file / an external secret manager). Every
 # `change-me-...` value below is warned about at startup until replaced —
-# the full list is in docs/user_guide/deployment.md.
+# the full list is in docs/user_guide/deployment.md. `k8s init` fills in
+# auth.jwtSecret with a random value.
 env:
   sqlUrl: postgresql+asyncpg://aaiclick:change-me-postgres@aaiclick-postgres:5432/aaiclick
   chUrl: clickhouse://default:change-me-clickhouse@aaiclick-clickhouse:8123/default

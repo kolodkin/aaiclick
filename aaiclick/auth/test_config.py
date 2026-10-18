@@ -1,6 +1,7 @@
 import pytest
 
 from aaiclick.auth import config
+from aaiclick.deploy.placeholders import JWT_SECRET_PLACEHOLDER
 
 
 @pytest.mark.parametrize(
@@ -25,6 +26,13 @@ def test_ttls_have_defaults(monkeypatch):
 def test_require_jwt_secret_raises_when_unset(monkeypatch):
     monkeypatch.delenv("AAICLICK_JWT_SECRET", raising=False)
     with pytest.raises(RuntimeError, match="AAICLICK_JWT_SECRET"):
+        config.require_jwt_secret()
+
+
+def test_require_jwt_secret_rejects_scaffold_placeholder(monkeypatch):
+    """The placeholder is public, so anyone could forge an admin token with it."""
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", JWT_SECRET_PLACEHOLDER)
+    with pytest.raises(RuntimeError, match="placeholder"):
         config.require_jwt_secret()
 
 

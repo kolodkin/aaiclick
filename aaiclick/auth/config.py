@@ -12,6 +12,7 @@ from typing import NamedTuple
 from urllib.parse import quote
 
 from ..backend import is_local
+from ..deploy.placeholders import PLACEHOLDER_MARKER
 
 ENV_SECRET = "AAICLICK_JWT_SECRET"
 ENV_ACCESS_TTL = "AAICLICK_JWT_ACCESS_TTL"
@@ -44,10 +45,12 @@ def jwt_secret() -> str | None:
 
 
 def require_jwt_secret() -> str:
-    """Return the signing secret, raising if distributed mode left it unset."""
+    """Return the signing secret, raising if it is unset or a public scaffold placeholder."""
     secret = jwt_secret()
     if secret is None:
         raise RuntimeError(f"distributed mode requires {ENV_SECRET} to be set")
+    if PLACEHOLDER_MARKER in secret:
+        raise RuntimeError(f"{ENV_SECRET} is still the scaffold placeholder; replace it with a random secret")
     return secret
 
 

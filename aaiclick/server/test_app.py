@@ -176,10 +176,12 @@ async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
 async def test_lifespan_warns_about_unreplaced_scaffold_credentials(monkeypatch):
     """A deployment still running the scaffold's credentials is flagged on
     every startup, not silently trusted."""
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", f"{PLACEHOLDER_MARKER}-jwt-secret-at-least-32-bytes-long")
+    monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", f"{PLACEHOLDER_MARKER}-admin-password")
+    # Keep the seed out of the shared distributed test DB.
+    monkeypatch.setattr("aaiclick.auth.config.admin_seed", lambda: None)
 
     with patch.object(placeholders.logger, "warning") as warning:
         async with _lifespan(app):
             pass
 
-    assert "AAICLICK_JWT_SECRET" in (warning.call_args[0][0] % warning.call_args[0][1:])
+    assert "AAICLICK_ADMIN_PASSWORD" in (warning.call_args[0][0] % warning.call_args[0][1:])

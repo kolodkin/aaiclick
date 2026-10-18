@@ -43,8 +43,8 @@ var. These variables tune the enforced (distributed) case:
 Password-reset variables are listed in their own section.
 
 !!! warning "Distributed without a secret is a hard error"
-    In distributed mode with `AAICLICK_JWT_SECRET` unset, the server refuses to
-    start. In local mode auth is disabled, every request is allowed, and the
+    In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the scaffold's
+    `change-me-...` placeholder, the server refuses to start. In local mode auth is disabled, every request is allowed, and the
     server logs a single startup `WARNING`.
 
 # Data Model

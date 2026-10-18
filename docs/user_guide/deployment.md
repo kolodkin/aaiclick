@@ -13,12 +13,12 @@ credentials below.
 
 # What you must replace
 
-Every shipped credential reads `change-me-...`. The server logs one `WARNING`
-naming each one still unreplaced, on every startup.
+Every shipped credential reads `change-me-...`, except the JWT signing secret:
+the scaffold fills that with a fresh random value. The server logs one
+`WARNING` naming each placeholder still unreplaced, on every startup.
 
 | Value                | Compose                                                    | Helm (`values.yaml`)                                 |
 |----------------------|------------------------------------------------------------|------------------------------------------------------|
-| JWT signing secret   | `server.AAICLICK_JWT_SECRET`                               | `auth.jwtSecret`                                     |
 | Seed admin password  | `server.AAICLICK_ADMIN_PASSWORD`                           | `auth.adminPassword`                                 |
 | Postgres password    | `postgres.POSTGRES_PASSWORD` + every `AAICLICK_SQL_URL`    | `devDependencies.postgres.password` + `env.sqlUrl`   |
 | ClickHouse password  | `clickhouse.CLICKHOUSE_PASSWORD` + every `AAICLICK_CH_URL` | `devDependencies.clickhouse.password` + `env.chUrl`  |
@@ -30,8 +30,8 @@ password as is.
 
 !!! warning "The signing secret is what forges tokens"
     Anyone holding `AAICLICK_JWT_SECRET` can mint an admin token for your
-    deployment. Replace it before the server is reachable by anyone else, and
-    keep it out of version control.
+    deployment. Keep the generated value out of version control. The server
+    refuses to start with the template's `change-me-...` placeholder.
 
 The seed admin (username `admin`, overridable with `AAICLICK_ADMIN_USERNAME`) is
 inserted only on first startup, while the users table is empty. Change its
