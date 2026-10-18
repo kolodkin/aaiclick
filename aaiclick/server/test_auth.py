@@ -35,6 +35,28 @@ async def test_local_mode_returns_synthetic_admin(monkeypatch):
     assert principal.role == "admin" and principal.kind == "none"
 
 
+@pytest.mark.parametrize(
+    "host, status",
+    [
+        pytest.param("127.0.0.1:5255", 200, id="ipv4-loopback"),
+        pytest.param("localhost", 200, id="localhost"),
+        pytest.param("[::1]:5255", 200, id="ipv6-loopback"),
+        pytest.param("evil.example:5255", 400, id="rebound-domain"),
+        pytest.param("127.0.0.1.evil.example", 400, id="loopback-prefix"),
+    ],
+)
+async def test_local_mode_answers_only_loopback_hosts(monkeypatch, anon_client, host, status):
+    """DNS rebinding reaches an open local server through the browser; its Host header gives it away."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
+    response = await anon_client.get("/health", headers={"host": host})
+    assert response.status_code == status
+
+
+async def test_enabled_ignores_host_header(enabled, anon_client):
+    response = await anon_client.get("/health", headers={"host": "aaiclick.example.com"})
+    assert response.status_code == 200
+
+
 async def test_enabled_missing_token_unauthorized(enabled):
     with pytest.raises(Unauthorized):
         await auth.resolve_principal(authorization=None)

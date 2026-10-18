@@ -44,8 +44,11 @@ Password-reset variables are listed in their own section.
 
 !!! warning "Distributed without a secret is a hard error"
     In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the scaffold's
-    `change-me-...` placeholder, the server refuses to start. In local mode auth is disabled, every request is allowed, and the
-    server logs a single startup `WARNING`.
+    `change-me-...` placeholder, the server refuses to start. In local mode auth
+    is disabled, every request is allowed, and the server logs a single startup
+    `WARNING`. `local start` binds loopback only, and the server answers only
+    requests whose `Host` is `127.0.0.1`, `localhost` or `[::1]`, so a web page
+    cannot reach it by rebinding its own domain to `127.0.0.1`.
 
 # Data Model
 

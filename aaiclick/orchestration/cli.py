@@ -66,6 +66,11 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
             "Use `worker start` + `background start` + "
             "`uvicorn aaiclick.server.app:app` in distributed mode."
         )
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        raise RuntimeError(
+            f"'local start' runs with auth disabled and binds loopback only, not {host!r}. "
+            "Use distributed mode to serve other machines."
+        )
 
     # Inline: keep the [server] extra optional — users without it never hit this import.
     try:

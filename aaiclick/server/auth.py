@@ -1,7 +1,8 @@
 """Auth for the REST surface and the ``/mcp`` mount.
 
 In local mode auth is disabled: every request is allowed (a synthetic admin
-principal) and startup logs a ``WARNING``. In distributed mode an
+principal), startup logs a ``WARNING``, and only requests addressed to a
+loopback host are answered. In distributed mode an
 ``Authorization: Bearer`` credential is required — either an access JWT or an
 ``aaic_`` API token; ``HTTPBearer`` (with ``auto_error=False``) extracts it and
 registers the OpenAPI scheme. The ``/mcp`` mount keeps an ASGI middleware
@@ -16,6 +17,7 @@ share one definition of each.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Literal, NamedTuple
 
@@ -23,6 +25,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.datastructures import Headers
+from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security, store
@@ -194,6 +197,32 @@ require_admin = require_scope(SCOPE_ADMIN)
 def warn_if_open() -> None:
     if not config.auth_enabled():
         logger.warning("local mode — auth is disabled, server is open")
+
+
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
+# The Host header's name part: a bracketed IPv6 address, or everything before the port.
+_HOST_NAME_RE = re.compile(r"^(\[[^\]]*\]|[^:]*)")
+
+
+class LoopbackHostMiddleware:
+    """With auth off, answer only requests whose ``Host`` is loopback.
+
+    An open server trusts every caller. Binding to 127.0.0.1 keeps other
+    machines out, but a web page can rebind its own domain to 127.0.0.1 (DNS
+    rebinding) and reach the server through the browser; such a request still
+    carries the page's domain in ``Host``.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] in ("http", "websocket") and not config.auth_enabled():
+            match = _HOST_NAME_RE.match(Headers(scope=scope).get("host", ""))
+            if match is None or match.group(1).lower() not in LOOPBACK_HOSTS:
+                await PlainTextResponse("Invalid host header", status_code=400)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 class PrincipalAuthMiddleware:
