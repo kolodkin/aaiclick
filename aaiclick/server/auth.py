@@ -33,6 +33,7 @@ from aaiclick.auth.models import (
     ROLE_ADMIN,
     ROLE_SCOPES,
     SCOPE_ADMIN,
+    SCOPE_LEVELS,
     SCOPE_WRITE,
     Role,
     ScopeLevel,
@@ -156,14 +157,16 @@ def principal_to_scope(principal: Principal) -> ScopeLevel:
     both surfaces compares this against the level the route or tool declares —
     nothing else is consulted.
 
-    A session resolves through its role via ``ROLE_SCOPES``. A token stands on
-    its own scope like a GitHub PAT — the mint ceiling capped it, and demoting
-    the owner does not shrink it; revoke it instead. Disabling the owner still
-    stops it, which ``resolve_api_token`` checks.
+    A session resolves through its role via ``ROLE_SCOPES``. A token holds the
+    lower of its own scope and its owner's current role, which is read live on
+    every request: demoting the owner shrinks every token they minted, so a
+    token never outranks the user it acts for. Disabling the owner stops it
+    outright, which ``resolve_api_token`` checks.
     """
-    if principal.scope is not None:
-        return principal.scope
-    return ROLE_SCOPES[principal.role]
+    ceiling = ROLE_SCOPES[principal.role]
+    if principal.scope is None:
+        return ceiling
+    return min(principal.scope, ceiling, key=SCOPE_LEVELS.index)
 
 
 def check_scope(principal: Principal, required: ScopeLevel) -> None:

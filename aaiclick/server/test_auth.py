@@ -84,6 +84,20 @@ async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
         await auth.resolve_principal(authorization=f"Bearer {created.token}")
 
 
+async def test_demoted_owner_cannot_regain_admin_with_an_old_token(enabled, orch_ctx, anon_client):
+    """An admin token minted before a demotion must not let its owner promote themselves back."""
+    user = await users.create_user(CreateUserRequest(username="demoted", password="pw", role="admin"))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="admin"))
+    await users.set_role(user.id, "viewer")
+
+    res = await anon_client.put(
+        f"{API_PREFIX}/users/{user.id}/role",
+        json={"role": "admin"},
+        headers={"Authorization": f"Bearer {created.token}"},
+    )
+    assert res.status_code == 403
+
+
 async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
     with pytest.raises(Unauthorized):
         await auth.resolve_principal(authorization="Bearer aaic_not-a-real-token")
@@ -98,7 +112,7 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
     ],
 )
 def test_check_scope_admits_down_the_ladder(held, required):
-    principal = auth.Principal(user_id=1, role="viewer", scope=held, kind="token")
+    principal = auth.Principal(user_id=1, role="admin", scope=held, kind="token")
     auth.check_scope(principal, required)
 
 
@@ -110,7 +124,7 @@ def test_check_scope_admits_down_the_ladder(held, required):
     ],
 )
 def test_check_scope_forbids_up_the_ladder(held, required):
-    principal = auth.Principal(user_id=1, role="viewer", scope=held, kind="token")
+    principal = auth.Principal(user_id=1, role="admin", scope=held, kind="token")
     with pytest.raises(Forbidden):
         auth.check_scope(principal, required)
 
@@ -130,7 +144,12 @@ def test_unscoped_principal_is_bounded_by_role_alone():
         pytest.param(auth.Principal(user_id=5, role="member"), "write", id="member-session-writes"),
         pytest.param(auth.Principal(user_id=5, role="admin"), "admin", id="admin-session-admins"),
         pytest.param(
-            auth.Principal(user_id=5, role="admin", scope="read", kind="token"), "read", id="token-stands-alone"
+            auth.Principal(user_id=5, role="admin", scope="read", kind="token"), "read", id="token-below-role"
+        ),
+        pytest.param(
+            auth.Principal(user_id=5, role="viewer", scope="admin", kind="token"),
+            "read",
+            id="token-capped-by-demoted-owner",
         ),
         pytest.param(auth.Principal(user_id=None, role="admin", kind="none"), "admin", id="local-mode-is-admin"),
     ],

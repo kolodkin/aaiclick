@@ -328,12 +328,11 @@ every level beneath it. `read` is the default at every mint site.
 A caller mints at or below `ROLE_SCOPES[their role]` — you delegate what you
 hold, never more. Above the ceiling is `422` naming the caller's own level.
 
-!!! important "A token stands on its own scope"
-    The ceiling applies **at mint**, not on every request. Once issued, the
-    token's scope is its authority — a GitHub PAT, not a live projection of its
-    owner. Demote the owner from admin to viewer and an outstanding `admin`
-    token keeps working: **revoke it** to take it away. What does still stop it
-    is being disabled, which `resolve_api_token` checks.
+!!! important "A token never outranks its owner"
+    The ceiling applies at mint **and** on every request: a token holds the
+    lower of its own scope and its owner's current role. Demote the owner from
+    admin to viewer and an outstanding `admin` token drops to `read` at once.
+    Disabling the owner stops it outright, which `resolve_api_token` checks.
 
 | Route                          | Guard                          | Purpose                                         |
 |--------------------------------|--------------------------------|-------------------------------------------------|
