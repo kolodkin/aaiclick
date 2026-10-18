@@ -55,6 +55,13 @@ def seeded_job_id() -> int:
     return _seed("graph_ui_demo")
 
 
+@pytest.fixture(scope="module")
+def all_green_job_id() -> int:
+    """A completed job whose every task finished, shared by the settled-state tests."""
+    all_green = {name: TaskState(TASK_COMPLETED, None, 0, 30) for name in DEFAULT_STATES}
+    return _seed("graph_ui_all_green", states=all_green, job_status=JOB_COMPLETED)
+
+
 def _seed(name: str, **kwargs) -> int:
     return run_in_process(lambda: seed_graph_job(name, **kwargs))
 
@@ -230,11 +237,8 @@ def test_group_status_is_rolled_up_from_its_members(graph_page) -> None:
     assert "RUNNING" in graph_page.locator("[data-testid='group-node']").first.inner_text()
 
 
-def test_group_status_settles_once_members_finish(page, base_url: str, shot) -> None:
-    all_green = {name: TaskState(TASK_COMPLETED, None, 0, 30) for name in DEFAULT_STATES}
-    job_id = _seed("graph_ui_group_done", states=all_green, job_status=JOB_COMPLETED)
-
-    open_graph(page, base_url, job_id)
+def test_group_status_settles_once_members_finish(page, base_url: str, all_green_job_id: int, shot) -> None:
+    open_graph(page, base_url, all_green_job_id)
     page.wait_for_selector(".ggroup-COMPLETED", timeout=15000)
     shot("graph-all-completed")
 
@@ -265,13 +269,10 @@ def test_toggle_switches_between_table_and_graph(page, base_url: str, seeded_job
     assert page.input_value("#prompt").endswith(" graph")
 
 
-def test_seed_accepts_custom_states(page, base_url: str) -> None:
+def test_seed_accepts_custom_states(page, base_url: str, all_green_job_id: int) -> None:
     """A caller-supplied state map overrides the defaults, so a UI test can
     stage any scenario without a second fixture graph."""
-    all_green = {name: TaskState(TASK_COMPLETED, None, 0, 30) for name in DEFAULT_STATES}
-    job_id = _seed("graph_ui_all_green", states=all_green, job_status=JOB_COMPLETED)
-
-    open_graph(page, base_url, job_id)
+    open_graph(page, base_url, all_green_job_id)
     page.wait_for_function(
         "count => document.querySelectorAll('.gnode-COMPLETED').length === count",
         arg=_NODE_COUNT,
