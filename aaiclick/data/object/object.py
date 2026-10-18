@@ -63,7 +63,7 @@ from ..object_context import (
 )
 from ..object_context.ch_client import ChClient, execute_for_stats, export_query_to_file
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
-from ..sql_utils import quote_identifier, quote_sql_literal
+from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
@@ -1189,8 +1189,8 @@ class Object:
 
         if limit is not None and (not isinstance(limit, int) or limit <= 0):
             raise ValueError(f"limit must be a positive integer, got {limit}")
-        if where is not None and ";" in where:
-            raise ValueError("WHERE clause must not contain ';'")
+        if where is not None and (err := validate_where_expression(where)):
+            raise ValueError(err)
 
         safe_url = quote_sql_literal(url)
 

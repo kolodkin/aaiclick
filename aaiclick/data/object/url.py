@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
-from ..sql_utils import quote_identifier, quote_sql_literal
+from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
@@ -195,8 +195,8 @@ async def create_object_from_url(
     _validate_url_format(format)
     if limit is not None and (not isinstance(limit, int) or limit <= 0):
         raise ValueError(f"limit must be a positive integer, got {limit}")
-    if where is not None and ";" in where:
-        raise ValueError("WHERE clause must not contain ';'")
+    if where is not None and (err := validate_where_expression(where)):
+        raise ValueError(err)
 
     json_mode = json_path is not None or json_columns is not None
     tabular_mode = columns is not None

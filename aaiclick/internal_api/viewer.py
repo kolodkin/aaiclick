@@ -26,6 +26,7 @@ from aaiclick.data.object_context.ch_client import (
 from aaiclick.data.sql_utils import quote_identifier, validate_where_expression
 from aaiclick.data.view_models import ColumnSchema
 from aaiclick.datetime_utils import utc_now
+from aaiclick.oplog.query_sandbox import SandboxError, validate_scope
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.view_models import Deleted, Page
@@ -107,7 +108,15 @@ async def query_object_bytes(request: ObjectQueryRequest) -> bytes:
         offset=request.offset,
     )
     sql = view.select_sql(columns=_projection(obj, request.fields))
-    limits = {"max_execution_time": DEFAULT_MAX_EXECUTION_TIME}
+    if request.where is not None:
+        # ``x IN other_table`` reads a table with no keyword the regex sees;
+        # the parse tree shows every table the query touches.
+        try:
+            await validate_scope(sql, {obj.table})
+        except SandboxError as exc:
+            raise Invalid(str(exc)) from exc
+    # Engine-side backstop: read-only whatever the where expression says.
+    limits = {"max_execution_time": DEFAULT_MAX_EXECUTION_TIME, "readonly": 2, "allow_ddl": 0}
     if request.fmt == FMT_CSV:
         return await query_bytes(sql, CSV_WITH_NAMES, limits)
     return await query_bytes(sql, JSON_COMPACT, {**JSON_COMPACT_SETTINGS, **limits})
