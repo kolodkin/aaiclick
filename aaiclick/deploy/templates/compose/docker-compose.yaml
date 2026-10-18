@@ -1,10 +1,9 @@
 # Starter docker-compose stack for an aaiclick docker-runner deployment.
 #
 # Scaffolded by `python -m aaiclick compose init` — customize freely; you
-# own this file. Every credential below reads `change-me-...`: the stack works
-# as-is, and the server warns at startup until you replace them. The full list
-# is in docs/user_guide/deployment.md. `compose init` fills in the JWT secret
-# with a random value.
+# own this file. `compose init` filled every credential below with a random
+# value; the server refuses to start with the raw template's placeholders.
+# The full list is in docs/user_guide/deployment.md.
 #
 # Task containers spawned by the docker runner run as SIBLINGS on the host
 # docker daemon (the worker mounts /var/run/docker.sock). They cannot

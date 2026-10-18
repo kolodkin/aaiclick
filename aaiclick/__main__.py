@@ -612,21 +612,23 @@ def _run_docker_init(args: argparse.Namespace) -> None:
 def _run_compose_init(args: argparse.Namespace) -> None:
     target = Path(args.path)
     try:
-        written = init_compose(target, image_tag=args.image_tag, force=args.force)
+        scaffold = init_compose(target, image_tag=args.image_tag, force=args.force)
     except ComposeFileExists as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
-    print(f"Wrote {written}")
+    print(f"Wrote {scaffold.path}")
+    print(f"Admin login: admin / {scaffold.admin_password} (change it after first login)")
 
 
 def _run_k8s_init(args: argparse.Namespace) -> None:
     target = Path(args.path)
     try:
-        written = init_helm(target, image_tag=args.image_tag, force=args.force)
+        scaffold = init_helm(target, image_tag=args.image_tag, force=args.force)
     except HelmChartExists as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
-    print(f"Wrote {written}")
+    print(f"Wrote {scaffold.path}")
+    print(f"Admin login: admin / {scaffold.admin_password} (change it after first login)")
 
 
 def _run_migrate_cli(args: argparse.Namespace) -> None:

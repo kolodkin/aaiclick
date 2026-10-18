@@ -21,7 +21,7 @@ EXPECTED_SERVICES = {"clickhouse", "postgres", "registry", "migrate", "server", 
 def test_init_compose_writes_rendered_file(tmp_path):
     target = tmp_path / "docker-compose.yaml"
     written = init_compose(target, image_tag="v9.9.9")
-    assert written == target.resolve()
+    assert written.path == target.resolve()
     content = target.read_text()
     assert IMAGE_TAG_TOKEN not in content
     assert "ghcr.io/kolodkin/aaiclick:v9.9.9" in content
