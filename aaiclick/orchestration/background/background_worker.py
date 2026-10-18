@@ -206,14 +206,13 @@ class BackgroundWorker:
             if not tasks:
                 return
 
-            exhausted = [t for t in tasks if t.attempt >= t.max_retries]
+            exhausted = [t for t in tasks if not t.has_retries]
             await self._clean_task_refs(session, tasks, exhausted)
 
             # Transition each task and collect jobs that need completion check
             failed_job_ids: set[int] = set()
             for task in tasks:
-                has_retries = task.attempt < task.max_retries
-                if has_retries:
+                if task.has_retries:
                     retry_after = utc_now() + timedelta(
                         seconds=RETRY_BASE_DELAY * (2**task.attempt),
                     )

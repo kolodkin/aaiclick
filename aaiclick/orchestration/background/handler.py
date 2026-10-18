@@ -275,6 +275,10 @@ class CleanupTask(NamedTuple):
     attempt: int
     max_retries: int
 
+    @property
+    def has_retries(self) -> bool:
+        return self.attempt < self.max_retries
+
 
 class BackgroundHandler(ABC):
     """Abstract base for backend-specific background cleanup SQL."""

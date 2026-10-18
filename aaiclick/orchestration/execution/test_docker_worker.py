@@ -119,7 +119,7 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     monkeypatch.setattr(docker_worker, "_docker_rm", AsyncMock())
     monkeypatch.setattr(docker_worker, "_docker_kill", AsyncMock())
     monkeypatch.setattr(docker_worker, "execution_worker_heartbeat", AsyncMock())
-    monkeypatch.setattr(docker_worker, "check_run_aborted", fake_check_aborted)
+    monkeypatch.setattr(execution_worker, "check_run_aborted", fake_check_aborted)
     # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
     # No DB here: skip the post-exit output handling (covered by the fake-CLI tests).

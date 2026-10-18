@@ -288,25 +288,6 @@ async def release_cancelled_run(task_id: int, expected_epoch: int | None = None)
         return True
 
 
-async def check_task_cancelled(task_id: int) -> bool:
-    """
-    Check if a task has been cancelled.
-
-    Used by the worker's cancellation monitor to detect when a running
-    task's job has been cancelled via cancel_job().
-
-    Args:
-        task_id: Task ID to check
-
-    Returns:
-        bool: True if task status is PENDING_CANCELLED_CLEANUP or CANCELLED
-    """
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task.status).where(Task.id == task_id))
-        status = result.scalar_one_or_none()
-        return status in CANCELLING_TASK_STATUSES
-
-
 async def check_run_aborted(task_id: int, expected_epoch: int) -> bool:
     """Return True when a worker's current run should abort.
 

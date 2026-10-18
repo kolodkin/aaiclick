@@ -137,11 +137,6 @@ class TaskVehicle(Protocol[H, P]):
         result read happens here, in async context, not in the sync ``collect``)."""
         ...
 
-    async def poll_cancelled(self, task: Task) -> bool:
-        """Return True if the run was aborted (cancelled, or cleared to a new
-        ``run_epoch``) and the vehicle should die."""
-        ...
-
     async def terminate(self, handle: H) -> None:
         """Forcibly stop the vehicle (cancellation / timeout path)."""
         ...
@@ -169,9 +164,6 @@ class ShellVehicle(TaskVehicle[H, Any]):
     ``launch`` / ``wait`` / ``terminate`` / ``cleanup`` / ``output_argv``."""
 
     out_value: Any = None
-
-    async def poll_cancelled(self, task: Task) -> bool:
-        return await check_run_aborted(task.id, task.run_epoch)
 
     def collect(self, handle: H, exit_code: int, error: str | None, was_cancelled: bool, payload: Any) -> RunnerResult:
         if was_cancelled:
@@ -233,14 +225,15 @@ async def _watch_for_cancellation(
     cancelled: asyncio.Event,
     poll_interval: float,
 ) -> None:
-    """Poll for cancellation; terminate the vehicle and set ``cancelled``.
+    """Poll for an aborted run (cancelled, or cleared to a new ``run_epoch``);
+    terminate the vehicle and set ``cancelled``.
 
     ``cancelled`` is the source of truth the driver reads after gather —
     reading this task's return value is racy (it may still be sleeping in
     ``wait_for`` when ``done`` is set externally)."""
     while not await wait_or_timeout(done, poll_interval):
         try:
-            aborted = await vehicle.poll_cancelled(task)
+            aborted = await check_run_aborted(task.id, task.run_epoch)
         except Exception:
             logger.exception("Task %s cancellation poll failed; retrying next tick", task.id)
             continue

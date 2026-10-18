@@ -24,7 +24,6 @@ from sqlmodel import select
 
 from ..models import Task
 from ..orch_context import get_sql_session, orch_context
-from .claiming import check_run_aborted
 from .execution_worker import (
     POLL_INTERVAL,
     RunnerResult,
@@ -138,8 +137,8 @@ class _ChildHandle(NamedTuple):
 class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
     """``TaskVehicle`` for the multiprocessing runner.
 
-    ``poll_cancelled`` kills the child once the run is cancelled or cleared;
-    shell tasks also poll inside the child (``_child_run_task``)."""
+    The driver kills the child once the run is cancelled or cleared; shell
+    tasks also poll inside the child (``_child_run_task``)."""
 
     def __init__(self, shell_spec: ShellSpec | None = None) -> None:
         self._shell_spec = shell_spec
@@ -157,9 +156,6 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
     async def wait(self, handle: _ChildHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult]:
         result = await _poll_child(handle.proc, handle.result_queue, timeout)
         return (0 if result.success else -1), (None if result.success else result.error), result
-
-    async def poll_cancelled(self, task: Task) -> bool:
-        return await check_run_aborted(task.id, task.run_epoch)
 
     async def terminate(self, handle: _ChildHandle) -> None:
         handle.proc.kill()
@@ -239,7 +235,7 @@ async def _poll_child(
         if not proc.is_alive():
             # The child may have put its result and exited after the last get timed out.
             try:
-                return await asyncio.to_thread(result_queue.get, timeout=poll_interval)
+                return result_queue.get_nowait()
             except queue.Empty:
                 pass
             return RunnerResult(

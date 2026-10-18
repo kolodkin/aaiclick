@@ -29,7 +29,6 @@ from typing import Any, NamedTuple
 
 from ..models import Task
 from . import cli
-from .claiming import check_run_aborted
 from .docker_build import resolve_launch_image
 from .execution_worker import (
     POLL_INTERVAL,
@@ -543,9 +542,6 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         handle.mark_started(phase)  # release a follower still waiting on a Pod that never ran
         result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
         return exit_code, error, result_row
-
-    async def poll_cancelled(self, task: Task) -> bool:
-        return await check_run_aborted(task.id, task.run_epoch)
 
     async def terminate(self, handle: _PodHandle) -> None:
         await _kubectl_delete(handle.name, handle.namespace)
