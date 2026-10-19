@@ -930,11 +930,14 @@ class Object:
         """
         Union multiple objects or values into a new Object.
 
-        Row order is undefined, as everywhere (see "Row Order" in
-        docs/user_guide/object.md): ``concat`` is a union, not an orderer.
-        When the sources carry ``aai_id`` it is copied, so reads follow the
-        rows' original (creation-time) ids — and concatenating an object
-        with itself duplicates ids. Self must have array fieldtype.
+        ``concat`` is a union, not an orderer — the ClickHouse model: an
+        insert never imposes row order; order comes from the table's key and
+        a read's ``ORDER BY``. Row order is therefore undefined, as
+        everywhere (see "Row Order" in docs/user_guide/object.md). A source's
+        ``aai_id`` is copied like any other column — no regeneration, no
+        insert-time sort, and the result's ``aai_id`` key gives reads the
+        rows' original (creation-time) order; concatenating an object with
+        itself duplicates ids. Self must have array fieldtype.
         Each arg can be:
         - An Object (array or scalar)
         - A ValueType (scalar or list)
