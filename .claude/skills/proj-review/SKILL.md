@@ -12,6 +12,4 @@ Run these skills in order on the current branch (`git diff origin/main...HEAD` p
 3. `ponytail:ponytail-review`
 4. `devpowers:shortify`
 
-Apply each skill's fixes before starting the next, so every pass reviews the already-fixed code. Run `devpowers:shortify` last.
-
-Do not report findings between passes. End with one summary: what was fixed, and what was deferred (not fixed in this session) with the reason for each.
+Apply each skill's fixes before the next. Report only at the end: what was fixed, and what was deferred and why.
