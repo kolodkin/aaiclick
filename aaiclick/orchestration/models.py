@@ -470,7 +470,7 @@ class Task(_DependencyOps, SQLModel, table=True):
     claimed_at: datetime | None = utc_field(default=None)
     # Ownership expiry, renewed by the owning worker's heartbeat; the sweep
     # reclaims a CLAIMED / RUNNING task once it passes, whatever the worker's status.
-    claim_expires_at: datetime | None = utc_field(default=None, index=True)
+    claim_expires_at: datetime | None = utc_field(default=None)
     started_at: datetime | None = utc_field(default=None)
     completed_at: datetime | None = utc_field(default=None)
     execution_worker_id: int | None = Field(
