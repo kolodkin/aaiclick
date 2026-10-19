@@ -5,7 +5,7 @@ See docs/designs/orchestration.md — "Task Claiming".
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,7 +67,7 @@ class SqliteDbHandler(DbHandler):
                 "claimed_status": TASK_RUNNING,
                 "execution_worker_id": execution_worker_id,
                 "now": now,
-                "claim_expires_at": now + timedelta(seconds=WORKER_TIMEOUT),
+                "claim_expires_at": now + WORKER_TIMEOUT,
                 "task_id": task_id,
             },
         )

@@ -461,7 +461,7 @@ class BackgroundWorker:
         Their tasks are untouched: ownership lives on the task and is reclaimed
         by ``_release_expired_claims`` when its own claim expires.
         """
-        cutoff = utc_now() - timedelta(seconds=WORKER_TIMEOUT)
+        cutoff = utc_now() - WORKER_TIMEOUT
 
         async with AsyncSession(self._engine) as session:
             # One statement, so a worker that heartbeats mid-sweep is not marked

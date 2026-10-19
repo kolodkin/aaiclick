@@ -4,6 +4,7 @@
 
 import asyncio
 import time
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,9 +13,9 @@ from sqlmodel import select
 
 from aaiclick.backend import is_sqlite
 
-from ...datetime_utils import utc_now
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
+from ..jobs.queries import get_task
 from ..logging import task_logs_destination
 from ..models import (
     EXECUTION_WORKER_ACTIVE,
@@ -528,25 +529,20 @@ async def test_renew_claim(orch_ctx):
     assert await renew_claim(task.id, execution_worker.id, task.run_epoch + 1) is False
     assert await renew_claim(task.id, execution_worker.id + 1, task.run_epoch) is False
 
-    async with get_sql_session() as session:
-        renewed = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
-    assert renewed.claim_expires_at is not None and task.claim_expires_at is not None
+    renewed = await get_task(task.id)
+    assert renewed is not None and renewed.claim_expires_at is not None and task.claim_expires_at is not None
     assert renewed.claim_expires_at > task.claim_expires_at
 
-    # A cancelled run keeps ownership while the worker kills it; ttl=0 hands it back.
+    # A cancelled run keeps ownership while the worker kills it.
     await cancel_job(job.id)
     assert await renew_claim(task.id, execution_worker.id, task.run_epoch)
-    assert await renew_claim(task.id, execution_worker.id, task.run_epoch, ttl=0)
-    async with get_sql_session() as session:
-        released = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
-    assert released.claim_expires_at is not None and released.claim_expires_at <= utc_now()
 
 
 @pytest.mark.parametrize(
     "heartbeat, self_stop_after",
     [
-        pytest.param(AsyncMock(return_value=EXECUTION_WORKER_STOPPED), 3600, id="marked_stopped"),
-        pytest.param(AsyncMock(side_effect=RuntimeError("db down")), 0, id="no_heartbeat"),
+        pytest.param(AsyncMock(return_value=EXECUTION_WORKER_STOPPED), timedelta(hours=1), id="marked_stopped"),
+        pytest.param(AsyncMock(side_effect=RuntimeError("db down")), timedelta(0), id="no_heartbeat"),
     ],
 )
 async def test_heartbeat_self_stop_aborts_the_run(orch_ctx, monkeypatch, heartbeat, self_stop_after):

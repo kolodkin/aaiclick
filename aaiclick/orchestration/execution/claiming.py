@@ -3,7 +3,6 @@
 See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
 """
 
-from datetime import timedelta
 from typing import cast
 
 from sqlalchemy import text, update
@@ -19,11 +18,9 @@ from ..models import (
     JOB_CANCELLED,
     JOB_RUNNING,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
-    TASK_PENDING_CANCELLED_CLEANUP,
     TASK_RUNNING,
     TERMINAL_JOB_STATUSES,
     WORKER_TIMEOUT,
@@ -77,12 +74,13 @@ async def claim_next_task(execution_worker_id: int) -> Task | None:
         return task
 
 
-async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: int, ttl: float = WORKER_TIMEOUT) -> bool:
-    """Push the task's ``claim_expires_at`` out by ``ttl`` seconds (0 hands it back).
+async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: int) -> bool:
+    """Push the task's ``claim_expires_at`` out by ``WORKER_TIMEOUT``.
 
-    A cancelled run still owns its task while the worker kills it. Returns
-    False when the run no longer does: cleared, or its claim expired and was
-    reclaimed (``run_epoch`` moved on); the cancellation watcher aborts it.
+    Ownership is ``execution_worker_id`` plus ``run_epoch``, nothing else: a
+    cancelled run still owns its task while the worker kills it. Returns False
+    once the run no longer does (cleared, or reclaimed after its claim
+    expired); the cancellation watcher aborts it.
     """
     async with get_sql_session() as session:
         result = cast(
@@ -93,9 +91,8 @@ async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: in
                     col(Task.id) == task_id,
                     col(Task.execution_worker_id) == execution_worker_id,
                     col(Task.run_epoch) == expected_epoch,
-                    col(Task.status).in_([TASK_CLAIMED, TASK_RUNNING, TASK_PENDING_CANCELLED_CLEANUP]),
                 )
-                .values(claim_expires_at=utc_now() + timedelta(seconds=ttl))
+                .values(claim_expires_at=utc_now() + WORKER_TIMEOUT)
             ),
         )
         await session.commit()

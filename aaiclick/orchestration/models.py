@@ -8,7 +8,7 @@ All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 """
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, ClassVar, Literal, Union, cast
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, UniqueConstraint
@@ -235,10 +235,10 @@ class Job(SQLModel, table=True):
     error: str | None = Field(default=None)
 
 
-# Seconds without a heartbeat before the sweep marks a worker STOPPED, and the
+# Time without a heartbeat before the sweep marks a worker STOPPED, and the
 # TTL of a task claim between renewals. Minutes, so a live worker is never
 # swept; a dead worker's tasks wait this long before another takes them over.
-WORKER_TIMEOUT = 600.0
+WORKER_TIMEOUT = timedelta(minutes=10)
 # A worker whose last successful heartbeat is older than this stops itself,
 # before the sweep can declare it dead.
 SELF_STOP_AFTER = 0.8 * WORKER_TIMEOUT
