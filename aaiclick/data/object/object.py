@@ -928,10 +928,14 @@ class Object:
         scope: NamedScope | None = None,
     ) -> Object:
         """
-        Concatenate multiple objects or values to this object.
+        Union multiple objects or values into a new Object.
 
-        Creates a new Object with rows from self followed by all args.
-        Self must have array fieldtype. Each arg can be:
+        Row order is undefined, as everywhere (see "Row Order" in
+        docs/user_guide/object.md): ``concat`` is a union, not an orderer.
+        When the sources carry ``aai_id`` it is copied, so reads follow the
+        rows' original (creation-time) ids — and concatenating an object
+        with itself duplicates ids. Self must have array fieldtype.
+        Each arg can be:
         - An Object (array or scalar)
         - A ValueType (scalar or list)
 
@@ -956,7 +960,7 @@ class Object:
             >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
             >>> obj_b = await ctx.create_object_from_value([4, 5, 6])
             >>> result = await obj_a.concat(obj_b)
-            >>> await result.data()  # Returns [1, 2, 3, 4, 5, 6]
+            >>> sorted(await result.data())  # Returns [1, 2, 3, 4, 5, 6]
             >>>
             >>> # Concatenate with multiple objects
             >>> result = await obj_a.concat(obj_b, obj_c, obj_d)
@@ -964,7 +968,7 @@ class Object:
             >>>
             >>> # Concatenate with mixed types
             >>> result = await obj_a.concat(42, [7, 8], obj_b)
-            >>> await result.data()  # Returns [1, 2, 3, 42, 7, 8, ...]
+            >>> await result.data()  # Returns all rows (order undefined)
             >>>
             >>> # Persist the merged result under a stable job-scoped name
             >>> await obj_a.concat(obj_b, name="merged", scope="job")

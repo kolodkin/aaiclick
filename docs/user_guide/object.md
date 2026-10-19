@@ -434,7 +434,7 @@ types from a sample of zero rows.
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/object/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Order follows argument order.
+    `insert()` runs one `INSERT INTO ... SELECT CAST(...) FROM source` per source; `concat()` builds a single `UNION ALL` INSERT (`aaiclick/data/object/ingest.py`). Both are unions: row order is undefined (see "Row Order"), and a source's `aai_id` values are copied, so reads of an `aai_id` result follow creation order, not argument order.
 
 ## Row Order
 

@@ -213,8 +213,8 @@ async def concat_objects_db(
     scope: NamedScope | None = None,
 ):
     """
-    Concatenate multiple sources into a new Object, one INSERT per source.
-    Order follows argument order: each INSERT gets monotonically increasing IDs.
+    Union multiple sources into a new Object via a single UNION ALL INSERT.
+    Row order is undefined; a copied ``aai_id`` column keeps creation order on reads.
 
     Args:
         query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
@@ -265,20 +265,20 @@ async def concat_objects_db(
     col_names = sorted(result_columns)
     insert_cols = ", ".join(quote_identifier(col) for col in col_names)
 
-    # Build a single INSERT with UNION ALL so all rows share one
-    # generateSnowflakeID() context (monotonic within one INSERT).
-    # ORDER BY _src_ord ensures source-argument order is preserved.
+    # One INSERT over a UNION ALL: a single statement and stats result. No
+    # ORDER BY — concat is a union, not an orderer. aai_id (when present) is
+    # copied like any other column, so reads keep each row's original id order.
     cast_exprs = _cast_select_exprs(col_names, result_columns)
     selects = []
     for i, info in enumerate(query_infos):
         alias = f" AS s{i}" if info.source.startswith("(") else ""
-        selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
+        selects.append(f"SELECT {cast_exprs} FROM {info.source}{alias}")
 
     union_query = " UNION ALL ".join(selects)
     advisory_id = await load_advisory_id(result.table)
     async with table_insert_lock(advisory_id):
         result._stats = await execute_for_stats(
-            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord",
+            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query})",
             client=ch_client,
         )
 
