@@ -11,7 +11,6 @@ from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
 from ..models import (
-    AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FLOAT_TYPES,
@@ -198,9 +197,7 @@ async def _insert_source(
     cast_exprs = _cast_select_exprs(col_names, target_types)
     alias = f" AS s{alias_index}" if info.source.startswith("(") else ""
     insert_cols = ", ".join(quote_identifier(col) for col in col_names)
-    # Without it, a multi-part table hands rows to the INSERT out of read order.
-    order = f" ORDER BY {info.order_by}" if info.order_by else ""
-    select = f"SELECT {cast_exprs} FROM {info.source}{alias}{order}"
+    select = f"SELECT {cast_exprs} FROM {info.source}{alias}"
 
     await ch_client.command(f"""
     INSERT INTO {target_table} ({insert_cols})
@@ -270,21 +267,18 @@ async def concat_objects_db(
 
     # Build a single INSERT with UNION ALL so all rows share one
     # generateSnowflakeID() context (monotonic within one INSERT).
-    # ORDER BY _src_ord, _src_row keeps argument order, and each source's
-    # aai_id order within it — a multi-part table scans out of insertion order.
+    # ORDER BY _src_ord ensures source-argument order is preserved.
     cast_exprs = _cast_select_exprs(col_names, result_columns)
     selects = []
     for i, info in enumerate(query_infos):
         alias = f" AS s{i}" if info.source.startswith("(") else ""
-        # A View's own order_by stays in its subquery; only the aai_id default is sorted here.
-        src_row = AAI_ID_COLUMN if info.order_by == AAI_ID_COLUMN else "0"
-        selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord, {src_row} AS _src_row FROM {info.source}{alias}")
+        selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
 
     union_query = " UNION ALL ".join(selects)
     advisory_id = await load_advisory_id(result.table)
     async with table_insert_lock(advisory_id):
         result._stats = await execute_for_stats(
-            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord, _src_row",
+            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord",
             client=ch_client,
         )
 
