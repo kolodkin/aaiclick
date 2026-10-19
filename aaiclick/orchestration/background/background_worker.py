@@ -121,13 +121,8 @@ class BackgroundWorker:
     place it enters ``orch_context``.
     """
 
-    def __init__(
-        self,
-        poll_interval: float = DEFAULT_POLL_INTERVAL,
-        worker_timeout: float = WORKER_TIMEOUT,
-    ):
+    def __init__(self, poll_interval: float = DEFAULT_POLL_INTERVAL):
         self._poll_interval = poll_interval
-        self._worker_timeout = worker_timeout
         self._task: asyncio.Task | None = None
         self._engine: AsyncEngine = create_sql_engine(get_db_url())
         self._ch_client: ChClient | None = None
@@ -466,7 +461,7 @@ class BackgroundWorker:
         Their tasks are untouched: ownership lives on the task and is reclaimed
         by ``_release_expired_claims`` when its own claim expires.
         """
-        cutoff = utc_now() - timedelta(seconds=self._worker_timeout)
+        cutoff = utc_now() - timedelta(seconds=WORKER_TIMEOUT)
 
         async with AsyncSession(self._engine) as session:
             # One statement, so a worker that heartbeats mid-sweep is not marked

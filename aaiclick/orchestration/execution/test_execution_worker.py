@@ -12,6 +12,7 @@ from sqlmodel import select
 
 from aaiclick.backend import is_sqlite
 
+from ...datetime_utils import utc_now
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
 from ..logging import task_logs_destination
@@ -29,7 +30,7 @@ from ..models import (
 from ..orch_context import commit_tasks, get_sql_session
 from ..task_registry import get_task_registry
 from . import execution_worker
-from .claiming import claim_next_task, renew_claim, update_task_status
+from .claiming import cancel_job, claim_next_task, renew_claim, update_task_status
 from .execution_worker import (
     RunnerResult,
     WorkerStopped,
@@ -518,7 +519,7 @@ async def test_renew_claim(orch_ctx):
     """Renewal pushes ``claim_expires_at`` out while the run owns the task and
     refuses once the task was cleared to a new epoch."""
     execution_worker = await register_execution_worker()
-    await create_job("test_renew_claim", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    job = await create_job("test_renew_claim", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     task = await claim_next_task(execution_worker.id)
     assert task is not None
     await asyncio.sleep(0.01)
@@ -531,6 +532,14 @@ async def test_renew_claim(orch_ctx):
         renewed = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
     assert renewed.claim_expires_at is not None and task.claim_expires_at is not None
     assert renewed.claim_expires_at > task.claim_expires_at
+
+    # A cancelled run keeps ownership while the worker kills it; ttl=0 hands it back.
+    await cancel_job(job.id)
+    assert await renew_claim(task.id, execution_worker.id, task.run_epoch)
+    assert await renew_claim(task.id, execution_worker.id, task.run_epoch, ttl=0)
+    async with get_sql_session() as session:
+        released = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
+    assert released.claim_expires_at is not None and released.claim_expires_at <= utc_now()
 
 
 @pytest.mark.parametrize(
@@ -556,6 +565,20 @@ async def test_heartbeat_self_stop_aborts_the_run(orch_ctx, monkeypatch, heartbe
     assert aborted.is_set()
 
 
+class _HangingVehicle(_StillRunningVehicle):
+    """Runs until terminated."""
+
+    def __init__(self):
+        self.terminated = asyncio.Event()
+
+    async def wait(self, handle, timeout):
+        await self.terminated.wait()
+        return -1, "terminated", None
+
+    async def terminate(self, handle):
+        self.terminated.set()
+
+
 async def test_drive_vehicle_raises_when_worker_self_stops(orch_ctx):
     """A self-stopped worker's run is terminated and surfaces as WorkerStopped,
     never as a task result."""
@@ -564,7 +587,7 @@ async def test_drive_vehicle_raises_when_worker_self_stops(orch_ctx):
         await drive_vehicle(
             task,
             1,
-            _StillRunningVehicle(),
+            _HangingVehicle(),
             timeout=None,
             poll_interval=60,
             heartbeat_fn=AsyncMock(return_value=EXECUTION_WORKER_STOPPED),

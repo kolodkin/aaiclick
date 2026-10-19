@@ -23,6 +23,7 @@ from ..models import (
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
+    TASK_PENDING_CANCELLED_CLEANUP,
     TASK_RUNNING,
     TERMINAL_JOB_STATUSES,
     WORKER_TIMEOUT,
@@ -76,12 +77,12 @@ async def claim_next_task(execution_worker_id: int) -> Task | None:
         return task
 
 
-async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: int) -> bool:
-    """Push the task's ``claim_expires_at`` out by ``WORKER_TIMEOUT``.
+async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: int, ttl: float = WORKER_TIMEOUT) -> bool:
+    """Push the task's ``claim_expires_at`` out by ``ttl`` seconds (0 hands it back).
 
-    Returns False when the run no longer owns the task: it was cancelled,
-    cleared, or its claim expired and was reclaimed (``run_epoch`` moved on).
-    The worker's cancellation watcher aborts the run in every such case.
+    A cancelled run still owns its task while the worker kills it. Returns
+    False when the run no longer does: cleared, or its claim expired and was
+    reclaimed (``run_epoch`` moved on); the cancellation watcher aborts it.
     """
     async with get_sql_session() as session:
         result = cast(
@@ -92,9 +93,9 @@ async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: in
                     col(Task.id) == task_id,
                     col(Task.execution_worker_id) == execution_worker_id,
                     col(Task.run_epoch) == expected_epoch,
-                    col(Task.status).in_([TASK_CLAIMED, TASK_RUNNING]),
+                    col(Task.status).in_([TASK_CLAIMED, TASK_RUNNING, TASK_PENDING_CANCELLED_CLEANUP]),
                 )
-                .values(claim_expires_at=utc_now() + timedelta(seconds=WORKER_TIMEOUT))
+                .values(claim_expires_at=utc_now() + timedelta(seconds=ttl))
             ),
         )
         await session.commit()

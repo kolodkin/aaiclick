@@ -310,7 +310,7 @@ class BackgroundHandler(ABC):
         await session.execute(
             text(
                 "UPDATE tasks SET execution_worker_id = NULL "
-                "WHERE status = :cancelled_cleanup AND claim_expires_at < :now"
+                "WHERE status = :cancelled_cleanup AND execution_worker_id IS NOT NULL AND claim_expires_at < :now"
             ),
             {"cancelled_cleanup": TASK_PENDING_CANCELLED_CLEANUP, "now": now},
         )

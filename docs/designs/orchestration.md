@@ -548,7 +548,7 @@ Five operations per poll:
 3. **Liveness** — expired heartbeats → workers STOPPED; expired claims → tasks PENDING_FAILURE_CLEANUP
 4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
 
-Config: `poll_interval` (default 10s), `worker_timeout` (default `WORKER_TIMEOUT`, 10 min).
+Config: `poll_interval` (default 10s); the sweep cutoff is `WORKER_TIMEOUT` (10 min).
 
 ## View Lifecycle
 

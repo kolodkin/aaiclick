@@ -229,14 +229,13 @@ async def _heartbeat_while_waiting(
         status = None
         try:
             status = await heartbeat_fn(execution_worker_id)
-        except Exception:
-            logger.exception("ExecutionWorker %s heartbeat failed; retrying next tick", execution_worker_id)
-        else:
             last_ok = utc_now()
             if status != EXECUTION_WORKER_STOPPED and not await renew_claim(
                 task.id, execution_worker_id, task.run_epoch
             ):
                 logger.warning("ExecutionWorker %s lost task %s claim", execution_worker_id, task.id)
+        except Exception:
+            logger.exception("ExecutionWorker %s heartbeat failed; retrying next tick", execution_worker_id)
         stale = (utc_now() - last_ok).total_seconds() > SELF_STOP_AFTER
         if status == EXECUTION_WORKER_STOPPED or stale:
             logger.warning(
@@ -347,13 +346,13 @@ async def drive_vehicle(
     drain_timeout = 0.0
     try:
         exit_code, error, payload = await vehicle.wait(handle, timeout)
-        drain_timeout = OUTPUT_FOLLOWER_DRAIN_TIMEOUT if error is None else OUTPUT_FOLLOWER_ERROR_GRACE
-        if follower is None:
-            await _collect_unfollowed_output(vehicle, task, handle)
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
         if worker_stopped.is_set():
             raise WorkerStopped(execution_worker_id)
+        drain_timeout = OUTPUT_FOLLOWER_DRAIN_TIMEOUT if error is None else OUTPUT_FOLLOWER_ERROR_GRACE
+        if follower is None:
+            await _collect_unfollowed_output(vehicle, task, handle)
         return vehicle.collect(handle, exit_code, error, cancelled.is_set(), payload)
     finally:
         done.set()
@@ -685,7 +684,15 @@ async def _execution_worker_loop(
 
             now = utc_now()
             if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
-                status = await execution_worker_heartbeat(execution_worker_id)
+                try:
+                    status = await execution_worker_heartbeat(execution_worker_id)
+                except Exception:
+                    logger.exception("ExecutionWorker %s heartbeat failed; retrying next poll", execution_worker_id)
+                    if (now - last_heartbeat).total_seconds() > SELF_STOP_AFTER:
+                        logger.warning("ExecutionWorker %s self-stopping (no heartbeat)", execution_worker_id)
+                        break
+                    await asyncio.sleep(POLL_INTERVAL)
+                    continue
                 last_heartbeat = now
                 if status == EXECUTION_WORKER_STOPPING:
                     logger.info("ExecutionWorker %s received stop request", execution_worker_id)
@@ -709,8 +716,11 @@ async def _execution_worker_loop(
             try:
                 success, result_ref, error = await execute_fn(task, execution_worker_id)
             except WorkerStopped:
-                # The run is already aborted; its task is reclaimed when the
-                # claim expires. Rejoining means registering as a new worker.
+                # The run is already aborted. Expire its claim so the next sweep
+                # reclaims it (best effort: the DB may be the reason we stopped).
+                # Rejoining means registering as a new worker.
+                with suppress(Exception):
+                    await renew_claim(task.id, execution_worker_id, task.run_epoch, ttl=0)
                 break
             except Exception as e:
                 # Dispatch failures (missing image tag, rejected ``kubectl

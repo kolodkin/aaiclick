@@ -24,6 +24,11 @@ def upgrade() -> None:
     op.add_column("tasks", sa.Column("claim_expires_at", sa.DateTime(), nullable=True))
     op.create_index(op.f("ix_tasks_claim_expires_at"), "tasks", ["claim_expires_at"], unique=False)
     # ### end Alembic commands ###
+    # Owned tasks in flight at upgrade get one WORKER_TIMEOUT before the sweep may reclaim them.
+    op.execute(
+        "UPDATE tasks SET claim_expires_at = now() + interval '600 seconds' "
+        "WHERE execution_worker_id IS NOT NULL AND claim_expires_at IS NULL"
+    )
 
 
 def downgrade() -> None:
