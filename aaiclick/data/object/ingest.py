@@ -213,8 +213,9 @@ async def concat_objects_db(
     scope: NamedScope | None = None,
 ):
     """
-    Concatenate multiple sources into a new Object, one INSERT per source.
-    Order follows argument order: each INSERT gets monotonically increasing IDs.
+    Union multiple sources into a new Object via a single UNION ALL INSERT.
+    Row order is undefined; an ``aai_id`` column, when the sources carry one,
+    is copied and keeps creation order on reads.
 
     Args:
         query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
@@ -265,20 +266,19 @@ async def concat_objects_db(
     col_names = sorted(result_columns)
     insert_cols = ", ".join(quote_identifier(col) for col in col_names)
 
-    # Build a single INSERT with UNION ALL so all rows share one
-    # generateSnowflakeID() context (monotonic within one INSERT).
-    # ORDER BY _src_ord ensures source-argument order is preserved.
+    # Single UNION ALL INSERT: one statement, one stats result. No ORDER BY —
+    # concat is a union; rationale in Object.concat's docstring.
     cast_exprs = _cast_select_exprs(col_names, result_columns)
     selects = []
     for i, info in enumerate(query_infos):
         alias = f" AS s{i}" if info.source.startswith("(") else ""
-        selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
+        selects.append(f"SELECT {cast_exprs} FROM {info.source}{alias}")
 
     union_query = " UNION ALL ".join(selects)
     advisory_id = await load_advisory_id(result.table)
     async with table_insert_lock(advisory_id):
         result._stats = await execute_for_stats(
-            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord",
+            f"INSERT INTO {result.table} ({insert_cols}) {union_query}",
             client=ch_client,
         )
 
@@ -298,9 +298,10 @@ async def insert_objects_db(
     """
     Insert data from multiple sources into target, one INSERT per source.
 
-    Generates fresh Snowflake IDs for all rows. Sources may have a subset of target
-    columns — missing columns get their ClickHouse default values. Sources
-    may also include computed columns from Views (via with_columns).
+    Sources may have a subset of target columns — missing columns get their
+    ClickHouse default values (a fresh Snowflake ID for a target-only
+    ``aai_id``; a shared ``aai_id`` column is copied). Sources may also
+    include computed columns from Views (via with_columns).
 
     Args:
         target_info: QueryInfo for the target (must have array fieldtype)

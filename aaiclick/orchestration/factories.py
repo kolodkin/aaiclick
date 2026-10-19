@@ -297,13 +297,10 @@ async def create_job(
 
     task = entry if isinstance(entry, Task) else create_task(entry)
 
-    async with get_sql_session() as session:
-        session.add(job)
-        await session.commit()
-
     # commit_tasks stamps job_id, validates/injects image build tasks when
-    # needed, and drops committed items from the registry.
-    await commit_tasks(task, job.id)
+    # needed, and drops committed items from the registry. Committing the job
+    # row in the same transaction means a failure leaves no task-less job.
+    await commit_tasks(task, job.id, job=job)
     return job
 
 

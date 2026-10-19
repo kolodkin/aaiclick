@@ -26,7 +26,7 @@ from ..models import (
     TaskStatus,
 )
 from ..orch_context import get_db_handler, get_sql_session
-from ..sql_utils import in_clause
+from ..sql_utils import batched, in_clause
 
 
 class JobNotFound(ValueError):
@@ -353,23 +353,24 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
 
         affected = sorted({task_id} | await _downstream_task_ids(session, task_id))
 
-        # A cleared run may be killed before it drops its own run_refs; no cleanup pass sees a PENDING task.
-        run_ids = (await session.execute(select(Task.run_ids).where(col(Task.id).in_(affected)))).scalars()
-        last_runs = [str(r[-1]) for r in run_ids if r]
-        if last_runs:
-            rph, rparams = in_clause(last_runs, "rid")
-            await session.execute(text(f"DELETE FROM table_run_refs WHERE run_id IN ({rph})"), rparams)
+        for batch in batched(affected):
+            # A cleared run may be killed before it drops its own run_refs; no cleanup pass sees a PENDING task.
+            run_ids = (await session.execute(select(Task.run_ids).where(col(Task.id).in_(batch)))).scalars()
+            last_runs = [str(r[-1]) for r in run_ids if r]
+            if last_runs:
+                rph, rparams = in_clause(last_runs, "rid")
+                await session.execute(text(f"DELETE FROM table_run_refs WHERE run_id IN ({rph})"), rparams)
 
-        ph, params = in_clause(affected, "id")
-        await session.execute(
-            text(
-                f"UPDATE tasks SET status = :pending, run_epoch = run_epoch + 1, "
-                f"execution_worker_id = NULL, claimed_at = NULL, started_at = NULL, "
-                f"completed_at = NULL, error = NULL, result = NULL, "
-                f"retry_after = NULL WHERE id IN ({ph})"
-            ),
-            {**params, "pending": TASK_PENDING},
-        )
+            ph, params = in_clause(batch, "id")
+            await session.execute(
+                text(
+                    f"UPDATE tasks SET status = :pending, run_epoch = run_epoch + 1, "
+                    f"execution_worker_id = NULL, claimed_at = NULL, started_at = NULL, "
+                    f"completed_at = NULL, error = NULL, result = NULL, "
+                    f"retry_after = NULL WHERE id IN ({ph})"
+                ),
+                {**params, "pending": TASK_PENDING},
+            )
 
         if job.status in TERMINAL_JOB_STATUSES:
             job.status = JOB_RUNNING

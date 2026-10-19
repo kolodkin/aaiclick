@@ -928,10 +928,17 @@ class Object:
         scope: NamedScope | None = None,
     ) -> Object:
         """
-        Concatenate multiple objects or values to this object.
+        Union multiple objects or values into a new Object.
 
-        Creates a new Object with rows from self followed by all args.
-        Self must have array fieldtype. Each arg can be:
+        ``concat`` is a union, not an orderer — the ClickHouse model: an
+        insert never imposes row order; order comes from the table's key and
+        a read's ``ORDER BY``. Row order is therefore undefined, as
+        everywhere (see "Row Order" in docs/user_guide/object.md). A source's
+        ``aai_id`` is copied like any other column — no regeneration, no
+        insert-time sort, and the result's ``aai_id`` key gives reads the
+        rows' original (creation-time) order; concatenating an object with
+        itself duplicates ids. Self must have array fieldtype.
+        Each arg can be:
         - An Object (array or scalar)
         - A ValueType (scalar or list)
 
@@ -956,15 +963,15 @@ class Object:
             >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
             >>> obj_b = await ctx.create_object_from_value([4, 5, 6])
             >>> result = await obj_a.concat(obj_b)
-            >>> await result.data()  # Returns [1, 2, 3, 4, 5, 6]
+            >>> sorted(await result.data())  # Returns [1, 2, 3, 4, 5, 6]
             >>>
             >>> # Concatenate with multiple objects
             >>> result = await obj_a.concat(obj_b, obj_c, obj_d)
-            >>> await result.data()  # Returns concatenated data
+            >>> await result.data()  # Returns all rows (order undefined)
             >>>
             >>> # Concatenate with mixed types
             >>> result = await obj_a.concat(42, [7, 8], obj_b)
-            >>> await result.data()  # Returns [1, 2, 3, 42, 7, 8, ...]
+            >>> await result.data()  # Returns all rows (order undefined)
             >>>
             >>> # Persist the merged result under a stable job-scoped name
             >>> await obj_a.concat(obj_b, name="merged", scope="job")

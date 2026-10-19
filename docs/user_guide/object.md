@@ -334,8 +334,9 @@ For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_
 
 ## concat()
 
-Concatenates multiple sources into a new Object. Also available as standalone `concat(a, b, ...)`. Self must be array; args can be Objects, scalars, or lists.
+Unions multiple sources into a new Object. Also available as standalone `concat(a, b, ...)`. Self must be array; args can be Objects, scalars, or lists.
 
+- **Union**: row order is undefined (see "Row Order"); source `aai_id` values are copied, so reads of an `aai_id` result follow creation order and `concat(obj, obj)` duplicates ids
 - **Variadic**: `obj.concat(a, b, c)` — any number of sources in one call
 - **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
 - **Compatible types**: all sources must have matching column names and compatible ClickHouse types
@@ -434,7 +435,7 @@ types from a sample of zero rows.
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/object/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Order follows argument order.
+    `insert()` runs one `INSERT INTO ... SELECT CAST(...) FROM source` per source; `concat()` builds a single `UNION ALL` INSERT (`aaiclick/data/object/ingest.py`). Both are unions: row order is undefined (see "Row Order"), and a source's `aai_id` values are copied, so reads of an `aai_id` result follow creation order, not argument order.
 
 ## Row Order
 

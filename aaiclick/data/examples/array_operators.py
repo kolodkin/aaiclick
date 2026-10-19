@@ -164,10 +164,10 @@ async def example():
     print(f"b: {await b.data()}\n")
 
     result = await a.concat(b)
-    print(f"concat(a, b):          {await result.data()}")  # → [1, 2, 3, 4, 5, 6]
+    print(f"concat(a, b):          {sorted(await result.data())}")  # → [1, 2, 3, 4, 5, 6]
 
     result = await a.concat(b, [7, 8, 9])
-    print(f"concat(a, b, [7,8,9]): {await result.data()}")  # → [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    print(f"concat(a, b, [7,8,9]): {sorted(await result.data())}")  # → [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     # ── array_map Operators ─────────────────────────────────────
     section("PART 2: array_map operators (ClickHouse arrayMap)")

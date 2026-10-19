@@ -60,7 +60,7 @@ from ..models import (
 from ..orch_context import orch_context
 from ..registered_jobs import run_job
 from ..sql_context import create_sql_engine
-from ..sql_utils import in_clause
+from ..sql_utils import IN_BATCH_SIZE, batched, in_clause
 from .handler import BackgroundHandler, CleanupTask, create_background_handler, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -81,22 +81,20 @@ _REF_TABLES = ("table_context_refs", "table_pin_refs", "table_run_refs")
 
 async def _delete_table_refs(session: AsyncSession, table_names: list[str]) -> None:
     """Delete all ref-table rows for the given table names."""
-    if not table_names:
-        return
-    ph, params = in_clause(table_names, "tn")
-    for ref_table in _REF_TABLES:
-        await session.execute(
-            text(f"DELETE FROM {ref_table} WHERE table_name IN ({ph})"),
-            params,
-        )
+    for batch in batched(table_names):
+        ph, params = in_clause(batch, "tn")
+        for ref_table in _REF_TABLES:
+            await session.execute(
+                text(f"DELETE FROM {ref_table} WHERE table_name IN ({ph})"),
+                params,
+            )
 
 
 async def _delete_registry_rows(session: AsyncSession, table_names: list[str]) -> None:
     """Forget dropped tables in ``table_registry``."""
-    if not table_names:
-        return
-    ph, params = in_clause(table_names, "tn")
-    await session.execute(text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"), params)
+    for batch in batched(table_names):
+        ph, params = in_clause(batch, "tn")
+        await session.execute(text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"), params)
 
 
 class SandboxOutcome(NamedTuple):
@@ -299,9 +297,10 @@ class BackgroundWorker:
                     "  SELECT 1 FROM table_run_refs trr "
                     "  WHERE trr.table_name = tcr.table_name"
                     ") "
-                    "AND (j.preservation_mode IS NULL OR j.preservation_mode != :full_mode)"
+                    "AND (j.preservation_mode IS NULL OR j.preservation_mode != :full_mode) "
+                    "LIMIT :limit"
                 ),
-                {"full_mode": PRESERVATION_FULL},
+                {"full_mode": PRESERVATION_FULL, "limit": IN_BATCH_SIZE},
             )
             table_names = [row[0] for row in result.fetchall()]
             if not table_names:
@@ -393,25 +392,19 @@ class BackgroundWorker:
                 text("DELETE FROM table_registry WHERE job_id = :job_id"),
                 {"job_id": job_id},
             )
-            # Get task IDs for this job
-            result = await session.execute(
-                text("SELECT id FROM tasks WHERE job_id = :job_id"),
-                {"job_id": job_id},
+            # Delete dependencies touching this job's tasks and groups, one
+            # indexed end per statement (an OR of two subqueries scans the table).
+            job_tasks = "SELECT id FROM tasks WHERE job_id = :job_id"
+            job_groups = "SELECT id FROM groups WHERE job_id = :job_id"
+            for node_type, node_ids in (("task", job_tasks), ("group", job_groups)):
+                for end in ("previous", "next"):
+                    await session.execute(
+                        text(f"DELETE FROM dependencies WHERE {end}_type = '{node_type}' AND {end}_id IN ({node_ids})"),
+                        {"job_id": job_id},
+                    )
+            await session.execute(
+                text(f"DELETE FROM remote_task_results WHERE task_id IN ({job_tasks})"), {"job_id": job_id}
             )
-            task_ids = [row[0] for row in result.fetchall()]
-
-            if task_ids:
-                # Delete dependencies and remote results referencing these tasks
-                ph, params = in_clause(task_ids, "tid")
-                await session.execute(
-                    text(
-                        f"DELETE FROM dependencies "
-                        f"WHERE (previous_id IN ({ph}) AND previous_type = 'task') "
-                        f"OR (next_id IN ({ph}) AND next_type = 'task')"
-                    ),
-                    params,
-                )
-                await session.execute(text(f"DELETE FROM remote_task_results WHERE task_id IN ({ph})"), params)
 
             # Delete ref tables for tables belonging to this job
             await _delete_table_refs(session, table_names)
@@ -422,26 +415,10 @@ class BackgroundWorker:
                 {"job_id": job_id},
             )
 
-            # Delete groups (and their dependencies)
-            result = await session.execute(
-                text("SELECT id FROM groups WHERE job_id = :job_id"),
+            await session.execute(
+                text("DELETE FROM groups WHERE job_id = :job_id"),
                 {"job_id": job_id},
             )
-            group_ids = [row[0] for row in result.fetchall()]
-            if group_ids:
-                ph, params = in_clause(group_ids, "gid")
-                await session.execute(
-                    text(
-                        f"DELETE FROM dependencies "
-                        f"WHERE (previous_id IN ({ph}) AND previous_type = 'group') "
-                        f"OR (next_id IN ({ph}) AND next_type = 'group')"
-                    ),
-                    params,
-                )
-                await session.execute(
-                    text("DELETE FROM groups WHERE job_id = :job_id"),
-                    {"job_id": job_id},
-                )
 
             # Delete the job itself
             await session.execute(
@@ -490,9 +467,12 @@ class BackgroundWorker:
         cutoff = utc_now() - timedelta(seconds=self._worker_timeout)
 
         async with AsyncSession(self._engine) as session:
+            # One statement, so a worker that heartbeats mid-sweep is not marked
+            # dead. RETURNING needs SQLite >= 3.35 (2021) on the local backend.
             result = await session.execute(
                 text(
-                    "SELECT id FROM execution_workers WHERE status IN ('ACTIVE', 'STOPPING') AND last_heartbeat < :cutoff"
+                    "UPDATE execution_workers SET status = 'STOPPED' "
+                    "WHERE status IN ('ACTIVE', 'STOPPING') AND last_heartbeat < :cutoff RETURNING id"
                 ),
                 {"cutoff": cutoff},
             )
@@ -501,7 +481,7 @@ class BackgroundWorker:
             if not dead_execution_worker_ids:
                 return
 
-            await self._handler.mark_dead_execution_workers(session, dead_execution_worker_ids)
+            await self._handler.release_dead_worker_tasks(session, dead_execution_worker_ids)
             await session.commit()
 
             for wid in dead_execution_worker_ids:

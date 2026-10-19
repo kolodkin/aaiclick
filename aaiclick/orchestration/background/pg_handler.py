@@ -13,12 +13,8 @@ class PgBackgroundHandler(BackgroundHandler):
     """PostgreSQL: batch operations with ANY() array operator."""
 
     @staticmethod
-    async def mark_dead_execution_workers(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
+    async def release_dead_worker_tasks(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
         params = {"execution_worker_ids": dead_execution_worker_ids}
-        await session.execute(
-            text("UPDATE execution_workers SET status = 'STOPPED' WHERE id = ANY(:execution_worker_ids)"),
-            params,
-        )
         await session.execute(
             text(
                 "UPDATE tasks SET status = :failure_cleanup, error = :error "
