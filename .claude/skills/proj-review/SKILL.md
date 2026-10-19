@@ -11,3 +11,5 @@ Run these skills in order on the current branch (`git diff origin/main...HEAD` p
 2. `simplify`
 3. `ponytail:ponytail-review`
 4. `devpowers:shortify`
+
+Apply each skill's fixes before the next. Report only at the end: what was fixed, and what was deferred and why.
