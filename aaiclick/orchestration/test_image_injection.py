@@ -200,5 +200,5 @@ async def test_create_job_fails_job_when_tasks_rejected(orch_ctx_no_ch):
     async with get_sql_session() as session:
         job = (await session.execute(select(Job).where(Job.name == "rejected_entry"))).scalar_one()
     assert job.status == JOB_FAILED
-    assert "no image_source" in job.error
+    assert job.error is not None and "no image_source" in job.error
     assert job.completed_at is not None
