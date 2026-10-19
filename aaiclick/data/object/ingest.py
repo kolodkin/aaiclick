@@ -265,9 +265,8 @@ async def concat_objects_db(
     col_names = sorted(result_columns)
     insert_cols = ", ".join(quote_identifier(col) for col in col_names)
 
-    # One INSERT over a UNION ALL: a single statement and stats result. No
-    # ORDER BY — concat is a union, not an orderer. aai_id (when present) is
-    # copied like any other column, so reads keep each row's original id order.
+    # Single UNION ALL INSERT: one statement, one stats result. No ORDER BY —
+    # concat is a union; rationale in Object.concat's docstring.
     cast_exprs = _cast_select_exprs(col_names, result_columns)
     selects = []
     for i, info in enumerate(query_infos):
