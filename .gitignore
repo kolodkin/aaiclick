@@ -243,3 +243,6 @@ test-results/
 # pytest-split test durations (cached in CI, never committed)
 .test_durations
 .test_durations.d/
+.agents/
+.claude/skills/clickhouse-best-practices
+skills-lock.json
