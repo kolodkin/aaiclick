@@ -253,7 +253,7 @@ Three `TaskStatus` values are set by the background sweep, not the worker:
   fail-fast group-sibling abort. The worker kills the run; the sweep drops
   the attempt's refs and settles the task to CANCELLED once no worker owns it
   (`execution_worker_id` is NULL — released by `release_cancelled_run` on
-  report-back, or by the dead-worker sweep).
+  report-back, or by the expired-claim sweep).
 - `UPSTREAM_FAILED` — terminal; a pending task whose transitive upstream
   failed or was cancelled.
 
@@ -287,35 +287,36 @@ Polls for tasks, executes, updates status. Handles registration, heartbeats (30s
 
 ## Worker Liveness
 
-Rules for heartbeats, the dead-worker sweep and task ownership. They close
-the heartbeat revival race logged in `code_review.md` ("Heartbeat revives a
-dead worker").
+Rules for heartbeats, the dead-worker sweep and task ownership. Constants
+live in `models.py` next to `ExecutionWorker`.
 
-1. **`worker_timeout` is minutes, not seconds.** Long enough that a live
-   worker realistically never gets swept. Trade-off: a dead worker's tasks
-   wait that long before anyone takes them over.
+1. **`WORKER_TIMEOUT` is minutes, not seconds** (10 min). Long enough that a
+   live worker realistically never gets swept. Trade-off: a dead worker's
+   tasks wait that long before anyone takes them over.
 2. **Worker self-stop.** A worker stops itself, without waiting to be told,
    when either a heartbeat write reports it was marked STOPPED (the
    conditional update matched 0 rows), or its last successful heartbeat is
-   older than `SELF_STOP_AFTER` (e.g. 80% of `worker_timeout`). On self-stop
-   it drops its claimed tasks and exits; it rejoins only by registering as a
-   new `execution_workers` row. `SELF_STOP_AFTER < worker_timeout`, so a
-   worker cut off from the DB is already stopped by the time it is swept.
-3. **Heartbeat never revives a STOPPED worker.** The heartbeat is a
-   conditional update on `execution_workers` (only when `status != STOPPED`).
-   Ship this only after rule 2 is in place, or a revived worker keeps running
-   unseen.
+   older than `SELF_STOP_AFTER` (80% of `WORKER_TIMEOUT`). On self-stop it
+   aborts its running task without reporting it and exits; it rejoins only by
+   registering as a new `execution_workers` row. `SELF_STOP_AFTER <
+   WORKER_TIMEOUT`, so a worker cut off from the DB is already stopped by the
+   time it is swept.
+3. **Heartbeat never revives a STOPPED worker.** `execution_worker_heartbeat`
+   is a conditional update on `execution_workers` (only when
+   `status != STOPPED`). It depends on rule 2, or a revived worker keeps
+   running unseen.
 4. **Worker lifetime and task lifetime are independent.** Ownership lives on
-   the task (`tasks.execution_worker_id` plus a claim expiry), not derived
-   from worker status. The sweep marking a worker STOPPED does not fail or
-   reassign its tasks; a task is reclaimed only when its own claim expires. A
-   worker renews each claim it holds; if a renewal fails, it stops that task
-   (per-task self-stop). A task can outlive its worker (retried elsewhere); a
-   worker outlives many tasks.
+   the task (`tasks.execution_worker_id` plus `tasks.claim_expires_at`), not
+   derived from worker status. The sweep marking a worker STOPPED does not
+   fail or reassign its tasks; a task is reclaimed, to
+   `PENDING_FAILURE_CLEANUP`, only when its own claim expires. Each heartbeat
+   renews the running task's claim (`renew_claim`); a refused renewal means
+   the run was aborted, which the cancellation watcher terminates. A task can
+   outlive its worker (retried elsewhere); a worker outlives many tasks.
 5. **Double processing cannot be fully avoided.** Tasks must be idempotent.
-   If a side effect cannot be repeated safely (payments, emails), carry a
-   per-claim attempt number (`run_epoch` is the existing fencing token) and
-   reject writes that carry an old one.
+   Reclaiming an expired claim bumps `run_epoch`, so the lost owner's late
+   status writes are rejected; a side effect that cannot be repeated safely
+   (payments, emails) must carry the epoch itself and reject an old one.
 
 ## Task Claiming
 
@@ -495,7 +496,7 @@ ExecutionWorker Process (spawns child per task)
 ├── BackgroundWorker (sole cleanup authority)
 │   ├── DROP where no pin_refs AND no run_refs
 │   ├── deletes context_refs + pin_refs alongside dropped tables
-│   └── detects dead workers → marks tasks FAILED
+│   └── reclaims expired task claims → PENDING_FAILURE_CLEANUP
 └── orch_context() — shared SQL session
 ```
 
@@ -544,10 +545,10 @@ Five operations per poll:
 
 1. **Job cleanup** — clear `job_id` on pin refs for completed/failed/cancelled jobs
 2. **Table cleanup** — DROP tables where no context_ref has non-NULL `job_id` AND no run_refs exist
-3. **Dead worker detection** — expired heartbeats → mark tasks FAILED, workers STOPPED
+3. **Liveness** — expired heartbeats → workers STOPPED; expired claims → tasks PENDING_FAILURE_CLEANUP
 4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
 
-Config: `poll_interval` (default 10s), `worker_timeout` (default 90s).
+Config: `poll_interval` (default 10s), `worker_timeout` (default `WORKER_TIMEOUT`, 10 min).
 
 ## View Lifecycle
 

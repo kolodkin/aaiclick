@@ -235,6 +235,15 @@ class Job(SQLModel, table=True):
     error: str | None = Field(default=None)
 
 
+# Seconds without a heartbeat before the sweep marks a worker STOPPED, and the
+# TTL of a task claim between renewals. Minutes, so a live worker is never
+# swept; a dead worker's tasks wait this long before another takes them over.
+WORKER_TIMEOUT = 600.0
+# A worker whose last successful heartbeat is older than this stops itself,
+# before the sweep can declare it dead.
+SELF_STOP_AFTER = 0.8 * WORKER_TIMEOUT
+
+
 class ExecutionWorker(SQLModel, table=True):
     """
     ExecutionWorker model - represents a worker process that executes tasks.
@@ -459,6 +468,9 @@ class Task(_DependencyOps, SQLModel, table=True):
     )
     created_at: datetime = utc_field(default_factory=utc_now, index=True)
     claimed_at: datetime | None = utc_field(default=None)
+    # Ownership expiry, renewed by the owning worker's heartbeat; the sweep
+    # reclaims a CLAIMED / RUNNING task once it passes, whatever the worker's status.
+    claim_expires_at: datetime | None = utc_field(default=None, index=True)
     started_at: datetime | None = utc_field(default=None)
     completed_at: datetime | None = utc_field(default=None)
     execution_worker_id: int | None = Field(

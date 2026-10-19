@@ -6,7 +6,7 @@ BackgroundWorker polls the database for:
 1. Failed and cancelled tasks awaiting cleanup — drops their refs, settles them
 2. Tables with no run refs — drops them in ClickHouse (samples registered with job)
 3. Expired jobs — deletes all job data (CH tables, oplog, SQL metadata) + orphans
-4. Dead workers — marks their running tasks as PENDING_FAILURE_CLEANUP
+4. Dead workers — marks them STOPPED; expired task claims — marks the task PENDING_FAILURE_CLEANUP
 5. Scheduled jobs — creates Job runs when next_run_at is due
 6. Sandbox files — submits every @job of a pending sandbox file once
 
@@ -55,6 +55,7 @@ from ..models import (
     SANDBOX_SUBMITTED,
     TASK_PENDING_CANCELLED_CLEANUP,
     TASK_PENDING_FAILURE_CLEANUP,
+    WORKER_TIMEOUT,
     SandboxFile,
 )
 from ..orch_context import orch_context
@@ -73,7 +74,6 @@ SANDBOX_BATCH = 10
 # A sandbox row claimed this long ago and still ``running`` lost its worker.
 SANDBOX_STALE_AFTER = timedelta(minutes=10)
 SANDBOX_INTERRUPTED = "interrupted before its jobs were created"
-DEFAULT_WORKER_TIMEOUT = 90.0
 
 
 _REF_TABLES = ("table_context_refs", "table_pin_refs", "table_run_refs")
@@ -113,7 +113,7 @@ class BackgroundWorker:
        cancelled tasks (ref cleanup, settle to CANCELLED)
     2. Unreferenced tables: drops CH tables with no run/pin refs (samples tracked with job)
     3. Expired jobs: deletes all data for jobs past AAICLICK_JOB_TTL_DAYS + orphans
-    4. Dead worker detection: marks tasks from expired workers as PENDING_FAILURE_CLEANUP
+    4. Dead workers marked STOPPED; tasks whose claim expired become PENDING_FAILURE_CLEANUP
     5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
     6. Sandbox files: one ``run_job`` per ``@job`` of each pending sandbox file
 
@@ -124,7 +124,7 @@ class BackgroundWorker:
     def __init__(
         self,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
-        worker_timeout: float = DEFAULT_WORKER_TIMEOUT,
+        worker_timeout: float = WORKER_TIMEOUT,
     ):
         self._poll_interval = poll_interval
         self._worker_timeout = worker_timeout
@@ -169,6 +169,7 @@ class BackgroundWorker:
             self._cleanup_unreferenced_tables,
             self._cleanup_expired_jobs,
             self._cleanup_dead_workers,
+            self._release_expired_claims,
             self._check_schedules,
             self._run_sandbox_files,
         ):
@@ -460,9 +461,10 @@ class BackgroundWorker:
             logger.debug("Failed to delete orphaned operation_log entries", exc_info=True)
 
     async def _cleanup_dead_workers(self) -> None:
-        """Detect dead workers, mark their running tasks as PENDING_FAILURE_CLEANUP.
+        """Mark workers whose heartbeat expired STOPPED.
 
-        Ref cleanup is handled by the cleanup passes on the next cycle.
+        Their tasks are untouched: ownership lives on the task and is reclaimed
+        by ``_release_expired_claims`` when its own claim expires.
         """
         cutoff = utc_now() - timedelta(seconds=self._worker_timeout)
 
@@ -477,15 +479,16 @@ class BackgroundWorker:
                 {"cutoff": cutoff},
             )
             dead_execution_worker_ids = [row[0] for row in result.fetchall()]
-
-            if not dead_execution_worker_ids:
-                return
-
-            await self._handler.release_dead_worker_tasks(session, dead_execution_worker_ids)
             await session.commit()
 
-            for wid in dead_execution_worker_ids:
-                logger.warning("ExecutionWorker %s marked as dead (heartbeat timeout)", wid)
+        for wid in dead_execution_worker_ids:
+            logger.warning("ExecutionWorker %s marked as dead (heartbeat timeout)", wid)
+
+    async def _release_expired_claims(self) -> None:
+        """Reclaim tasks whose claim expired; ref cleanup follows on the next cycle."""
+        async with AsyncSession(self._engine) as session:
+            await self._handler.release_expired_claims(session, utc_now())
+            await session.commit()
 
     async def _check_schedules(self) -> None:
         """Create Job runs for registered jobs whose next_run_at is due.

@@ -29,6 +29,7 @@ from ..models import (
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
+    SELF_STOP_AFTER,
     TASK_FAILED,
     TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
@@ -45,6 +46,7 @@ from .claiming import (
     complete_task_and_roll_up,
     end_current_run,
     release_cancelled_run,
+    renew_claim,
     update_task_status,
 )
 from .runner import (
@@ -200,21 +202,50 @@ async def drive_shell_vehicle(
     return True, serialize_task_result(data, task.job_id), None
 
 
+class WorkerStopped(Exception):
+    """The worker stopped itself mid-task: its heartbeat found it STOPPED, or
+    it has not reached the DB for ``SELF_STOP_AFTER``. The run was aborted and
+    its task left to its claim expiry; the loop must exit, not report."""
+
+
 async def _heartbeat_while_waiting(
     execution_worker_id: int,
+    task: Task,
     done: asyncio.Event,
     interval: float,
     heartbeat_fn: Callable[[int], Awaitable[Any]],
+    abort: Callable[[], Awaitable[None]],
 ) -> None:
-    """Heartbeat every ``interval`` seconds until ``done`` is set.
+    """Heartbeat every ``interval`` seconds until ``done`` is set, renewing
+    the running task's claim after each successful heartbeat.
 
     A failed heartbeat is logged and retried next tick; one transient DB error
-    must not get a long task's worker declared dead."""
+    must not get a long task's worker declared dead. The worker self-stops
+    (``abort`` the run, then return) when a heartbeat reports it STOPPED or
+    the last successful one is older than ``SELF_STOP_AFTER`` — before the
+    sweep can declare it dead and hand its task to another worker."""
+    last_ok = utc_now()
     while not await wait_or_timeout(done, interval):
+        status = None
         try:
-            await heartbeat_fn(execution_worker_id)
+            status = await heartbeat_fn(execution_worker_id)
         except Exception:
             logger.exception("ExecutionWorker %s heartbeat failed; retrying next tick", execution_worker_id)
+        else:
+            last_ok = utc_now()
+            if status != EXECUTION_WORKER_STOPPED and not await renew_claim(
+                task.id, execution_worker_id, task.run_epoch
+            ):
+                logger.warning("ExecutionWorker %s lost task %s claim", execution_worker_id, task.id)
+        stale = (utc_now() - last_ok).total_seconds() > SELF_STOP_AFTER
+        if status == EXECUTION_WORKER_STOPPED or stale:
+            logger.warning(
+                "ExecutionWorker %s self-stopping (%s)",
+                execution_worker_id,
+                "marked STOPPED" if not stale else "no heartbeat",
+            )
+            await abort()
+            return
 
 
 async def _watch_for_cancellation(
@@ -302,8 +333,14 @@ async def drive_vehicle(
         follower = asyncio.create_task(_follow_output(vehicle, task, handle, log_run_id))
     done = asyncio.Event()
     cancelled = asyncio.Event()
+    worker_stopped = asyncio.Event()
+
+    async def self_stop() -> None:
+        worker_stopped.set()
+        await vehicle.terminate(handle)
+
     heartbeat = asyncio.create_task(
-        _heartbeat_while_waiting(execution_worker_id, done, heartbeat_interval, heartbeat_fn)
+        _heartbeat_while_waiting(execution_worker_id, task, done, heartbeat_interval, heartbeat_fn, self_stop)
     )
     cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
@@ -315,6 +352,8 @@ async def drive_vehicle(
             await _collect_unfollowed_output(vehicle, task, handle)
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
+        if worker_stopped.is_set():
+            raise WorkerStopped(execution_worker_id)
         return vehicle.collect(handle, exit_code, error, cancelled.is_set(), payload)
     finally:
         done.set()
@@ -387,33 +426,27 @@ async def register_execution_worker(
     return execution_worker
 
 
-async def execution_worker_heartbeat(execution_worker_id: int) -> ExecutionWorkerStatus | None:
-    """
-    Update execution_worker's last_heartbeat timestamp.
+async def execution_worker_heartbeat(execution_worker_id: int) -> ExecutionWorkerStatus:
+    """Update the worker's ``last_heartbeat`` unless it is STOPPED.
 
-    Should be called periodically to indicate the execution_worker is alive.
-    Updates last_heartbeat and ensures status is ACTIVE (unless STOPPING).
-
-    Args:
-        execution_worker_id: ExecutionWorker ID to update
-
-    Returns:
-        The execution_worker's current status after update, or None if execution_worker not found.
+    A conditional update, so a worker the sweep (or an operator) stopped is
+    never revived. Returns the worker's status; STOPPED when nothing matched
+    (stopped or unknown), which tells the caller to exit.
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(ExecutionWorker).where(ExecutionWorker.id == execution_worker_id))
-        execution_worker = result.scalar_one_or_none()
-
-        if execution_worker is None:
-            return None
-
-        execution_worker.last_heartbeat = utc_now()
-        if execution_worker.status != EXECUTION_WORKER_STOPPING:
-            execution_worker.status = EXECUTION_WORKER_ACTIVE
-        session.add(execution_worker)
+        row = (
+            await session.execute(
+                update(ExecutionWorker)
+                .where(
+                    col(ExecutionWorker.id) == execution_worker_id,
+                    col(ExecutionWorker.status) != EXECUTION_WORKER_STOPPED,
+                )
+                .values(last_heartbeat=utc_now())
+                .returning(col(ExecutionWorker.status))
+            )
+        ).first()
         await session.commit()
-
-    return execution_worker.status
+    return cast(ExecutionWorkerStatus, row[0]) if row else EXECUTION_WORKER_STOPPED
 
 
 async def request_execution_worker_stop(execution_worker_id: int) -> bool:
@@ -658,6 +691,9 @@ async def _execution_worker_loop(
                     logger.info("ExecutionWorker %s received stop request", execution_worker_id)
                     shutdown_requested = True
                     continue
+                if status == EXECUTION_WORKER_STOPPED:
+                    logger.warning("ExecutionWorker %s marked STOPPED; exiting", execution_worker_id)
+                    break
 
             task = await claim_next_task(execution_worker_id)
 
@@ -672,11 +708,14 @@ async def _execution_worker_loop(
 
             try:
                 success, result_ref, error = await execute_fn(task, execution_worker_id)
+            except WorkerStopped:
+                # The run is already aborted; its task is reclaimed when the
+                # claim expires. Rejoining means registering as a new worker.
+                break
             except Exception as e:
                 # Dispatch failures (missing image tag, rejected ``kubectl
                 # apply``) are the task's, not the worker's: escaping would stop
-                # the loop and leave the task RUNNING under a STOPPED worker the
-                # dead-worker sweep never revisits.
+                # the loop and leave the task RUNNING until its claim expires.
                 logger.exception("ExecutionWorker %s task %s dispatch raised", execution_worker_id, task.id)
                 success, result_ref, error = False, None, f"{type(e).__name__}: {e}"
             if await _handle_task_result(task, execution_worker_id, success, result_ref, error):
@@ -705,8 +744,16 @@ async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[boo
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
     done = asyncio.Event()
+    worker_stopped = asyncio.Event()
+
+    async def self_stop() -> None:
+        worker_stopped.set()
+        exec_task.cancel()
+
     heartbeat = asyncio.create_task(
-        _heartbeat_while_waiting(execution_worker_id, done, HEARTBEAT_INTERVAL, execution_worker_heartbeat)
+        _heartbeat_while_waiting(
+            execution_worker_id, task, done, HEARTBEAT_INTERVAL, execution_worker_heartbeat, self_stop
+        )
     )
 
     try:
@@ -714,6 +761,8 @@ async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[boo
         result_ref = serialize_task_result(data_result, task.job_id)
         return True, result_ref, None
     except asyncio.CancelledError:
+        if worker_stopped.is_set():
+            raise WorkerStopped(execution_worker_id) from None
         if not await monitor:  # self-terminates once exec_task is done
             raise
         logger.info("Task %s cancelled", task.id)

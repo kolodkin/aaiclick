@@ -96,17 +96,23 @@ async def test_cancelled_cleanup_fails_job_after_sibling_abort(bg_db):
     assert await _get_job_status(bg_db, 1000) == "FAILED"
 
 
-async def test_dead_worker_releases_cancelled_task(bg_db):
-    """A worker that dies mid-kill never reports back; the dead-worker sweep
-    releases its cancelled task so the next cleanup pass can settle it."""
+async def test_expired_claim_releases_cancelled_task(bg_db):
+    """A worker that dies mid-kill never reports back; once its claim expires
+    the sweep releases its cancelled task so the next cleanup pass can settle it."""
     await insert_job(bg_db, 1000, status="CANCELLED")
-    await insert_worker(bg_db, WORKER_ID, stale_by=timedelta(seconds=120))
+    await insert_worker(bg_db, WORKER_ID)
     await insert_task(
-        bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=WORKER_ID
+        bg_db,
+        100,
+        1000,
+        status="PENDING_CANCELLED_CLEANUP",
+        run_ids="[111]",
+        execution_worker_id=WORKER_ID,
+        claim_expired_by=timedelta(seconds=1),
     )
     worker = make_worker(bg_db)
 
-    await worker._cleanup_dead_workers()
+    await worker._release_expired_claims()
     assert await _get_worker_ownership(bg_db, 100) is None
     status, _, _, _, _, _ = await _get_task_status(bg_db, 100)
     assert status == "PENDING_CANCELLED_CLEANUP"

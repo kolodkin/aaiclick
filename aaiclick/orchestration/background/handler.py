@@ -23,10 +23,12 @@ from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
     TASK_CANCELLED,
+    TASK_CLAIMED,
     TASK_FAILED,
     TASK_PENDING,
     TASK_PENDING_CANCELLED_CLEANUP,
     TASK_PENDING_FAILURE_CLEANUP,
+    TASK_RUNNING,
     TASK_UPSTREAM_FAILED,
     TaskStatus,
 )
@@ -35,7 +37,7 @@ from ..sql_utils import in_clause
 JOB_FAILED_ERROR = "One or more tasks failed"
 UPSTREAM_FAILED_ERROR = "Upstream task failed"
 GROUP_SIBLING_ABORTED_ERROR = "Aborted: a sibling task in the group failed"
-DEAD_WORKER_ERROR = "ExecutionWorker died (heartbeat timeout)"
+DEAD_WORKER_ERROR = "Task claim expired (worker lost)"
 
 _CASCADE_UPSTREAM_FAILED_SQL = """
     UPDATE tasks SET status = :upstream_failed, completed_at = :now, error = :error_msg
@@ -284,15 +286,34 @@ class BackgroundHandler(ABC):
     """Abstract base for backend-specific background cleanup SQL."""
 
     @staticmethod
-    @abstractmethod
-    async def release_dead_worker_tasks(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
-        """Release the tasks of workers already marked STOPPED as dead.
+    async def release_expired_claims(session: AsyncSession, now: datetime) -> None:
+        """Reclaim tasks whose claim expired, whatever their worker's status.
 
-        RUNNING / CLAIMED tasks become PENDING_FAILURE_CLEANUP. A
+        RUNNING / CLAIMED tasks become PENDING_FAILURE_CLEANUP; ``run_epoch``
+        moves on so the lost owner's late writes are fenced. A
         PENDING_CANCELLED_CLEANUP task will never be reported back, so its
         ownership is released here (as ``release_cancelled_run`` would).
         """
-        ...
+        await session.execute(
+            text(
+                "UPDATE tasks SET status = :failure_cleanup, error = :error, run_epoch = run_epoch + 1 "
+                "WHERE status IN (:running, :claimed) AND claim_expires_at < :now"
+            ),
+            {
+                "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
+                "error": DEAD_WORKER_ERROR,
+                "running": TASK_RUNNING,
+                "claimed": TASK_CLAIMED,
+                "now": now,
+            },
+        )
+        await session.execute(
+            text(
+                "UPDATE tasks SET execution_worker_id = NULL "
+                "WHERE status = :cancelled_cleanup AND claim_expires_at < :now"
+            ),
+            {"cancelled_cleanup": TASK_PENDING_CANCELLED_CLEANUP, "now": now},
+        )
 
     @staticmethod
     async def clean_task_run(session: AsyncSession, run_id: str) -> None:

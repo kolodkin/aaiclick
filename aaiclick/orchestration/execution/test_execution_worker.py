@@ -29,9 +29,10 @@ from ..models import (
 from ..orch_context import commit_tasks, get_sql_session
 from ..task_registry import get_task_registry
 from . import execution_worker
-from .claiming import claim_next_task, update_task_status
+from .claiming import claim_next_task, renew_claim, update_task_status
 from .execution_worker import (
     RunnerResult,
+    WorkerStopped,
     deregister_execution_worker,
     drive_vehicle,
     execution_worker_heartbeat,
@@ -107,9 +108,23 @@ async def test_worker_heartbeat(orch_ctx):
 
 
 async def test_worker_heartbeat_nonexistent(orch_ctx):
-    """Test heartbeat for non-existent execution_worker returns None."""
-    result = await execution_worker_heartbeat(999999999)
-    assert result is None
+    """An unknown worker is told to stop."""
+    assert await execution_worker_heartbeat(999999999) == EXECUTION_WORKER_STOPPED
+
+
+async def test_heartbeat_never_revives_stopped_worker(orch_ctx):
+    """A worker the sweep marked STOPPED stays STOPPED; the heartbeat reports it."""
+    execution_worker = await register_execution_worker()
+    await deregister_execution_worker(execution_worker.id)
+    before = await get_execution_worker(execution_worker.id)
+    assert before is not None
+    await asyncio.sleep(0.01)
+
+    assert await execution_worker_heartbeat(execution_worker.id) == EXECUTION_WORKER_STOPPED
+
+    after = await get_execution_worker(execution_worker.id)
+    assert after is not None
+    assert (after.status, after.last_heartbeat) == (EXECUTION_WORKER_STOPPED, before.last_heartbeat)
 
 
 async def test_deregister_worker(orch_ctx):
@@ -245,6 +260,7 @@ async def test_claim_next_task_basic(orch_ctx):
     assert task.status == TASK_RUNNING
     assert task.execution_worker_id == execution_worker.id
     assert task.claimed_at is not None
+    assert task.claim_expires_at is not None
 
     # Verify job status changed to RUNNING
     async with get_sql_session() as session:
@@ -496,3 +512,61 @@ async def test_drive_vehicle_survives_a_failing_output_collection(orch_ctx, monk
     task = Task(id=get_snowflake_id(), job_id=1, entrypoint="", name="t")
     result = await drive_vehicle(task, 1, _FinishedVehicle(), timeout=None, poll_interval=60, heartbeat_fn=AsyncMock())
     assert result.success
+
+
+async def test_renew_claim(orch_ctx):
+    """Renewal pushes ``claim_expires_at`` out while the run owns the task and
+    refuses once the task was cleared to a new epoch."""
+    execution_worker = await register_execution_worker()
+    await create_job("test_renew_claim", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    task = await claim_next_task(execution_worker.id)
+    assert task is not None
+    await asyncio.sleep(0.01)
+
+    assert await renew_claim(task.id, execution_worker.id, task.run_epoch)
+    assert await renew_claim(task.id, execution_worker.id, task.run_epoch + 1) is False
+    assert await renew_claim(task.id, execution_worker.id + 1, task.run_epoch) is False
+
+    async with get_sql_session() as session:
+        renewed = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
+    assert renewed.claim_expires_at is not None and task.claim_expires_at is not None
+    assert renewed.claim_expires_at > task.claim_expires_at
+
+
+@pytest.mark.parametrize(
+    "heartbeat, self_stop_after",
+    [
+        pytest.param(AsyncMock(return_value=EXECUTION_WORKER_STOPPED), 3600, id="marked_stopped"),
+        pytest.param(AsyncMock(side_effect=RuntimeError("db down")), 0, id="no_heartbeat"),
+    ],
+)
+async def test_heartbeat_self_stop_aborts_the_run(orch_ctx, monkeypatch, heartbeat, self_stop_after):
+    """Internal: race window. The worker aborts its run and stops when a
+    heartbeat finds it STOPPED or none has reached the DB for SELF_STOP_AFTER."""
+    monkeypatch.setattr(execution_worker, "SELF_STOP_AFTER", self_stop_after)
+    task = Task(id=get_snowflake_id(), job_id=1, entrypoint="", name="t")
+    aborted = asyncio.Event()
+
+    async def abort():
+        aborted.set()
+
+    await asyncio.wait_for(
+        execution_worker._heartbeat_while_waiting(1, task, asyncio.Event(), 0.01, heartbeat, abort), timeout=5
+    )
+    assert aborted.is_set()
+
+
+async def test_drive_vehicle_raises_when_worker_self_stops(orch_ctx):
+    """A self-stopped worker's run is terminated and surfaces as WorkerStopped,
+    never as a task result."""
+    task = Task(id=get_snowflake_id(), job_id=1, entrypoint="", name="t")
+    with pytest.raises(WorkerStopped):
+        await drive_vehicle(
+            task,
+            1,
+            _StillRunningVehicle(),
+            timeout=None,
+            poll_interval=60,
+            heartbeat_fn=AsyncMock(return_value=EXECUTION_WORKER_STOPPED),
+            heartbeat_interval=0.01,
+        )
