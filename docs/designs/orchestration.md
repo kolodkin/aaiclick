@@ -290,29 +290,26 @@ Polls for tasks, executes, updates status. Handles registration, heartbeats (30s
 Rules for heartbeats, the dead-worker sweep and task ownership. Constants
 live in `models.py` next to `ExecutionWorker`.
 
-1. **`WORKER_TIMEOUT` is minutes, not seconds** (10 min). Long enough that a
-   live worker realistically never gets swept. Trade-off: a dead worker's
-   tasks wait that long before anyone takes them over.
-2. **Worker self-stop.** A worker stops itself, without waiting to be told,
-   when either a heartbeat write reports it was marked STOPPED (the
-   conditional update matched 0 rows), or its last successful heartbeat is
-   older than `SELF_STOP_AFTER` (80% of `WORKER_TIMEOUT`). On self-stop it
-   aborts its running task without reporting it and exits; it rejoins only by
-   registering as a new `execution_workers` row. `SELF_STOP_AFTER <
-   WORKER_TIMEOUT`, so a worker cut off from the DB is already stopped by the
-   time it is swept.
+1. **`WORKER_TIMEOUT` is 10 minutes.** Long enough that a live worker never
+   gets swept. Trade-off: a dead worker's tasks wait that long before anyone
+   takes them over.
+2. **Worker self-stop.** A worker stops itself when a heartbeat reports it
+   STOPPED (the conditional update matched no row) or its last successful
+   heartbeat is older than `SELF_STOP_AFTER` (80% of `WORKER_TIMEOUT`). It
+   aborts its running task without reporting it and exits; it rejoins only as
+   a new `execution_workers` row. `SELF_STOP_AFTER < WORKER_TIMEOUT`, so a
+   worker cut off from the DB has stopped by the time it is swept.
 3. **Heartbeat never revives a STOPPED worker.** `execution_worker_heartbeat`
-   is a conditional update on `execution_workers` (only when
-   `status != STOPPED`). It depends on rule 2, or a revived worker keeps
-   running unseen.
+   updates `execution_workers` only where `status != STOPPED`. It depends on
+   rule 2, or a revived worker keeps running unseen.
 4. **Worker lifetime and task lifetime are independent.** Ownership lives on
-   the task (`tasks.execution_worker_id` plus `tasks.claim_expires_at`), not
-   derived from worker status. The sweep marking a worker STOPPED does not
-   fail or reassign its tasks; a task is reclaimed, to
-   `PENDING_FAILURE_CLEANUP`, only when its own claim expires. Each heartbeat
-   renews the running task's claim (`renew_claim`); a refused renewal means
-   the run was aborted, which the cancellation watcher terminates. A task can
-   outlive its worker (retried elsewhere); a worker outlives many tasks.
+   the task (`tasks.execution_worker_id` plus `tasks.claim_expires_at`), never
+   on worker status. Sweeping a worker STOPPED leaves its tasks alone; a task
+   is reclaimed to `PENDING_FAILURE_CLEANUP` only when its own claim expires.
+   Each heartbeat renews the running task's claim (`renew_claim`); a refused
+   renewal means the run was aborted, and the cancellation watcher terminates
+   it. A task can outlive its worker (retried elsewhere); a worker outlives
+   many tasks.
 5. **Double processing cannot be fully avoided.** Tasks must be idempotent.
    Reclaiming an expired claim bumps `run_epoch`, so the lost owner's late
    status writes are rejected; a side effect that cannot be repeated safely
