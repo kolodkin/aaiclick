@@ -198,7 +198,9 @@ async def _insert_source(
     cast_exprs = _cast_select_exprs(col_names, target_types)
     alias = f" AS s{alias_index}" if info.source.startswith("(") else ""
     insert_cols = ", ".join(quote_identifier(col) for col in col_names)
-    select = f"SELECT {cast_exprs} FROM {info.source}{alias}"
+    # Without it, a multi-part table hands rows to the INSERT out of read order.
+    order = f" ORDER BY {info.order_by}" if info.order_by else ""
+    select = f"SELECT {cast_exprs} FROM {info.source}{alias}{order}"
 
     await ch_client.command(f"""
     INSERT INTO {target_table} ({insert_cols})
@@ -274,7 +276,8 @@ async def concat_objects_db(
     selects = []
     for i, info in enumerate(query_infos):
         alias = f" AS s{i}" if info.source.startswith("(") else ""
-        src_row = AAI_ID_COLUMN if info.aai_id_info is not None else "0"
+        # A View's own order_by stays in its subquery; only the aai_id default is sorted here.
+        src_row = AAI_ID_COLUMN if info.order_by == AAI_ID_COLUMN else "0"
         selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord, {src_row} AS _src_row FROM {info.source}{alias}")
 
     union_query = " UNION ALL ".join(selects)

@@ -53,7 +53,7 @@ Remove an entry once its fix lands.
 
 # Smaller Findings
 
-- **Heartbeat revives a dead worker:** `execution_worker_heartbeat` sets a STOPPED worker back to ACTIVE after the sweep released its tasks (`aaiclick/orchestration/execution/execution_worker.py`).
+- **Heartbeat revives a dead worker:** `execution_worker_heartbeat` sets a STOPPED worker back to ACTIVE after the sweep released its tasks. Pool workers ignore the heartbeat result, so they must exit on STOPPED before the heartbeat can skip it (`aaiclick/orchestration/execution/execution_worker.py`).
 - **Username race:** a concurrent duplicate username returns 500 instead of 409 (`aaiclick/auth/store.py`).
 - **Reset links outlive a password change:** they stay usable after the password is set (`aaiclick/internal_api/password_reset.py`).
 - **Duplicate insert helpers:** `create_user` and `create_refresh_token` repeat `_insert` (`aaiclick/auth/store.py`).

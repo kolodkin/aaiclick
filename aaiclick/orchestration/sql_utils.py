@@ -9,7 +9,7 @@ T = TypeVar("T")
 IN_BATCH_SIZE = 10_000
 
 
-def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
+def in_clause(ids: Sequence, prefix: str) -> tuple[str, dict]:
     """Build a parameterized IN clause compatible with both SQLite and PostgreSQL.
 
     Returns (placeholder_string, params_dict) e.g. (":p0, :p1", {"p0": 1, "p1": 2}).

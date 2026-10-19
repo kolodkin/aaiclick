@@ -392,16 +392,16 @@ class BackgroundWorker:
                 text("DELETE FROM table_registry WHERE job_id = :job_id"),
                 {"job_id": job_id},
             )
-            # Delete dependencies and remote results referencing this job's tasks
+            # Delete dependencies touching this job's tasks and groups, one
+            # indexed end per statement (an OR of two subqueries scans the table).
             job_tasks = "SELECT id FROM tasks WHERE job_id = :job_id"
-            await session.execute(
-                text(
-                    f"DELETE FROM dependencies "
-                    f"WHERE (previous_id IN ({job_tasks}) AND previous_type = 'task') "
-                    f"OR (next_id IN ({job_tasks}) AND next_type = 'task')"
-                ),
-                {"job_id": job_id},
-            )
+            job_groups = "SELECT id FROM groups WHERE job_id = :job_id"
+            for node_type, node_ids in (("task", job_tasks), ("group", job_groups)):
+                for end in ("previous", "next"):
+                    await session.execute(
+                        text(f"DELETE FROM dependencies WHERE {end}_type = '{node_type}' AND {end}_id IN ({node_ids})"),
+                        {"job_id": job_id},
+                    )
             await session.execute(
                 text(f"DELETE FROM remote_task_results WHERE task_id IN ({job_tasks})"), {"job_id": job_id}
             )
@@ -415,16 +415,7 @@ class BackgroundWorker:
                 {"job_id": job_id},
             )
 
-            # Delete groups (and their dependencies)
-            job_groups = "SELECT id FROM groups WHERE job_id = :job_id"
-            await session.execute(
-                text(
-                    f"DELETE FROM dependencies "
-                    f"WHERE (previous_id IN ({job_groups}) AND previous_type = 'group') "
-                    f"OR (next_id IN ({job_groups}) AND next_type = 'group')"
-                ),
-                {"job_id": job_id},
-            )
+            # Delete groups
             await session.execute(
                 text("DELETE FROM groups WHERE job_id = :job_id"),
                 {"job_id": job_id},
