@@ -334,8 +334,9 @@ For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_
 
 ## concat()
 
-Concatenates multiple sources into a new Object. Also available as standalone `concat(a, b, ...)`. Self must be array; args can be Objects, scalars, or lists.
+Unions multiple sources into a new Object. Also available as standalone `concat(a, b, ...)`. Self must be array; args can be Objects, scalars, or lists.
 
+- **Union**: row order is undefined (see "Row Order"); source `aai_id` values are copied, so reads of an `aai_id` result follow creation order and `concat(obj, obj)` duplicates ids
 - **Variadic**: `obj.concat(a, b, c)` — any number of sources in one call
 - **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
 - **Compatible types**: all sources must have matching column names and compatible ClickHouse types

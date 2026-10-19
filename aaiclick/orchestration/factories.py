@@ -4,24 +4,12 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from sqlalchemy import update
-
 from aaiclick.snowflake import get_snowflake_id
 
 from ..datetime_utils import utc_now
 from .env import get_default_preservation_mode
 from .image_injection import inject_build_tasks, validate_plain_data_plane_tasks
-from .models import (
-    JOB_FAILED,
-    JOB_PENDING,
-    RUN_MANUAL,
-    TASK_PENDING,
-    Job,
-    PreservationMode,
-    RegisteredJob,
-    RunType,
-    Task,
-)
+from .models import JOB_PENDING, RUN_MANUAL, TASK_PENDING, Job, PreservationMode, RegisteredJob, RunType, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import (
     ENTRY_JVM,
@@ -309,22 +297,10 @@ async def create_job(
 
     task = entry if isinstance(entry, Task) else create_task(entry)
 
-    async with get_sql_session() as session:
-        session.add(job)
-        await session.commit()
-
     # commit_tasks stamps job_id, validates/injects image build tasks when
-    # needed, and drops committed items from the registry. A job left with no
-    # tasks would stay PENDING forever, so a failure closes it as FAILED.
-    try:
-        await commit_tasks(task, job.id)
-    except Exception as exc:
-        async with get_sql_session() as session:
-            await session.execute(
-                update(Job).where(Job.id == job.id).values(status=JOB_FAILED, error=str(exc), completed_at=utc_now())
-            )
-            await session.commit()
-        raise
+    # needed, and drops committed items from the registry. Committing the job
+    # row in the same transaction means a failure leaves no task-less job.
+    await commit_tasks(task, job.id, job=job)
     return job
 
 

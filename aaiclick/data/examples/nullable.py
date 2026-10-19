@@ -79,7 +79,7 @@ async def example():
     result = await obj_nullable.concat(obj_regular)
     schema_result = result.schema
     print(f"Result nullable:  {schema_result.columns['value'].nullable}")  # → True
-    print(f"Result data: {await result.data()}")  # → [10, None, 20, 30]
+    print(f"Result data: {await result.data()}")  # → [10, None, 20, 30] (row order is undefined)
 
     section("Example 3: Arithmetic with nullable values")
 

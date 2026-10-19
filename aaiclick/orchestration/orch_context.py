@@ -557,12 +557,15 @@ async def commit_tasks(
     items: TasksType,
     job_id: int,
     extra_dependencies: list[Dependency] | None = None,
+    job: Job | None = None,
 ) -> TasksType:
     """Commit tasks, groups, and their dependencies to the database.
 
     Sets job_id on all items and commits to the SQL database.
     ``extra_dependencies`` are edges onto already-committed rows that must land
     in the same transaction as the items (the hold on returned tasks).
+    ``job`` is an uncommitted Job row to insert in the same transaction, so a
+    failed validation or write leaves no job behind (create_job passes it).
 
     All tasks and groups created via create_task() or Group() are tracked in
     the active task registry (ContextVar set by orch_context / task_scope).
@@ -591,11 +594,14 @@ async def commit_tasks(
     validate_plain_data_plane_tasks(tasks_only)
 
     async with get_sql_session() as session:
+        if job is not None:
+            session.add(job)
         injected: list[Task] = []
         # Only container tasks need the job row for build-task injection — the
         # common all-subprocess commit skips the fetch.
         if any(task.image_source is not None for task in tasks_only):
-            job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+            if job is None:
+                job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
             if job is not None:
                 injected = await inject_build_tasks(session, tasks_only, job)
 

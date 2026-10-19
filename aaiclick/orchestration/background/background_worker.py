@@ -415,7 +415,6 @@ class BackgroundWorker:
                 {"job_id": job_id},
             )
 
-            # Delete groups
             await session.execute(
                 text("DELETE FROM groups WHERE job_id = :job_id"),
                 {"job_id": job_id},
@@ -468,7 +467,8 @@ class BackgroundWorker:
         cutoff = utc_now() - timedelta(seconds=self._worker_timeout)
 
         async with AsyncSession(self._engine) as session:
-            # One statement, so a worker that heartbeats mid-sweep is not marked dead.
+            # One statement, so a worker that heartbeats mid-sweep is not marked
+            # dead. RETURNING needs SQLite >= 3.35 (2021) on the local backend.
             result = await session.execute(
                 text(
                     "UPDATE execution_workers SET status = 'STOPPED' "

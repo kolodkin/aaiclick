@@ -322,18 +322,8 @@ async def test_mixed_type_concat_fails(ctx, arr_a, arr_b):
 # =============================================================================
 
 
-async def test_concat_follows_argument_order(ctx):
-    """Concat puts self first even when self was created after the argument."""
-    obj_a = await create_object_from_value([1, 2, 3])
-    obj_b = await create_object_from_value([4, 5, 6])
-
-    result = await obj_b.concat(obj_a)
-    data = await result.data()
-    assert data == [4, 5, 6, 1, 2, 3]
-
-
-async def test_multiple_concat_preserves_argument_order(ctx):
-    """Chained concat preserves argument order at each step."""
+async def test_multiple_concat_keeps_all_rows(ctx):
+    """Chained concat keeps every row at each step; order is undefined."""
     obj1 = await create_object_from_value([1, 2])
     obj2 = await create_object_from_value([3, 4])
     obj3 = await create_object_from_value([5, 6])
@@ -341,7 +331,7 @@ async def test_multiple_concat_preserves_argument_order(ctx):
     result = await obj1.concat(obj2)
     result = await result.concat(obj3)
     data = await result.data()
-    assert data == [1, 2, 3, 4, 5, 6]
+    assert sorted(data) == [1, 2, 3, 4, 5, 6]
 
 
 async def test_concat_multi_arg_row_set(ctx):

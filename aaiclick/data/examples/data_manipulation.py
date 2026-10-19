@@ -43,7 +43,7 @@ async def example():
 
     # Concat creates a new object
     result = await obj_a.concat(obj_b)
-    print(f"After concat: {await result.data()}")  # → [1, 2, 3, 4, 5, 6]
+    print(f"After concat: {sorted(await result.data())}")  # → [1, 2, 3, 4, 5, 6] (row order is undefined)
     print(f"Original A unchanged: {await obj_a.data()}")  # → [1, 2, 3]
     print(f"Original B unchanged: {await obj_b.data()}")  # → [4, 5, 6]
     print(f"Result is new object: {result.table != obj_a.table}")
@@ -56,7 +56,7 @@ async def example():
 
     # Concat with scalar
     result_scalar = await obj.concat(40)
-    print(f"After concat(40): {await result_scalar.data()}")  # → [10, 20, 30, 40]
+    print(f"After concat(40): {sorted(await result_scalar.data())}")  # → [10, 20, 30, 40]
     print(f"Original unchanged: {await obj.data()}")  # → [10, 20, 30]
 
     section("Example 4: Concatenate with list value")
@@ -66,7 +66,7 @@ async def example():
 
     # Concat with list
     result_list = await obj.concat([3, 4, 5])
-    print(f"After concat([3, 4, 5]): {await result_list.data()}")  # → [1, 2, 3, 4, 5]
+    print(f"After concat([3, 4, 5]): {sorted(await result_list.data())}")  # → [1, 2, 3, 4, 5]
     print(f"Original unchanged: {await obj.data()}")  # → [1, 2]
 
     section("Example 5: Insert (mutating - modifies in place)")
@@ -127,7 +127,7 @@ async def example():
     print("concat approach:")
     print(f"  Original a1: {await a1.data()}, table: {a1.table}")
     a1_new = await a1.concat([4, 5])
-    print(f"  After concat: {await a1_new.data()}, table: {a1_new.table}")  # → [1, 2, 3, 4, 5]
+    print(f"  After concat: {sorted(await a1_new.data())}, table: {a1_new.table}")  # → [1, 2, 3, 4, 5]
     print(f"  Original a1 unchanged: {await a1.data()}, table: {a1.table}\n")  # → [1, 2, 3]
 
     # Using insert (mutating)

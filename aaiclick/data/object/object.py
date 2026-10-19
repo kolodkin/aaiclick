@@ -967,7 +967,7 @@ class Object:
             >>>
             >>> # Concatenate with multiple objects
             >>> result = await obj_a.concat(obj_b, obj_c, obj_d)
-            >>> await result.data()  # Returns concatenated data
+            >>> await result.data()  # Returns all rows (order undefined)
             >>>
             >>> # Concatenate with mixed types
             >>> result = await obj_a.concat(42, [7, 8], obj_b)
