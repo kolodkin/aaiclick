@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import DEPENDENCY_TASK, DependencyType
-from .sql_utils import in_clause
+from .sql_utils import batched, in_clause
 
 
 class EdgeTarget(NamedTuple):
@@ -32,19 +32,20 @@ async def successor_edges(session: AsyncSession, task_ids: set[int]) -> set[Edge
     covers the members the group has when a consumer is claimed, including
     members added after the copy.
     """
-    if not task_ids:
-        return set()
-    ph, params = in_clause(sorted(task_ids), "t")
-    edges = await session.execute(
-        text(
-            f"SELECT next_id, next_type FROM dependencies "
-            f"WHERE (previous_type = 'task' AND previous_id IN ({ph})) "
-            f"OR (previous_type = 'group' AND previous_id IN "
-            f"(SELECT group_id FROM tasks WHERE id IN ({ph}) AND group_id IS NOT NULL))"
-        ),
-        params,
-    )
-    return {EdgeTarget(next_id, next_type) for next_id, next_type in edges}
+    targets: set[EdgeTarget] = set()
+    for batch in batched(sorted(task_ids)):
+        ph, params = in_clause(batch, "t")
+        edges = await session.execute(
+            text(
+                f"SELECT next_id, next_type FROM dependencies "
+                f"WHERE (previous_type = 'task' AND previous_id IN ({ph})) "
+                f"OR (previous_type = 'group' AND previous_id IN "
+                f"(SELECT group_id FROM tasks WHERE id IN ({ph}) AND group_id IS NOT NULL))"
+            ),
+            params,
+        )
+        targets.update(EdgeTarget(next_id, next_type) for next_id, next_type in edges)
+    return targets
 
 
 async def successor_task_ids(session: AsyncSession, task_ids: set[int]) -> set[int]:
@@ -58,8 +59,8 @@ async def successor_task_ids(session: AsyncSession, task_ids: set[int]) -> set[i
     group_ids: set[int] = set()
     for target in await successor_edges(session, task_ids):
         (successors if target.type == DEPENDENCY_TASK else group_ids).add(target.id)
-    if group_ids:
-        gph, gparams = in_clause(sorted(group_ids), "g")
+    for batch in batched(sorted(group_ids)):
+        gph, gparams = in_clause(batch, "g")
         members = await session.execute(text(f"SELECT id FROM tasks WHERE group_id IN ({gph})"), gparams)
         successors.update(row[0] for row in members)
     return successors - task_ids

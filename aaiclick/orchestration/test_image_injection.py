@@ -10,7 +10,7 @@ from .execution.execution_worker_context import TaskInfo, current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
 from .image_injection import stamp_inherited_image, validate_plain_data_plane_tasks
-from .models import Dependency, Task
+from .models import JOB_FAILED, Dependency, Job, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 
@@ -191,3 +191,14 @@ async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch):
     with current_task_info(TaskInfo(task_id=1, job_id=job.id, image_source=BUILD_A)):
         with pytest.raises(ValueError, match="no image_source"):
             await commit_tasks(create_task("com.example.Pipeline", entry_type="jvm"), job.id)
+
+
+async def test_create_job_fails_job_when_tasks_rejected(orch_ctx_no_ch):
+    """A rejected entry task leaves the job FAILED, not PENDING with no tasks."""
+    with pytest.raises(ValueError, match="no image_source"):
+        await create_job("rejected_entry", create_task("com.example.Pipeline", entry_type="jvm"))
+    async with get_sql_session() as session:
+        job = (await session.execute(select(Job).where(Job.name == "rejected_entry"))).scalar_one()
+    assert job.status == JOB_FAILED
+    assert "no image_source" in job.error
+    assert job.completed_at is not None

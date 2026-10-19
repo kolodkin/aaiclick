@@ -11,6 +11,7 @@ from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
 from ..models import (
+    AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FLOAT_TYPES,
@@ -267,18 +268,20 @@ async def concat_objects_db(
 
     # Build a single INSERT with UNION ALL so all rows share one
     # generateSnowflakeID() context (monotonic within one INSERT).
-    # ORDER BY _src_ord ensures source-argument order is preserved.
+    # ORDER BY _src_ord, _src_row keeps argument order, and each source's
+    # aai_id order within it — a multi-part table scans out of insertion order.
     cast_exprs = _cast_select_exprs(col_names, result_columns)
     selects = []
     for i, info in enumerate(query_infos):
         alias = f" AS s{i}" if info.source.startswith("(") else ""
-        selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
+        src_row = AAI_ID_COLUMN if info.aai_id_info is not None else "0"
+        selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord, {src_row} AS _src_row FROM {info.source}{alias}")
 
     union_query = " UNION ALL ".join(selects)
     advisory_id = await load_advisory_id(result.table)
     async with table_insert_lock(advisory_id):
         result._stats = await execute_for_stats(
-            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord",
+            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord, _src_row",
             client=ch_client,
         )
 

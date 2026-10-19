@@ -9,10 +9,6 @@ Remove an entry once its fix lands.
 
 | #  | Finding                                              | Severity | Area          |
 |----|------------------------------------------------------|----------|---------------|
-| 10 | Failed `create_job` leaves a job with no tasks       | Medium   | Orchestration |
-| 11 | IN-lists over 32,767 parameters                      | Medium   | Orchestration |
-| 15 | Dead-worker sweep races with heartbeat               | Medium   | Orchestration |
-| 16 | `concat` scrambles row order within a source         | Medium   | Data          |
 | 17 | `join` does not quote identifiers                    | Low      | Data          |
 | 18 | Dashboard panels run without a limit                 | Low      | Viewer        |
 | 19 | Dead attempt stays RUNNING in `run_statuses`         | Low      | Orchestration |
@@ -20,48 +16,15 @@ Remove an entry once its fix lands.
 
 # Orchestration
 
-## 10. Failed `create_job` leaves a job with no tasks
-
-- **Where:** `aaiclick/orchestration/factories.py`
-- **Issue:** The job is committed before `commit_tasks`. If validation or the DB write fails, the job stays PENDING with no tasks:
-  - `roll_up_job` skips it.
-  - TTL cleanup ignores it.
-- **Fix:** On an exception from `commit_tasks`, mark the job FAILED with the error.
-
-## 11. IN-lists over 32,767 parameters
-
-- **Where:**
-  - `aaiclick/orchestration/background/background_worker.py`, functions `_delete_job_data` and `_delete_table_refs`
-  - `aaiclick/orchestration/execution/claiming.py`, function `clear_task`
-- **Issue:** `in_clause` emits one bind parameter per id, and asyncpg allows at most 32,767. A `map()` that creates 40k part tasks then cannot be deleted or cleared.
-- **Fix:**
-  - Use subqueries (`IN (SELECT id FROM tasks WHERE job_id = :job_id)`).
-  - Add a `LIMIT` to the unreferenced-tables SELECT.
-
-## 15. Dead-worker sweep races with heartbeat
-
-- **Where:**
-  - `aaiclick/orchestration/background/background_worker.py`
-  - `aaiclick/orchestration/background/pg_handler.py`
-  - `aaiclick/orchestration/background/sqlite_handler.py`
-- **Issue:** The stale workers are found with a SELECT, then the UPDATE is keyed on id alone. A worker that heartbeats between the two is still marked dead, and its running task is retried.
-- **Fix:** Use one statement: `UPDATE ... WHERE id IN (...) AND last_heartbeat < :cutoff RETURNING id`.
-
 ## 19. Dead attempt stays RUNNING in `run_statuses`
 
 - **Where:**
   - `aaiclick/orchestration/background/pg_handler.py`
   - `aaiclick/orchestration/background/sqlite_handler.py`
-- **Issue:** `mark_dead_execution_workers` changes the task status but not `run_statuses`. The UI then shows the dead attempt as running forever.
+- **Issue:** `release_dead_worker_tasks` changes the task status but not `run_statuses`. The UI then shows the dead attempt as running forever.
 - **Fix:** In `register_run`, close a trailing RUNNING entry as FAILED before appending a new one.
 
 # Data and Viewer
-
-## 16. `concat` scrambles row order within a source
-
-- **Where:** `aaiclick/data/object/ingest.py`
-- **Issue:** The INSERT orders only by `_src_ord`, so rows within one source come back in scan order. Single-part chdb hides this, but multi-part ClickHouse permutes the rows.
-- **Fix:** Also select each source's `aai_id`, and order by `_src_ord, aai_id`.
 
 ## 17. `join` does not quote identifiers
 
@@ -90,6 +53,7 @@ Remove an entry once its fix lands.
 
 # Smaller Findings
 
+- **Heartbeat revives a dead worker:** `execution_worker_heartbeat` sets a STOPPED worker back to ACTIVE after the sweep released its tasks (`aaiclick/orchestration/execution/execution_worker.py`).
 - **Username race:** a concurrent duplicate username returns 500 instead of 409 (`aaiclick/auth/store.py`).
 - **Reset links outlive a password change:** they stay usable after the password is set (`aaiclick/internal_api/password_reset.py`).
 - **Duplicate insert helpers:** `create_user` and `create_refresh_token` repeat `_insert` (`aaiclick/auth/store.py`).

@@ -285,8 +285,8 @@ class BackgroundHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def mark_dead_execution_workers(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
-        """Mark dead workers as STOPPED and release their tasks.
+    async def release_dead_worker_tasks(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
+        """Release the tasks of workers already marked STOPPED as dead.
 
         RUNNING / CLAIMED tasks become PENDING_FAILURE_CLEANUP. A
         PENDING_CANCELLED_CLEANUP task will never be reported back, so its

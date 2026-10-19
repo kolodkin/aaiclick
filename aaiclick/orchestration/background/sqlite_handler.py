@@ -14,12 +14,8 @@ class SqliteBackgroundHandler(BackgroundHandler):
     """SQLite: batch operations via IN clause."""
 
     @staticmethod
-    async def mark_dead_execution_workers(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
+    async def release_dead_worker_tasks(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
         placeholders, params = in_clause(dead_execution_worker_ids, "wid")
-        await session.execute(
-            text(f"UPDATE execution_workers SET status = 'STOPPED' WHERE id IN ({placeholders})"),
-            params,
-        )
         await session.execute(
             text(
                 f"UPDATE tasks SET status = :failure_cleanup, error = :error "
