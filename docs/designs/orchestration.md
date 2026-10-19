@@ -285,6 +285,38 @@ single source of truth.
 
 Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown, and per-task lifecycle creation.
 
+## Worker Liveness
+
+Rules for heartbeats, the dead-worker sweep and task ownership. They close
+the heartbeat revival race logged in `code_review.md` ("Heartbeat revives a
+dead worker").
+
+1. **`worker_timeout` is minutes, not seconds.** Long enough that a live
+   worker realistically never gets swept. Trade-off: a dead worker's tasks
+   wait that long before anyone takes them over.
+2. **Worker self-stop.** A worker stops itself, without waiting to be told,
+   when either a heartbeat write reports it was marked STOPPED (the
+   conditional update matched 0 rows), or its last successful heartbeat is
+   older than `SELF_STOP_AFTER` (e.g. 80% of `worker_timeout`). On self-stop
+   it drops its claimed tasks and exits; it rejoins only by registering as a
+   new `execution_workers` row. `SELF_STOP_AFTER < worker_timeout`, so a
+   worker cut off from the DB is already stopped by the time it is swept.
+3. **Heartbeat never revives a STOPPED worker.** The heartbeat is a
+   conditional update on `execution_workers` (only when `status != STOPPED`).
+   Ship this only after rule 2 is in place, or a revived worker keeps running
+   unseen.
+4. **Worker lifetime and task lifetime are independent.** Ownership lives on
+   the task (`tasks.execution_worker_id` plus a claim expiry), not derived
+   from worker status. The sweep marking a worker STOPPED does not fail or
+   reassign its tasks; a task is reclaimed only when its own claim expires. A
+   worker renews each claim it holds; if a renewal fails, it stops that task
+   (per-task self-stop). A task can outlive its worker (retried elsewhere); a
+   worker outlives many tasks.
+5. **Double processing cannot be fully avoided.** Tasks must be idempotent.
+   If a side effect cannot be repeated safely (payments, emails), carry a
+   per-claim attempt number (`run_epoch` is the existing fencing token) and
+   reject writes that carry an old one.
+
 ## Task Claiming
 
 **Implementation**: `aaiclick/orchestration/execution/claiming.py`
