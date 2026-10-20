@@ -106,16 +106,16 @@ CANCELLABLE_TASK_STATUSES: tuple[TaskStatus, ...] = (
 """Statuses a cancellation moves to ``PENDING_CANCELLED_CLEANUP``."""
 
 
+CANCELLING_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_PENDING_CANCELLED_CLEANUP, TASK_CANCELLED)
+"""Statuses under which a worker aborts the run and no other status write lands."""
+
+
 def end_current_run(run_statuses: list[TaskStatus], status: TaskStatus) -> list[TaskStatus]:
     """Stamp ``status`` on the in-flight run — the last entry, while it is still
     ``RUNNING``. A finished run keeps how it ended."""
     if run_statuses and run_statuses[-1] == TASK_RUNNING:
         return [*run_statuses[:-1], status]
     return run_statuses
-
-
-CANCELLING_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_PENDING_CANCELLED_CLEANUP, TASK_CANCELLED)
-"""Statuses under which a worker aborts the run and no other status write lands."""
 
 
 EXECUTION_WORKER_ACTIVE = "ACTIVE"
