@@ -22,10 +22,8 @@ Remove an entry once its fix lands.
 
 ## 19. Dead attempt stays RUNNING in `run_statuses`
 
-- **Where:**
-  - `aaiclick/orchestration/background/pg_handler.py`
-  - `aaiclick/orchestration/background/sqlite_handler.py`
-- **Issue:** `release_dead_worker_tasks` changes the task status but not `run_statuses`. The UI then shows the dead attempt as running forever.
+- **Where:** `aaiclick/orchestration/background/handler.py`
+- **Issue:** `release_expired_claims` changes the task status but not `run_statuses`. The UI then shows the dead attempt as running forever.
 - **Fix:** In `register_run`, close a trailing RUNNING entry as FAILED before appending a new one.
 
 ## 21. Returned tasks escalate entry_type, image and env
@@ -85,7 +83,6 @@ Remove an entry once its fix lands.
 - **`stage_in_json` leaks its temp dir on failure:** the `aaiclick-io-*` dir is created before kwarg resolution; a resolve error propagates before any caller learns the path, leaking one empty dir per failed attempt (`aaiclick/orchestration/execution/runner.py`).
 - **`LazyChClient.close()` before first use can reconnect:** with `_client` still `None` nothing is marked closed, so a holder calling `query()` later opens a connection nothing closes; add a `_closed` flag (`aaiclick/data/object_context/ch_client.py`).
 - **mp parent's "never query ClickHouse" is unenforced:** since #489 every `orch_context` installs a `LazyChClient`, so an accidental parent-side query silently takes the chdb lock instead of raising (`aaiclick/orchestration/orch_context.py`, `aaiclick/orchestration/execution/mp_worker.py`).
-- **Heartbeat revives a dead worker:** `execution_worker_heartbeat` sets a STOPPED worker back to ACTIVE after the sweep released its tasks. Pool workers ignore the heartbeat result, so they must exit on STOPPED before the heartbeat can skip it (`aaiclick/orchestration/execution/execution_worker.py`).
 - **Username race:** a concurrent duplicate username returns 500 instead of 409 (`aaiclick/auth/store.py`).
 - **Reset links outlive a password change:** they stay usable after the password is set (`aaiclick/internal_api/password_reset.py`).
 - **Duplicate insert helpers:** `create_user` and `create_refresh_token` repeat `_insert` (`aaiclick/auth/store.py`).

@@ -71,26 +71,39 @@ WORKER_ID = 999
 
 
 async def insert_task(
-    engine, task_id, job_id, *, status, attempt=0, max_retries=0, run_ids="[]", error=None, execution_worker_id=None
+    engine,
+    task_id,
+    job_id,
+    *,
+    status,
+    attempt=0,
+    max_retries=0,
+    run_ids="[]",
+    error=None,
+    execution_worker_id=None,
+    claim_expired_by=None,
 ):
+    """``claim_expired_by`` (a timedelta) sets ``claim_expires_at`` that far in the past."""
+    now = utc_now()
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
                 "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, "
-                "created_at, max_retries, attempt, run_ids, run_statuses, error, execution_worker_id) "
+                "created_at, max_retries, attempt, run_ids, run_statuses, error, execution_worker_id, claim_expires_at) "
                 "VALUES (:id, :job_id, 'test.func', 'test', '{}', :status, "
-                ":now, :max_retries, :attempt, :run_ids, '[]', :error, :execution_worker_id)"
+                ":now, :max_retries, :attempt, :run_ids, '[]', :error, :execution_worker_id, :claim_expires_at)"
             ),
             {
                 "id": task_id,
                 "job_id": job_id,
                 "status": status,
-                "now": utc_now(),
+                "now": now,
                 "max_retries": max_retries,
                 "attempt": attempt,
                 "run_ids": run_ids,
                 "error": error,
                 "execution_worker_id": execution_worker_id,
+                "claim_expires_at": None if claim_expired_by is None else now - claim_expired_by,
             },
         )
         await session.commit()

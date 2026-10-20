@@ -5,38 +5,12 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import TASK_CLAIMED, TASK_PENDING_CANCELLED_CLEANUP, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING
 from ..sql_utils import batched, in_clause
-from .handler import DEAD_WORKER_ERROR, BackgroundHandler
+from .handler import BackgroundHandler
 
 
 class SqliteBackgroundHandler(BackgroundHandler):
     """SQLite: batch operations via IN clause."""
-
-    @staticmethod
-    async def release_dead_worker_tasks(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
-        placeholders, params = in_clause(dead_execution_worker_ids, "wid")
-        await session.execute(
-            text(
-                f"UPDATE tasks SET status = :failure_cleanup, error = :error "
-                f"WHERE execution_worker_id IN ({placeholders}) "
-                f"AND status IN (:running, :claimed)"
-            ),
-            {
-                **params,
-                "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
-                "error": DEAD_WORKER_ERROR,
-                "running": TASK_RUNNING,
-                "claimed": TASK_CLAIMED,
-            },
-        )
-        await session.execute(
-            text(
-                f"UPDATE tasks SET execution_worker_id = NULL "
-                f"WHERE execution_worker_id IN ({placeholders}) AND status = :cancelled_cleanup"
-            ),
-            {**params, "cancelled_cleanup": TASK_PENDING_CANCELLED_CLEANUP},
-        )
 
     @staticmethod
     async def clean_task_runs(session: AsyncSession, run_ids: list[str]) -> None:

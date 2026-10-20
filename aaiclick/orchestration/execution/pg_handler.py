@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from ..models import Task
+from ..models import WORKER_TIMEOUT, Task
 from ..runner_config import ENTRY_TYPES
 from .db_handler import DbHandler
 from .sql_loader import load_sql
@@ -32,6 +32,7 @@ class PgDbHandler(DbHandler):
             {
                 "execution_worker_id": execution_worker_id,
                 "now": now,
+                "claim_expires_at": now + WORKER_TIMEOUT,
                 # The Python worker executes every entry type and dispatches
                 # image-based tasks itself, so its capability set is total.
                 "entry_types": list(ENTRY_TYPES),

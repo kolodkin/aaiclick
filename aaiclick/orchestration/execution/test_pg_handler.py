@@ -38,7 +38,7 @@ def test_shared_sql_binds_are_exactly_the_contract():
     (PostgreSQL masks it by reusing ``$n`` per name).
     """
     expected = {
-        "claim_next_task.sql": {"execution_worker_id", "now", "entry_types", "allow_image_tasks"},
+        "claim_next_task.sql": {"execution_worker_id", "now", "claim_expires_at", "entry_types", "allow_image_tasks"},
         "job_rollup.sql": {"job_id"},
         "complete_job.sql": {"status", "now", "error", "job_id"},
     }

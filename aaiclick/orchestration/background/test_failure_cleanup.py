@@ -9,7 +9,7 @@ Verifies that the background worker correctly:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -266,3 +266,39 @@ async def test_failure_cleanup_bumps_run_epoch(bg_db, max_retries, expected_stat
 
     assert (await _get_task_status(bg_db, 100))[0] == expected_status
     assert await _get_run_epoch(bg_db, 100) == 1
+
+
+async def test_dead_worker_sweep_leaves_its_running_task(bg_db):
+    """Worker and task lifetimes are independent: a swept worker is STOPPED,
+    but its task keeps running until its own claim expires."""
+    await insert_job(bg_db, 1000)
+    await insert_worker(bg_db, WORKER_ID, stale_by=timedelta(hours=1))
+    await insert_task(bg_db, 100, 1000, status="RUNNING", execution_worker_id=WORKER_ID)
+    worker = make_worker(bg_db)
+
+    await worker._cleanup_dead_workers()
+    await worker._release_expired_claims()
+
+    async with AsyncSession(bg_db) as session:
+        status = await session.execute(text("SELECT status FROM execution_workers WHERE id = :id"), {"id": WORKER_ID})
+        assert status.scalar_one() == "STOPPED"
+    status, _, _, _, owner, _ = await _get_task_status(bg_db, 100)
+    assert (status, owner) == ("RUNNING", WORKER_ID)
+
+
+async def test_expired_claim_is_reclaimed_and_fenced(bg_db):
+    """An expired RUNNING claim goes to PENDING_FAILURE_CLEANUP with a bumped
+    ``run_epoch``, so the lost owner's late writes are rejected."""
+    await insert_job(bg_db, 1000)
+    await insert_worker(bg_db, WORKER_ID)
+    await insert_task(
+        bg_db, 100, 1000, status="RUNNING", execution_worker_id=WORKER_ID, claim_expired_by=timedelta(seconds=1)
+    )
+    await insert_task(bg_db, 101, 1000, status="RUNNING", execution_worker_id=WORKER_ID)
+
+    await make_worker(bg_db)._release_expired_claims()
+
+    status, _, _, error, _, _ = await _get_task_status(bg_db, 100)
+    assert (status, error) == ("PENDING_FAILURE_CLEANUP", "Task claim expired (worker lost)")
+    assert await _get_run_epoch(bg_db, 100) == 1
+    assert (await _get_task_status(bg_db, 101))[0] == "RUNNING"

@@ -6,6 +6,7 @@
 -- bound VALUE, never a structural edit:
 --   execution_worker_id  claiming worker id
 --   now                  claim timestamp (repeated)
+--   claim_expires_at     ownership expiry (now + WORKER_TIMEOUT)
 --   entry_types          entry types this worker can execute
 --   allow_image_tasks    false pins the worker to host-subprocess tasks
 --                         (image_source both SQL NULL and JSON null mean
@@ -19,7 +20,8 @@ WITH claimed_task AS (
     SET
         status = 'RUNNING',
         execution_worker_id = :execution_worker_id,
-        claimed_at = :now
+        claimed_at = :now,
+        claim_expires_at = :claim_expires_at
     WHERE id = (
         SELECT t.id FROM tasks t
         JOIN jobs j ON t.job_id = j.id

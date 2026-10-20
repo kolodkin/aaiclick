@@ -3,7 +3,10 @@
 See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
 """
 
-from sqlalchemy import text
+from typing import cast
+
+from sqlalchemy import text, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -20,6 +23,7 @@ from ..models import (
     TASK_PENDING,
     TASK_RUNNING,
     TERMINAL_JOB_STATUSES,
+    WORKER_TIMEOUT,
     Job,
     JobStatus,
     Task,
@@ -68,6 +72,31 @@ async def claim_next_task(execution_worker_id: int) -> Task | None:
         task = await handler.claim_next_task(session, execution_worker_id, utc_now())
         await session.commit()
         return task
+
+
+async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: int) -> bool:
+    """Push the task's ``claim_expires_at`` out by ``WORKER_TIMEOUT``.
+
+    Ownership is ``execution_worker_id`` plus ``run_epoch``, nothing else: a
+    cancelled run still owns its task while the worker kills it. Returns False
+    once the run no longer does (cleared, or reclaimed after its claim
+    expired); the cancellation watcher aborts it.
+    """
+    async with get_sql_session() as session:
+        result = cast(
+            CursorResult,
+            await session.execute(
+                update(Task)
+                .where(
+                    col(Task.id) == task_id,
+                    col(Task.execution_worker_id) == execution_worker_id,
+                    col(Task.run_epoch) == expected_epoch,
+                )
+                .values(claim_expires_at=utc_now() + WORKER_TIMEOUT)
+            ),
+        )
+        await session.commit()
+        return result.rowcount == 1
 
 
 async def update_task_status(
@@ -365,7 +394,7 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
             await session.execute(
                 text(
                     f"UPDATE tasks SET status = :pending, run_epoch = run_epoch + 1, "
-                    f"execution_worker_id = NULL, claimed_at = NULL, started_at = NULL, "
+                    f"execution_worker_id = NULL, claimed_at = NULL, claim_expires_at = NULL, started_at = NULL, "
                     f"completed_at = NULL, error = NULL, result = NULL, "
                     f"retry_after = NULL WHERE id IN ({ph})"
                 ),
