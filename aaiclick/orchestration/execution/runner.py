@@ -399,7 +399,7 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
 
                 # Register returned tasks INSIDE task_scope so the registry
                 # (ContextVar) that was populated during func() is still active.
-                data_result = await register_returned_tasks(result, task.id, task.job_id)
+                data_result = await register_returned_tasks(result, task.id, task.job_id, task.entry_type)
 
                 # Last, once nothing can fail: a failed attempt's pins hold its inputs for the retry.
                 if lifecycle is not None:
@@ -501,7 +501,7 @@ async def finish_shell_result(task: Task, out_value: Any) -> Any:
     if ref_kind(out_value) == NATIVE:
         out_value = out_value[VALUE]
     with current_task_info(TaskInfo.from_task(task)), fresh_task_registry():
-        return await register_returned_tasks(out_value, task.id, task.job_id)
+        return await register_returned_tasks(out_value, task.id, task.job_id, task.entry_type)
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
@@ -710,12 +710,14 @@ def _is_dag_dict(value: Any) -> bool:
 Handles = dict[str, "Task | Group"]
 
 
-def _build_dag_from_dicts(items: list[dict]) -> tuple[list[Task | Group], Handles]:
+def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tuple[list[Task | Group], Handles]:
     """Build ``Task``/``Group`` objects from their JSON form, minting ids.
 
     Returns the nodes in order plus the handle → node map for the handles the
     dicts declared. Handles are scoped to this one return value. Each task
-    dict passes the same entry validation a Python caller gets.
+    dict passes the same entry validation a Python caller gets, and only a
+    ``module`` parent may return a ``module`` child: module tasks run with
+    aaiclick's credentials, which a shell/jvm container must not grant itself.
 
     Raises:
         ValueError: on a duplicate handle or an invalid entry.
@@ -741,7 +743,10 @@ def _build_dag_from_dicts(items: list[dict]) -> tuple[list[Task | Group], Handle
                 group.add_task(build(member))
             return group
         fields.pop(DEPENDS_ON, None)  # applied after every handle is known
-        validate_task_entry(entry_type=fields.get("entry_type", ENTRY_MODULE), command=fields.get("command"))
+        entry_type = fields.get("entry_type", ENTRY_MODULE)
+        validate_task_entry(entry_type=entry_type, command=fields.get("command"))
+        if entry_type == ENTRY_MODULE and parent_entry_type != ENTRY_MODULE:
+            raise ValueError(f"a {parent_entry_type} task cannot return a module task")
         task = create_task(fields.pop(ENTRYPOINT, None), **fields)
         claim(handle, task)
         return task
@@ -753,12 +758,19 @@ _HANDLE_KEYS = {UPSTREAM: TASK_ID, GROUP_RESULTS: GROUP_ID}
 
 
 def _handle_ref(value: Any) -> tuple[str, str] | None:
-    """``(kind, handle)`` when ``value`` is an upstream/group ref naming a handle."""
+    """``(kind, handle)`` when ``value`` is an upstream/group ref.
+
+    Raises:
+        ValueError: when the ref names a raw id instead of a sibling handle —
+            it would read any task's result, in any job.
+    """
     kind = ref_kind(value)
     if kind is None or kind not in _HANDLE_KEYS:
         return None
     handle = value.get(_HANDLE_KEYS[kind])
-    return (kind, handle) if isinstance(handle, str) else None
+    if not isinstance(handle, str):
+        raise ValueError(f"a returned {kind} ref must name a sibling handle, not {handle!r}")
+    return kind, handle
 
 
 def _handle_node(handles: Handles, handle: str, kind: str) -> Task | Group:
@@ -776,14 +788,14 @@ def _handle_node(handles: Handles, handle: str, kind: str) -> Task | Group:
 def _swap_handles(value: Any, handles: Handles, resolved: list[Task | Group]) -> Any:
     """Replace string handles inside ``upstream`` / ``group_results`` refs with
     the ids minted for them, appending each node to ``resolved``; recurses
-    through lists and dicts.
+    through lists and dicts, leaving ``native`` values literal.
 
     Raises:
         ValueError: on an undeclared handle or one of the wrong kind.
     """
     if isinstance(value, list):
         return [_swap_handles(v, handles, resolved) for v in value]
-    if not isinstance(value, dict):
+    if not isinstance(value, dict) or ref_kind(value) == NATIVE:
         return value
     if (ref := _handle_ref(value)) is not None:
         kind, handle = ref
@@ -853,16 +865,16 @@ def _dict_result_data(data: Any, handles: Handles) -> Any:
     return data
 
 
-def _register_dict_dag(specs: list, data: Any) -> tuple[list[Task | Group], Any]:
+def _register_dict_dag(specs: list, data: Any, parent_entry_type: EntryType) -> tuple[list[Task | Group], Any]:
     """Build the nodes of a dict-form DAG and resolve its ``data``."""
     if not all(map(_is_dag_dict, specs)):
         raise TypeError("a returned task list may hold only task/group dicts")
-    nodes, handles = _build_dag_from_dicts(specs)
+    nodes, handles = _build_dag_from_dicts(specs, parent_entry_type)
     _wire_dag_dicts(specs, nodes, handles)
     return _tasks_from(nodes), _dict_result_data(data, handles)
 
 
-async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
+async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int, parent_entry_type: EntryType) -> Any:
     """Register dynamic child tasks returned from a task function.
 
     Handles these return shapes:
@@ -886,6 +898,8 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
         result: The raw return value from the task function
         parent_task_id: ID of the task that returned this result
         job_id: ID of the job these tasks belong to
+        parent_entry_type: The parent's entry type, which bounds its children's
+            (see ``_build_dag_from_dicts``)
 
     Returns:
         The data portion of the result for serialization, or None.
@@ -897,9 +911,11 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
         return None
 
     if isinstance(result, dict) and ref_kind(result) == TASK_RESULT:
-        task_items, data_result = _register_dict_dag(result.get(TASKS, []), result.get(DATA))
+        task_items, data_result = _register_dict_dag(result.get(TASKS, []), result.get(DATA), parent_entry_type)
     elif _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
-        task_items, data_result = _register_dict_dag(result if isinstance(result, list) else [result], None)
+        task_items, data_result = _register_dict_dag(
+            result if isinstance(result, list) else [result], None, parent_entry_type
+        )
     elif isinstance(result, TaskResult):
         task_items = _tasks_from(result.tasks)
         data_result = result.data

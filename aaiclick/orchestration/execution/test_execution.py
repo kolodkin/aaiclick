@@ -49,6 +49,7 @@ from aaiclick.orchestration.fixtures.dict_return_pipelines import (
     spawn_group_data,
     spawn_group_depends_on,
     spawn_native_data,
+    spawn_raw_task_id,
     spawn_result_without_tasks,
     spawn_unknown_handle,
     spawn_wrong_handle_kind,
@@ -763,6 +764,41 @@ async def test_finish_shell_result_children_of_claimed_task(orch_ctx):
     assert len(await get_tasks_for_job(job.id)) == 2
 
 
+_MODULE_CHILD = {"_aaiclick_type": "task", "entry_type": "module", "entrypoint": "os.getcwd"}
+
+
+@pytest.mark.parametrize(
+    "child",
+    [
+        pytest.param(_MODULE_CHILD, id="explicit"),
+        pytest.param({"_aaiclick_type": "task", "entrypoint": "os.getcwd"}, id="default-entry-type"),
+        pytest.param({"_aaiclick_type": "group", "tasks": [_MODULE_CHILD]}, id="in-group"),
+    ],
+)
+async def test_finish_shell_result_rejects_module_child(orch_ctx, child):
+    """A module child would run with aaiclick's credentials, which a shell
+    container must not grant itself."""
+    task = create_task(None, entry_type="shell", command=["true"])
+    with pytest.raises(ValueError, match="a shell task cannot return a module task"):
+        await finish_shell_result(task, child)
+
+
+async def test_returned_native_kwarg_stays_literal(orch_ctx):
+    """A ``native`` value is never interpreted, so an upstream-shaped dict inside it is plain data."""
+    job = await _shell_job_coro("shell_native_literal", ["true"])
+    parent = (await get_tasks_for_job(job.id))[0]
+    literal = upstream_ref(5)
+    child = {
+        "_aaiclick_type": "task",
+        "entry_type": "shell",
+        "command": ["true"],
+        "kwargs": {"cfg": native_ref(literal)},
+    }
+    await finish_shell_result(parent, child)
+    spawned = next(t for t in await get_tasks_for_job(job.id) if t.id != parent.id)
+    assert spawned.kwargs == {"cfg": native_ref(literal)}
+
+
 async def test_run_job_tasks_dict_return_native_data(orch_ctx):
     job = await create_job("dict_native_data", create_task(spawn_native_data, name="dict_native_data"))
     await run_job_tasks(job)
@@ -776,6 +812,7 @@ async def test_run_job_tasks_dict_return_native_data(orch_ctx):
     [
         pytest.param(spawn_duplicate_handle, "duplicate handle 'w1'", id="duplicate"),
         pytest.param(spawn_unknown_handle, "unknown handle 'nope'", id="unknown"),
+        pytest.param(spawn_raw_task_id, "must name a sibling handle, not 1", id="raw-task-id"),
         pytest.param(spawn_bad_entry_type, "unknown entry_type 'banana'", id="bad-entry-type"),
         pytest.param(spawn_group_data, "data may be a plain value or a task handle", id="group-data"),
         pytest.param(spawn_wrong_handle_kind, "handle 'w1' names a task, not a group", id="wrong-kind"),
@@ -858,7 +895,9 @@ async def test_hold_covers_members_added_to_a_successor_group_later(orch_ctx):
     await commit_tasks([parent, group], job_id=job.id)
 
     child = create_task("mod.child")
-    await register_returned_tasks(task_result(data=child, tasks=[child]), parent_task_id=parent.id, job_id=job.id)
+    await register_returned_tasks(
+        task_result(data=child, tasks=[child]), parent_task_id=parent.id, job_id=job.id, parent_entry_type="module"
+    )
 
     member = create_task("mod.member")
     member.group_id = group.id
@@ -894,7 +933,9 @@ async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):
         },
     )
 
-    await register_returned_tasks(tasks_list(child), parent_task_id=parent.id, job_id=job.id)
+    await register_returned_tasks(
+        tasks_list(child), parent_task_id=parent.id, job_id=job.id, parent_entry_type="module"
+    )
 
     async with get_sql_session() as session:
         rows = await session.execute(text("SELECT table_name, task_id FROM table_pin_refs"))
@@ -911,7 +952,7 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
     c2 = create_task("mod.child2")
 
     data_result = await register_returned_tasks(
-        task_result(data="my_data", tasks=[c1, c2]), parent_task_id=parent.id, job_id=job.id
+        task_result(data="my_data", tasks=[c1, c2]), parent_task_id=parent.id, job_id=job.id, parent_entry_type="module"
     )
     assert data_result == "my_data"
 
@@ -935,7 +976,7 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
 )
 async def test_register_returned_tasks_passes_data_through(orch_ctx, value):
     """Returns holding no Task/Group register nothing and come back unchanged."""
-    assert await register_returned_tasks(value, parent_task_id=1, job_id=1) == value
+    assert await register_returned_tasks(value, parent_task_id=1, job_id=1, parent_entry_type="module") == value
 
 
 @pytest.mark.parametrize(
@@ -954,7 +995,10 @@ async def test_register_returned_tasks_flat_shapes(orch_ctx, shape):
 
     payload = shape(create_task(f"mod.child{i}") for i in range(4))
 
-    assert await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id) is None
+    assert (
+        await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id, parent_entry_type="module")
+        is None
+    )
 
     async with get_sql_session() as session:
         result = await session.execute(
@@ -978,7 +1022,7 @@ async def test_register_returned_tasks_rejects_nesting(orch_ctx, build_payload):
     payload = build_payload(create_task("mod.child0"), create_task("mod.child1"))
 
     with pytest.raises(TypeError, match="nested"):
-        await register_returned_tasks(payload, parent_task_id=1, job_id=1)
+        await register_returned_tasks(payload, parent_task_id=1, job_id=1, parent_entry_type="module")
 
 
 async def test_register_returned_tasks_list_mixing_tasks_and_data(orch_ctx):
@@ -988,7 +1032,9 @@ async def test_register_returned_tasks_list_mixing_tasks_and_data(orch_ctx):
     parent.job_id = job.id
 
     with pytest.raises(TypeError, match="task_result"):
-        await register_returned_tasks([create_task("mod.child1"), "my_data"], parent_task_id=parent.id, job_id=job.id)
+        await register_returned_tasks(
+            [create_task("mod.child1"), "my_data"], parent_task_id=parent.id, job_id=job.id, parent_entry_type="module"
+        )
 
 
 # Dynamic pipeline integration tests

@@ -66,6 +66,8 @@ reserved key `_aaiclick_type` is one of these shapes:
 | `view`           | `table`, `view_schema`                                | A filtered `object` — Python tasks only         |
 | `pydantic`       | `type` (dotted class path), `data`                    | A Pydantic model — Python tasks only            |
 
+Refs inside returned tasks must name a sibling `id`; a database id there fails the parent.
+
 !!! warning "`_aaiclick_type` is reserved"
     A dict with that key is interpreted, never passed through as data, and an
     unknown value fails the task.
@@ -102,7 +104,7 @@ a single `task`, or a list of them, works too when there is no data.
 | Field                                   | Meaning                                                     |
 |-----------------------------------------|-------------------------------------------------------------|
 | `id`                                    | Name siblings refer to (optional)                           |
-| `entry_type`                            | `"shell"`, `"module"` (Python) or `"jvm"`                   |
+| `entry_type`                            | `"shell"` or `"jvm"`; `"module"` only from a Python parent  |
 | `command` / `entrypoint`                | Argv for shell; dotted path or Java class name otherwise    |
 | `kwargs`                                | JSON object; values may be `upstream` refs to sibling `id`s |
 | `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name  |

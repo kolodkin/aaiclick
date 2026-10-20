@@ -50,7 +50,7 @@ async def test_repeated_bad_passwords_lock_login(orch_ctx):
         with pytest.raises(Unauthorized, match="invalid username or password"):
             await auth.login(LoginRequest(username="alice", password="nope"), secret=SECRET)
 
-    with pytest.raises(Unauthorized, match="too many failed attempts"):
+    with pytest.raises(Unauthorized, match="invalid username or password"):
         await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
 
 
@@ -70,7 +70,7 @@ async def test_password_change_guesses_count_toward_the_lock(orch_ctx):
         with pytest.raises(Unauthorized):
             await auth.change_password(view.id, ChangePasswordRequest(current_password="nope", new_password="x"))
 
-    with pytest.raises(Unauthorized, match="too many failed attempts"):
+    with pytest.raises(Unauthorized, match="invalid username or password"):
         await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
 
 
