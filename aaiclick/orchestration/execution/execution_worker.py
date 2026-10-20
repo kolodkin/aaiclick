@@ -36,6 +36,7 @@ from ..models import (
     ExecutionWorkerStatus,
     Task,
     TaskStatus,
+    end_current_run,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
@@ -43,7 +44,6 @@ from .claiming import (
     check_run_aborted,
     claim_next_task,
     complete_task_and_roll_up,
-    end_current_run,
     release_cancelled_run,
     renew_claim,
 )

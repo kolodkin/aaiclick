@@ -10,9 +10,10 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import NamedTuple, cast
 
-from sqlalchemy import text
+from sqlalchemy import select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col
 
 from aaiclick.backend import is_sqlite
 
@@ -29,7 +30,9 @@ from ..models import (
     TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
     TASK_UPSTREAM_FAILED,
+    Task,
     TaskStatus,
+    end_current_run,
 )
 from ..sql_utils import in_clause
 
@@ -288,23 +291,24 @@ class BackgroundHandler(ABC):
     async def release_expired_claims(session: AsyncSession, now: datetime) -> None:
         """Reclaim tasks whose claim expired, whatever their worker's status.
 
-        RUNNING tasks become PENDING_FAILURE_CLEANUP; ``run_epoch``
-        moves on so the lost owner's late writes are fenced. A
+        RUNNING tasks become PENDING_FAILURE_CLEANUP with their run closed as
+        FAILED; ``run_epoch`` moves on so the lost owner's late writes are
+        fenced. A
         PENDING_CANCELLED_CLEANUP task will never be reported back, so its
         ownership is released here (as ``release_cancelled_run`` would).
         """
-        await session.execute(
-            text(
-                "UPDATE tasks SET status = :failure_cleanup, error = :error, run_epoch = run_epoch + 1 "
-                "WHERE status = :running AND claim_expires_at < :now"
-            ),
-            {
-                "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
-                "error": DEAD_WORKER_ERROR,
-                "running": TASK_RUNNING,
-                "now": now,
-            },
-        )
+        expired = (col(Task.status) == TASK_RUNNING) & (col(Task.claim_expires_at) < now)
+        for task_id, run_statuses in (await session.execute(select(Task.id, Task.run_statuses).where(expired))).all():
+            await session.execute(
+                update(Task)
+                .where(col(Task.id) == task_id, expired)
+                .values(
+                    status=TASK_PENDING_FAILURE_CLEANUP,
+                    error=DEAD_WORKER_ERROR,
+                    run_epoch=col(Task.run_epoch) + 1,
+                    run_statuses=end_current_run(run_statuses, TASK_FAILED),
+                )
+            )
         await session.execute(
             text(
                 "UPDATE tasks SET execution_worker_id = NULL "

@@ -77,6 +77,7 @@ class DashboardIn(BaseModel):
 
 
 class Dashboard(DashboardIn):
+    queries: dict[str, ObjectQuery]  # uncapped: the cap guards writes, not dashboards already stored
     updated_at: datetime
 
 

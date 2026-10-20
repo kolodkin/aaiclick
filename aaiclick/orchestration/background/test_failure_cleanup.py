@@ -8,6 +8,7 @@ Verifies that the background worker correctly:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
@@ -287,12 +288,19 @@ async def test_dead_worker_sweep_leaves_its_running_task(bg_db):
 
 
 async def test_expired_claim_is_reclaimed_and_fenced(bg_db):
-    """An expired RUNNING claim goes to PENDING_FAILURE_CLEANUP with a bumped
-    ``run_epoch``, so the lost owner's late writes are rejected."""
+    """An expired RUNNING claim goes to PENDING_FAILURE_CLEANUP with its run
+    closed as FAILED and a bumped ``run_epoch``, so the lost owner's late
+    writes are rejected."""
     await insert_job(bg_db, 1000)
     await insert_worker(bg_db, WORKER_ID)
     await insert_task(
-        bg_db, 100, 1000, status="RUNNING", execution_worker_id=WORKER_ID, claim_expired_by=timedelta(seconds=1)
+        bg_db,
+        100,
+        1000,
+        status="RUNNING",
+        run_statuses='["FAILED", "RUNNING"]',
+        execution_worker_id=WORKER_ID,
+        claim_expired_by=timedelta(seconds=1),
     )
     await insert_task(bg_db, 101, 1000, status="RUNNING", execution_worker_id=WORKER_ID)
 
@@ -301,4 +309,8 @@ async def test_expired_claim_is_reclaimed_and_fenced(bg_db):
     status, _, _, error, _, _ = await _get_task_status(bg_db, 100)
     assert (status, error) == ("PENDING_FAILURE_CLEANUP", "Task claim expired (worker lost)")
     assert await _get_run_epoch(bg_db, 100) == 1
+    async with AsyncSession(bg_db) as session:
+        run_statuses = (await session.execute(text("SELECT run_statuses FROM tasks WHERE id = 100"))).scalar_one()
+    # A list on PostgreSQL, JSON text on SQLite.
+    assert (run_statuses if isinstance(run_statuses, list) else json.loads(run_statuses)) == ["FAILED", "FAILED"]
     assert (await _get_task_status(bg_db, 101))[0] == "RUNNING"

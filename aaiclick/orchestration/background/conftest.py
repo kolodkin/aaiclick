@@ -79,6 +79,7 @@ async def insert_task(
     attempt=0,
     max_retries=0,
     run_ids="[]",
+    run_statuses="[]",
     error=None,
     execution_worker_id=None,
     claim_expired_by=None,
@@ -91,7 +92,7 @@ async def insert_task(
                 "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, "
                 "created_at, max_retries, attempt, run_ids, run_statuses, error, execution_worker_id, claim_expires_at) "
                 "VALUES (:id, :job_id, 'test.func', 'test', '{}', :status, "
-                ":now, :max_retries, :attempt, :run_ids, '[]', :error, :execution_worker_id, :claim_expires_at)"
+                ":now, :max_retries, :attempt, :run_ids, :run_statuses, :error, :execution_worker_id, :claim_expires_at)"
             ),
             {
                 "id": task_id,
@@ -101,6 +102,7 @@ async def insert_task(
                 "max_retries": max_retries,
                 "attempt": attempt,
                 "run_ids": run_ids,
+                "run_statuses": run_statuses,
                 "error": error,
                 "execution_worker_id": execution_worker_id,
                 "claim_expires_at": None if claim_expired_by is None else now - claim_expired_by,
