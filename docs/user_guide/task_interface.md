@@ -66,6 +66,8 @@ reserved key `_aaiclick_type` is one of these shapes:
 | `view`           | `table`, `view_schema`                                | A filtered `object` — Python tasks only         |
 | `pydantic`       | `type` (dotted class path), `data`                    | A Pydantic model — Python tasks only            |
 
+Refs inside returned tasks must name a sibling `id`; a database id there fails the parent.
+
 !!! warning "`_aaiclick_type` is reserved"
     A dict with that key is interpreted, never passed through as data, and an
     unknown value fails the task.
