@@ -49,6 +49,7 @@ from aaiclick.orchestration.fixtures.dict_return_pipelines import (
     spawn_group_data,
     spawn_group_depends_on,
     spawn_native_data,
+    spawn_raw_task_id,
     spawn_result_without_tasks,
     spawn_unknown_handle,
     spawn_wrong_handle_kind,
@@ -763,6 +764,15 @@ async def test_finish_shell_result_children_of_claimed_task(orch_ctx):
     assert len(await get_tasks_for_job(job.id)) == 2
 
 
+async def test_finish_shell_result_rejects_module_child(orch_ctx):
+    """A module child would run with aaiclick's credentials, which a shell
+    container must not grant itself."""
+    task = create_task(None, entry_type="shell", command=["true"])
+    child = {"_aaiclick_type": "task", "entry_type": "module", "entrypoint": "os.getcwd"}
+    with pytest.raises(ValueError, match="a shell task cannot return a module task"):
+        await finish_shell_result(task, child)
+
+
 async def test_run_job_tasks_dict_return_native_data(orch_ctx):
     job = await create_job("dict_native_data", create_task(spawn_native_data, name="dict_native_data"))
     await run_job_tasks(job)
@@ -776,6 +786,7 @@ async def test_run_job_tasks_dict_return_native_data(orch_ctx):
     [
         pytest.param(spawn_duplicate_handle, "duplicate handle 'w1'", id="duplicate"),
         pytest.param(spawn_unknown_handle, "unknown handle 'nope'", id="unknown"),
+        pytest.param(spawn_raw_task_id, "must name a sibling handle, not 1", id="raw-task-id"),
         pytest.param(spawn_bad_entry_type, "unknown entry_type 'banana'", id="bad-entry-type"),
         pytest.param(spawn_group_data, "data may be a plain value or a task handle", id="group-data"),
         pytest.param(spawn_wrong_handle_kind, "handle 'w1' names a task, not a group", id="wrong-kind"),

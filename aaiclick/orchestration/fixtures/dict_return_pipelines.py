@@ -71,6 +71,15 @@ async def spawn_unknown_handle() -> dict:
 
 
 @task
+async def spawn_raw_task_id() -> dict:
+    return {
+        "_aaiclick_type": "task_result",
+        "data": None,
+        "tasks": [_task_dict("fin", "total", {"parts": [upstream_ref(1)]})],
+    }
+
+
+@task
 async def spawn_bad_entry_type() -> dict:
     return {"_aaiclick_type": "task", "entry_type": "banana", "entrypoint": f"{_MODULE}.double", "kwargs": {"x": 1}}
 

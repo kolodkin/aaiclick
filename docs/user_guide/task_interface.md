@@ -102,7 +102,7 @@ a single `task`, or a list of them, works too when there is no data.
 | Field                                   | Meaning                                                     |
 |-----------------------------------------|-------------------------------------------------------------|
 | `id`                                    | Name siblings refer to (optional)                           |
-| `entry_type`                            | `"shell"`, `"module"` (Python) or `"jvm"`                   |
+| `entry_type`                            | `"shell"` or `"jvm"`; `"module"` only from a Python parent  |
 | `command` / `entrypoint`                | Argv for shell; dotted path or Java class name otherwise    |
 | `kwargs`                                | JSON object; values may be `upstream` refs to sibling `id`s |
 | `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name  |

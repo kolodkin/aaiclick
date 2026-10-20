@@ -117,5 +117,5 @@ async def test_repeated_bad_codes_lock_login(orch_ctx):
         with pytest.raises(Unauthorized, match="invalid multi-factor code"):
             await auth.login(LoginRequest(username="alice", password="pw", totp_code=wrong), secret=SECRET)
 
-    with pytest.raises(Unauthorized, match="too many failed attempts"):
+    with pytest.raises(Unauthorized, match="invalid username or password"):
         await auth.login(LoginRequest(username="alice", password="pw", totp_code=_next_code(secret)), secret=SECRET)

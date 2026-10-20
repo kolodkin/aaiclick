@@ -13,10 +13,7 @@ Remove an entry once its fix lands.
 | 18 | Dashboard panels run without a limit                 | Low      | Viewer        |
 | 19 | Dead attempt stays RUNNING in `run_statuses`         | Low      | Orchestration |
 | 20 | Dead code and redundant writes                       | Low      | Lean          |
-| 21 | Returned tasks escalate entry_type, image and env    | High     | Orchestration |
 | 22 | Ref key rename (#484) has no migration               | Medium   | Data          |
-| 23 | k8s wait loops count only sleep time toward timeout  | Medium   | Orchestration |
-| 24 | Login lockout replies before bcrypt                  | Low      | Auth          |
 
 # Orchestration
 
@@ -26,24 +23,11 @@ Remove an entry once its fix lands.
 - **Issue:** `release_expired_claims` changes the task status but not `run_statuses`. The UI then shows the dead attempt as running forever.
 - **Fix:** In `register_run`, close a trailing RUNNING entry as FAILED before appending a new one.
 
-## 21. Returned tasks escalate entry_type, image and env
-
-- **Where:** `aaiclick/orchestration/execution/runner.py` (`finish_shell_result` → `_build_dag_from_dicts`), `aaiclick/orchestration/image_injection.py`
-- **Issue:** A shell/jvm container's `out.json` task dicts pass `entry_type`, `image`, `command_env` and `git_*` verbatim to `create_task`. A compromised user image can return a *module* child that inherits the runner env (SQL credentials) in Docker, or runs as a host subprocess (any importable callable) when images are NULL. `validate_plain_data_plane_tasks` skips module children; nothing requires a child's entry_type to be no stronger than its parent's.
-- **Also:** `_handle_ref` treats only string `task_id`s as handles, so a returned `{"_aaiclick_type": "upstream", "task_id": <int>}` reaches `_resolve_upstream_ref`, which has no `job_id` filter — a cross-job result read (needs a guessed snowflake id).
-- **Fix:** at registration, reject returned tasks whose `entry_type` differs from the parent's (or whitelist), and scope `_resolve_upstream_ref` to the parent's job.
-
 ## 22. Ref key rename (#484) has no migration
 
 - **Where:** `aaiclick/data/object/refs.py`
 - **Issue:** #484 renamed the ref discriminators (`ref_type` / `object_type` / `native_value` → `_aaiclick_type`) with no compat shim or data migration. Rows written before the upgrade (in-flight `tasks.kwargs`, `remote_task_results`, persistent object refs) silently deserialize as plain dicts; old persistent refs stop being recognized by `is_persistent_object_ref`, so their tables become sweepable. The stale-DB gate checks schema drift only, not row contents.
 - **Fix:** either accept the old keys in `ref_kind` for one release, or extend `stale_local_db_reason` to refuse a DB holding pre-#484 rows.
-
-## 23. k8s wait loops count only sleep time toward timeout
-
-- **Where:** `aaiclick/orchestration/execution/kubernetes_worker.py` (shell-pod loop and `_KubernetesVehicle.wait`)
-- **Issue:** `elapsed += POLL_INTERVAL` ignores the kubectl calls each iteration makes, so the enforced timeout drifts with API-server latency. For shell pods, `activeDeadlineSeconds = timeout + 60` then kills the pod first, surfacing an opaque pod failure (or no error) instead of "Task timed out after Ns"; module pods just time out late. Docker (`asyncio.wait_for`) is unaffected.
-- **Fix:** compute `elapsed` from a monotonic clock.
 
 # Data and Viewer
 
@@ -71,12 +55,6 @@ Remove an entry once its fix lands.
   - `aaiclick/internal_api/setup.py`: `stale_local_db`
 - **Registered twice:** `aaiclick/server/app.py` registers `execution_workers.router` a second time, outside the loop.
 - **Redundant write:** `aaiclick/orchestration/execution/execution_worker.py` re-sets RUNNING right after the claim. Set `started_at` in the claim SQL instead.
-
-## 24. Login lockout replies before bcrypt
-
-- **Where:** `aaiclick/internal_api/auth.py`
-- **Issue:** The locked branch raises "too many failed attempts" before any bcrypt runs, while unknown users get the dummy-hash + uniform "invalid credentials". The distinct message (and faster reply) confirms an account exists — the oracle the dummy hash exists to prevent. The probe also locks the real user out.
-- **Fix:** run the dummy verify first and return the uniform message for locked accounts too (keep recording the attempt).
 
 # Smaller Findings
 

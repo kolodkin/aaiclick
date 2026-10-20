@@ -52,15 +52,14 @@ async def _authenticates(user: User | None, password: str) -> bool:
     runs on a worker thread so the event loop keeps serving.
 
     bcrypt runs even when the answer is already no — unknown user, disabled,
-    no password set — so response time does not reveal which usernames exist.
-    A locked user is refused outright, and a wrong password counts toward the
-    lock, so no caller can be used to brute-force a password.
+    no password set, locked — so neither the reply nor its timing reveals
+    which usernames exist. A wrong password counts toward the lock, so no
+    caller can be used to brute-force a password.
     """
-    if user is None or user.disabled or user.password_hash is None:
+    locked = user is not None and user.locked_until is not None and user.locked_until > utc_now()
+    if user is None or user.disabled or user.password_hash is None or locked:
         await asyncio.to_thread(security.verify_password, password, _dummy_password_hash())
         return False
-    if user.locked_until is not None and user.locked_until > utc_now():
-        raise Unauthorized("too many failed attempts — try again later")
     if await asyncio.to_thread(security.verify_password, password, user.password_hash):
         return True
     await store.record_failed_login(user.id, limit=MAX_FAILED_LOGINS, lockout=LOGIN_LOCKOUT)

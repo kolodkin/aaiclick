@@ -89,7 +89,7 @@ from ..task_registry import fresh_task_registry
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
-from .execution_worker_context import TaskInfo, current_task_info
+from .execution_worker_context import TaskInfo, current_task_info, get_current_task_info
 from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
@@ -715,12 +715,15 @@ def _build_dag_from_dicts(items: list[dict]) -> tuple[list[Task | Group], Handle
 
     Returns the nodes in order plus the handle → node map for the handles the
     dicts declared. Handles are scoped to this one return value. Each task
-    dict passes the same entry validation a Python caller gets.
+    dict passes the same entry validation a Python caller gets, and only a
+    ``module`` parent may return a ``module`` child: module tasks run with
+    aaiclick's credentials, which a shell/jvm container must not grant itself.
 
     Raises:
         ValueError: on a duplicate handle or an invalid entry.
     """
     handles: Handles = {}
+    parent_entry_type = get_current_task_info().entry_type
 
     def claim(handle: str | None, node: Task | Group) -> None:
         if handle is None:
@@ -741,7 +744,10 @@ def _build_dag_from_dicts(items: list[dict]) -> tuple[list[Task | Group], Handle
                 group.add_task(build(member))
             return group
         fields.pop(DEPENDS_ON, None)  # applied after every handle is known
-        validate_task_entry(entry_type=fields.get("entry_type", ENTRY_MODULE), command=fields.get("command"))
+        entry_type = fields.get("entry_type", ENTRY_MODULE)
+        validate_task_entry(entry_type=entry_type, command=fields.get("command"))
+        if entry_type == ENTRY_MODULE and parent_entry_type != ENTRY_MODULE:
+            raise ValueError(f"a {parent_entry_type} task cannot return a module task")
         task = create_task(fields.pop(ENTRYPOINT, None), **fields)
         claim(handle, task)
         return task
@@ -753,12 +759,19 @@ _HANDLE_KEYS = {UPSTREAM: TASK_ID, GROUP_RESULTS: GROUP_ID}
 
 
 def _handle_ref(value: Any) -> tuple[str, str] | None:
-    """``(kind, handle)`` when ``value`` is an upstream/group ref naming a handle."""
+    """``(kind, handle)`` when ``value`` is an upstream/group ref.
+
+    Raises:
+        ValueError: when the ref names a raw id instead of a sibling handle —
+            it would read any task's result, in any job.
+    """
     kind = ref_kind(value)
     if kind is None or kind not in _HANDLE_KEYS:
         return None
     handle = value.get(_HANDLE_KEYS[kind])
-    return (kind, handle) if isinstance(handle, str) else None
+    if not isinstance(handle, str):
+        raise ValueError(f"a returned {kind} ref must name a sibling handle, not {handle!r}")
+    return kind, handle
 
 
 def _handle_node(handles: Handles, handle: str, kind: str) -> Task | Group:

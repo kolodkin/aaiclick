@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -407,7 +408,7 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
         the ``task`` container to terminate. Both legs count against
         ``timeout``; a Pod that vanishes (``terminate`` on cancellation,
         eviction) ends the wait."""
-        elapsed = 0.0
+        deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             pod = await _pod_json(handle)
             if pod is None:
@@ -429,11 +430,10 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
                 # the task container never ran and never will.
                 handle.mark_started(phase)
                 return -1, f"Pod {handle.name} {phase} before the task container terminated", None
-            if timeout is not None and elapsed >= timeout:
+            if deadline is not None and time.monotonic() >= deadline:
                 handle.mark_started(pod.get("status", {}).get("phase", ""))
                 return -1, f"Task timed out after {timeout}s", None
             await asyncio.sleep(POLL_INTERVAL)
-            elapsed += POLL_INTERVAL
         if exit_code != 0:
             return exit_code, None, None
         out_path = f"{CONTAINER_IO_DIR}/{OUT_JSON}"
@@ -522,7 +522,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         evicted — never reports Succeeded/Failed, so ``POD_NOT_FOUND`` ends the
         wait too; otherwise a cancelled task with no timeout would park the
         worker here forever."""
-        elapsed = 0.0
+        deadline = None if timeout is None else time.monotonic() + timeout
         error: str | None = None
         exit_code = -1
         while True:
@@ -534,11 +534,10 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             if phase == POD_NOT_FOUND:
                 error, exit_code = f"Pod {handle.name} disappeared", -1
                 break
-            if timeout is not None and elapsed >= timeout:
+            if deadline is not None and time.monotonic() >= deadline:
                 error, exit_code = f"Task timed out after {timeout}s", -1
                 break
             await asyncio.sleep(POLL_INTERVAL)
-            elapsed += POLL_INTERVAL
         handle.mark_started(phase)  # release a follower still waiting on a Pod that never ran
         result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
         return exit_code, error, result_row
