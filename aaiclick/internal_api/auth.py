@@ -56,8 +56,12 @@ async def _authenticates(user: User | None, password: str) -> bool:
     which usernames exist. A wrong password counts toward the lock, so no
     caller can be used to brute-force a password.
     """
-    locked = user is not None and user.locked_until is not None and user.locked_until > utc_now()
-    if user is None or user.disabled or user.password_hash is None or locked:
+    if (
+        user is None
+        or user.disabled
+        or user.password_hash is None
+        or (user.locked_until is not None and user.locked_until > utc_now())
+    ):
         await asyncio.to_thread(security.verify_password, password, _dummy_password_hash())
         return False
     if await asyncio.to_thread(security.verify_password, password, user.password_hash):

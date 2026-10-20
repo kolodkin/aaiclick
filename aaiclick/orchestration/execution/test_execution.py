@@ -787,7 +787,7 @@ async def test_returned_native_kwarg_stays_literal(orch_ctx):
     """A ``native`` value is never interpreted, so an upstream-shaped dict inside it is plain data."""
     job = await _shell_job_coro("shell_native_literal", ["true"])
     parent = (await get_tasks_for_job(job.id))[0]
-    literal = {"_aaiclick_type": "upstream", "task_id": 5}
+    literal = upstream_ref(5)
     child = {
         "_aaiclick_type": "task",
         "entry_type": "shell",
