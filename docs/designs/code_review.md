@@ -58,6 +58,7 @@ Remove an entry once its fix lands.
 
 # Smaller Findings
 
+- **Returned shell children choose their own build:** a shell/jvm `out.json` child may declare any `git_remote` / `dockerfile`, so a container can make the worker build an arbitrary image; and `_resolve_upstream_ref` / the `group_results` query still lack a `job_id` filter (the dict-DAG handle check is the only guard) (`aaiclick/orchestration/execution/runner.py`).
 - **`stage_in_json` leaks its temp dir on failure:** the `aaiclick-io-*` dir is created before kwarg resolution; a resolve error propagates before any caller learns the path, leaking one empty dir per failed attempt (`aaiclick/orchestration/execution/runner.py`).
 - **`LazyChClient.close()` before first use can reconnect:** with `_client` still `None` nothing is marked closed, so a holder calling `query()` later opens a connection nothing closes; add a `_closed` flag (`aaiclick/data/object_context/ch_client.py`).
 - **mp parent's "never query ClickHouse" is unenforced:** since #489 every `orch_context` installs a `LazyChClient`, so an accidental parent-side query silently takes the chdb lock instead of raising (`aaiclick/orchestration/orch_context.py`, `aaiclick/orchestration/execution/mp_worker.py`).
