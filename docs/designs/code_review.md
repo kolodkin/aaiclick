@@ -13,7 +13,6 @@ Remove an entry once its fix lands.
 | 18 | Dashboard panels run without a limit                 | Low      | Viewer        |
 | 19 | Dead attempt stays RUNNING in `run_statuses`         | Low      | Orchestration |
 | 20 | Dead code and redundant writes                       | Low      | Lean          |
-| 22 | Ref key rename (#484) has no migration               | Medium   | Data          |
 
 # Orchestration
 
@@ -22,12 +21,6 @@ Remove an entry once its fix lands.
 - **Where:** `aaiclick/orchestration/background/handler.py`
 - **Issue:** `release_expired_claims` changes the task status but not `run_statuses`. The UI then shows the dead attempt as running forever.
 - **Fix:** In `register_run`, close a trailing RUNNING entry as FAILED before appending a new one.
-
-## 22. Ref key rename (#484) has no migration
-
-- **Where:** `aaiclick/data/object/refs.py`
-- **Issue:** #484 renamed the ref discriminators (`ref_type` / `object_type` / `native_value` → `_aaiclick_type`) with no compat shim or data migration. Rows written before the upgrade (in-flight `tasks.kwargs`, `remote_task_results`, persistent object refs) silently deserialize as plain dicts; old persistent refs stop being recognized by `is_persistent_object_ref`, so their tables become sweepable. The stale-DB gate checks schema drift only, not row contents.
-- **Fix:** either accept the old keys in `ref_kind` for one release, or extend `stale_local_db_reason` to refuse a DB holding pre-#484 rows.
 
 # Data and Viewer
 
