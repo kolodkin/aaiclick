@@ -307,7 +307,8 @@ async def test_module_output_goes_to_task_logs_destination(
 
 
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
-    """Each register_run call mints a distinct run_id and appends RUNNING."""
+    """Each register_run call mints a distinct run_id and appends RUNNING,
+    closing an unended previous attempt (a dead worker's) as FAILED."""
     job = await create_job("register_run_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     task = (await get_tasks_for_job(job.id))[0]
 
@@ -318,7 +319,7 @@ async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
     refreshed = await get_task(task.id)
     assert refreshed is not None
     assert refreshed.run_ids == [run1, run2]
-    assert refreshed.run_statuses == [TASK_RUNNING, TASK_RUNNING]
+    assert refreshed.run_statuses == [TASK_FAILED, TASK_RUNNING]
 
 
 # Execution tests

@@ -171,7 +171,6 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   padding: 2px 9px; border-radius: 999px; line-height: 1.5;
 }
 .b-PENDING   { color: var(--gray);   background: var(--gray-bg); }
-.b-CLAIMED   { color: var(--purple); background: var(--purple-bg); }
 .b-RUNNING   { color: var(--blue);   background: var(--blue-bg); }
 .b-COMPLETED { color: var(--green);  background: var(--green-bg); }
 .b-FAILED    { color: var(--red);    background: var(--red-bg); }
@@ -344,7 +343,6 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .gnode-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gnode-meta { display: flex; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--muted); overflow: hidden; white-space: nowrap; }
 .gnode-PENDING   { border-left-color: var(--gray); }
-.gnode-CLAIMED   { border-left-color: var(--purple); }
 .gnode-RUNNING   { border-left-color: var(--blue); }
 .gnode-COMPLETED { border-left-color: var(--green); }
 .gnode-FAILED,
@@ -387,7 +385,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 }
 .gnode-buildgate:hover { filter: brightness(1.12); }
 .gnode-buildgate-FAILED { background: var(--red); color: #3a1210; }
-.gnode-buildgate-RUNNING, .gnode-buildgate-CLAIMED { background: var(--blue); color: #0d1c33; }
+.gnode-buildgate-RUNNING { background: var(--blue); color: #0d1c33; }
 .gnode-buildgate-COMPLETED { background: var(--green); color: #08301c; }
 .gnode-buildgate-PENDING { background: var(--gray); color: #1a1f2b; }
 
@@ -411,7 +409,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .ggroup-head { display: flex; align-items: center; gap: 8px; height: 16px; }
 .ggroup-name { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ggroup-head .badge { flex: none; font-size: 10px; line-height: 1.2; padding: 1px 6px; }
-.ggroup-CLAIMED, .ggroup-RUNNING { border-color: var(--blue); }
+.ggroup-RUNNING { border-color: var(--blue); }
 .ggroup-COMPLETED { border-color: var(--green); }
 .ggroup-FAILED, .ggroup-UPSTREAM_FAILED { border-color: var(--red); }
 .ggroup-CANCELLED { border-color: var(--yellow); }

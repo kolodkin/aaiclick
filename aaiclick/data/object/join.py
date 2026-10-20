@@ -23,6 +23,7 @@ from ..models import (
     Schema,
 )
 from ..scope import NamedScope
+from ..sql_utils import quote_identifier
 from .emit import emit_result
 from .ingest import _are_types_compatible, promote_nullable
 
@@ -289,9 +290,10 @@ def build_join_schema(
 
 def _project_expr(side: str, src: str, source_type: str, target_type: str) -> str:
     """Build a column projection, skipping the CAST when source/target match."""
+    col = f"{side}.{quote_identifier(src)}"
     if source_type == target_type:
-        return f"{side}.{src}"
-    return f"CAST({side}.{src} AS {target_type})"
+        return col
+    return f"CAST({col} AS {target_type})"
 
 
 async def join_objects_db(
@@ -335,14 +337,14 @@ async def join_objects_db(
     using_keys = set(keys.left) if using_form else set()
 
     insert_cols = [out for _, out in left_proj] + [out for _, out in right_proj]
-    insert_cols_sql = ", ".join(insert_cols)
+    insert_cols_sql = ", ".join(map(quote_identifier, insert_cols))
 
     select_parts: list[str] = []
     for src, out in left_proj:
         target_col = schema.columns[out]
         target_type = target_col.ch_type()
         if using_form and out in using_keys:
-            expr = _USING_KEY_TEMPLATE[how].format(out)
+            expr = _USING_KEY_TEMPLATE[how].format(quote_identifier(out))
             # For USING form, both sides share the key type, so CAST only if
             # the target differs from the left source type (e.g., promoted to
             # Nullable under FULL).
@@ -350,17 +352,19 @@ async def join_objects_db(
                 expr = f"CAST({expr} AS {target_type})"
         else:
             expr = _project_expr("l", src, left.columns[src].ch_type(), target_type)
-        select_parts.append(f"{expr} AS {out}")
+        select_parts.append(f"{expr} AS {quote_identifier(out)}")
     for src, out in right_proj:
         target_col = schema.columns[out]
         expr = _project_expr("r", src, right.columns[src].ch_type(), target_col.ch_type())
-        select_parts.append(f"{expr} AS {out}")
+        select_parts.append(f"{expr} AS {quote_identifier(out)}")
     select_sql = ", ".join(select_parts)
 
     if how == "cross":
         on_clause = ""
     else:
-        conds = " AND ".join(f"l.{lk} = r.{rk}" for lk, rk in zip(keys.left, keys.right, strict=True))
+        conds = " AND ".join(
+            f"l.{quote_identifier(lk)} = r.{quote_identifier(rk)}" for lk, rk in zip(keys.left, keys.right, strict=True)
+        )
         on_clause = f" ON {conds}"
 
     # Outer joins need join_use_nulls=1 so misses materialize as NULL against

@@ -13,13 +13,10 @@ export function isTerminalTask(status: TaskStatus): boolean {
   return TERMINAL_TASK.has(status);
 }
 
-// Mirrors TASK_PENDING / TASK_CLAIMED in the same module: queued, or claimed
-// by a worker that has not begun executing. No output exists yet — which is a
-// different thing from output not having arrived.
-const NOT_STARTED_TASK: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["PENDING", "CLAIMED"]);
-
+// Mirrors TASK_PENDING in the same module: queued, not yet claimed. No output
+// exists yet — which is a different thing from output not having arrived.
 export function isTaskStarted(status: TaskStatus): boolean {
-  return !NOT_STARTED_TASK.has(status);
+  return status !== "PENDING";
 }
 
 // The `b-<STATUS>` color classes are bound to the union members below; any
@@ -27,7 +24,6 @@ export function isTaskStarted(status: TaskStatus): boolean {
 // emitting an invalid `b-<garbage>` class via string concatenation.
 const KNOWN: ReadonlySet<string> = new Set<JobStatus | TaskStatus>([
   "PENDING",
-  "CLAIMED",
   "RUNNING",
   "COMPLETED",
   "FAILED",

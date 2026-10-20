@@ -154,9 +154,7 @@ async def test_try_complete_job_all_terminal(bg_db, statuses, expected_status, e
     assert error == expected_error
 
 
-@pytest.mark.parametrize(
-    "non_terminal", ["PENDING", "CLAIMED", "RUNNING", "PENDING_FAILURE_CLEANUP", "PENDING_CANCELLED_CLEANUP"]
-)
+@pytest.mark.parametrize("non_terminal", ["PENDING", "RUNNING", "PENDING_FAILURE_CLEANUP", "PENDING_CANCELLED_CLEANUP"])
 async def test_try_complete_job_non_terminal_is_noop(bg_db, non_terminal):
     """Any non-terminal task → job stays RUNNING, no completed_at set."""
     await insert_job(bg_db, 1)
@@ -343,22 +341,18 @@ async def test_cascade_group_to_group(bg_db):
     assert job_status == "FAILED"
 
 
-async def test_cascade_does_not_touch_claimed_or_running(bg_db):
-    """Only PENDING tasks are cascaded. CLAIMED/RUNNING are not — they were claimed before upstream failed."""
+async def test_cascade_does_not_touch_running(bg_db):
+    """Only PENDING tasks are cascaded. RUNNING is not — it was claimed before upstream failed."""
     await insert_job(bg_db, 1)
     await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED")
-    await _insert_task(bg_db, task_id=102, job_id=1, status="CLAIMED")
     await _insert_task(bg_db, task_id=103, job_id=1, status="RUNNING")
-    await _insert_dependency(bg_db, previous_id=101, previous_type="task", next_id=102, next_type="task")
     await _insert_dependency(bg_db, previous_id=101, previous_type="task", next_id=103, next_type="task")
 
     await _run_try_complete(bg_db, 1)
 
-    status_102, _ = await _get_task(bg_db, 102)
     status_103, _ = await _get_task(bg_db, 103)
-    assert status_102 == "CLAIMED"
     assert status_103 == "RUNNING"
-    # Job stays RUNNING because tasks 102/103 are still non-terminal.
+    # Job stays RUNNING because task 103 is still non-terminal.
     job_status, _, _ = await _get_job(bg_db, 1)
     assert job_status == "RUNNING"
 
@@ -366,7 +360,7 @@ async def test_cascade_does_not_touch_claimed_or_running(bg_db):
 # --- Fail-fast group-sibling abort tests (default behavior) ---
 
 
-@pytest.mark.parametrize("sibling_status", ["PENDING", "CLAIMED", "RUNNING", "PENDING_FAILURE_CLEANUP"])
+@pytest.mark.parametrize("sibling_status", ["PENDING", "RUNNING", "PENDING_FAILURE_CLEANUP"])
 async def test_group_sibling_abort_cancels_active_sibling(bg_db, sibling_status):
     """A FAILED group member cancels its still-active sibling regardless of how
     far the sibling had progressed. The sibling is not terminal until the

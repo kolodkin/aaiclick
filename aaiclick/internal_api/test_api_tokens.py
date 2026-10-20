@@ -42,9 +42,9 @@ async def test_expiry_validated_and_revoke_deactivates(orch_ctx):
     created = await api_tokens.create_token(
         user.id, CreateApiTokenRequest(name="soon", expires_at=utc_now() + timedelta(seconds=1))
     )
-    assert await store.get_active_api_token(security.sha256_hex(created.token)) is not None
+    assert await store.resolve_api_token(security.sha256_hex(created.token)) is not None
     await api_tokens.revoke_token(user.id, created.id)
-    assert await store.get_active_api_token(security.sha256_hex(created.token)) is None
+    assert await store.resolve_api_token(security.sha256_hex(created.token)) is None
 
 
 async def test_aware_expiry_is_normalized_to_naive_utc(orch_ctx):
@@ -65,7 +65,7 @@ async def test_revoke_other_users_token_is_not_found(orch_ctx):
     created = await api_tokens.create_token(alice.id, CreateApiTokenRequest(name="ci"))
     with pytest.raises(NotFound):
         await api_tokens.revoke_token(bob.id, created.id)
-    assert await store.get_active_api_token(security.sha256_hex(created.token)) is not None
+    assert await store.resolve_api_token(security.sha256_hex(created.token)) is not None
 
 
 @pytest.mark.parametrize(

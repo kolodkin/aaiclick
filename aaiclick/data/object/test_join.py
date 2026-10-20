@@ -297,6 +297,17 @@ async def test_join_inner_records(ctx):
     assert set(rows[0].keys()) == {"id", "name", "total"}
 
 
+@pytest.mark.parametrize("how", ["inner", "full"])
+async def test_join_quotes_identifiers(ctx, how):
+    """Keyword and space-bearing column names survive the generated SQL."""
+    a = await create_object_from_value({"from": [1, 2], "a b": ["x", "y"]})
+    b = await create_object_from_value({"from": [2], "c d": [7]})
+
+    rows = await (await a.join(b, on="from", how=how)).data(orient="records")
+
+    assert {"from": 2, "a b": "y", "c d": 7} in rows
+
+
 async def test_join_left_fills_null(ctx):
     users = await create_object_from_value({"id": [1, 2], "name": ["Alice", "Bob"]})
     orders = await create_object_from_value({"id": [1], "total": [9.5]})

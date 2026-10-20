@@ -47,7 +47,7 @@ def test_setup_local_writes_marker_and_returns_ok_steps(local_db, tmp_path):
     assert "chdb" in step_names and "sqlite" in step_names
     assert all(s.status == "ok" for s in result.steps if s.name in {"chdb", "sqlite"})
     assert setup.is_setup_done() is True
-    assert setup.stale_local_db() == []
+    assert setup.stale_local_db_reason() is None
     assert setup.missing_local_tables() == []
 
 
@@ -181,14 +181,14 @@ def test_stale_local_db_lists_columns_added_since(local_db):
     """A database written by an older version reports the columns it lacks."""
     _older_sqlite_db(local_db)
 
-    assert "jobs.error" in setup.stale_local_db()
+    assert "jobs.error" in setup.stale_local_db_reason(limit=100)
 
 
 def test_stale_local_db_empty_for_current_schema(local_db):
     """A database at the current schema is not reported stale."""
     _current_sqlite_db(local_db).dispose()
 
-    assert setup.stale_local_db() == []
+    assert setup.stale_local_db_reason() is None
 
 
 def test_stale_local_db_sees_a_dropped_index(local_db):
@@ -203,7 +203,7 @@ def test_stale_local_db_sees_a_dropped_index(local_db):
         conn.execute(sa_text("DROP INDEX ix_jobs_status"))
     engine.dispose()
 
-    assert "jobs.ix_jobs_status (index)" in setup.stale_local_db()
+    assert "jobs.ix_jobs_status (index)" in setup.stale_local_db_reason(limit=100)
 
 
 def test_missing_local_tables_is_separate_from_shape_drift(local_db):
@@ -215,12 +215,12 @@ def test_missing_local_tables_is_separate_from_shape_drift(local_db):
     engine.dispose()
 
     assert setup.missing_local_tables() == ["groups"]
-    assert setup.stale_local_db() == []
+    assert setup.stale_local_db_reason() is None
 
 
 def test_stale_local_db_empty_when_absent(local_db):
     """A first run has no database to compare against."""
-    assert setup.stale_local_db() == []
+    assert setup.stale_local_db_reason() is None
 
 
 def test_setup_refuses_stale_local_db_without_force(local_db):
@@ -246,7 +246,7 @@ def test_setup_force_recreates_stale_local_db(local_db):
 
     sqlite_step = next(s for s in result.steps if s.name == "sqlite")
     assert "recreated" in (sqlite_step.detail or "")
-    assert setup.stale_local_db() == []
+    assert setup.stale_local_db_reason() is None
     engine = sa_create_engine(f"sqlite:///{local_db}")
     with engine.connect() as conn:
         assert conn.execute(sa_text("SELECT count(*) FROM jobs")).scalar() == 0

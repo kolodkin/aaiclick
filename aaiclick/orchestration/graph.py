@@ -22,7 +22,6 @@ from typing import NamedTuple
 from .models import (
     DEPENDENCY_GROUP,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
@@ -79,7 +78,7 @@ def rollup_status(statuses: Iterable[TaskStatus]) -> TaskStatus:
     read as pending: neither is running, neither is done.
     """
     seen = set(statuses)
-    if seen & {TASK_RUNNING, TASK_CLAIMED}:
+    if TASK_RUNNING in seen:
         return TASK_RUNNING
     for outcome in (TASK_FAILED, TASK_UPSTREAM_FAILED, TASK_CANCELLED):
         if outcome in seen:

@@ -45,7 +45,6 @@ from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import (
     JOB_RUNNING,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
@@ -92,7 +91,7 @@ DEFAULT_STATES: dict[str, TaskState] = {
     "extract": TaskState(TASK_COMPLETED, None, 42, 55),
     "transform_a": TaskState(TASK_COMPLETED, None, 55, 71),
     "transform_b": TaskState(TASK_RUNNING, None, 71, None),
-    "validate": TaskState(TASK_CLAIMED),
+    "validate": TaskState(TASK_COMPLETED, None, 42, 50),
     "enrich": TaskState(TASK_FAILED, "ValueError: unexpected null in column 'amount'", 55, 63),
     "load": TaskState(TASK_UPSTREAM_FAILED, "Upstream task 'enrich' failed"),
     "notify": TaskState(TASK_CANCELLED, "Cancelled: job aborted before this task started"),

@@ -19,6 +19,7 @@ FMT_CSV = "csv"
 QueryFormat = Literal["json", "csv"]
 
 MAX_LIMIT = 1000
+MAX_DASHBOARD_PANELS = 50
 
 
 class OrderBy(NamedTuple):
@@ -71,7 +72,8 @@ class DashboardIn(BaseModel):
     name: str
     scope: str = "persistent"
     html: str
-    queries: dict[str, ObjectQuery]  # panel name → query, run under the dashboard's scope
+    # panel name → query, run under the dashboard's scope; capped since every panel runs at once
+    queries: dict[str, ObjectQuery] = Field(max_length=MAX_DASHBOARD_PANELS)
 
 
 class Dashboard(DashboardIn):

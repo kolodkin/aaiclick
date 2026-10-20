@@ -86,7 +86,7 @@ from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, validate_task_entry
 from ..task_registry import fresh_task_registry
-from .claiming import update_job_status, update_task_status
+from .claiming import end_current_run, update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import TaskInfo, current_task_info
@@ -324,7 +324,8 @@ async def register_run(task_id: int) -> int:
     """Mint a per-attempt snowflake run_id and record the attempt on the Task.
 
     Appends the new run_id to ``run_ids`` and ``TASK_RUNNING`` to
-    ``run_statuses``. Shared by ``execute_task`` (module tasks, in the task
+    ``run_statuses``, first closing a trailing RUNNING entry as FAILED: a
+    retry after an expired claim inherits the dead attempt's entry unended. Shared by ``execute_task`` (module tasks, in the task
     process) and the shell vehicles (host side), so every attempt — module or
     shell — keys its ClickHouse ``task_logs`` rows by a registered run_id.
     """
@@ -334,7 +335,7 @@ async def register_run(task_id: int) -> int:
         db_task = result.scalar_one_or_none()
         if db_task is not None:
             db_task.run_ids = [*db_task.run_ids, run_id]
-            db_task.run_statuses = [*db_task.run_statuses, TASK_RUNNING]
+            db_task.run_statuses = [*end_current_run(db_task.run_statuses, TASK_FAILED), TASK_RUNNING]
             session.add(db_task)
             await session.commit()
     return run_id

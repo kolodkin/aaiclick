@@ -32,7 +32,6 @@ from ..models import (
     SELF_STOP_AFTER,
     TASK_FAILED,
     TASK_PENDING_FAILURE_CLEANUP,
-    TASK_RUNNING,
     ExecutionWorker,
     ExecutionWorkerStatus,
     Task,
@@ -47,7 +46,6 @@ from .claiming import (
     end_current_run,
     release_cancelled_run,
     renew_claim,
-    update_task_status,
 )
 from .runner import (
     OUTPUT_FOLLOWER_DRAIN_TIMEOUT,
@@ -705,7 +703,6 @@ async def _execution_worker_loop(
 
             empty_polls = 0
             logger.info("ExecutionWorker %s executing task %s: %s", execution_worker_id, task.id, task.entrypoint)
-            await update_task_status(task.id, TASK_RUNNING, expected_epoch=task.run_epoch)
 
             try:
                 success, result_ref, error = await execute_fn(task, execution_worker_id)

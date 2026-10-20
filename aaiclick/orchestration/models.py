@@ -67,7 +67,6 @@ newly-added terminal status waits forever on a job the domain calls finished."""
 
 
 TASK_PENDING = "PENDING"
-TASK_CLAIMED = "CLAIMED"
 TASK_RUNNING = "RUNNING"
 TASK_COMPLETED = "COMPLETED"
 TASK_FAILED = "FAILED"
@@ -77,7 +76,6 @@ TASK_PENDING_CANCELLED_CLEANUP = "PENDING_CANCELLED_CLEANUP"
 TASK_UPSTREAM_FAILED = "UPSTREAM_FAILED"
 TaskStatus = Literal[
     "PENDING",
-    "CLAIMED",
     "RUNNING",
     "COMPLETED",
     "FAILED",
@@ -102,7 +100,6 @@ NON_SUCCESS_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_FAILED, TASK_CANCELLED
 
 CANCELLABLE_TASK_STATUSES: tuple[TaskStatus, ...] = (
     TASK_PENDING,
-    TASK_CLAIMED,
     TASK_RUNNING,
     TASK_PENDING_FAILURE_CLEANUP,
 )
@@ -113,10 +110,9 @@ CANCELLING_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_PENDING_CANCELLED_CLEAN
 
 
 EXECUTION_WORKER_ACTIVE = "ACTIVE"
-EXECUTION_WORKER_IDLE = "IDLE"
 EXECUTION_WORKER_STOPPING = "STOPPING"
 EXECUTION_WORKER_STOPPED = "STOPPED"
-ExecutionWorkerStatus = Literal["ACTIVE", "IDLE", "STOPPING", "STOPPED"]
+ExecutionWorkerStatus = Literal["ACTIVE", "STOPPING", "STOPPED"]
 """ExecutionWorker status."""
 
 
@@ -469,7 +465,7 @@ class Task(_DependencyOps, SQLModel, table=True):
     created_at: datetime = utc_field(default_factory=utc_now, index=True)
     claimed_at: datetime | None = utc_field(default=None)
     # Ownership expiry, renewed by the owning worker's heartbeat; the sweep
-    # reclaims a CLAIMED / RUNNING task once it passes, whatever the worker's status.
+    # reclaims a RUNNING task once it passes, whatever the worker's status.
     claim_expires_at: datetime | None = utc_field(default=None)
     started_at: datetime | None = utc_field(default=None)
     completed_at: datetime | None = utc_field(default=None)
