@@ -19,9 +19,6 @@ Shapes and fields: [user guide, Vocabulary](../user_guide/task_interface.md#voca
   until the job completes. Its schema is read back from the table registry.
 - Python return values: `None` → `null`; Object/View → ref + `job_id`;
   `BaseModel` → `pydantic`; anything else → `native`.
-- No compat for the pre-#484 keys (`ref_type`, `object_type`, `native_value`):
-  rows using them read as plain dicts. No deployment predates #484; drain jobs
-  before any future key change.
 
 ## Returned tasks and handles
 
