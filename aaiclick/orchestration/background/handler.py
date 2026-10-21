@@ -32,7 +32,7 @@ from ..models import (
     TASK_UPSTREAM_FAILED,
     Task,
     TaskStatus,
-    end_current_run,
+    fail_run_values,
 )
 from ..sql_utils import in_clause
 
@@ -302,12 +302,7 @@ class BackgroundHandler(ABC):
             await session.execute(
                 update(Task)
                 .where(col(Task.id) == task_id, expired)
-                .values(
-                    status=TASK_PENDING_FAILURE_CLEANUP,
-                    error=DEAD_WORKER_ERROR,
-                    run_epoch=col(Task.run_epoch) + 1,
-                    run_statuses=end_current_run(run_statuses, TASK_FAILED),
-                )
+                .values(**fail_run_values(run_statuses, DEAD_WORKER_ERROR), run_epoch=col(Task.run_epoch) + 1)
             )
         await session.execute(
             text(

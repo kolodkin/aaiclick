@@ -30,13 +30,10 @@ from ..models import (
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
     SELF_STOP_AFTER,
-    TASK_FAILED,
-    TASK_PENDING_FAILURE_CLEANUP,
     ExecutionWorker,
     ExecutionWorkerStatus,
     Task,
-    TaskStatus,
-    end_current_run,
+    fail_run_values,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
@@ -372,15 +369,10 @@ async def _set_pending_failure_cleanup(task_id: int, error: str, expected_epoch:
         task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if task is None:
             return False
-        values: dict[str, str | list[TaskStatus]] = {
-            "status": TASK_PENDING_FAILURE_CLEANUP,
-            "error": error,
-            "run_statuses": end_current_run(task.run_statuses, TASK_FAILED),
-        }
         stmt = update(Task).where(col(Task.id) == task_id, col(Task.status).not_in(CANCELLING_TASK_STATUSES))
         if expected_epoch is not None:
             stmt = stmt.where(col(Task.run_epoch) == expected_epoch)
-        result = await session.execute(stmt.values(**values))
+        result = await session.execute(stmt.values(**fail_run_values(task.run_statuses, error)))
         await session.commit()
         return cast(CursorResult, result).rowcount > 0
 

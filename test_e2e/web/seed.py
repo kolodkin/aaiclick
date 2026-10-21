@@ -83,7 +83,7 @@ class TaskState(NamedTuple):
     completed_offset_s: int | None = None
 
 
-#: Default states — every status the graph can render, exactly once each.
+#: Default states — every status the graph can render appears at least once.
 #: Pass a partial override to ``seed_graph_job`` to seed a different scenario;
 #: task names not mentioned keep the default below.
 DEFAULT_STATES: dict[str, TaskState] = {

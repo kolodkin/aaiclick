@@ -118,6 +118,18 @@ def end_current_run(run_statuses: list[TaskStatus], status: TaskStatus) -> list[
     return run_statuses
 
 
+def fail_run_values(run_statuses: list[TaskStatus], error: str) -> dict[str, str | list[TaskStatus]]:
+    """Column values that hand a failed run to ``PENDING_FAILURE_CLEANUP``.
+
+    Shared by the worker's own failure report and the expired-claim sweep;
+    each caller adds its own ownership guard to the UPDATE."""
+    return {
+        "status": TASK_PENDING_FAILURE_CLEANUP,
+        "error": error,
+        "run_statuses": end_current_run(run_statuses, TASK_FAILED),
+    }
+
+
 EXECUTION_WORKER_ACTIVE = "ACTIVE"
 EXECUTION_WORKER_STOPPING = "STOPPING"
 EXECUTION_WORKER_STOPPED = "STOPPED"
