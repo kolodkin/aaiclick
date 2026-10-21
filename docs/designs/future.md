@@ -65,6 +65,18 @@ or neither.
 **When to revisit**: when re-running a single task of a finished job,
 without re-running its upstream, becomes a supported workflow.
 
+## Quote Column Names in Generated SQL
+
+`join` quotes its identifiers; other Object operations still splice raw
+column names into SQL, so a column named `from` or `a b` breaks them. Known
+sites: the default insert list in `emit_result`, the copy path in
+`ingest.py` and the URL ingest in `url.py`. Fix it once at the shared
+column-list builders rather than per operation, then audit the remaining
+SELECT projections.
+
+**When to revisit**: before accepting user-supplied column names from
+external sources (CSV headers, parquet) as a supported path.
+
 ## Merge `claimed_at` and `started_at`
 
 With no CLAIMED phase, both claim paths write the same `:now` to
