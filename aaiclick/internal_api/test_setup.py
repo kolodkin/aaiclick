@@ -181,7 +181,8 @@ def test_stale_local_db_lists_columns_added_since(local_db):
     """A database written by an older version reports the columns it lacks."""
     _older_sqlite_db(local_db)
 
-    assert "is missing 1 item(s) added since: jobs.error." in setup.stale_local_db_reason()
+    reason = setup.stale_local_db_reason()
+    assert reason is not None and "is missing 1 item(s) added since: jobs.error." in reason
 
 
 def test_stale_local_db_empty_for_current_schema(local_db):
@@ -203,7 +204,8 @@ def test_stale_local_db_sees_a_dropped_index(local_db):
         conn.execute(sa_text("DROP INDEX ix_jobs_status"))
     engine.dispose()
 
-    assert "is missing 1 item(s) added since: jobs.ix_jobs_status (index)." in setup.stale_local_db_reason()
+    reason = setup.stale_local_db_reason()
+    assert reason is not None and "is missing 1 item(s) added since: jobs.ix_jobs_status (index)." in reason
 
 
 def test_missing_local_tables_is_separate_from_shape_drift(local_db):
