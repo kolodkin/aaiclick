@@ -300,8 +300,14 @@ async def _resolve_plain_value(name: str, value: Any, session: AsyncSession) -> 
 async def stage_in_json(task: Task) -> Path:
     """A fresh per-attempt IO dir holding the task's resolved ``in.json``; the
     caller removes it once the task is done."""
+    # Resolve before mkdtemp: a resolve error must not leave the dir behind.
+    kwargs = await resolve_plain_kwargs(task.kwargs)
     io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
-    write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
+    try:
+        write_in_json(io_dir, kwargs)
+    except BaseException:
+        shutil.rmtree(io_dir, ignore_errors=True)
+        raise
     return io_dir
 
 
