@@ -24,7 +24,7 @@ async def _cancel_all_pending_tasks():
         await session.execute(
             text(
                 "UPDATE tasks SET status = 'CANCELLED', completed_at = :now "
-                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_FAILURE_CLEANUP')"
+                "WHERE status IN ('PENDING', 'RUNNING', 'PENDING_FAILURE_CLEANUP')"
             ),
             {"now": utc_now()},
         )

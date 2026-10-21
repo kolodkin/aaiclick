@@ -5,58 +5,7 @@ Open findings from a whole-repo audit (the first round's security findings are f
 assuming a distributed deployment with several workers. All come from reading the code, none reproduced at runtime.
 Remove an entry once its fix lands.
 
-# Summary
-
-| #  | Finding                                              | Severity | Area          |
-|----|------------------------------------------------------|----------|---------------|
-| 17 | `join` does not quote identifiers                    | Low      | Data          |
-| 18 | Dashboard panels run without a limit                 | Low      | Viewer        |
-| 19 | Dead attempt stays RUNNING in `run_statuses`         | Low      | Orchestration |
-| 20 | Dead code and redundant writes                       | Low      | Lean          |
-| 22 | Ref key rename (#484) has no migration               | Medium   | Data          |
-
-# Orchestration
-
-## 19. Dead attempt stays RUNNING in `run_statuses`
-
-- **Where:** `aaiclick/orchestration/background/handler.py`
-- **Issue:** `release_expired_claims` changes the task status but not `run_statuses`. The UI then shows the dead attempt as running forever.
-- **Fix:** In `register_run`, close a trailing RUNNING entry as FAILED before appending a new one.
-
-## 22. Ref key rename (#484) has no migration
-
-- **Where:** `aaiclick/data/object/refs.py`
-- **Issue:** #484 renamed the ref discriminators (`ref_type` / `object_type` / `native_value` → `_aaiclick_type`) with no compat shim or data migration. Rows written before the upgrade (in-flight `tasks.kwargs`, `remote_task_results`, persistent object refs) silently deserialize as plain dicts; old persistent refs stop being recognized by `is_persistent_object_ref`, so their tables become sweepable. The stale-DB gate checks schema drift only, not row contents.
-- **Fix:** either accept the old keys in `ref_kind` for one release, or extend `stale_local_db_reason` to refuse a DB holding pre-#484 rows.
-
-# Data and Viewer
-
-## 17. `join` does not quote identifiers
-
-- **Where:** `aaiclick/data/object/join.py`
-- **Issue:** Column and key names go into the SQL unquoted. A column named `from` or `a b` breaks the join.
-- **Fix:** Wrap `src`, `out`, `lk`, `rk` and the insert columns in `quote_identifier`.
-
-## 18. Dashboard panels run without a limit
-
-- **Where:**
-  - `aaiclick/internal_api/viewer.py`, function `run_dashboard`
-  - `aaiclick/viewer/view_models.py`
-- **Issue:** `DashboardIn.queries` has no size cap, and every panel runs at once through `asyncio.gather`. A 10k-panel dashboard fires 10k ClickHouse queries.
-- **Fix:** Cap it with `Field(max_length=50)`.
-
-# Lean
-
-## 20. Dead code and redundant writes
-
-- **Never written outside tests:** `TASK_CLAIMED` and `EXECUTION_WORKER_IDLE`.
-- **Used only by tests:**
-  - `aaiclick/auth/store.py`: `get_active_api_token`
-  - `aaiclick/internal_api/setup.py`: `stale_local_db`
-- **Registered twice:** `aaiclick/server/app.py` registers `execution_workers.router` a second time, outside the loop.
-- **Redundant write:** `aaiclick/orchestration/execution/execution_worker.py` re-sets RUNNING right after the claim. Set `started_at` in the claim SQL instead.
-
-# Smaller Findings
+# Open Findings
 
 - **Returned shell children choose their own build:** an `out.json` child may declare any `git_remote` / `dockerfile`, so a container can make the worker build any image. Upstream and `group_results` resolution still has no `job_id` filter; only the returned-handle check guards it (`aaiclick/orchestration/execution/runner.py`).
 - **`stage_in_json` leaks its temp dir on failure:** the `aaiclick-io-*` dir is created before kwarg resolution; a resolve error propagates before any caller learns the path, leaking one empty dir per failed attempt (`aaiclick/orchestration/execution/runner.py`).

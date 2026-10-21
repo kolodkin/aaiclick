@@ -340,7 +340,7 @@ the fix in the same place. It invalidates by key *prefix*, so a compound key
 **Task logs.** Lines reach ClickHouse from the task process on its own flush
 cadence, never through a SQL commit, so no signal marks a new line. The policy
 lives in `useTaskLogs`: poll at 2 s only while the task is running. A
-`PENDING` / `CLAIMED` task cannot have produced output, so it is not fetched at
+`PENDING` task cannot have produced output, so it is not fetched at
 all and the panel says so — the status change that starts it arrives over
 `/events` and switches polling on. Going terminal stops the timer and
 triggers one final fetch — this key is not in `LIVE_KEYS`, so nothing else

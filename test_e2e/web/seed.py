@@ -45,7 +45,6 @@ from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import (
     JOB_RUNNING,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
@@ -84,7 +83,7 @@ class TaskState(NamedTuple):
     completed_offset_s: int | None = None
 
 
-#: Default states — every status the graph can render, exactly once each.
+#: Default states — every status the graph can render appears at least once.
 #: Pass a partial override to ``seed_graph_job`` to seed a different scenario;
 #: task names not mentioned keep the default below.
 DEFAULT_STATES: dict[str, TaskState] = {
@@ -92,7 +91,7 @@ DEFAULT_STATES: dict[str, TaskState] = {
     "extract": TaskState(TASK_COMPLETED, None, 42, 55),
     "transform_a": TaskState(TASK_COMPLETED, None, 55, 71),
     "transform_b": TaskState(TASK_RUNNING, None, 71, None),
-    "validate": TaskState(TASK_CLAIMED),
+    "validate": TaskState(TASK_COMPLETED, None, 42, 50),
     "enrich": TaskState(TASK_FAILED, "ValueError: unexpected null in column 'amount'", 55, 63),
     "load": TaskState(TASK_UPSTREAM_FAILED, "Upstream task 'enrich' failed"),
     "notify": TaskState(TASK_CANCELLED, "Cancelled: job aborted before this task started"),

@@ -10,9 +10,10 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import NamedTuple, cast
 
-from sqlalchemy import text
+from sqlalchemy import select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col
 
 from aaiclick.backend import is_sqlite
 
@@ -23,14 +24,15 @@ from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_FAILED,
     TASK_PENDING,
     TASK_PENDING_CANCELLED_CLEANUP,
     TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
     TASK_UPSTREAM_FAILED,
+    Task,
     TaskStatus,
+    fail_run_values,
 )
 from ..sql_utils import in_clause
 
@@ -235,7 +237,7 @@ async def roll_up_job(session: AsyncSession, job_id: int) -> None:
 async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     """Mark a job COMPLETED or FAILED if all its tasks are in terminal states.
 
-    No-op while any task is still PENDING, CLAIMED, RUNNING, or in a cleanup
+    No-op while any task is still PENDING, RUNNING, or in a cleanup
     state. The terminal check is aggregated inside SQL (one row returned
     regardless of task count) so this stays O(1) even for large jobs. Uses raw
     SQL on the passed session so it works both inside and outside an active
@@ -289,24 +291,19 @@ class BackgroundHandler(ABC):
     async def release_expired_claims(session: AsyncSession, now: datetime) -> None:
         """Reclaim tasks whose claim expired, whatever their worker's status.
 
-        RUNNING / CLAIMED tasks become PENDING_FAILURE_CLEANUP; ``run_epoch``
-        moves on so the lost owner's late writes are fenced. A
+        RUNNING tasks become PENDING_FAILURE_CLEANUP with their run closed as
+        FAILED; ``run_epoch`` moves on so the lost owner's late writes are
+        fenced. A
         PENDING_CANCELLED_CLEANUP task will never be reported back, so its
         ownership is released here (as ``release_cancelled_run`` would).
         """
-        await session.execute(
-            text(
-                "UPDATE tasks SET status = :failure_cleanup, error = :error, run_epoch = run_epoch + 1 "
-                "WHERE status IN (:running, :claimed) AND claim_expires_at < :now"
-            ),
-            {
-                "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
-                "error": DEAD_WORKER_ERROR,
-                "running": TASK_RUNNING,
-                "claimed": TASK_CLAIMED,
-                "now": now,
-            },
-        )
+        expired = (col(Task.status) == TASK_RUNNING) & (col(Task.claim_expires_at) < now)
+        for task_id, run_statuses in (await session.execute(select(Task.id, Task.run_statuses).where(expired))).all():
+            await session.execute(
+                update(Task)
+                .where(col(Task.id) == task_id, expired)
+                .values(**fail_run_values(run_statuses, DEAD_WORKER_ERROR), run_epoch=col(Task.run_epoch) + 1)
+            )
         await session.execute(
             text(
                 "UPDATE tasks SET execution_worker_id = NULL "

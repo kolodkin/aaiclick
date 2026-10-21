@@ -241,8 +241,8 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 | Enum           | Values                                          |
 |----------------|-------------------------------------------------|
 | `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED  |
-| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_FAILURE_CLEANUP, PENDING_CANCELLED_CLEANUP, UPSTREAM_FAILED |
-| `ExecutionWorkerStatus` | ACTIVE, IDLE, STOPPING, STOPPED                 |
+| `TaskStatus`   | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_FAILURE_CLEANUP, PENDING_CANCELLED_CLEANUP, UPSTREAM_FAILED |
+| `ExecutionWorkerStatus` | ACTIVE, STOPPING, STOPPED                       |
 | `RunType`      | SCHEDULED, MANUAL                               |
 
 Three `TaskStatus` values are set by the background sweep, not the worker:

@@ -1174,7 +1174,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "ACTIVE" | "IDLE" | "STOPPING" | "STOPPED";
+            status: "ACTIVE" | "STOPPING" | "STOPPED";
             /** Tasks Completed */
             tasks_completed: number;
             /** Tasks Failed */
@@ -1245,7 +1245,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2121,7 +2121,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /**
          * TaskDetail
@@ -2178,7 +2178,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /**
          * TaskLogsView
@@ -2216,7 +2216,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /**
          * TaskView
@@ -2253,7 +2253,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /** TokenPair */
         TokenPair: {
@@ -2888,7 +2888,7 @@ export interface operations {
     list_execution_workers_api_v0_execution_workers_get: {
         parameters: {
             query?: {
-                status?: ("ACTIVE" | "IDLE" | "STOPPING" | "STOPPED") | null;
+                status?: ("ACTIVE" | "STOPPING" | "STOPPED") | null;
                 limit?: number;
                 offset?: number;
                 cursor?: string | null;

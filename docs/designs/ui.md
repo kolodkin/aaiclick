@@ -118,11 +118,7 @@ to the latest finish. Empty groups are omitted. Containers are dagre clusters
 drawn as React Flow subflows; clicking one does nothing, since only tasks have
 a detail view.
 
-Task statuses use the same color scheme as job statuses, plus:
-
-| Status    | Color  |
-|-----------|--------|
-| `CLAIMED` | purple |
+Task statuses use the same color scheme as job statuses.
 
 ## Task Detail (`@task <id>`)
 

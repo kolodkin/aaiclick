@@ -10,7 +10,7 @@
 -- failure-processing path (the UPSTREAM_FAILED sweep).
 SELECT
     COUNT(*) AS total,
-    SUM(CASE WHEN status IN ('PENDING', 'CLAIMED', 'RUNNING',
+    SUM(CASE WHEN status IN ('PENDING', 'RUNNING',
                              'PENDING_FAILURE_CLEANUP', 'PENDING_CANCELLED_CLEANUP')
         THEN 1 ELSE 0 END) AS non_terminal,
     SUM(CASE WHEN status IN ('FAILED', 'UPSTREAM_FAILED') THEN 1 ELSE 0 END) AS failed,

@@ -67,7 +67,6 @@ newly-added terminal status waits forever on a job the domain calls finished."""
 
 
 TASK_PENDING = "PENDING"
-TASK_CLAIMED = "CLAIMED"
 TASK_RUNNING = "RUNNING"
 TASK_COMPLETED = "COMPLETED"
 TASK_FAILED = "FAILED"
@@ -77,7 +76,6 @@ TASK_PENDING_CANCELLED_CLEANUP = "PENDING_CANCELLED_CLEANUP"
 TASK_UPSTREAM_FAILED = "UPSTREAM_FAILED"
 TaskStatus = Literal[
     "PENDING",
-    "CLAIMED",
     "RUNNING",
     "COMPLETED",
     "FAILED",
@@ -102,21 +100,40 @@ NON_SUCCESS_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_FAILED, TASK_CANCELLED
 
 CANCELLABLE_TASK_STATUSES: tuple[TaskStatus, ...] = (
     TASK_PENDING,
-    TASK_CLAIMED,
     TASK_RUNNING,
     TASK_PENDING_FAILURE_CLEANUP,
 )
 """Statuses a cancellation moves to ``PENDING_CANCELLED_CLEANUP``."""
 
+
 CANCELLING_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_PENDING_CANCELLED_CLEANUP, TASK_CANCELLED)
 """Statuses under which a worker aborts the run and no other status write lands."""
 
 
+def end_current_run(run_statuses: list[TaskStatus], status: TaskStatus) -> list[TaskStatus]:
+    """Stamp ``status`` on the in-flight run — the last entry, while it is still
+    ``RUNNING``. A finished run keeps how it ended."""
+    if run_statuses and run_statuses[-1] == TASK_RUNNING:
+        return [*run_statuses[:-1], status]
+    return run_statuses
+
+
+def fail_run_values(run_statuses: list[TaskStatus], error: str) -> dict[str, str | list[TaskStatus]]:
+    """Column values that hand a failed run to ``PENDING_FAILURE_CLEANUP``.
+
+    Shared by the worker's own failure report and the expired-claim sweep;
+    each caller adds its own ownership guard to the UPDATE."""
+    return {
+        "status": TASK_PENDING_FAILURE_CLEANUP,
+        "error": error,
+        "run_statuses": end_current_run(run_statuses, TASK_FAILED),
+    }
+
+
 EXECUTION_WORKER_ACTIVE = "ACTIVE"
-EXECUTION_WORKER_IDLE = "IDLE"
 EXECUTION_WORKER_STOPPING = "STOPPING"
 EXECUTION_WORKER_STOPPED = "STOPPED"
-ExecutionWorkerStatus = Literal["ACTIVE", "IDLE", "STOPPING", "STOPPED"]
+ExecutionWorkerStatus = Literal["ACTIVE", "STOPPING", "STOPPED"]
 """ExecutionWorker status."""
 
 
@@ -469,7 +486,7 @@ class Task(_DependencyOps, SQLModel, table=True):
     created_at: datetime = utc_field(default_factory=utc_now, index=True)
     claimed_at: datetime | None = utc_field(default=None)
     # Ownership expiry, renewed by the owning worker's heartbeat; the sweep
-    # reclaims a CLAIMED / RUNNING task once it passes, whatever the worker's status.
+    # reclaims a RUNNING task once it passes, whatever the worker's status.
     claim_expires_at: datetime | None = utc_field(default=None)
     started_at: datetime | None = utc_field(default=None)
     completed_at: datetime | None = utc_field(default=None)

@@ -7,8 +7,7 @@ Planned work across aaiclick, ordered by priority.
 
 # Close the 2026-10-18 Code Review
 
-Fix the open findings in `docs/designs/code_review.md`, starting with the
-orchestration ones (10, 11, 15).
+Fix the open findings in `docs/designs/code_review.md`.
 Remove each entry from the review doc as its fix lands, and delete the doc
 once it is empty.
 
@@ -65,6 +64,26 @@ or neither.
 
 **When to revisit**: when re-running a single task of a finished job,
 without re-running its upstream, becomes a supported workflow.
+
+## Quote Column Names in Generated SQL
+
+`join` quotes its identifiers; other Object operations still splice raw
+column names into SQL, so a column named `from` or `a b` breaks them. Known
+sites: the default insert list in `emit_result`, the copy path in
+`ingest.py` and the URL ingest in `url.py`. Fix it once at the shared
+column-list builders rather than per operation, then audit the remaining
+SELECT projections.
+
+**When to revisit**: before accepting user-supplied column names from
+external sources (CSV headers, parquet) as a supported path.
+
+## Merge `claimed_at` and `started_at`
+
+With no CLAIMED phase, both claim paths write the same `:now` to
+`tasks.claimed_at` and `tasks.started_at`, and every reset clears both.
+Drop one (likely `claimed_at`) and point its readers at the other.
+
+**When to revisit**: the next migration on the `tasks` table.
 
 ## Tenants — Kubernetes Control Plane
 

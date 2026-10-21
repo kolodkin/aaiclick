@@ -176,22 +176,6 @@ def _drift(conn: Connection) -> LocalDbDrift:
     return LocalDbDrift(missing_tables, mismatched)
 
 
-def stale_local_db() -> list[str]:
-    """Everything an existing local table lacks, against a reference build.
-
-    ``SQLModel.metadata.create_all`` only creates missing *tables* — it never
-    alters one that already exists. A ``local.db`` written by an older version
-    therefore gains any newly added table while its existing tables silently
-    keep their original columns.
-
-    Returns ``table.column`` names, plus ``(index)`` / ``(unique)`` /
-    ``(foreign key)`` entries for the rest; empty when the database is current
-    or absent.
-    """
-    with _local_db_connection() as conn:
-        return [] if conn is None else _drift(conn).mismatched
-
-
 _RECREATE_TAIL = (
     "SQLite databases are not migrated in place, so it has to be recreated. "
     "Local job/task history is lost; data objects in chdb are untouched."
@@ -222,7 +206,7 @@ def stale_local_db_reason(*, limit: int = 5) -> str | None:
 def missing_local_tables() -> list[str]:
     """Model tables absent from an existing local SQLite DB.
 
-    Separate from :func:`stale_local_db` because the remedy differs: these are
+    Separate from :func:`stale_local_db_reason` because the remedy differs: these are
     added by a plain ``create_all``, whereas a table in the wrong shape needs
     the database recreated. ``is_setup_done`` only checks for a marker file, so
     a marker left beside an empty or truncated ``local.db`` (an interrupted

@@ -28,7 +28,6 @@ from seed import DEFAULT_STATES, TaskState, seed_graph_job  # noqa: E402  (must 
 _EXPECTED_STATUSES = [
     "COMPLETED",
     "RUNNING",
-    "CLAIMED",
     "FAILED",
     "UPSTREAM_FAILED",
     "CANCELLED",

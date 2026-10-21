@@ -16,7 +16,6 @@ from .models import (
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
@@ -148,7 +147,6 @@ def test_build_graph_edges_skips_group_edge_with_nothing_to_anchor():
     "statuses, expected",
     [
         pytest.param([TASK_FAILED, TASK_RUNNING], TASK_RUNNING, id="running-beats-failed"),
-        pytest.param([TASK_PENDING, TASK_CLAIMED], TASK_RUNNING, id="claimed-counts-as-running"),
         pytest.param([TASK_COMPLETED, TASK_FAILED, TASK_UPSTREAM_FAILED], TASK_FAILED, id="failed-beats-upstream"),
         pytest.param([TASK_COMPLETED, TASK_UPSTREAM_FAILED, TASK_CANCELLED], TASK_UPSTREAM_FAILED, id="upstream"),
         pytest.param([TASK_COMPLETED, TASK_CANCELLED], TASK_CANCELLED, id="cancelled"),

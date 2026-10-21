@@ -288,13 +288,6 @@ def _token_active(token: ApiToken, now: datetime) -> bool:
     return token.revoked_at is None and (token.expires_at is None or token.expires_at > now)
 
 
-async def get_active_api_token(token_hash: str) -> ApiToken | None:
-    """Return the row only if it is unrevoked and unexpired."""
-    async with get_sql_session() as session:
-        row = (await session.execute(select(ApiToken).where(ApiToken.token_hash == token_hash))).scalar_one_or_none()
-    return row if row is not None and _token_active(row, utc_now()) else None
-
-
 async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
     """Everything a request needs to authenticate an API token, in one session:
     the active token and its owner. Also stamps ``last_used_at`` (throttled)

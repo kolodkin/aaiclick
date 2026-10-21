@@ -14,10 +14,11 @@ from typing import NamedTuple, TypeVar
 from aaiclick import cli_wait
 from aaiclick.cli_renderers import render_job_failure
 from aaiclick.internal_api.jobs import get_job_graph
+from aaiclick.internal_api.sandbox import list_sandbox_files
 from aaiclick.orchestration import get_job_result
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_job, get_tasks_for_job
-from aaiclick.orchestration.models import JOB_COMPLETED
+from aaiclick.orchestration.models import JOB_COMPLETED, SANDBOX_FAILED, SANDBOX_SUBMITTED, TERMINAL_JOB_STATUSES
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import JobStatsView
 
@@ -139,6 +140,28 @@ def wait_for_job_completed(job_id: str, timeout: float = 120.0) -> None:
         with redirect_stdout(buf):
             render_job_failure(stats)
         raise AssertionError(buf.getvalue())
+
+
+def wait_for_sandbox_settled(timeout: float = 60.0) -> None:
+    """Block until every sandbox submission is done and its jobs are terminal.
+
+    A submission's jobs outlive the test that made it: their retries would
+    land in a later test's idle window on the same server and read as polling.
+    """
+
+    async def go() -> None:
+        async with orch_context():
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                files = (await list_sandbox_files()).items
+                if all(f.status in (SANDBOX_SUBMITTED, SANDBOX_FAILED) for f in files):
+                    jobs = [await get_job(job_id) for f in files for job_id in f.job_ids or []]
+                    if all(job is not None and job.status in TERMINAL_JOB_STATUSES for job in jobs):
+                        return
+                await asyncio.sleep(0.2)
+            raise AssertionError(f"sandbox jobs did not settle within {timeout} s")
+
+    run_in_process(go)
 
 
 def job_result(job_id: str):
