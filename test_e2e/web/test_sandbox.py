@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 
 import pytest
-from helpers import open_page
+from helpers import open_page, wait_for_sandbox_settled
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
@@ -54,6 +54,7 @@ def test_submit_shows_row_with_sha(page, base_url: str, shot) -> None:
     # Any status: the background worker may already have picked the row up.
     assert row.locator("td.status").inner_text() in {"pending", "running", "submitted", "failed"}
     shot("sandbox-submitted")
+    wait_for_sandbox_settled()
 
 
 @_spa_built
