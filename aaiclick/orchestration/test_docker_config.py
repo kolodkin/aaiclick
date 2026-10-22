@@ -196,7 +196,20 @@ async def test_resolve_remote_head_unreachable_remote(tmp_path):
 
 def test_compute_image_tag_without_registry(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    assert compute_image_tag("b" * 40) == f"aaiclick-job:{'b' * 40}"
+    source = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40)
+    assert compute_image_tag(source) == f"aaiclick-job:{'b' * 40}-{image_key(source)[:12]}"
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        pytest.param({"git_remote": "https://x/evil.git"}, id="remote"),
+        pytest.param({"dockerfile": "alt.Dockerfile"}, id="dockerfile"),
+    ],
+)
+def test_compute_image_tag_differs_per_identity(other):
+    base = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40)
+    assert compute_image_tag(base) != compute_image_tag(base.model_copy(update=other))
 
 
 @pytest.mark.parametrize(

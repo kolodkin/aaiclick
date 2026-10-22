@@ -60,4 +60,4 @@ async def run_image_build(
     """
     get_build_mode()
     source = ImageBuild(git_remote=git_remote, git_sha=git_sha, git_branch=git_branch, dockerfile=dockerfile)
-    await build_image_to_tag(source, compute_image_tag(git_sha))
+    await build_image_to_tag(source, compute_image_tag(source))

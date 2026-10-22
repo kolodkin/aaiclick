@@ -2,6 +2,7 @@
 
 import pytest
 
+from ..docker_config import compute_image_tag
 from ..runner_config import ImageBuild
 from . import image_build_task
 from .image_build_task import build_task_name, run_image_build
@@ -43,7 +44,7 @@ async def test_run_image_build_local_mode_builds_unprefixed_tag(monkeypatch):
     monkeypatch.setenv("AAICLICK_LOCAL_BUILD", "1")
     monkeypatch.setattr(image_build_task, "build_image_to_tag", fake_build)
     await run_image_build(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    assert calls == ["aaiclick-job:" + "a" * 40]
+    assert calls == [compute_image_tag(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))]
 
 
 async def test_run_image_build_requires_a_build_mode(monkeypatch):

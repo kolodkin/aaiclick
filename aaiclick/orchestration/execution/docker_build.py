@@ -164,7 +164,7 @@ async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: in
     """Resolve the image tag a container actually launches with.
 
     The tag is derived from the source (prebuilt tag verbatim, computed
-    ``aaiclick-job:<sha>`` for a build). Never builds: the ``build >> task``
+    ``aaiclick-job:<sha>-<key>`` for a build). Never builds: the ``build >> task``
     dependency edge guarantees the build task has already pushed the tag
     (registry mode) or left it in this host's daemon (local mode), so the
     launch path pulls or runs directly (spec: docs/designs/orchestration.md
@@ -176,7 +176,7 @@ async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: in
     if image_source is None:
         raise ValueError(f"container task {task_id} has no image_source")
     if isinstance(image_source, ImageBuild):
-        return compute_image_tag(image_source.git_sha)
+        return compute_image_tag(image_source)
     return image_source.image_tag
 
 

@@ -54,7 +54,7 @@ async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set
     """
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
-    expected_tag = docker_config.compute_image_tag("a" * 40)
+    expected_tag = docker_config.compute_image_tag(source)
 
     pull = AsyncMock(return_value=False)
     inspect = AsyncMock(return_value=True)
@@ -97,7 +97,7 @@ async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile="Dockerfile.missing")
 
     with pytest.raises(FileNotFoundError, match="Dockerfile not found"):
-        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
 
 def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str, str]]:
@@ -137,7 +137,7 @@ async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(mo
     built = _stub_build_path(monkeypatch, clone_files)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
     assert built == [{**clone_files, "Dockerfile": render_default_dockerfile(kind), ".dockerignore": ".git\n"}]
 
@@ -146,7 +146,7 @@ async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
     built = _stub_build_path(monkeypatch, {".dockerignore": "data/\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
     assert built[0][".dockerignore"] == "data/\n"
 
@@ -156,7 +156,7 @@ async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkey
     built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n", "requirements.txt": "six\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
     assert built == [{"Dockerfile": "FROM python:3.12\n", "requirements.txt": "six\n"}]
 
@@ -210,7 +210,7 @@ async def test_build_image_to_tag_preflights_docker(monkeypatch):
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=True))
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
     require.assert_awaited_once()
 
@@ -226,14 +226,14 @@ async def test_resolve_launch_image_rejects_missing_source():
 
 
 @pytest.mark.parametrize(
-    "registry, expected_tag",
+    "registry, expected_prefix",
     [
         # Empty reads as unset (``get_registry``): the local-build mode.
-        pytest.param("", "aaiclick-job:" + "a" * 40, id="no-registry"),
-        pytest.param("registry.example:5000", "registry.example:5000/aaiclick-job:" + "a" * 40, id="registry"),
+        pytest.param("", "aaiclick-job:", id="no-registry"),
+        pytest.param("registry.example:5000", "registry.example:5000/aaiclick-job:", id="registry"),
     ],
 )
-async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected_tag):
+async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected_prefix):
     """The build task in the graph owns the build in both modes (its dependency
     edge guaranteed the push); launch only computes the tag."""
     build = AsyncMock()
@@ -241,5 +241,6 @@ async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected
     monkeypatch.setattr(docker_build, "build_image_to_tag", build)
     source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
 
+    expected_tag = f"{expected_prefix}{'a' * 40}-{docker_config.image_key(source)[:12]}"
     assert await resolve_launch_image(source, task_id=1) == expected_tag
     build.assert_not_awaited()

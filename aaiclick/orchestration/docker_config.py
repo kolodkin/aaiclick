@@ -139,11 +139,13 @@ def get_build_mode() -> BuildMode:
     )
 
 
-def compute_image_tag(git_sha: str) -> str:
-    """``[<registry>/]aaiclick-job:<sha>``."""
+def compute_image_tag(source: ImageBuild) -> str:
+    """``[<registry>/]aaiclick-job:<sha>-<image_key[:12]>`` — keyed by the full
+    build identity, so another remote or Dockerfile at the same SHA cannot
+    overwrite the image."""
     registry = get_registry()
     prefix = f"{registry}/" if registry else ""
-    return f"{prefix}aaiclick-job:{git_sha}"
+    return f"{prefix}aaiclick-job:{source.git_sha}-{image_key(source)[:12]}"
 
 
 def image_key(source: ImageBuild) -> str:
