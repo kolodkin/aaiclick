@@ -109,7 +109,7 @@ def test_init_compose_builds_on_rootless_buildkitd(tmp_path):
     init_compose(target, image_tag="v1.0.0")
     parsed = yaml.safe_load(target.read_text())
     buildkitd = parsed["services"]["buildkitd"]
-    assert buildkitd["image"].startswith("moby/buildkit:v") and "-rootless@sha256:" in buildkitd["image"]
+    assert buildkitd["image"].startswith("moby/buildkit:v") and buildkitd["image"].endswith("-rootless")
     assert {"seccomp=unconfined", "apparmor=unconfined"} <= set(buildkitd["security_opt"])
     assert "docker.sock" not in str(buildkitd)
     assert parsed["services"]["worker"]["environment"]["AAICLICK_BUILDKIT_ADDR"] == "tcp://buildkitd:1234"
