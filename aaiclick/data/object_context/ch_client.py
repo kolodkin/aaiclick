@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Protocol, cast
@@ -218,18 +219,19 @@ class LazyChClient:
 
     ``orch_context`` sets one at entry, so SQL-only callers never open
     ClickHouse or take the chdb file lock. Child tasks share the instance.
+    With ``refused`` set it never connects: every call raises that message.
     Arguments past the first go by keyword: chdb and clickhouse-connect order
     ``settings`` / ``parameters`` differently.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, refused: str | None = None) -> None:
         self._client: ChClient | None = None
         self._lock = asyncio.Lock()
-        self._closed = False
+        self._refusal = refused
 
     async def _get(self) -> ChClient:
-        if self._closed:
-            raise RuntimeError("LazyChClient is closed")
+        if self._refusal is not None:
+            raise RuntimeError(self._refusal)
         if self._client is not None:
             return self._client
         async with self._lock:
@@ -277,6 +279,17 @@ class LazyChClient:
 
     async def close(self) -> None:
         # A call after close must fail, not reconnect — even if nothing connected yet.
-        self._closed = True
+        self._refusal = "LazyChClient is closed"
         if self._client is not None:
             await self._client.close()
+
+
+@contextmanager
+def ch_refused(reason: str) -> Iterator[None]:
+    """Make every ClickHouse call in this context raise ``RuntimeError(reason)``,
+    including from nested ``orch_context`` calls, which reuse the outer client."""
+    token = _ch_client_var.set(LazyChClient(refused=reason))
+    try:
+        yield
+    finally:
+        _ch_client_var.reset(token)

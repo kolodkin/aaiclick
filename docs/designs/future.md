@@ -5,14 +5,6 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Close the 2026-10-18 Code Review
-
-Fix the open findings in `docs/designs/code_review.md`.
-Remove each entry from the review doc as its fix lands, and delete the doc
-once it is empty.
-
----
-
 # Blob Storage Support
 
 Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's

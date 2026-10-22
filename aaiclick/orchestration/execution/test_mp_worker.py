@@ -81,6 +81,15 @@ async def test_mp_worker_main_loop_rejects_bad_runner(monkeypatch):
         await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
 
+async def test_mp_worker_main_loop_rejects_chdb_with_runner(monkeypatch, tmp_path):
+    """Container task logs are written from the parent, where a chdb session
+    would lock every later task's child out of the database."""
+    monkeypatch.setenv("AAICLICK_CH_URL", f"chdb://{tmp_path}")
+    monkeypatch.setenv("AAICLICK_RUNNER", "docker")
+    with pytest.raises(ValueError, match="cannot combine chdb"):
+        await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+
+
 async def _task_row(job_id: int) -> Task:
     async with get_sql_session() as session:
         return (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
