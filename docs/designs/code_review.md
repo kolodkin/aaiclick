@@ -8,7 +8,6 @@ Remove an entry once its fix lands.
 # Open Findings
 
 - **mp parent's "never query ClickHouse" is unenforced:** since #489 every `orch_context` installs a `LazyChClient`, so an accidental parent-side query silently takes the chdb lock. A blanket refusal won't do: under chdb the parent's `ChLogSink` writes container task logs through that client (`aaiclick/orchestration/execution/mp_worker.py`).
-- **Upstream refs have no `job_id` filter:** `upstream` / `group_results` resolution reads any task's result by id; only the returned-handle check stops a shell/jvm child naming another job's task (`aaiclick/orchestration/execution/runner.py`).
 
 # Not Covered
 

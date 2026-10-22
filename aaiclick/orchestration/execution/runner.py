@@ -149,12 +149,13 @@ def _import_class(type_path: str) -> type:
     return getattr(module, class_name)
 
 
-async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
+async def _resolve_upstream_ref(ref: dict, session: AsyncSession, job_id: int) -> Any:
     """Resolve an upstream task reference to its result.
 
     Args:
         ref: An ``upstream`` ref dict with ``task_id``
         session: Database session for querying task result
+        job_id: The consumer's job — a ref never reaches another job's task
 
     Returns:
         The upstream task's result (Object, View, or native value)
@@ -163,7 +164,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
         ValueError: If upstream task not found or not completed
     """
     task_id = ref[TASK_ID]
-    db_result = await session.execute(select(Task.result, Task.status).where(Task.id == task_id))
+    db_result = await session.execute(select(Task.result, Task.status).where(Task.id == task_id, Task.job_id == job_id))
     row = db_result.one_or_none()
 
     if row is None:
@@ -179,7 +180,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
     return result
 
 
-async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
+async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> Any:
     """Recursively deserialize a value from JSON format.
 
     Dispatches on :func:`~aaiclick.data.object.refs.ref_kind`: upstream refs
@@ -189,18 +190,19 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     Args:
         value: Serialized value from task kwargs
         session: Database session for resolving upstream refs
+        job_id: Job the refs must belong to
 
     Returns:
         Deserialized value ready for function call
     """
     if isinstance(value, list):
-        return [await _deserialize_value(v, session) for v in value]
+        return [await _deserialize_value(v, session, job_id) for v in value]
 
     kind = ref_kind(value)
 
     if kind == UPSTREAM:
-        upstream_result = await _resolve_upstream_ref(value, session)
-        return await _deserialize_value(upstream_result, session)
+        upstream_result = await _resolve_upstream_ref(value, session, job_id)
+        return await _deserialize_value(upstream_result, session, job_id)
 
     if kind == CALLABLE:
         return import_callback(value["entrypoint"])
@@ -212,6 +214,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             select(Task.result)
             .where(
                 Task.group_id == group_id,
+                Task.job_id == job_id,
                 Task.status == TASK_COMPLETED,
             )
             .order_by(col(Task.id))
@@ -219,7 +222,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         rows = result.all()
         deserialized = []
         for (task_result,) in rows:
-            deserialized.append(await _deserialize_value(task_result, session))
+            deserialized.append(await _deserialize_value(task_result, session, job_id))
         return deserialized
 
     if kind == NATIVE:
@@ -253,10 +256,10 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     if not isinstance(value, dict):
         return value
     # Regular dict - recursively deserialize values
-    return {k: await _deserialize_value(v, session) for k, v in value.items()}
+    return {k: await _deserialize_value(v, session, job_id) for k, v in value.items()}
 
 
-async def deserialize_task_params(serialized_params: dict) -> dict:
+async def deserialize_task_params(serialized_params: dict, job_id: int) -> dict:
     """
     Deserialize task parameters from JSON format.
 
@@ -268,6 +271,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
 
     Args:
         serialized_params: Task kwargs from database (JSON-deserialized)
+        job_id: The task's job; upstream refs resolve only within it
 
     Returns:
         dict: Deserialized kwargs ready for function call
@@ -279,21 +283,21 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         return {}
 
     async with get_sql_session() as session:
-        return {k: await _deserialize_value(v, session) for k, v in serialized_params.items()}
+        return {k: await _deserialize_value(v, session, job_id) for k, v in serialized_params.items()}
 
 
-async def _resolve_plain_value(name: str, value: Any, session: AsyncSession) -> Any:
+async def _resolve_plain_value(name: str, value: Any, session: AsyncSession, job_id: int) -> Any:
     if isinstance(value, list):
-        return [await _resolve_plain_value(name, v, session) for v in value]
+        return [await _resolve_plain_value(name, v, session, job_id) for v in value]
     kind = ref_kind(value)
     if kind == UPSTREAM:
-        return await _resolve_plain_value(name, await _resolve_upstream_ref(value, session), session)
+        return await _resolve_plain_value(name, await _resolve_upstream_ref(value, session, job_id), session, job_id)
     if kind == NATIVE:
         return value[VALUE]
     if kind is not None:
         raise ValueError(f"kwarg {name!r} resolves to a {kind} ref, which a shell task cannot receive")
     if isinstance(value, dict):
-        return {k: await _resolve_plain_value(name, v, session) for k, v in value.items()}
+        return {k: await _resolve_plain_value(name, v, session, job_id) for k, v in value.items()}
     return value
 
 
@@ -301,7 +305,7 @@ async def stage_in_json(task: Task) -> Path:
     """A fresh per-attempt IO dir holding the task's resolved ``in.json``; the
     caller removes it once the task is done."""
     # Resolve before mkdtemp: a resolve error must not leave the dir behind.
-    kwargs = await resolve_plain_kwargs(task.kwargs)
+    kwargs = await resolve_plain_kwargs(task.kwargs, task.job_id)
     io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
     try:
         write_in_json(io_dir, kwargs)
@@ -311,7 +315,7 @@ async def stage_in_json(task: Task) -> Path:
     return io_dir
 
 
-async def resolve_plain_kwargs(kwargs: dict) -> dict:
+async def resolve_plain_kwargs(kwargs: dict, job_id: int) -> dict:
     """Resolve a shell/jvm task's kwargs into the plain JSON ``in.json`` carries.
 
     ``upstream`` refs become the producer's stored value (recursively) and
@@ -323,7 +327,7 @@ async def resolve_plain_kwargs(kwargs: dict) -> dict:
     if not kwargs:
         return {}
     async with get_sql_session() as session:
-        return {k: await _resolve_plain_value(k, v, session) for k, v in kwargs.items()}
+        return {k: await _resolve_plain_value(k, v, session, job_id) for k, v in kwargs.items()}
 
 
 async def register_run(task_id: int) -> int:
@@ -382,7 +386,7 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
                 job_id=task.job_id,
                 run_id=run_id,
             ):
-                kwargs = await deserialize_task_params(task.kwargs)
+                kwargs = await deserialize_task_params(task.kwargs, task.job_id)
                 if inspect.iscoroutinefunction(func):
                     result = await func(**kwargs)
                 else:

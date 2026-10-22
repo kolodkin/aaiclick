@@ -175,4 +175,4 @@ async def get_job_result(job: Job) -> Any:
         result[JOB_ID] = task_job_id
 
     async with get_sql_session() as session:
-        return await _deserialize_value(result, session)
+        return await _deserialize_value(result, session, job.id)

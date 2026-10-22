@@ -349,7 +349,7 @@ async def test_import_callback_invalid_format(orch_ctx):
 
 async def test_deserialize_task_params_empty(orch_ctx):
     """Test deserializing empty parameters."""
-    result = await deserialize_task_params({})
+    result = await deserialize_task_params({}, job_id=0)
     assert result == {}
 
 
@@ -357,7 +357,7 @@ async def test_deserialize_task_params_native_python(orch_ctx):
     """Test that native Python values are passed through unchanged."""
     kwargs = {"x": 5, "y": 10, "name": "test", "items": [1, 2, 3]}
 
-    result = await deserialize_task_params(kwargs)
+    result = await deserialize_task_params(kwargs, job_id=0)
     assert result["x"] == 5
     assert result["y"] == 10
     assert result["name"] == "test"
@@ -375,7 +375,9 @@ async def _completed_task(result: dict | None) -> Task:
 
 async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
     src = await _completed_task(native_ref({"a": 1}))
-    resolved = await resolve_plain_kwargs({"x": upstream_ref(src.id), "y": native_ref(2), "z": [3, {"w": 4}]})
+    resolved = await resolve_plain_kwargs(
+        {"x": upstream_ref(src.id), "y": native_ref(2), "z": [3, {"w": 4}]}, src.job_id
+    )
     assert resolved == {"x": {"a": 1}, "y": 2, "z": [3, {"w": 4}]}
 
 
@@ -384,7 +386,14 @@ async def test_resolve_plain_kwargs_rejects_object_result(orch_ctx):
     knowable at launch, after the producer ran."""
     src = await _completed_task({"_aaiclick_type": "object", "table": "t_1"})
     with pytest.raises(ValueError, match="kwarg 'd' resolves to a object ref"):
-        await resolve_plain_kwargs({"d": upstream_ref(src.id)})
+        await resolve_plain_kwargs({"d": upstream_ref(src.id)}, src.job_id)
+
+
+async def test_resolve_plain_kwargs_rejects_other_jobs_task(orch_ctx):
+    """A ref resolves only inside the consumer's job, so it cannot read another job's result."""
+    src = await _completed_task(native_ref(1))
+    with pytest.raises(ValueError, match="not found"):
+        await resolve_plain_kwargs({"x": upstream_ref(src.id)}, src.job_id + 1)
 
 
 async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
@@ -392,7 +401,7 @@ async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
     kwargs = {"x": {"_aaiclick_type": "banana", "value": 5}}
 
     with pytest.raises(ValueError, match="Unknown _aaiclick_type"):
-        await deserialize_task_params(kwargs)
+        await deserialize_task_params(kwargs, job_id=0)
 
 
 async def test_deserialize_task_params_object(orch_ctx):
@@ -400,7 +409,7 @@ async def test_deserialize_task_params_object(orch_ctx):
     await seed_registry_row("t123")
     kwargs = {"data": {"_aaiclick_type": "object", "table": "t123"}}
 
-    result = await deserialize_task_params(kwargs)
+    result = await deserialize_task_params(kwargs, job_id=0)
     assert "data" in result
     assert isinstance(result["data"], Object)
     assert result["data"].table == "t123"
@@ -419,7 +428,7 @@ async def test_deserialize_task_params_view(orch_ctx):
     )
     kwargs = {"data": ViewRef(table="t456", view_schema=schema).to_dict()}
 
-    result = await deserialize_task_params(kwargs)
+    result = await deserialize_task_params(kwargs, job_id=0)
     assert "data" in result
     assert isinstance(result["data"], View)
     assert result["data"].table == "t456"
