@@ -101,8 +101,8 @@ async def principal_from_credential(credential: str) -> Principal:
 
 
 async def resolve_principal(authorization: str | None) -> Principal:
-    """Resolve from a raw ``Authorization`` header value (used by the /mcp middleware,
-    which has no access to FastAPI's dependency injection)."""
+    """Resolve from a raw ``Authorization`` header value — for the MCP tools
+    when they run without the ``/mcp`` mount (see ``mcp_rbac._principal_for``)."""
     if not config.auth_enabled():
         return _SYNTHETIC_ADMIN
     return await principal_from_credential(_bearer_credential(authorization))
