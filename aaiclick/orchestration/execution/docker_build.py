@@ -18,6 +18,7 @@ Cache check, then build (first hit short-circuits):
 from __future__ import annotations
 
 import functools
+import hashlib
 import importlib.metadata
 import os
 import tempfile
@@ -34,9 +35,6 @@ def _docker_bin() -> str:
     return os.environ.get("AAICLICK_DOCKER_BIN", "docker")
 
 
-BUILDER_NAME = "aaiclick"
-
-
 _TLS_ENV = {
     "cacert": "AAICLICK_BUILDKIT_TLS_CACERT",
     "cert": "AAICLICK_BUILDKIT_TLS_CERT",
@@ -50,16 +48,24 @@ def _tls_opts() -> list[str]:
     return ["--driver-opt", ",".join(opts)] if opts else []
 
 
+def _builder_name() -> str:
+    """buildx builder for the current address + TLS settings — keyed by them, so
+    changing either creates a fresh builder instead of reusing a stale one."""
+    config = "\x00".join([get_buildkit_addr(), *_tls_opts()])
+    return f"aaiclick-{hashlib.sha256(config.encode()).hexdigest()[:12]}"
+
+
 async def _require_builder() -> None:
     """Preflight the build: the buildx builder for ``AAICLICK_BUILDKIT_ADDR``
     exists (created on first use) and its buildkitd answers.
 
-    A concurrent create on the same worker fails harmlessly; the bootstrap
-    inspect is the check that counts."""
+    A concurrent create on the same worker loses with "existing instance",
+    which is fine; the bootstrap inspect is the check that counts."""
     addr = get_buildkit_addr()
+    name = _builder_name()
     bin_ = _docker_bin()
     try:
-        rc, _, _ = await cli.run(bin_, "buildx", "inspect", BUILDER_NAME, check=False, stream=False)
+        rc, _, _ = await cli.run(bin_, "buildx", "inspect", name, check=False, stream=False)
     except FileNotFoundError as e:
         raise RuntimeError(
             f"Docker CLI {bin_!r} not found on this worker, but this job builds its "
@@ -67,13 +73,14 @@ async def _require_builder() -> None:
             f"AAICLICK_DOCKER_BIN to the docker binary, or submit the job with a "
             f"prebuilt image (image=...)."
         ) from e
+    create_err = ""
     if rc != 0:
-        await cli.run(
+        rc, _, create_err = await cli.run(
             bin_,
             "buildx",
             "create",
             "--name",
-            BUILDER_NAME,
+            name,
             "--driver",
             "remote",
             *_tls_opts(),
@@ -81,7 +88,9 @@ async def _require_builder() -> None:
             check=False,
             stream=False,
         )
-    rc, _, stderr = await cli.run(bin_, "buildx", "inspect", "--bootstrap", BUILDER_NAME, check=False, stream=False)
+        if rc != 0 and "existing instance" not in create_err:
+            raise RuntimeError(f"buildx create failed: {create_err.strip()}")
+    rc, _, stderr = await cli.run(bin_, "buildx", "inspect", "--bootstrap", name, check=False, stream=False)
     if rc != 0:
         raise RuntimeError(
             f"BuildKit daemon at {addr} (AAICLICK_BUILDKIT_ADDR) is not reachable from this worker: "
@@ -186,7 +195,7 @@ async def _buildx_build(context: str, dockerfile: str, image_tag: str, build_arg
         "buildx",
         "build",
         "--builder",
-        BUILDER_NAME,
+        _builder_name(),
         "-t",
         image_tag,
         "-f",
@@ -255,8 +264,6 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
     """Ensure ``image_tag`` exists where dependents launch it — the registry,
     or this host's daemon in local mode — building ``source`` on buildkitd if
     it is missing. Idempotent: the tag is content-addressed by build identity."""
-    await _require_builder()
-
     registry = get_registry()
     if registry:
         if await _registry_has_image(image_tag):
@@ -264,6 +271,7 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
     elif await _docker_image_exists_locally(image_tag):
         return
 
+    await _require_builder()
     with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
         await _git_clone_at_sha(source.git_remote, source.git_sha, workdir)
 

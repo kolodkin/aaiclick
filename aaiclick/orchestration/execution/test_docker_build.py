@@ -182,12 +182,29 @@ def _fake_cli(monkeypatch, rcs: dict[tuple[str, ...], int]) -> list[tuple[str, .
 
 async def test_require_builder_creates_remote_builder_on_miss(monkeypatch):
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
-    calls = _fake_cli(monkeypatch, {("buildx", "inspect", "aaiclick"): 1})
+    name = docker_build._builder_name()
+    calls = _fake_cli(monkeypatch, {("buildx", "inspect", name): 1})
 
     await docker_build._require_builder()
 
-    assert ("docker", "buildx", "create", "--name", "aaiclick", "--driver", "remote", "tcp://buildkitd:1234") in calls
-    assert calls[-1] == ("docker", "buildx", "inspect", "--bootstrap", "aaiclick")
+    assert ("docker", "buildx", "create", "--name", name, "--driver", "remote", "tcp://buildkitd:1234") in calls
+    assert calls[-1] == ("docker", "buildx", "inspect", "--bootstrap", name)
+
+
+def test_builder_name_follows_address(monkeypatch):
+    """A changed address gets a fresh builder instead of reusing the stale one."""
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://old:1234")
+    old = docker_build._builder_name()
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://new:1234")
+    assert docker_build._builder_name() != old
+
+
+async def test_require_builder_reports_create_failure(monkeypatch):
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
+    _fake_cli(monkeypatch, {("buildx", "inspect"): 1, ("buildx", "create"): 1})
+
+    with pytest.raises(RuntimeError, match="buildx create failed: boom"):
+        await docker_build._require_builder()
 
 
 async def test_require_builder_raises_without_addr(monkeypatch):
@@ -257,8 +274,18 @@ async def test_build_image_to_tag_cache_hit_skips_build(monkeypatch, registry):
     build.assert_not_awaited()
 
 
+async def test_build_image_to_tag_cache_hit_needs_no_builder(monkeypatch):
+    """An image that already exists is returned without touching buildkitd."""
+    _stub_modes(monkeypatch, registry="registry.example:5000", have_image=True)
+    monkeypatch.setattr(docker_build, "_require_builder", AsyncMock(side_effect=RuntimeError("down")))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
+
+
 @pytest.mark.parametrize("push, flag, absent", [(True, "--push", "--load"), (False, "--load", "--push")])
 async def test_buildx_build_argv(monkeypatch, push, flag, absent):
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     monkeypatch.setenv("AAICLICK_PIP_INDEX_URL", "http://tok@pypi.test/simple/")
     monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("AAICLICK_DOCKER_BUILD_ADD_HOST", raising=False)
@@ -267,7 +294,7 @@ async def test_buildx_build_argv(monkeypatch, push, flag, absent):
     await docker_build._buildx_build("/ctx", "/ctx/Dockerfile", "reg/aaiclick-job:x", ["--build-arg", "A=1"], push=push)
 
     (argv,) = calls
-    assert argv[:5] == ("docker", "buildx", "build", "--builder", "aaiclick")
+    assert argv[:5] == ("docker", "buildx", "build", "--builder", docker_build._builder_name())
     assert flag in argv and absent not in argv
     assert "id=pip_index_url,env=AAICLICK_PIP_INDEX_URL" in argv
     assert argv[-1] == "/ctx"
@@ -276,6 +303,7 @@ async def test_buildx_build_argv(monkeypatch, push, flag, absent):
 async def test_buildx_build_resolves_host_gateway(monkeypatch):
     """buildkitd does not know dockerd's ``host-gateway`` keyword, so the worker
     passes the gateway IP itself."""
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     monkeypatch.setenv("AAICLICK_DOCKER_BUILD_ADD_HOST", "host.docker.internal:host-gateway")
     monkeypatch.setattr(docker_build, "_host_gateway_ip", AsyncMock(return_value="172.17.0.1"))
     calls = _fake_cli(monkeypatch, {})
@@ -322,7 +350,7 @@ async def test_require_builder_passes_tls_opts(monkeypatch):
     monkeypatch.setenv("AAICLICK_BUILDKIT_TLS_CACERT", "/certs/ca.pem")
     monkeypatch.delenv("AAICLICK_BUILDKIT_TLS_CERT", raising=False)
     monkeypatch.setenv("AAICLICK_BUILDKIT_TLS_KEY", "/certs/key.pem")
-    calls = _fake_cli(monkeypatch, {("buildx", "inspect", "aaiclick"): 1})
+    calls = _fake_cli(monkeypatch, {("buildx", "inspect", docker_build._builder_name()): 1})
 
     await docker_build._require_builder()
 

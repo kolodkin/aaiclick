@@ -16,7 +16,7 @@ name: Kubernetes Runner E2E (reusable)
 #     via /etc/hosts (aaiclick-postgres/-clickhouse -> 127.0.0.1 -> extraPortMapping
 #     -> NodePort), and inside job pods via CoreDNS (Service name). The pod
 #     inherits the host DSN verbatim through build_runner_env, so no runner change.
-#   - The job image tag stays localhost:5000/aaiclick-job:<sha>: the host pushes
+#   - The job image tag is localhost:5000/aaiclick-job:<sha>-<key>: buildkitd pushes
 #     to localhost:5000 (-> NodePort 30500 -> registry pod) and the node's
 #     containerd resolves it via the mirror localhost:5000 -> localhost:30500.
 #   - Images build on a host-network buildkitd (start-buildkitd), which pushes

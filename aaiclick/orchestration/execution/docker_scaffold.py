@@ -62,7 +62,8 @@ RUN --mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL \\
     --mount=type=secret,id=pip_extra_index_url,env=PIP_EXTRA_INDEX_URL \\
     pip install --no-cache-dir \\
     --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" \\
-    --extra-index-url "${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}" \\
+    --extra-index-url https://pypi.org/simple/ \\
+    ${PIP_EXTRA_INDEX_URL:+--extra-index-url "${PIP_EXTRA_INDEX_URL}"} \\
     ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}} \\
     "aaiclick[distributed]==${AAICLICK_VERSION}"
 
@@ -73,7 +74,9 @@ RUN --mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL \\
 # CLI does when run from the repo.
 COPY . /src
 WORKDIR /src
-RUN pip install --no-cache-dir /src
+RUN --mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL \\
+    --mount=type=secret,id=pip_extra_index_url,env=PIP_EXTRA_INDEX_URL \\
+    pip install --no-cache-dir /src
 """
 
 MANIFEST_NONE = "none"

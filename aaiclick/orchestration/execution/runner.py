@@ -724,8 +724,9 @@ Handles = dict[str, "Task | Group"]
 _BUILD_FIELDS = ImageBuild.model_fields.keys() - {"type"}
 
 _CHILD_REMOTE_SCHEME = re.compile(r"^(https://|git@[^:/]+:)")
-# git's HTTP client normalises ``..`` (also percent-encoded), which would walk out of a prefix.
-_DOT_SEGMENT = re.compile(r"(^|[/:])(\.|%2e){2}([/]|$)", re.IGNORECASE)
+# git's HTTP client normalises ``..``, and a server may decode ``%2F`` / ``\`` into
+# separators, either of which walks out of a prefix; plain remotes need none of them.
+_UNSAFE_REMOTE = re.compile(r"(^|[/:])\.\.(/|$)|[%\\]")
 
 
 def _under_prefix(remote: str, prefix: str) -> bool:
@@ -746,7 +747,7 @@ def _check_child_remote(remote: str | None, parent_image_source: dict | None) ->
     """
     parent_remote = (parent_image_source or {}).get("git_remote")
     prefixes = [p.strip() for p in os.environ.get("AAICLICK_CHILD_BUILD_REMOTES", "").split(",") if p.strip()]
-    if remote and _CHILD_REMOTE_SCHEME.match(remote) and not _DOT_SEGMENT.search(remote):
+    if remote and _CHILD_REMOTE_SCHEME.match(remote) and not _UNSAFE_REMOTE.search(remote):
         if remote == parent_remote or any(_under_prefix(remote, p) for p in prefixes):
             return
     raise ValueError(

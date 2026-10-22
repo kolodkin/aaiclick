@@ -819,6 +819,10 @@ _PARENT_REMOTE = "https://git/parent.git"
         pytest.param(
             "https://github.com/myorg/%2E%2e/evil/x.git", "https://github.com/myorg/", False, id="encoded-dot"
         ),
+        pytest.param(
+            "https://github.com/myorg/..%2Fevil/x.git", "https://github.com/myorg/", False, id="encoded-slash"
+        ),
+        pytest.param("https://github.com/myorg/..\\evil/x.git", "https://github.com/myorg/", False, id="backslash"),
         pytest.param("file:///etc", "file:///", False, id="file-scheme"),
         pytest.param("/srv/repo", "/srv/", False, id="local-path"),
         pytest.param("https://elsewhere/x.git", "", False, id="unlisted"),

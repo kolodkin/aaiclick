@@ -200,3 +200,9 @@ def test_index_urls_come_from_secret_mounts(text):
     assert text.startswith("# syntax=docker/dockerfile:1\n")
     assert all(mount in text for mount in _SECRET_MOUNTS)
     assert "ARG PIP_INDEX_URL" not in text and "ARG PIP_EXTRA_INDEX_URL" not in text
+
+
+def test_docker_init_template_keeps_index_for_every_install():
+    """Both pip installs see the configured index, and pypi stays an extra index."""
+    assert DOCKERFILE_TEMPLATE.count("--mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL") == 2
+    assert "--extra-index-url https://pypi.org/simple/" in DOCKERFILE_TEMPLATE
