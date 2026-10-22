@@ -3,13 +3,16 @@
 Used by the injected image-build task (``execution.image_build_task``);
 ``resolve_launch_image`` only derives the tag a container launches with.
 
-Cache hierarchy (first hit short-circuits):
+Builds run on buildkitd (``AAICLICK_BUILDKIT_ADDR``) through the buildx
+remote driver, never on the host daemon: Dockerfile steps run in buildkitd's
+sandbox, away from the worker's credentials and the daemon that runs tasks.
 
-1. ``AAICLICK_REGISTRY`` set + ``docker pull`` succeeds — image is
-   now in the local daemon.
-2. ``docker image inspect <tag>`` succeeds — local cache hit.
-3. Fall through: ``git clone`` at SHA, ``docker build``, then
-   ``docker push`` if a registry is configured (local mode stops here).
+Cache check, then build (first hit short-circuits):
+
+1. registry mode: ``docker buildx imagetools inspect <tag>`` finds it.
+2. local mode: ``docker image inspect <tag>`` finds it in the host daemon.
+3. Fall through: ``git clone`` at SHA, ``docker buildx build`` with
+   ``--push`` (registry) or ``--load`` (local).
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import tempfile
 from pathlib import Path
 
 from ...ghcr import base_image
-from ..docker_config import add_host_flags, compute_image_tag, get_registry
+from ..docker_config import add_host_flags, compute_image_tag, get_buildkit_addr, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
 from .docker_scaffold import detect_manifest, render_default_dockerfile
@@ -31,29 +34,58 @@ def _docker_bin() -> str:
     return os.environ.get("AAICLICK_DOCKER_BIN", "docker")
 
 
-async def _require_docker() -> None:
-    """Preflight the build: the docker CLI is on PATH *and* its daemon is reachable.
+BUILDER_NAME = "aaiclick"
 
-    A ``build`` image source builds on the worker's own host, so a worker with no
-    Docker fails here with a clear, actionable message instead of a raw
-    ``FileNotFoundError`` (missing CLI) or a daemon-connection error surfacing deep
-    inside the first ``docker`` call. ``docker version`` needs the server, so it
-    validates connectivity, not just the binary."""
+
+_TLS_ENV = {
+    "cacert": "AAICLICK_BUILDKIT_TLS_CACERT",
+    "cert": "AAICLICK_BUILDKIT_TLS_CERT",
+    "key": "AAICLICK_BUILDKIT_TLS_KEY",
+}
+
+
+def _tls_opts() -> list[str]:
+    """Remote-driver TLS options for the client cert/key/CA paths that are set."""
+    opts = [f"{opt}={os.environ[env]}" for opt, env in _TLS_ENV.items() if os.environ.get(env)]
+    return ["--driver-opt", ",".join(opts)] if opts else []
+
+
+async def _require_builder() -> None:
+    """Preflight the build: the buildx builder for ``AAICLICK_BUILDKIT_ADDR``
+    exists (created on first use) and its buildkitd answers.
+
+    A concurrent create on the same worker fails harmlessly; the bootstrap
+    inspect is the check that counts."""
+    addr = get_buildkit_addr()
     bin_ = _docker_bin()
     try:
-        rc, _, stderr = await cli.run(bin_, "version", "--format", "{{.Server.Version}}", check=False, stream=False)
+        rc, _, _ = await cli.run(bin_, "buildx", "inspect", BUILDER_NAME, check=False, stream=False)
     except FileNotFoundError as e:
         raise RuntimeError(
             f"Docker CLI {bin_!r} not found on this worker, but this job builds its "
-            f"image from source. Install Docker on the worker host, set "
+            f"image from source. Install the docker CLI with buildx, set "
             f"AAICLICK_DOCKER_BIN to the docker binary, or submit the job with a "
             f"prebuilt image (image=...)."
         ) from e
     if rc != 0:
+        await cli.run(
+            bin_,
+            "buildx",
+            "create",
+            "--name",
+            BUILDER_NAME,
+            "--driver",
+            "remote",
+            *_tls_opts(),
+            addr,
+            check=False,
+            stream=False,
+        )
+    rc, _, stderr = await cli.run(bin_, "buildx", "inspect", "--bootstrap", BUILDER_NAME, check=False, stream=False)
+    if rc != 0:
         raise RuntimeError(
-            f"Docker daemon is not reachable from this worker (`{bin_} version` exited "
-            f"{rc}): {stderr.strip()}. A build image source builds on the worker host; "
-            f"ensure the daemon is running and this user can access it."
+            f"BuildKit daemon at {addr} (AAICLICK_BUILDKIT_ADDR) is not reachable from this worker: "
+            f"{stderr.strip()}. Start buildkitd there, or fix the address."
         )
 
 
@@ -62,14 +94,31 @@ async def _docker_image_exists_locally(image_tag: str) -> bool:
     return rc == 0
 
 
-async def _docker_pull(image_tag: str) -> bool:
-    """Returns True on cache hit, False if the registry doesn't have it."""
-    rc, _, _ = await cli.run(_docker_bin(), "pull", image_tag, check=False)
+async def _registry_has_image(image_tag: str) -> bool:
+    """Whether the registry already holds ``image_tag`` — asked of the registry
+    directly, so registry mode needs no host daemon. A miss only costs a rebuild."""
+    rc, _, _ = await cli.run(_docker_bin(), "buildx", "imagetools", "inspect", image_tag, check=False, stream=False)
     return rc == 0
 
 
-async def _docker_push(image_tag: str) -> None:
-    await cli.run(_docker_bin(), "push", image_tag)
+async def _host_gateway_ip() -> str:
+    """The docker bridge gateway, standing in for ``host-gateway``."""
+    rc, out, _ = await cli.run(
+        _docker_bin(),
+        "network",
+        "inspect",
+        "bridge",
+        "--format",
+        "{{(index .IPAM.Config 0).Gateway}}",
+        check=False,
+        stream=False,
+    )
+    if rc != 0 or not out.strip():
+        raise RuntimeError(
+            "AAICLICK_DOCKER_BUILD_ADD_HOST uses host-gateway, which buildkitd cannot resolve and this "
+            "worker has no docker daemon to look up. Write the host's IP literally (host:1.2.3.4)."
+        )
+    return out.strip()
 
 
 async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
@@ -128,17 +177,24 @@ def _collect_secret_flags() -> list[str]:
     return flags
 
 
-async def _docker_build(context: str, dockerfile: str, image_tag: str, build_args: list[str]) -> None:
+async def _buildx_build(context: str, dockerfile: str, image_tag: str, build_args: list[str], *, push: bool) -> None:
+    gateway_ip = None
+    if "host-gateway" in os.environ.get("AAICLICK_DOCKER_BUILD_ADD_HOST", ""):
+        gateway_ip = await _host_gateway_ip()
     cmd = [
         _docker_bin(),
+        "buildx",
         "build",
+        "--builder",
+        BUILDER_NAME,
         "-t",
         image_tag,
         "-f",
         dockerfile,
         *build_args,
         *_collect_secret_flags(),
-        *add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST"),
+        *add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST", gateway_ip=gateway_ip),
+        "--push" if push else "--load",
         context,
     ]
     await cli.run(*cmd)
@@ -194,28 +250,23 @@ async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: in
 
 
 async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
-    """Ensure ``image_tag`` exists in the local docker daemon, building from
-    ``source`` if needed; push when a registry is configured.
-
-    Idempotent and content-addressed by SHA. A local-cache hit short-circuits
-    the *build* but not the push: a prior attempt that built locally then failed
-    to push must re-push on retry, or other hosts could never pull the image."""
-    await _require_docker()
+    """Ensure ``image_tag`` exists where dependents launch it — the registry,
+    or this host's daemon in local mode — building ``source`` on buildkitd if
+    it is missing. Idempotent: the tag is content-addressed by build identity."""
+    await _require_builder()
 
     registry = get_registry()
-
-    if registry and await _docker_pull(image_tag):
+    if registry:
+        if await _registry_has_image(image_tag):
+            return
+    elif await _docker_image_exists_locally(image_tag):
         return
 
-    if not await _docker_image_exists_locally(image_tag):
-        with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
-            await _git_clone_at_sha(source.git_remote, source.git_sha, workdir)
+    with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
+        await _git_clone_at_sha(source.git_remote, source.git_sha, workdir)
 
-            context_dir = Path(workdir)
-            dockerfile = _resolve_dockerfile(source, context_dir)
+        context_dir = Path(workdir)
+        dockerfile = _resolve_dockerfile(source, context_dir)
 
-            build_args = _collect_build_args(source)
-            await _docker_build(str(context_dir), str(dockerfile), image_tag, build_args)
-
-    if registry:
-        await _docker_push(image_tag)
+        build_args = _collect_build_args(source)
+        await _buildx_build(str(context_dir), str(dockerfile), image_tag, build_args, push=registry is not None)

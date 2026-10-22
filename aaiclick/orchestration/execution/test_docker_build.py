@@ -52,41 +52,6 @@ async def test_collect_secret_flags_omits_unset(monkeypatch):
     assert docker_build._collect_secret_flags() == []
 
 
-async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
-    """Registry set + registry pull misses + local image present → skip
-    the build, but **still** attempt the push.
-
-    Regression guard for the retry-after-push-failure path: if a previous
-    attempt built locally and then failed to push, the local image is
-    cached. A naive ``return-on-cache-hit`` would short-circuit the
-    retry; the retry must re-attempt the push instead, otherwise the
-    image would never reach the registry and other hosts couldn't pull it.
-    """
-    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
-    expected_tag = docker_config.compute_image_tag(source)
-
-    pull = AsyncMock(return_value=False)
-    inspect = AsyncMock(return_value=True)
-    clone = AsyncMock()
-    build = AsyncMock()
-    push = AsyncMock()
-    monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
-    monkeypatch.setattr(docker_build, "_docker_pull", pull)
-    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", inspect)
-    monkeypatch.setattr(docker_build, "_git_clone_at_sha", clone)
-    monkeypatch.setattr(docker_build, "_docker_build", build)
-    monkeypatch.setattr(docker_build, "_docker_push", push)
-
-    await docker_build.build_image_to_tag(source, expected_tag)
-
-    pull.assert_awaited_once_with(expected_tag)
-    inspect.assert_awaited_once_with(expected_tag)
-    clone.assert_not_called()
-    build.assert_not_called()
-    push.assert_awaited_once_with(expected_tag)
-
-
 async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch):
     """Both remote and SHA are positional to git; ``--`` stops git reading either as an option."""
     run = AsyncMock()
@@ -112,11 +77,11 @@ async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch
 
 def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str, str]]:
     """Stub everything around the clone + build step and return a list collecting,
-    per ``_docker_build`` call, the checkout's files by name (read at call time,
+    per ``_buildx_build`` call, the checkout's files by name (read at call time,
     before the temp checkout is removed). The Dockerfile must sit in the context."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
-    monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
+    monkeypatch.setenv("AAICLICK_LOCAL_BUILD", "1")
+    monkeypatch.setattr(docker_build, "_require_builder", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
     async def fake_clone(remote, sha, workdir):
@@ -125,12 +90,12 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str,
 
     built: list[dict[str, str]] = []
 
-    async def fake_build(context, dockerfile, image_tag, build_args):
+    async def fake_build(context, dockerfile, image_tag, build_args, *, push):
         assert Path(dockerfile) == Path(context) / "Dockerfile"
         built.append({f.name: f.read_text() for f in Path(context).iterdir()})
 
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", fake_clone)
-    monkeypatch.setattr(docker_build, "_docker_build", fake_build)
+    monkeypatch.setattr(docker_build, "_buildx_build", fake_build)
     return built
 
 
@@ -190,39 +155,124 @@ def test_collect_build_args_base_image(monkeypatch, version, env_base_image, exp
     assert f"BASE_IMAGE={expected}" in docker_build._collect_build_args(source)
 
 
-async def test_require_docker_raises_clear_error_when_cli_missing(monkeypatch):
-    """A worker with no docker binary gets an actionable message, not a raw
-    FileNotFoundError from the first subprocess spawn."""
+def _fake_cli(monkeypatch, rcs: dict[tuple[str, ...], int]) -> list[tuple[str, ...]]:
+    """Stub ``cli.run``: each argv's rc is looked up by its leading words after
+    the binary (default 0); returns the recorded argvs."""
+    calls: list[tuple[str, ...]] = []
+
+    async def run(*cmd, check=True, stream=True, cwd=None, env=None):
+        calls.append(cmd)
+        rc = next((v for k, v in rcs.items() if cmd[1 : 1 + len(k)] == k), 0)
+        return rc, "", "boom" if rc else ""
+
+    monkeypatch.setattr(docker_build.cli, "run", run)
+    return calls
+
+
+async def test_require_builder_creates_remote_builder_on_miss(monkeypatch):
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
+    calls = _fake_cli(monkeypatch, {("buildx", "inspect", "aaiclick"): 1})
+
+    await docker_build._require_builder()
+
+    assert ("docker", "buildx", "create", "--name", "aaiclick", "--driver", "remote", "tcp://buildkitd:1234") in calls
+    assert calls[-1] == ("docker", "buildx", "inspect", "--bootstrap", "aaiclick")
+
+
+async def test_require_builder_raises_without_addr(monkeypatch):
+    monkeypatch.delenv("AAICLICK_BUILDKIT_ADDR", raising=False)
+    with pytest.raises(RuntimeError, match="AAICLICK_BUILDKIT_ADDR"):
+        await docker_build._require_builder()
+
+
+async def test_require_builder_raises_when_unreachable(monkeypatch):
+    """An unreachable buildkitd fails the build; nothing falls back to the host daemon."""
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
+    calls = _fake_cli(monkeypatch, {("buildx", "inspect", "--bootstrap"): 1})
+
+    with pytest.raises(RuntimeError, match="tcp://buildkitd:1234"):
+        await docker_build._require_builder()
+
+    assert all(c[1] == "buildx" for c in calls)
+
+
+async def test_require_builder_raises_clear_error_when_cli_missing(monkeypatch):
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     monkeypatch.setattr(docker_build.cli, "run", AsyncMock(side_effect=FileNotFoundError(2, "No such file", "docker")))
 
     with pytest.raises(RuntimeError, match="Docker CLI 'docker' not found on this worker"):
-        await docker_build._require_docker()
+        await docker_build._require_builder()
 
 
-async def test_require_docker_raises_clear_error_when_daemon_unreachable(monkeypatch):
-    """CLI present but daemon down → a clear 'not reachable' error including the
-    docker stderr, rather than failing later inside `docker build`."""
-    monkeypatch.setattr(
-        docker_build.cli,
-        "run",
-        AsyncMock(return_value=(1, "", "Cannot connect to the Docker daemon at unix:///var/run/docker.sock")),
-    )
+def _stub_modes(monkeypatch, *, registry: str | None, have_image: bool) -> AsyncMock:
+    if registry:
+        monkeypatch.setenv("AAICLICK_REGISTRY", registry)
+        monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)
+    else:
+        monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+        monkeypatch.setenv("AAICLICK_LOCAL_BUILD", "1")
+    monkeypatch.setattr(docker_build, "_require_builder", AsyncMock())
+    monkeypatch.setattr(docker_build, "_registry_has_image", AsyncMock(return_value=have_image))
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=have_image))
+    monkeypatch.setattr(docker_build, "_git_clone_at_sha", AsyncMock())
+    monkeypatch.setattr(docker_build, "_resolve_dockerfile", lambda source, ctx: ctx / "Dockerfile")
+    build = AsyncMock()
+    monkeypatch.setattr(docker_build, "_buildx_build", build)
+    return build
 
-    with pytest.raises(RuntimeError, match="Docker daemon is not reachable"):
-        await docker_build._require_docker()
 
-
-async def test_build_image_to_tag_preflights_docker(monkeypatch):
-    """build_image_to_tag runs the docker preflight before any build step."""
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    require = AsyncMock()
-    monkeypatch.setattr(docker_build, "_require_docker", require)
-    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=True))
+@pytest.mark.parametrize(
+    "registry, push",
+    [pytest.param("registry.example:5000", True, id="registry"), pytest.param(None, False, id="local")],
+)
+async def test_build_image_to_tag_builds_on_miss(monkeypatch, registry, push):
+    build = _stub_modes(monkeypatch, registry=registry, have_image=False)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
-    require.assert_awaited_once()
+    assert build.await_args.kwargs == {"push": push}
+
+
+@pytest.mark.parametrize(
+    "registry", [pytest.param("registry.example:5000", id="registry"), pytest.param(None, id="local")]
+)
+async def test_build_image_to_tag_cache_hit_skips_build(monkeypatch, registry):
+    build = _stub_modes(monkeypatch, registry=registry, have_image=True)
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
+
+    build.assert_not_awaited()
+
+
+@pytest.mark.parametrize("push, flag, absent", [(True, "--push", "--load"), (False, "--load", "--push")])
+async def test_buildx_build_argv(monkeypatch, push, flag, absent):
+    monkeypatch.setenv("AAICLICK_PIP_INDEX_URL", "http://tok@pypi.test/simple/")
+    monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
+    monkeypatch.delenv("AAICLICK_DOCKER_BUILD_ADD_HOST", raising=False)
+    calls = _fake_cli(monkeypatch, {})
+
+    await docker_build._buildx_build("/ctx", "/ctx/Dockerfile", "reg/aaiclick-job:x", ["--build-arg", "A=1"], push=push)
+
+    (argv,) = calls
+    assert argv[:5] == ("docker", "buildx", "build", "--builder", "aaiclick")
+    assert flag in argv and absent not in argv
+    assert "id=pip_index_url,env=AAICLICK_PIP_INDEX_URL" in argv
+    assert argv[-1] == "/ctx"
+
+
+async def test_buildx_build_resolves_host_gateway(monkeypatch):
+    """buildkitd does not know dockerd's ``host-gateway`` keyword, so the worker
+    passes the gateway IP itself."""
+    monkeypatch.setenv("AAICLICK_DOCKER_BUILD_ADD_HOST", "host.docker.internal:host-gateway")
+    monkeypatch.setattr(docker_build, "_host_gateway_ip", AsyncMock(return_value="172.17.0.1"))
+    calls = _fake_cli(monkeypatch, {})
+
+    await docker_build._buildx_build("/ctx", "/ctx/Dockerfile", "t", [], push=True)
+
+    assert "host.docker.internal:172.17.0.1" in calls[0]
+    assert not any("host-gateway" in a for a in calls[0])
 
 
 async def test_resolve_launch_image_prebuilt_tag_verbatim():
@@ -254,3 +304,16 @@ async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected
     expected_tag = f"{expected_prefix}{'a' * 40}-{docker_config.image_key(source)[:12]}"
     assert await resolve_launch_image(source, task_id=1) == expected_tag
     build.assert_not_awaited()
+
+
+async def test_require_builder_passes_tls_opts(monkeypatch):
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
+    monkeypatch.setenv("AAICLICK_BUILDKIT_TLS_CACERT", "/certs/ca.pem")
+    monkeypatch.delenv("AAICLICK_BUILDKIT_TLS_CERT", raising=False)
+    monkeypatch.setenv("AAICLICK_BUILDKIT_TLS_KEY", "/certs/key.pem")
+    calls = _fake_cli(monkeypatch, {("buildx", "inspect", "aaiclick"): 1})
+
+    await docker_build._require_builder()
+
+    create = next(c for c in calls if c[2] == "create")
+    assert create[-3:] == ("--driver-opt", "cacert=/certs/ca.pem,key=/certs/key.pem", "tcp://buildkitd:1234")

@@ -9,8 +9,10 @@ from aaiclick.orchestration.docker_config import (
     BUILD_MODE_REGISTRY,
     GitDetectionError,
     RemoteHead,
+    add_host_flags,
     compute_image_tag,
     get_build_mode,
+    get_buildkit_addr,
     image_key,
     resolve_image_source,
     resolve_remote_head,
@@ -244,3 +246,24 @@ def test_resource_flags(resources, expected):
 def test_resource_flags_rejects(resources, match):
     with pytest.raises(ValueError, match=match):
         resource_flags(resources)
+
+
+@pytest.mark.parametrize(
+    "value, gateway_ip, expected",
+    [
+        pytest.param("h:1.2.3.4", None, ["--add-host", "h:1.2.3.4"], id="literal"),
+        pytest.param("h:host-gateway", "172.17.0.1", ["--add-host", "h:172.17.0.1"], id="resolved"),
+        pytest.param("h:host-gateway", None, ["--add-host", "h:host-gateway"], id="docker-run-keeps-keyword"),
+    ],
+)
+def test_add_host_flags(monkeypatch, value, gateway_ip, expected):
+    monkeypatch.setenv("X_ADD_HOST", value)
+    assert add_host_flags("X_ADD_HOST", gateway_ip=gateway_ip) == expected
+
+
+def test_get_buildkit_addr(monkeypatch):
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
+    assert get_buildkit_addr() == "tcp://buildkitd:1234"
+    monkeypatch.delenv("AAICLICK_BUILDKIT_ADDR")
+    with pytest.raises(RuntimeError, match="AAICLICK_BUILDKIT_ADDR"):
+        get_buildkit_addr()

@@ -117,6 +117,19 @@ def get_registry() -> str | None:
     return os.environ.get("AAICLICK_REGISTRY") or None
 
 
+def get_buildkit_addr() -> str:
+    """The buildkitd every build runs on (``AAICLICK_BUILDKIT_ADDR``, e.g.
+    ``tcp://buildkitd:1234``). Raises when unset: builds never fall back to
+    the host docker daemon."""
+    addr = os.environ.get("AAICLICK_BUILDKIT_ADDR")
+    if not addr:
+        raise RuntimeError(
+            "AAICLICK_BUILDKIT_ADDR is not set on this worker, but this job builds its image from source. "
+            "Point it at a buildkitd (e.g. tcp://buildkitd:1234), or submit the job with a prebuilt image (image=...)."
+        )
+    return addr
+
+
 def get_build_mode() -> BuildMode:
     """Which of the two mutually exclusive build modes the worker runs in.
 
@@ -236,15 +249,18 @@ async def resolve_image_source(
     return ImageBuild(git_remote=remote, git_sha=sha, git_branch=branch, dockerfile=dfile)
 
 
-def add_host_flags(env_var: str) -> list[str]:
+def add_host_flags(env_var: str, *, gateway_ip: str | None = None) -> list[str]:
     """``--add-host`` flags for the comma-separated entries in ``env_var``.
 
     Used by both the build task and the host runner to let containers
     reach services on the host (e.g. a CI-local pypiserver / ClickHouse
-    on ``host.docker.internal``). Empty / unset → no flags."""
+    on ``host.docker.internal``). Empty / unset → no flags. ``gateway_ip``
+    replaces dockerd's ``host-gateway`` keyword, which buildkitd does not know."""
     flags: list[str] = []
     for entry in (os.environ.get(env_var) or "").split(","):
         entry = entry.strip()
+        if gateway_ip and entry.endswith(":host-gateway"):
+            entry = entry.removesuffix("host-gateway") + gateway_ip
         if entry:
             flags.extend(["--add-host", entry])
     return flags
