@@ -62,6 +62,17 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
 
 
 @pytest.mark.docker_e2e
+async def test_docker_runner_build_sees_no_worker_secrets(orch_ctx, docker_e2e_leak_repo):
+    """A Dockerfile step — even one declaring ``ARG PIP_INDEX_URL`` — sees no
+    worker env and no index URL: those reach builds only as mounted secrets."""
+    tasks = await run_build_job("docker_e2e_build_env_leak", "leak_jobs.read_build_env", docker_e2e_leak_repo)
+    entry = next(t for t in tasks if t.entrypoint == "leak_jobs.read_build_env")
+    build_env = entry.result["value"]
+    assert "AAICLICK_" not in build_env
+    assert "8080/simple" not in build_env
+
+
+@pytest.mark.docker_e2e
 async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_image):
     """A ``jvm`` task between two Python tasks, each in its own container."""
     await run_jvm_flow("docker_e2e_jvm", docker_e2e_user_repo, jvm_task_image)

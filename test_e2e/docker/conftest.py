@@ -42,6 +42,7 @@ def _worker_databases() -> Iterator[None]:
 _FIXTURES = Path(__file__).parent.parent / "fixtures"
 _SAMPLE_JOB = _FIXTURES / "sample_job"
 _BARE_JOB = _FIXTURES / "bare_job"
+_LEAK_JOB = _FIXTURES / "leak_job"
 
 
 @pytest.fixture(scope="session")
@@ -57,6 +58,12 @@ def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
 def docker_e2e_bare_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
     """Publish the ``bare_job`` fixture (no Dockerfile, a ``requirements.txt``) into the CI git daemon."""
     return publish_user_repo(tmp_path_factory, _BARE_JOB)
+
+
+@pytest.fixture(scope="session")
+def docker_e2e_leak_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
+    """Publish the ``leak_job`` fixture (a Dockerfile that snapshots its build env) into the CI git daemon."""
+    return publish_user_repo(tmp_path_factory, _LEAK_JOB)
 
 
 def pytest_configure(config: pytest.Config) -> None:
