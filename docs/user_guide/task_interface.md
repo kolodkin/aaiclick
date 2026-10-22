@@ -108,7 +108,7 @@ a single `task`, or a list of them, works too when there is no data.
 | `command` / `entrypoint`                | Argv for shell; dotted path or Java class name otherwise    |
 | `kwargs`                                | JSON object; values may be `upstream` refs to sibling `id`s |
 | `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name  |
-| `image` or `git_remote` / `git_sha` / … | Image source; omitted → your image; Python-only builds      |
+| `image` or `git_remote` / `git_sha` / … | Image source; omitted → your image; builds from your repo   |
 | `depends_on`                            | Sibling `id`s to run after, without data flow               |
 
 # What a task can and cannot receive

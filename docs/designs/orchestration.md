@@ -113,11 +113,11 @@ property: the compose scaffold ships the `aaiclick-docker` worker with the host
 socket mounted, the helm scaffold ships the `aaiclick-kubectl` worker with a
 ServiceAccount, and a task claimed by a worker runs on whatever that worker has.
 
-| `AAICLICK_RUNNER` | Container tasks run as                   | Extra worker requirements                   |
-|-------------------|------------------------------------------|---------------------------------------------|
-| unset             | not at all — container tasks fail        | none                                        |
-| `docker`          | sibling containers on the worker daemon  | Docker daemon + CLI                         |
-| `kubernetes`      | Pods in the cluster                      | `kubectl` (+ Docker & registry for `build`) |
+| `AAICLICK_RUNNER` | Container tasks run as                  | Extra worker requirements                      |
+|-------------------|-----------------------------------------|------------------------------------------------|
+| unset             | not at all — container tasks fail       | none                                           |
+| `docker`          | sibling containers on the worker daemon | Docker daemon + CLI                            |
+| `kubernetes`      | Pods in the cluster                     | `kubectl` (+ buildkitd & registry for `build`) |
 
 Tasks without an image (`tasks.image_source IS NULL`) run as a host subprocess on
 every worker, whatever the variable says. There is no auto-detection:
@@ -148,10 +148,10 @@ They compose freely: a `shell` task runs the same way — "run this argv, succes
 
 The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** on any worker. The job row carries no runner state — only the optional `resources` snapshot (`docs/designs/kubernetes_runner.md` "Configuration").
 
-| Source     | How                                              | When built             |
-|------------|--------------------------------------------------|------------------------|
-| `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | build task in the graph |
-| `prebuilt` | `image="python:3.12"` run verbatim, no build stage | never                  |
+| Source     | How                                                                                                     | When built              |
+|------------|---------------------------------------------------------------------------------------------------------|-------------------------|
+| `build`    | git repo → `aaiclick-job:<sha>-<key>` image built from `git clone` + `docker buildx build` on buildkitd | build task in the graph |
+| `prebuilt` | `image="python:3.12"` run verbatim, no build stage                                                      | never                   |
 
 The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default, then to the remote's branch head — the working tree only when the remote is unknown too; see `docker_config.resolve_image_source`). Defaults resolve **at submission**, so `image_source` always names a concrete commit. `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
 
@@ -161,27 +161,31 @@ The user names the source and nothing else. `image=` (`run-job --image`, or `reg
 4. registration `build` → `build`
 5. otherwise → `NULL`, a host subprocess
 
-A run cannot turn a containerized registration back into a subprocess. `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`) — except `jvm` tasks, which must declare their own (`docs/designs/java-sdk.md`).
+A run cannot turn a containerized registration back into a subprocess. `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`) — except `jvm` tasks, which must declare their own (`docs/designs/java-sdk.md`). A shell/jvm parent's children may declare a build only from the parent's own `git_remote` or a prefix in the worker's `AAICLICK_CHILD_BUILD_REMOTES` (`https://` or `git@host:` only): the worker clones that repo with its own git credentials, so the container must not name an arbitrary one (`runner._check_child_remote`).
 
 Commit points always inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`) into the job, host-pinned via `image_source=NULL`, wired `build >> dependent` for every task on that image — the scheduler's existing dependency filter guarantees no task is claimed before its image exists. Submission reads no build env; the **worker** running the build task decides the mode from two mutually exclusive variables (`docker_config.get_build_mode`):
 
-| Env var                    | Mode     | Build body                                                             | Launch path   |
-|----------------------------|----------|------------------------------------------------------------------------|---------------|
-| `AAICLICK_REGISTRY=<host>` | registry | pull-first (`docker pull` → done), else clone + build + push           | `docker pull` |
-| `AAICLICK_LOCAL_BUILD=1`   | local    | daemon-cache-first (`docker image inspect` → done), else clone + build | run directly  |
+| Env var                    | Mode     | Build body                                                                       | Launch path   |
+|----------------------------|----------|----------------------------------------------------------------------------------|---------------|
+| `AAICLICK_REGISTRY=<host>` | registry | registry-first (`buildx imagetools inspect` → done), else clone + build `--push` | `docker pull` |
+| `AAICLICK_LOCAL_BUILD=1`   | local    | daemon-cache-first (`docker image inspect` → done), else clone + build `--load`  | run directly  |
+
+The tag is `aaiclick-job:<sha>-<image_key[:12]>`, so another remote or Dockerfile at the same SHA cannot overwrite an image.
+
+**Builds run on buildkitd**, never on the host daemon: the build task drives the buildx remote driver at `AAICLICK_BUILDKIT_ADDR` (builder `aaiclick`, created on first use; optional `AAICLICK_BUILDKIT_TLS_{CACERT,CERT,KEY}`). Clone, default-Dockerfile scaffolding and push credentials stay in the worker; Dockerfile steps run in buildkitd's sandbox and see neither the worker's env nor `docker.sock`. `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may carry a token, so they reach builds as BuildKit secrets (`pip_index_url`, `pip_extra_index_url`), never as build-args. buildkitd does not know dockerd's `host-gateway`, so the worker resolves it in `AAICLICK_DOCKER_BUILD_ADD_HOST` to the bridge gateway IP. The deploy scaffolds run a rootless buildkitd; the helm chart also confines its egress with a NetworkPolicy.
 
 Both set, or neither, raises in the build task naming both variables. Local mode is single-host by construction: the image lives only in the building host's daemon, so a kubernetes worker refuses to start with it. Crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. The container launch path never builds — it only derives the tag.
 
-**ExecutionWorker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
+**ExecutionWorker prerequisites**:
 
-- **`AAICLICK_RUNNER=docker`** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it), plus exactly one of `AAICLICK_REGISTRY` / `AAICLICK_LOCAL_BUILD` for `build`.
-- **`AAICLICK_RUNNER=kubernetes`, `build` source** — **requires `AAICLICK_REGISTRY`** (worker startup rejects `AAICLICK_LOCAL_BUILD`; a missing registry fails in the build task); the injected build task needs Docker on the worker host, then the Pod pulls from the registry.
+- **`AAICLICK_RUNNER=docker`** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), to `docker run` tasks (and to `--load` local builds); `build` also needs `AAICLICK_BUILDKIT_ADDR` and exactly one of `AAICLICK_REGISTRY` / `AAICLICK_LOCAL_BUILD`.
+- **`AAICLICK_RUNNER=kubernetes`, `build` source** — **requires `AAICLICK_REGISTRY`** (worker startup rejects `AAICLICK_LOCAL_BUILD`; a missing registry fails in the build task); the injected build task needs the docker CLI with buildx and `AAICLICK_BUILDKIT_ADDR` — no daemon — then the Pod pulls from the registry.
 - **`AAICLICK_RUNNER=kubernetes`, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
 - **`AAICLICK_RUNNER` unset** — no Docker at all; the worker runs subprocess tasks only and fails a container task with a message naming the variable.
 
-A `build` starts by preflighting Docker (`docker version`): a worker with no CLI or an unreachable daemon fails the build with an actionable error naming `AAICLICK_DOCKER_BIN` / the prebuilt-image alternative, rather than a raw `FileNotFoundError` or a daemon error deep inside `docker build`.
+A `build` starts by preflighting the builder (`docker buildx inspect --bootstrap aaiclick`): a missing CLI, an unset `AAICLICK_BUILDKIT_ADDR` or an unreachable buildkitd fails the build with an actionable error. Nothing falls back to the host daemon.
 
-**Default Dockerfile** — when `dockerfile` is unset and the checkout has none, the build task writes `docker_scaffold.render_default_dockerfile(detect_manifest(checkout))` into the checkout (plus a `.dockerignore` for `.git` when the repo has none) and builds with it: a thin layer on `BASE_IMAGE` that copies the repo to `/src`, plus the install step the root manifest calls for (`docs/user_guide/container_images.md` "Runner base"); entrypoints import from there, so each directory on an entrypoint's path must be an importable package name. `BASE_IMAGE` is a build-arg forwarded on every build: `AAICLICK_BASE_IMAGE` on the worker (rc workers whose release tag is not promoted yet, dev installs), else `ghcr.io/kolodkin/aaiclick:v<worker's version>`. A checked-in `Dockerfile` wins; an explicit `dockerfile=` path that is absent still fails. The image key is unchanged — the fallback is a build-time detail, so a cached image keeps the base version of the worker that built it until the SHA changes (mixed-version fleets are not supported anyway). This lets a repo of submitted job files (the sandbox) build without a platform-authored Dockerfile: the sandbox calls `run_job` with only `git_remote` / `git_sha` (`docs/user_guide/sandbox.md`).
+**Default Dockerfile** — when `dockerfile` is unset and the checkout has none, the build task writes `docker_scaffold.render_default_dockerfile(detect_manifest(checkout))` into the checkout (plus a `.dockerignore` for `.git` when the repo has none) and builds with it: a thin layer on `BASE_IMAGE` that copies the repo to `/src`, plus the install step the root manifest calls for (`docs/user_guide/container_images.md` "Runner base"); entrypoints import from there, so each directory on an entrypoint's path must be an importable package name. `BASE_IMAGE` is a build-arg forwarded on every build (buildkitd pulls it, so a locally built base must be pushed to a registry first): `AAICLICK_BASE_IMAGE` on the worker (rc workers whose release tag is not promoted yet, dev installs), else `ghcr.io/kolodkin/aaiclick:v<worker's version>`. A checked-in `Dockerfile` wins; an explicit `dockerfile=` path that is absent still fails. The image key is unchanged — the fallback is a build-time detail, so a cached image keeps the base version of the worker that built it until the SHA changes (mixed-version fleets are not supported anyway). This lets a repo of submitted job files (the sandbox) build without a platform-authored Dockerfile: the sandbox calls `run_job` with only `git_remote` / `git_sha` (`docs/user_guide/sandbox.md`).
 
 ## Shell entry type
 

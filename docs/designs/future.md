@@ -34,6 +34,12 @@ Bring it back as one nightly job that publishes the report where it is read
 
 # Deferred
 
+## Build Quotas
+
+Shell/jvm children may now declare image builds (from allowlisted remotes), so
+one job can queue many builds on the shared buildkitd. Add a per-job cap on
+injected build tasks and buildkitd resource limits per build.
+
 Items deferred until preconditions are met.
 
 ## Objects in Non-Python Tasks
