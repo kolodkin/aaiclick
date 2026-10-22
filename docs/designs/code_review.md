@@ -7,12 +7,7 @@ Remove an entry once its fix lands.
 
 # Open Findings
 
-- **Returned shell children choose their own build:** an `out.json` child may declare any `git_remote` / `dockerfile`, so a container can make the worker build any image. Upstream and `group_results` resolution still has no `job_id` filter; only the returned-handle check guards it (`aaiclick/orchestration/execution/runner.py`).
-- **mp parent's "never query ClickHouse" is unenforced:** since #489 every `orch_context` installs a `LazyChClient`, so an accidental parent-side query silently takes the chdb lock instead of raising (`aaiclick/orchestration/orch_context.py`, `aaiclick/orchestration/execution/mp_worker.py`).
-- **Username race:** a concurrent duplicate username returns 500 instead of 409 (`aaiclick/auth/store.py`).
-- **Reset links outlive a password change:** they stay usable after the password is set (`aaiclick/internal_api/password_reset.py`).
-- **Duplicate insert helpers:** `create_user` and `create_refresh_token` repeat `_insert` (`aaiclick/auth/store.py`).
-- **Header parsed twice:** the Authorization header is parsed in both `PrincipalAuthMiddleware` and `resolve_principal` (`aaiclick/server/auth.py`).
+- **Upstream refs have no `job_id` filter:** `upstream` / `group_results` resolution reads any task's result by id; only the returned-handle check stops a shell/jvm child naming another job's task (`aaiclick/orchestration/execution/runner.py`).
 
 # Not Covered
 

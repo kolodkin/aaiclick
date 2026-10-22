@@ -783,6 +783,14 @@ async def test_finish_shell_result_rejects_module_child(orch_ctx, child):
         await finish_shell_result(task, child)
 
 
+async def test_finish_shell_result_rejects_build_child(orch_ctx):
+    """A build declaration would make the worker build whatever repo the container names."""
+    task = create_task(None, entry_type="shell", command=["true"])
+    child = {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"], "git_remote": "https://x/y.git"}
+    with pytest.raises(ValueError, match="cannot declare an image build"):
+        await finish_shell_result(task, child)
+
+
 async def test_returned_native_kwarg_stays_literal(orch_ctx):
     """A ``native`` value is never interpreted, so an upstream-shaped dict inside it is plain data."""
     job = await _shell_job_coro("shell_native_literal", ["true"])

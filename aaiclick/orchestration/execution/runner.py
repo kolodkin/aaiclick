@@ -715,6 +715,8 @@ def _is_dag_dict(value: Any) -> bool:
 
 Handles = dict[str, "Task | Group"]
 
+_BUILD_FIELDS = {"git_remote", "git_sha", "git_branch", "dockerfile"}
+
 
 def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tuple[list[Task | Group], Handles]:
     """Build ``Task``/``Group`` objects from their JSON form, minting ids.
@@ -724,6 +726,8 @@ def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tu
     dict passes the same entry validation a Python caller gets, and only a
     ``module`` parent may return a ``module`` child: module tasks run with
     aaiclick's credentials, which a shell/jvm container must not grant itself.
+    For the same reason a shell/jvm child may not declare an image build — the
+    worker would build whatever repo the container names.
 
     Raises:
         ValueError: on a duplicate handle or an invalid entry.
@@ -751,8 +755,13 @@ def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tu
         fields.pop(DEPENDS_ON, None)  # applied after every handle is known
         entry_type = fields.get("entry_type", ENTRY_MODULE)
         validate_task_entry(entry_type=entry_type, command=fields.get("command"))
-        if entry_type == ENTRY_MODULE and parent_entry_type != ENTRY_MODULE:
-            raise ValueError(f"a {parent_entry_type} task cannot return a module task")
+        if parent_entry_type != ENTRY_MODULE:
+            if entry_type == ENTRY_MODULE:
+                raise ValueError(f"a {parent_entry_type} task cannot return a module task")
+            if declared := _BUILD_FIELDS & fields.keys():
+                raise ValueError(
+                    f"a {parent_entry_type} task cannot declare an image build ({', '.join(sorted(declared))})"
+                )
         task = create_task(fields.pop(ENTRYPOINT, None), **fields)
         claim(handle, task)
         return task

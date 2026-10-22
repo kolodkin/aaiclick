@@ -36,3 +36,11 @@ async def test_link_without_public_url_and_unknown_user(orch_ctx, monkeypatch):
 async def test_bad_token_rejected(orch_ctx):
     with pytest.raises(Unauthorized):
         await password_reset.redeem(PasswordResetRedeem(token="nope", new_password="x"))
+
+
+async def test_password_change_voids_outstanding_links(orch_ctx):
+    view = await users.create_user(CreateUserRequest(username="carol", password="pw"))
+    link = await password_reset.create(view.id)
+    await users.set_password(view.id, "chosen")
+    with pytest.raises(Unauthorized):
+        await password_reset.redeem(PasswordResetRedeem(token=link.token, new_password="attacker"))

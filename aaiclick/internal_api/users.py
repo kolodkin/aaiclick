@@ -81,13 +81,15 @@ async def disable_user(user_id: int, disabled: bool = True) -> UserView:
 
 
 async def set_password(user_id: int, password: str) -> UserView:
-    """Admin password reset — also ends the user's sessions, so resetting a
-    suspected-compromised account actually locks the other party out."""
+    """Admin password reset — also ends the user's sessions and voids their
+    outstanding reset links, so resetting a suspected-compromised account
+    actually locks the other party out."""
     try:
         user = await store.set_password_hash(user_id, await _hash(password))
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)
+    await store.void_password_resets(user_id)
     return _to_view(user)
 
 
