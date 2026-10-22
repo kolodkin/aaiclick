@@ -1,9 +1,8 @@
 # Execution worker. AAICLICK_RUNNER=kubernetes turns container tasks
 # (--image / --build jobs) into Pods created via the ServiceAccount below
 # using the kubectl in the aaiclick-kubectl image; tasks without an image run
-# in-place as subprocesses. Building task images from git requires a
-# reachable docker daemon (DOCKER_HOST) — not provided here; use
-# prebuilt-image jobs in-cluster.
+# in-place as subprocesses. Git-sourced images build on the chart's
+# buildkitd (buildkitd.yaml) and are pushed to env.registry.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,6 +52,10 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: AAICLICK_K8S_SERVICE_ACCOUNT
               value: {{ .Values.serviceAccount.name | quote }}
+            {{- if .Values.buildkit.enabled }}
+            - name: AAICLICK_BUILDKIT_ADDR
+              value: "tcp://aaiclick-buildkitd:1234"
+            {{- end }}
             {{- if .Values.env.registry }}
             - name: AAICLICK_REGISTRY
               value: {{ .Values.env.registry | quote }}

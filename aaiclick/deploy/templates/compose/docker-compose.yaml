@@ -10,6 +10,12 @@
 # resolve compose service names, so everything a task needs (ClickHouse,
 # Postgres, the registry) is published on host ports and addressed via
 # host.docker.internal in the worker's environment.
+#
+# Image builds run on the rootless `buildkitd` service, not on the host daemon:
+# Dockerfile steps never see the worker's credentials or docker.sock. It needs
+# host-gateway to push to the host-published registry, so build steps can
+# still reach the host-published Postgres / ClickHouse ports — compose has no
+# egress control. The helm chart isolates builds with a NetworkPolicy.
 
 name: aaiclick
 
@@ -56,6 +62,23 @@ services:
     image: registry:2
     ports:
       - "5000:5000"
+
+  buildkitd:
+    image: moby/buildkit:v0.33.1-rootless@sha256:f8a833b2de9d68e27f0815e4a737abdfaf8a2e4c615650557df11025101557b4
+    command: ["--addr", "tcp://0.0.0.0:1234"]
+    # Rootless BuildKit needs these to nest its build sandbox; it is the only
+    # container in the stack with relaxed confinement, and it runs as non-root.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    configs:
+      - source: buildkitd_toml
+        target: /home/user/.config/buildkit/buildkitd.toml
+    volumes:
+      - buildkit_cache:/home/user/.local/share/buildkit
 
   migrate:
     image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
@@ -105,6 +128,7 @@ services:
       AAICLICK_CH_URL: clickhouse://default:change-me-clickhouse@host.docker.internal:8123/default
       AAICLICK_RUNNER: docker
       AAICLICK_REGISTRY: host.docker.internal:5000
+      AAICLICK_BUILDKIT_ADDR: tcp://buildkitd:1234
       AAICLICK_DOCKER_BUILD_ADD_HOST: host.docker.internal:host-gateway
       AAICLICK_DOCKER_RUN_ADD_HOST: host.docker.internal:host-gateway
     depends_on:
@@ -112,6 +136,8 @@ services:
         condition: service_completed_successfully
       clickhouse:
         condition: service_healthy
+      buildkitd:
+        condition: service_started
 
   background:
     image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
@@ -126,3 +152,12 @@ services:
 volumes:
   clickhouse_data:
   postgres_data:
+  buildkit_cache:
+
+configs:
+  buildkitd_toml:
+    # The scaffold's registry is plain HTTP on the host gateway.
+    content: |
+      [registry."host.docker.internal:5000"]
+        http = true
+        insecure = true

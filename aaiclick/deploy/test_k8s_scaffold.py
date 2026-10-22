@@ -16,6 +16,7 @@ EXPECTED_TEMPLATES = {
     "worker.yaml",
     "background.yaml",
     "rbac.yaml",
+    "buildkitd.yaml",
     "clickhouse.yaml",
     "postgres.yaml",
 }
@@ -107,3 +108,15 @@ def test_init_helm_worker_runs_the_kubernetes_runner(tmp_path):
     worker = (target / "templates" / "worker.yaml").read_text()
     assert "- name: AAICLICK_RUNNER" in worker
     assert 'value: "kubernetes"' in worker
+
+
+def test_init_helm_builds_on_isolated_buildkitd(tmp_path):
+    """The worker builds on the chart's buildkitd, which only the worker may reach."""
+    target = tmp_path / "chart"
+    init_helm(target, image_tag="v1.0.0")
+    values = yaml.safe_load((target / "values.yaml").read_text())
+    assert values["buildkit"]["enabled"] is True
+    assert "-rootless@sha256:" in values["buildkit"]["image"]
+    buildkitd = (target / "templates" / "buildkitd.yaml").read_text()
+    assert "kind: NetworkPolicy" in buildkitd and "app: aaiclick-worker" in buildkitd
+    assert "tcp://aaiclick-buildkitd:1234" in (target / "templates" / "worker.yaml").read_text()

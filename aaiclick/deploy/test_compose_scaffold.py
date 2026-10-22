@@ -15,7 +15,7 @@ from .compose_scaffold import (
     init_compose,
 )
 
-EXPECTED_SERVICES = {"clickhouse", "postgres", "registry", "migrate", "server", "worker", "background"}
+EXPECTED_SERVICES = {"clickhouse", "postgres", "registry", "buildkitd", "migrate", "server", "worker", "background"}
 
 
 def test_init_compose_writes_rendered_file(tmp_path):
@@ -101,3 +101,17 @@ def test_init_compose_worker_runs_the_docker_runner(tmp_path):
     init_compose(target, image_tag="v1.0.0")
     env = yaml.safe_load(target.read_text())["services"]["worker"]["environment"]
     assert env["AAICLICK_RUNNER"] == "docker"
+
+
+def test_init_compose_builds_on_rootless_buildkitd(tmp_path):
+    """Builds run on a rootless buildkitd, never the host daemon the worker mounts."""
+    target = tmp_path / "docker-compose.yaml"
+    init_compose(target, image_tag="v1.0.0")
+    parsed = yaml.safe_load(target.read_text())
+    buildkitd = parsed["services"]["buildkitd"]
+    assert buildkitd["image"].startswith("moby/buildkit:v") and "-rootless@sha256:" in buildkitd["image"]
+    assert {"seccomp=unconfined", "apparmor=unconfined"} <= set(buildkitd["security_opt"])
+    assert "docker.sock" not in str(buildkitd)
+    assert parsed["services"]["worker"]["environment"]["AAICLICK_BUILDKIT_ADDR"] == "tcp://buildkitd:1234"
+    toml = parsed["configs"]["buildkitd_toml"]["content"]
+    assert '[registry."host.docker.internal:5000"]' in toml and "http = true" in toml

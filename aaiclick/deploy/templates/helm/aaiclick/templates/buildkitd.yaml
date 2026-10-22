@@ -1,0 +1,115 @@
+{{- if .Values.buildkit.enabled }}
+# Rootless BuildKit daemon the worker builds task images on (buildx remote
+# driver). Dockerfile steps run here, never in the worker pod, so they see
+# none of its credentials. Unconfined seccomp/AppArmor is what rootless
+# BuildKit needs to nest its sandbox; without procMount Unmasked it also runs
+# with --oci-worker-no-process-sandbox, so a build step can signal buildkitd
+# itself — the pod is disposable and holds no secrets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aaiclick-buildkitd
+data:
+  buildkitd.toml: |
+    {{- range .Values.buildkit.insecureRegistries }}
+    [registry.{{ . | quote }}]
+      http = true
+      insecure = true
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aaiclick-buildkitd
+  labels:
+    app: aaiclick-buildkitd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aaiclick-buildkitd
+  template:
+    metadata:
+      labels:
+        app: aaiclick-buildkitd
+    spec:
+      containers:
+        - name: buildkitd
+          image: {{ .Values.buildkit.image | quote }}
+          args:
+            - --addr
+            - tcp://0.0.0.0:1234
+            - --oci-worker-no-process-sandbox
+          ports:
+            - containerPort: 1234
+          readinessProbe:
+            exec:
+              command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+          volumeMounts:
+            - name: config
+              mountPath: /home/user/.config/buildkit
+            - name: cache
+              mountPath: /home/user/.local/share/buildkit
+          resources:
+            {{- toYaml .Values.buildkit.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: aaiclick-buildkitd
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aaiclick-buildkitd
+spec:
+  selector:
+    app: aaiclick-buildkitd
+  ports:
+    - port: 1234
+      targetPort: 1234
+---
+# Only the worker may drive builds; build steps reach DNS and addresses
+# outside networkPolicy.egressExcept (in-cluster databases by default), plus
+# whatever extraEgress admits (an in-cluster registry or package index).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aaiclick-buildkitd
+spec:
+  podSelector:
+    matchLabels:
+      app: aaiclick-buildkitd
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: aaiclick-worker
+      ports:
+        - port: 1234
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.buildkit.networkPolicy.egressExcept | nindent 14 }}
+    {{- with .Values.buildkit.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

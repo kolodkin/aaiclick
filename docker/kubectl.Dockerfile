@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # aaiclick + docker CLI (inherited) + kubectl. For the k8s-dispatching worker,
-# which builds/pushes the task image with docker, then creates pods with kubectl.
+# which builds/pushes the task image on buildkitd via buildx, then creates pods
+# with kubectl.
 ARG BASE_REF=ghcr.io/kolodkin/aaiclick-docker:latest
 FROM ${BASE_REF}
 
