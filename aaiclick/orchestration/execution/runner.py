@@ -724,6 +724,15 @@ Handles = dict[str, "Task | Group"]
 _BUILD_FIELDS = ImageBuild.model_fields.keys() - {"type"}
 
 _CHILD_REMOTE_SCHEME = re.compile(r"^(https://|git@[^:/]+:)")
+# git's HTTP client normalises ``..`` (also percent-encoded), which would walk out of a prefix.
+_DOT_SEGMENT = re.compile(r"(^|[/:])(\.|%2e){2}([/]|$)", re.IGNORECASE)
+
+
+def _under_prefix(remote: str, prefix: str) -> bool:
+    """``remote`` starts with ``prefix`` on a path boundary, so ``myorg`` does not admit ``myorg-evil``."""
+    if not remote.startswith(prefix):
+        return False
+    return prefix.endswith(("/", ":")) or remote[len(prefix) : len(prefix) + 1] in ("", "/")
 
 
 def _check_child_remote(remote: str | None, parent_image_source: dict | None) -> None:
@@ -737,8 +746,8 @@ def _check_child_remote(remote: str | None, parent_image_source: dict | None) ->
     """
     parent_remote = (parent_image_source or {}).get("git_remote")
     prefixes = [p.strip() for p in os.environ.get("AAICLICK_CHILD_BUILD_REMOTES", "").split(",") if p.strip()]
-    if remote and _CHILD_REMOTE_SCHEME.match(remote):
-        if remote == parent_remote or any(remote.startswith(p) for p in prefixes):
+    if remote and _CHILD_REMOTE_SCHEME.match(remote) and not _DOT_SEGMENT.search(remote):
+        if remote == parent_remote or any(_under_prefix(remote, p) for p in prefixes):
             return
     raise ValueError(
         f"a shell/jvm task may build only its own repo or a remote listed in "

@@ -75,6 +75,17 @@ async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch
         await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
 
+@pytest.mark.parametrize("dockerfile", ["/etc/passwd", "../outside/Dockerfile"])
+async def test_build_image_to_tag_dockerfile_outside_checkout_raises(monkeypatch, dockerfile):
+    """A declared ``dockerfile`` must stay inside the checkout: buildx would
+    otherwise read a worker-host file and echo it in parse errors."""
+    _stub_build_path(monkeypatch, {})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile=dockerfile)
+
+    with pytest.raises(ValueError, match="inside the repo"):
+        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
+
+
 def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str, str]]:
     """Stub everything around the clone + build step and return a list collecting,
     per ``_buildx_build`` call, the checkout's files by name (read at call time,

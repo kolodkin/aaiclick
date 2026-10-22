@@ -208,8 +208,10 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
     ``.dockerignore`` (when the repo has none) keeping the clone's ``.git`` out
     of the context — user Dockerfiles keep it, since a ``pip install`` of a
     setuptools-scm project reads it. An explicitly named ``dockerfile=`` that
-    is absent is a user error and raises."""
+    is absent, or that resolves outside the checkout, is a user error and raises."""
     dockerfile = context_dir / (source.dockerfile or "Dockerfile")
+    if not dockerfile.resolve().is_relative_to(context_dir.resolve()):
+        raise ValueError(f"dockerfile={source.dockerfile!r} must be a path inside the repo")
     if dockerfile.is_file():
         return dockerfile
     if source.dockerfile:
