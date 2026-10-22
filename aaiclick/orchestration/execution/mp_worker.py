@@ -22,8 +22,6 @@ from typing import NamedTuple
 
 from sqlmodel import select
 
-from aaiclick.data.object_context.ch_client import ch_refused
-
 from ..models import Task
 from ..orch_context import get_sql_session, orch_context
 from .execution_worker import (
@@ -260,9 +258,9 @@ async def mp_worker_main_loop(
 ) -> int:
     """Main worker loop that spawns a multiprocessing.Process per task.
 
-    Must be called inside an active orch_context(). The main process only
-    needs SQL for claiming and status updates, so any ClickHouse call in the
-    loop raises. chdb is opened inside each child process. Heartbeats continue while the
+    Must be called inside an active orch_context() and never query
+    ClickHouse — the main process only needs SQL for claiming and status
+    updates. chdb is opened inside each child process. Heartbeats continue while the
     child is running.
 
     Task timeout is read from AAICLICK_TASK_TIMEOUT env var (seconds).
@@ -286,12 +284,11 @@ async def mp_worker_main_loop(
     # Delayed import: dispatch imports this module at top level.
     from .dispatch import dispatch_execute  # noqa: PLC0415
 
-    with ch_refused("the mp worker parent must not query ClickHouse — chdb belongs to the task's child process"):
-        return await _execution_worker_loop(
-            execute_fn=dispatch_execute,
-            execution_worker_id=execution_worker_id,
-            max_tasks=max_tasks,
-            install_signal_handlers=install_signal_handlers,
-            max_empty_polls=max_empty_polls,
-            mode_label="mp",
-        )
+    return await _execution_worker_loop(
+        execute_fn=dispatch_execute,
+        execution_worker_id=execution_worker_id,
+        max_tasks=max_tasks,
+        install_signal_handlers=install_signal_handlers,
+        max_empty_polls=max_empty_polls,
+        mode_label="mp",
+    )
