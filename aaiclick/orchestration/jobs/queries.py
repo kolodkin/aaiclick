@@ -159,20 +159,18 @@ async def get_job_result(job: Job) -> Any:
         ValueError: If the entry task is missing or has no result
     """
     async with get_sql_session() as session:
-        result_row = await session.execute(
-            select(Task.result, Task.job_id).where(Task.job_id == job.id, Task.name == job.name)
-        )
+        result_row = await session.execute(select(Task.result).where(Task.job_id == job.id, Task.name == job.name))
         row = result_row.one_or_none()
 
     if row is None:
         raise ValueError(f"Entry task for job {job.id} (name='{job.name}') not found")
 
-    result, task_job_id = row
+    result = row.result
     if result is None:
         raise ValueError(f"Job {job.id} (name='{job.name}') has no result")
 
     if ref_kind(result) in (OBJECT, VIEW):
-        result[JOB_ID] = task_job_id
+        result[JOB_ID] = job.id
 
     async with get_sql_session() as session:
         return await _deserialize_value(result, session, job.id)

@@ -263,9 +263,10 @@ async def mp_worker_main_loop(
 
     Must be called inside an active orch_context(). The main process only
     needs SQL for claiming and status updates, so any ClickHouse call through
-    the shared client raises; container task logs use their own client (see
-    ``ChLogSink``), which is why chdb cannot be combined with a runner here. Heartbeats continue while the
-    child is running.
+    the shared client raises. Container task logs are the exception: with a
+    ClickHouse server their flusher opens its own client, but under chdb it
+    would use the shared one, so chdb cannot be combined with a runner here.
+    Heartbeats continue while the child is running.
 
     Task timeout is read from AAICLICK_TASK_TIMEOUT env var (seconds).
     When a task exceeds the timeout the child process is killed and the

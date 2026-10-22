@@ -168,7 +168,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession, job_id: int) -
     row = db_result.one_or_none()
 
     if row is None:
-        raise ValueError(f"Upstream task {task_id} not found")
+        raise ValueError(f"Upstream task {task_id} not found in job {job_id}")
 
     result, status = row
     if status != TASK_COMPLETED:
@@ -781,7 +781,7 @@ def _handle_ref(value: Any) -> tuple[str, str] | None:
 
     Raises:
         ValueError: when the ref names a raw id instead of a sibling handle —
-            it would read any task's result, in any job.
+            it would read any task's result in the job, not just a sibling's.
     """
     kind = ref_kind(value)
     if kind is None or kind not in _HANDLE_KEYS:

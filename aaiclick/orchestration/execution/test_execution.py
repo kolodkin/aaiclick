@@ -14,7 +14,7 @@ from sqlmodel import col
 from aaiclick import create_object_from_value
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, ViewSchema
 from aaiclick.data.object import Object, View
-from aaiclick.data.object.refs import ViewRef, native_ref, upstream_ref
+from aaiclick.data.object.refs import ViewRef, group_results_ref, native_ref, upstream_ref
 from aaiclick.data.object_context import object_context
 from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.log_models import STDOUT_STREAM
@@ -364,11 +364,13 @@ async def test_deserialize_task_params_native_python(orch_ctx):
     assert result["items"] == [1, 2, 3]
 
 
-async def _completed_task(result: dict | None) -> Task:
+async def _completed_task(result: dict | None, group: Group | None = None) -> Task:
     """Commit a task whose stored result is ``result``, for upstream refs."""
     job = await create_job("upstream_src", create_task("m.src"))
     src = create_task("m.src2")
-    await commit_tasks([src], job.id)
+    if group is not None:
+        group.add_task(src)
+    await commit_tasks([group or src], job.id)
     await update_task_status(src.id, TASK_COMPLETED, result=result)
     return src
 
@@ -392,8 +394,16 @@ async def test_resolve_plain_kwargs_rejects_object_result(orch_ctx):
 async def test_resolve_plain_kwargs_rejects_other_jobs_task(orch_ctx):
     """A ref resolves only inside the consumer's job, so it cannot read another job's result."""
     src = await _completed_task(native_ref(1))
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(ValueError, match="not found in job"):
         await resolve_plain_kwargs({"x": upstream_ref(src.id)}, src.job_id + 1)
+
+
+async def test_group_results_resolve_only_within_job(orch_ctx):
+    group = Group(id=get_snowflake_id(), name="g")
+    src = await _completed_task(native_ref(1), group)
+    kwargs = {"x": group_results_ref(group.id)}
+    assert await deserialize_task_params(kwargs, src.job_id) == {"x": [1]}
+    assert await deserialize_task_params(kwargs, src.job_id + 1) == {"x": []}
 
 
 async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
