@@ -165,6 +165,8 @@ docker run \
   python -m aaiclick execution-worker start
 ```
 
+A dispatching worker needs a ClickHouse server; with chdb it refuses to start.
+
 The image runs as the non-root `aaiclick` user, so it needs access to the mounted
 socket — add the container to the socket's group (or run with `--user root`).
 

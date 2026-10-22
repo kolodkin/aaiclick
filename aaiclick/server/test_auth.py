@@ -1,7 +1,7 @@
 """Tests for the principal-resolution layer and the /mcp mount guard.
 
-``resolve_principal`` is shared by the REST dependency and the ``/mcp`` ASGI
-middleware. HTTP end-to-end coverage (login -> access -> protected route, RBAC
+``resolve_principal`` resolves a raw ``Authorization`` header for the MCP
+tools when they run without the ``/mcp`` mount. HTTP end-to-end coverage (login -> access -> protected route, RBAC
 403s) lives in the router tests; here we exercise the core resolver directly
 and drive the middleware through the real ``/mcp`` FastMCP app.
 """

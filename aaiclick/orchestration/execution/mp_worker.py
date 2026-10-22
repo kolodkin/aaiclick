@@ -22,6 +22,9 @@ from typing import NamedTuple
 
 from sqlmodel import select
 
+from aaiclick.backend import is_chdb
+from aaiclick.data.object_context.ch_client import ch_refused
+
 from ..models import Task
 from ..orch_context import get_sql_session, orch_context
 from .execution_worker import (
@@ -35,7 +38,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .runner import ShellSpec, execute_task, serialize_task_result
-from .runner_env import validate_worker_runner
+from .runner_env import get_worker_runner, validate_worker_runner
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
@@ -258,10 +261,12 @@ async def mp_worker_main_loop(
 ) -> int:
     """Main worker loop that spawns a multiprocessing.Process per task.
 
-    Must be called inside an active orch_context() and never query
-    ClickHouse — the main process only needs SQL for claiming and status
-    updates. chdb is opened inside each child process. Heartbeats continue while the
-    child is running.
+    Must be called inside an active orch_context(). The main process only
+    needs SQL for claiming and status updates, so any ClickHouse call through
+    the shared client raises. Container task logs are the exception: with a
+    ClickHouse server their flusher opens its own client, but under chdb it
+    would use the shared one, so chdb cannot be combined with a runner here.
+    Heartbeats continue while the child is running.
 
     Task timeout is read from AAICLICK_TASK_TIMEOUT env var (seconds).
     When a task exceeds the timeout the child process is killed and the
@@ -281,14 +286,18 @@ async def mp_worker_main_loop(
         Number of tasks successfully executed.
     """
     validate_worker_runner()
+    # shortcut: bans chdb with a runner; flush container logs from the child to lift it.
+    if is_chdb() and get_worker_runner() is not None:
+        raise ValueError("the mp worker cannot combine chdb with AAICLICK_RUNNER; use a ClickHouse server")
     # Delayed import: dispatch imports this module at top level.
     from .dispatch import dispatch_execute  # noqa: PLC0415
 
-    return await _execution_worker_loop(
-        execute_fn=dispatch_execute,
-        execution_worker_id=execution_worker_id,
-        max_tasks=max_tasks,
-        install_signal_handlers=install_signal_handlers,
-        max_empty_polls=max_empty_polls,
-        mode_label="mp",
-    )
+    with ch_refused("the mp worker parent must not query ClickHouse — chdb belongs to the task's child process"):
+        return await _execution_worker_loop(
+            execute_fn=dispatch_execute,
+            execution_worker_id=execution_worker_id,
+            max_tasks=max_tasks,
+            install_signal_handlers=install_signal_handlers,
+            max_empty_polls=max_empty_polls,
+            mode_label="mp",
+        )

@@ -8,7 +8,8 @@ from sqlmodel import select
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..factories import create_job, create_task
 from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING, Task
-from ..orch_context import get_sql_session
+from ..orch_context import get_ch_client, get_sql_session
+from . import mp_worker
 from .claiming import cancel_job
 from .mp_worker import mp_worker_main_loop
 
@@ -79,6 +80,28 @@ async def test_mp_worker_main_loop_rejects_bad_runner(monkeypatch):
     monkeypatch.setenv("AAICLICK_RUNNER", "podman")
     with pytest.raises(ValueError, match="AAICLICK_RUNNER"):
         await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+
+
+async def test_mp_worker_main_loop_rejects_chdb_with_runner(monkeypatch, tmp_path):
+    """Container task logs are written from the parent, where a chdb session
+    would lock every later task's child out of the database."""
+    monkeypatch.setenv("AAICLICK_CH_URL", f"chdb://{tmp_path}")
+    monkeypatch.setenv("AAICLICK_RUNNER", "docker")
+    with pytest.raises(ValueError, match="cannot combine chdb"):
+        await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+
+
+async def test_mp_worker_main_loop_refuses_clickhouse(orch_ctx_no_ch, monkeypatch):
+    """The parent claims and updates tasks over SQL only; a ClickHouse call
+    there would take the chdb lock its children need."""
+
+    async def loop_body(**_kwargs) -> int:
+        with pytest.raises(RuntimeError, match="must not query ClickHouse"):
+            await get_ch_client().query("SELECT 1")
+        return 0
+
+    monkeypatch.setattr(mp_worker, "_execution_worker_loop", loop_body)
+    assert await mp_worker_main_loop(install_signal_handlers=False) == 0
 
 
 async def _task_row(job_id: int) -> Task:

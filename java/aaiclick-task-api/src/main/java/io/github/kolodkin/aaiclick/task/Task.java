@@ -44,14 +44,6 @@ public final class Task implements DagNode {
     private Map<String, String> commandEnv;
     @JsonProperty
     private String image;
-    @JsonProperty("git_remote")
-    private String gitRemote;
-    @JsonProperty("git_sha")
-    private String gitSha;
-    @JsonProperty("git_branch")
-    private String gitBranch;
-    @JsonProperty
-    private String dockerfile;
     @JsonProperty("depends_on")
     private List<String> dependsOn;
 
@@ -105,18 +97,9 @@ public final class Task implements DagNode {
         return this;
     }
 
-    /** Run in this image; leave every image source unset to inherit the parent's. */
+    /** Run in this image; leave it unset to inherit the parent's. */
     public Task image(String image) {
         this.image = image;
-        return this;
-    }
-
-    /** Build the image from git; ``dockerfile`` and ``branch`` may be null. */
-    public Task git(String remote, String sha, String branch, String dockerfile) {
-        this.gitRemote = remote;
-        this.gitSha = sha;
-        this.gitBranch = branch;
-        this.dockerfile = dockerfile;
         return this;
     }
 

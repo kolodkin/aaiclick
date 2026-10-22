@@ -101,14 +101,19 @@ async def principal_from_credential(credential: str) -> Principal:
 
 
 async def resolve_principal(authorization: str | None) -> Principal:
-    """Resolve from a raw ``Authorization`` header value (used by the /mcp middleware,
-    which has no access to FastAPI's dependency injection)."""
+    """Resolve from a raw ``Authorization`` header value — for the MCP tools
+    when they run without the ``/mcp`` mount (see ``mcp_rbac._principal_for``)."""
     if not config.auth_enabled():
         return _SYNTHETIC_ADMIN
+    return await principal_from_credential(_bearer_credential(authorization))
+
+
+def _bearer_credential(authorization: str | None) -> str:
+    """The credential of a ``Bearer`` header value, or raise ``Unauthorized``."""
     scheme, credentials = get_authorization_scheme_param(authorization)
     if scheme.lower() != "bearer" or not credentials:
         raise Unauthorized("missing bearer token")
-    return await principal_from_credential(credentials)
+    return credentials
 
 
 async def require_principal(
@@ -247,12 +252,12 @@ class PrincipalAuthMiddleware:
         authorization = Headers(scope=scope).get("authorization")
         try:
             if config.auth_enabled():
-                scheme, credentials = get_authorization_scheme_param(authorization)
-                if scheme.lower() != "bearer" or not credentials:
-                    raise Unauthorized("missing bearer token")
-                if not security.is_api_token(credentials):
+                credential = _bearer_credential(authorization)
+                if not security.is_api_token(credential):
                     raise Unauthorized("/mcp requires an API token, not a session")
-            principal = await resolve_principal(authorization)
+                principal = await _principal_from_api_token(credential)
+            else:
+                principal = _SYNTHETIC_ADMIN
         except Unauthorized as exc:
             response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)

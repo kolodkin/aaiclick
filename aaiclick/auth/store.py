@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
 from sqlalchemy import ColumnElement, CursorResult, Update, case, or_, update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import SQLModel, col, select
 
 from ..datetime_utils import utc_now
@@ -74,21 +75,14 @@ async def create_user(
     role: Role = ROLE_VIEWER,
     email: str | None = None,
 ) -> User:
-    user = User(
-        id=get_snowflake_id(),
-        username=username,
-        password_hash=password_hash,
-        role=role,
-        email=email,
-    )
-    async with get_sql_session() as session:
-        existing = await session.execute(select(User).where(User.username == username))
-        if existing.scalar_one_or_none() is not None:
-            raise UsernameTaken(f"username '{username}' already exists")
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
-    return user
+    # The unique index decides the race: a pre-check would let two concurrent
+    # creates both pass it and the loser surface as a 500.
+    try:
+        return await _insert(
+            User(id=get_snowflake_id(), username=username, password_hash=password_hash, role=role, email=email)
+        )
+    except IntegrityError as exc:
+        raise UsernameTaken(f"username '{username}' already exists") from exc
 
 
 async def get_user_by_username(username: str) -> User | None:
@@ -181,17 +175,11 @@ async def _update_user(user_id: int, **fields) -> User:
 
 
 async def create_refresh_token(*, user_id: int, token_hash: str, ttl: int) -> RefreshToken:
-    token = RefreshToken(
-        id=get_snowflake_id(),
-        user_id=user_id,
-        token_hash=token_hash,
-        expires_at=utc_now() + timedelta(seconds=ttl),
+    return await _insert(
+        RefreshToken(
+            id=get_snowflake_id(), user_id=user_id, token_hash=token_hash, expires_at=utc_now() + timedelta(seconds=ttl)
+        )
     )
-    async with get_sql_session() as session:
-        session.add(token)
-        await session.commit()
-        await session.refresh(token)
-    return token
 
 
 async def get_active_refresh(token_hash: str) -> RefreshToken | None:
@@ -373,3 +361,16 @@ async def create_password_reset(*, user_id: int, token_hash: str, ttl: int) -> P
 
 async def consume_password_reset(token_hash: str) -> PasswordResetToken | None:
     return await _consume(PasswordResetToken, token_hash)
+
+
+async def void_password_resets(user_id: int) -> int:
+    """Consume every outstanding reset link of a user; returns the count.
+
+    A new password supersedes them: a link minted before it must not reset the
+    password the user just chose.
+    """
+    return await _update_rows(
+        update(PasswordResetToken)
+        .where(col(PasswordResetToken.user_id) == user_id, col(PasswordResetToken.consumed_at).is_(None))
+        .values(consumed_at=utc_now())
+    )
