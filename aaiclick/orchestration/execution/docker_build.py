@@ -107,13 +107,25 @@ def _collect_build_args(source: ImageBuild) -> list[str]:
     add("GIT_REMOTE", source.git_remote)
     add("GIT_SHA", source.git_sha)
     add("GIT_BRANCH", source.git_branch)
-    add("PIP_INDEX_URL", os.environ.get("AAICLICK_PIP_INDEX_URL"))
-    add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
     add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
     version = _aaiclick_version()
     add("AAICLICK_VERSION", version)
     add("BASE_IMAGE", os.environ.get("AAICLICK_BASE_IMAGE") or base_image(version))
     return args
+
+
+_SECRET_ENV = {"pip_index_url": "AAICLICK_PIP_INDEX_URL", "pip_extra_index_url": "AAICLICK_PIP_EXTRA_INDEX_URL"}
+
+
+def _collect_secret_flags() -> list[str]:
+    """``--secret`` flags for the index URLs that are set. They may embed a
+    token, so a build step sees them only where it mounts them, never as a
+    build-arg that lands in image history."""
+    flags: list[str] = []
+    for secret_id, env in _SECRET_ENV.items():
+        if os.environ.get(env):
+            flags.extend(["--secret", f"id={secret_id},env={env}"])
+    return flags
 
 
 async def _docker_build(context: str, dockerfile: str, image_tag: str, build_args: list[str]) -> None:
@@ -125,6 +137,7 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
         "-f",
         dockerfile,
         *build_args,
+        *_collect_secret_flags(),
         *add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST"),
         context,
     ]

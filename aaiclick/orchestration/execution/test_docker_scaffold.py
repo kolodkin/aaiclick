@@ -177,3 +177,26 @@ def test_render_default_dockerfile_jvm():
     text = render_default_dockerfile(MANIFEST_POM)
     assert text.index("FROM maven:") < text.index("COPY . /build") < text.index("FROM eclipse-temurin:")
     assert text.endswith('"io.github.kolodkin.aaiclick.task.AaiTaskShim"]\n')
+
+
+_SECRET_MOUNTS = (
+    "--mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL",
+    "--mount=type=secret,id=pip_extra_index_url,env=PIP_EXTRA_INDEX_URL",
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(render_default_dockerfile(MANIFEST_REQUIREMENTS), id="requirements"),
+        pytest.param(render_default_dockerfile(MANIFEST_UV_LOCK), id="uv-lock"),
+        pytest.param(render_default_dockerfile(MANIFEST_PYPROJECT), id="pyproject"),
+        pytest.param(DOCKERFILE_TEMPLATE, id="docker-init"),
+    ],
+)
+def test_index_urls_come_from_secret_mounts(text):
+    """Index URLs may embed a token, so they reach the install step as secrets,
+    never as build-args a Dockerfile step could persist."""
+    assert text.startswith("# syntax=docker/dockerfile:1\n")
+    assert all(mount in text for mount in _SECRET_MOUNTS)
+    assert "ARG PIP_INDEX_URL" not in text and "ARG PIP_EXTRA_INDEX_URL" not in text

@@ -29,17 +29,27 @@ async def test_collect_build_args_omits_unset_values(monkeypatch):
     assert not any(a.startswith("PIP_TRUSTED_HOST=") for a in args)
 
 
-async def test_collect_build_args_forwards_pip_indices(monkeypatch):
-    monkeypatch.setenv("AAICLICK_PIP_INDEX_URL", "http://pypi.test/simple/")
+async def test_index_urls_are_secrets_not_build_args(monkeypatch):
+    monkeypatch.setenv("AAICLICK_PIP_INDEX_URL", "http://tok@pypi.test/simple/")
     monkeypatch.setenv("AAICLICK_PIP_EXTRA_INDEX_URL", "http://extra.test/simple/")
     monkeypatch.setenv("AAICLICK_PIP_TRUSTED_HOST", "pypi.test")
 
-    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, git_branch="main")
-    args = docker_build._collect_build_args(source)
+    args = docker_build._collect_build_args(ImageBuild(git_remote="https://e/r.git", git_sha="a" * 40))
 
-    assert "PIP_INDEX_URL=http://pypi.test/simple/" in args
-    assert "PIP_EXTRA_INDEX_URL=http://extra.test/simple/" in args
+    assert not any("pypi.test/simple" in a or "extra.test" in a for a in args)
     assert "PIP_TRUSTED_HOST=pypi.test" in args
+    assert docker_build._collect_secret_flags() == [
+        "--secret",
+        "id=pip_index_url,env=AAICLICK_PIP_INDEX_URL",
+        "--secret",
+        "id=pip_extra_index_url,env=AAICLICK_PIP_EXTRA_INDEX_URL",
+    ]
+
+
+async def test_collect_secret_flags_omits_unset(monkeypatch):
+    monkeypatch.delenv("AAICLICK_PIP_INDEX_URL", raising=False)
+    monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
+    assert docker_build._collect_secret_flags() == []
 
 
 async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
