@@ -11,8 +11,6 @@ import importlib
 import inspect
 import logging
 import math
-import os
-import re
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -68,6 +66,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
+from ..docker_config import check_child_build_remote
 from ..factories import create_task
 from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
 from ..models import (
@@ -91,7 +90,7 @@ from ..task_registry import fresh_task_registry
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
-from .execution_worker_context import TaskInfo, current_task_info
+from .execution_worker_context import TaskInfo, current_task_info, get_current_task_info
 from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
@@ -513,7 +512,7 @@ async def finish_shell_result(task: Task, out_value: Any) -> Any:
     if ref_kind(out_value) == NATIVE:
         out_value = out_value[VALUE]
     with current_task_info(TaskInfo.from_task(task)), fresh_task_registry():
-        return await register_returned_tasks(out_value, task.id, task.job_id, task.entry_type, task.image_source)
+        return await register_returned_tasks(out_value, task.id, task.job_id, task.entry_type)
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
@@ -723,42 +722,8 @@ Handles = dict[str, "Task | Group"]
 
 _BUILD_FIELDS = ImageBuild.model_fields.keys() - {"type"}
 
-_CHILD_REMOTE_SCHEME = re.compile(r"^(https://|git@[^:/]+:)")
-# git's HTTP client normalises ``..``, and a server may decode ``%2F`` / ``\`` into
-# separators, either of which walks out of a prefix; plain remotes need none of them.
-_UNSAFE_REMOTE = re.compile(r"(^|[/:])\.\.(/|$)|[%\\]")
 
-
-def _under_prefix(remote: str, prefix: str) -> bool:
-    """``remote`` starts with ``prefix`` on a path boundary, so ``myorg`` does not admit ``myorg-evil``."""
-    if not remote.startswith(prefix):
-        return False
-    return prefix.endswith(("/", ":")) or remote[len(prefix) : len(prefix) + 1] in ("", "/")
-
-
-def _check_child_remote(remote: str | None, parent_image_source: dict | None) -> None:
-    """Admit a shell/jvm child's build remote: the parent's own build repo, or
-    a prefix in ``AAICLICK_CHILD_BUILD_REMOTES``, over ``https://`` or
-    ``git@host:`` only. The worker clones it with its own git credentials and
-    network, so the container must not pick an arbitrary one.
-
-    Raises:
-        ValueError: naming the remote and the setting.
-    """
-    parent_remote = (parent_image_source or {}).get("git_remote")
-    prefixes = [p.strip() for p in os.environ.get("AAICLICK_CHILD_BUILD_REMOTES", "").split(",") if p.strip()]
-    if remote and _CHILD_REMOTE_SCHEME.match(remote) and not _UNSAFE_REMOTE.search(remote):
-        if remote == parent_remote or any(_under_prefix(remote, p) for p in prefixes):
-            return
-    raise ValueError(
-        f"a shell/jvm task may build only its own repo or a remote listed in "
-        f"AAICLICK_CHILD_BUILD_REMOTES (https:// or git@host:); got {remote!r}"
-    )
-
-
-def _build_dag_from_dicts(
-    items: list[dict], parent_entry_type: EntryType, parent_image_source: dict | None = None
-) -> tuple[list[Task | Group], Handles]:
+def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tuple[list[Task | Group], Handles]:
     """Build ``Task``/``Group`` objects from their JSON form, minting ids.
 
     Returns the nodes in order plus the handle → node map for the handles the
@@ -767,8 +732,8 @@ def _build_dag_from_dicts(
     ``module`` parent may return a ``module`` child: module tasks run with
     aaiclick's credentials, which a shell/jvm container must not grant itself.
     A shell/jvm child may declare an image build only from an admitted remote
-    (``_check_child_remote``): the build itself runs on buildkitd, but the
-    worker clones the repo.
+    (``docker_config.check_child_build_remote``): the build itself runs on
+    buildkitd, but the worker clones the repo.
 
     Raises:
         ValueError: on a duplicate handle or an invalid entry.
@@ -800,7 +765,8 @@ def _build_dag_from_dicts(
             if entry_type == ENTRY_MODULE:
                 raise ValueError(f"a {parent_entry_type} task cannot return a module task")
             if _BUILD_FIELDS & fields.keys():
-                _check_child_remote(fields.get("git_remote"), parent_image_source)
+                parent_source = get_current_task_info().image_source or {}
+                check_child_build_remote(fields.get("git_remote"), parent_source.get("git_remote"))
         task = create_task(fields.pop(ENTRYPOINT, None), **fields)
         claim(handle, task)
         return task
@@ -919,24 +885,16 @@ def _dict_result_data(data: Any, handles: Handles) -> Any:
     return data
 
 
-def _register_dict_dag(
-    specs: list, data: Any, parent_entry_type: EntryType, parent_image_source: dict | None
-) -> tuple[list[Task | Group], Any]:
+def _register_dict_dag(specs: list, data: Any, parent_entry_type: EntryType) -> tuple[list[Task | Group], Any]:
     """Build the nodes of a dict-form DAG and resolve its ``data``."""
     if not all(map(_is_dag_dict, specs)):
         raise TypeError("a returned task list may hold only task/group dicts")
-    nodes, handles = _build_dag_from_dicts(specs, parent_entry_type, parent_image_source)
+    nodes, handles = _build_dag_from_dicts(specs, parent_entry_type)
     _wire_dag_dicts(specs, nodes, handles)
     return _tasks_from(nodes), _dict_result_data(data, handles)
 
 
-async def register_returned_tasks(
-    result: Any,
-    parent_task_id: int,
-    job_id: int,
-    parent_entry_type: EntryType,
-    parent_image_source: dict | None = None,
-) -> Any:
+async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int, parent_entry_type: EntryType) -> Any:
     """Register dynamic child tasks returned from a task function.
 
     Handles these return shapes:
@@ -962,8 +920,6 @@ async def register_returned_tasks(
         job_id: ID of the job these tasks belong to
         parent_entry_type: The parent's entry type, which bounds its children's
             (see ``_build_dag_from_dicts``)
-        parent_image_source: The parent's own image source, whose build repo a
-            shell/jvm child may always build from
 
     Returns:
         The data portion of the result for serialization, or None.
@@ -975,12 +931,10 @@ async def register_returned_tasks(
         return None
 
     if isinstance(result, dict) and ref_kind(result) == TASK_RESULT:
-        task_items, data_result = _register_dict_dag(
-            result.get(TASKS, []), result.get(DATA), parent_entry_type, parent_image_source
-        )
+        task_items, data_result = _register_dict_dag(result.get(TASKS, []), result.get(DATA), parent_entry_type)
     elif _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
         task_items, data_result = _register_dict_dag(
-            result if isinstance(result, list) else [result], None, parent_entry_type, parent_image_source
+            result if isinstance(result, list) else [result], None, parent_entry_type
         )
     elif isinstance(result, TaskResult):
         task_items = _tasks_from(result.tasks)

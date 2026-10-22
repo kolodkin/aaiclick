@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import re
 from decimal import Decimal
 from typing import Literal, NamedTuple
 
@@ -128,6 +129,36 @@ def get_buildkit_addr() -> str:
             "Point it at a buildkitd (e.g. tcp://buildkitd:1234), or submit the job with a prebuilt image (image=...)."
         )
     return addr
+
+
+_CHILD_REMOTE_SCHEME = re.compile(r"^(https://|git@[^:/]+:)")
+# git's HTTP client normalises ``..``, and a server may decode ``%2F`` / ``\`` into
+# separators, either of which walks out of a prefix; plain remotes need none of them.
+_UNSAFE_REMOTE = re.compile(r"(^|[/:])\.\.(/|$)|[%\\]")
+
+
+def check_child_build_remote(remote: str | None, parent_remote: str | None) -> None:
+    """Admit a shell/jvm child's build remote: the parent's own build repo, or
+    one under a prefix in ``AAICLICK_CHILD_BUILD_REMOTES``, over ``https://``
+    or ``git@host:`` only. The worker clones it with its own git credentials
+    and network, so the container must not pick an arbitrary one.
+
+    Raises:
+        ValueError: naming the remote and the setting.
+    """
+    # A prefix always ends on a path boundary, so ``myorg`` does not admit ``myorg-evil``.
+    prefixes = [
+        p if p.endswith(("/", ":")) else f"{p}/"
+        for p in (p.strip() for p in os.environ.get("AAICLICK_CHILD_BUILD_REMOTES", "").split(","))
+        if p
+    ]
+    if remote and _CHILD_REMOTE_SCHEME.match(remote) and not _UNSAFE_REMOTE.search(remote):
+        if remote == parent_remote or remote.startswith(tuple(prefixes)):
+            return
+    raise ValueError(
+        f"a shell/jvm task may build only its own repo or a remote listed in "
+        f"AAICLICK_CHILD_BUILD_REMOTES (https:// or git@host:); got {remote!r}"
+    )
 
 
 def get_build_mode() -> BuildMode:
@@ -249,18 +280,15 @@ async def resolve_image_source(
     return ImageBuild(git_remote=remote, git_sha=sha, git_branch=branch, dockerfile=dfile)
 
 
-def add_host_flags(env_var: str, *, gateway_ip: str | None = None) -> list[str]:
+def add_host_flags(env_var: str) -> list[str]:
     """``--add-host`` flags for the comma-separated entries in ``env_var``.
 
     Used by both the build task and the host runner to let containers
     reach services on the host (e.g. a CI-local pypiserver / ClickHouse
-    on ``host.docker.internal``). Empty / unset → no flags. ``gateway_ip``
-    replaces dockerd's ``host-gateway`` keyword, which buildkitd does not know."""
+    on ``host.docker.internal``). Empty / unset → no flags."""
     flags: list[str] = []
     for entry in (os.environ.get(env_var) or "").split(","):
         entry = entry.strip()
-        if gateway_ip and entry.endswith(":host-gateway"):
-            entry = entry.removesuffix("host-gateway") + gateway_ip
         if entry:
             flags.extend(["--add-host", entry])
     return flags

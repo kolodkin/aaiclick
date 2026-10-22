@@ -186,10 +186,17 @@ def _collect_secret_flags() -> list[str]:
     return flags
 
 
+async def _build_add_host_flags() -> list[str]:
+    """``AAICLICK_DOCKER_BUILD_ADD_HOST`` flags with dockerd's ``host-gateway``
+    keyword, which buildkitd does not know, swapped for the bridge gateway IP."""
+    flags = add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST")
+    if any(f.endswith(":host-gateway") for f in flags):
+        ip = await _host_gateway_ip()
+        flags = [f.removesuffix("host-gateway") + ip if f.endswith(":host-gateway") else f for f in flags]
+    return flags
+
+
 async def _buildx_build(context: str, dockerfile: str, image_tag: str, build_args: list[str], *, push: bool) -> None:
-    gateway_ip = None
-    if "host-gateway" in os.environ.get("AAICLICK_DOCKER_BUILD_ADD_HOST", ""):
-        gateway_ip = await _host_gateway_ip()
     cmd = [
         _docker_bin(),
         "buildx",
@@ -202,7 +209,7 @@ async def _buildx_build(context: str, dockerfile: str, image_tag: str, build_arg
         dockerfile,
         *build_args,
         *_collect_secret_flags(),
-        *add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST", gateway_ip=gateway_ip),
+        *await _build_add_host_flags(),
         "--push" if push else "--load",
         context,
     ]

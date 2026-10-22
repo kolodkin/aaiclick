@@ -266,21 +266,14 @@ async def test_build_image_to_tag_builds_on_miss(monkeypatch, registry, push):
     "registry", [pytest.param("registry.example:5000", id="registry"), pytest.param(None, id="local")]
 )
 async def test_build_image_to_tag_cache_hit_skips_build(monkeypatch, registry):
+    """A hit needs neither a build nor buildkitd."""
     build = _stub_modes(monkeypatch, registry=registry, have_image=True)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
     build.assert_not_awaited()
-
-
-async def test_build_image_to_tag_cache_hit_needs_no_builder(monkeypatch):
-    """An image that already exists is returned without touching buildkitd."""
-    _stub_modes(monkeypatch, registry="registry.example:5000", have_image=True)
-    monkeypatch.setattr(docker_build, "_require_builder", AsyncMock(side_effect=RuntimeError("down")))
-    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
-
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
+    docker_build._require_builder.assert_not_awaited()
 
 
 @pytest.mark.parametrize("push, flag, absent", [(True, "--push", "--load"), (False, "--load", "--push")])
