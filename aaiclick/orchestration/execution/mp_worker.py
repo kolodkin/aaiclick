@@ -286,9 +286,8 @@ async def mp_worker_main_loop(
         Number of tasks successfully executed.
     """
     validate_worker_runner()
+    # shortcut: bans chdb with a runner; flush container logs from the child to lift it.
     if is_chdb() and get_worker_runner() is not None:
-        # Container task logs are written from this process, and a chdb session
-        # here would lock every later task's child out of the database.
         raise ValueError("the mp worker cannot combine chdb with AAICLICK_RUNNER; use a ClickHouse server")
     # Delayed import: dispatch imports this module at top level.
     from .dispatch import dispatch_execute  # noqa: PLC0415
