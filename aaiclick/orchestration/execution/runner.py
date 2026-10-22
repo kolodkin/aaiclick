@@ -84,7 +84,7 @@ from ..models import (
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
-from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, validate_task_entry
+from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, ImageBuild, validate_task_entry
 from ..task_registry import fresh_task_registry
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
@@ -715,7 +715,7 @@ def _is_dag_dict(value: Any) -> bool:
 
 Handles = dict[str, "Task | Group"]
 
-_BUILD_FIELDS = {"git_remote", "git_sha", "git_branch", "dockerfile"}
+_BUILD_FIELDS = ImageBuild.model_fields.keys() - {"type"}
 
 
 def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tuple[list[Task | Group], Handles]:

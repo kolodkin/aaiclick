@@ -227,14 +227,11 @@ class LazyChClient:
     def __init__(self, refused: str | None = None) -> None:
         self._client: ChClient | None = None
         self._lock = asyncio.Lock()
-        self._closed = False
-        self._refused = refused
+        self._refusal = refused
 
     async def _get(self) -> ChClient:
-        if self._refused is not None:
-            raise RuntimeError(self._refused)
-        if self._closed:
-            raise RuntimeError("LazyChClient is closed")
+        if self._refusal is not None:
+            raise RuntimeError(self._refusal)
         if self._client is not None:
             return self._client
         async with self._lock:
@@ -282,7 +279,7 @@ class LazyChClient:
 
     async def close(self) -> None:
         # A call after close must fail, not reconnect — even if nothing connected yet.
-        self._closed = True
+        self._refusal = "LazyChClient is closed"
         if self._client is not None:
             await self._client.close()
 
