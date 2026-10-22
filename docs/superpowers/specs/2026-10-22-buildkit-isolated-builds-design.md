@@ -25,7 +25,7 @@ chart has no daemon and documents "use prebuilt-image jobs in-cluster".
 - Shipped deploy scaffolds (compose, helm) run that daemon by default, rootless.
 - Worker secrets never reach a Dockerfile step as a build-arg or env var.
 - An image tag identifies exactly what was built, so a build cannot overwrite another's image.
-- Lift the shell/jvm "cannot declare an image build" restriction.
+- Lift the shell/jvm "cannot declare an image build" restriction, limited to allowlisted remotes.
 
 # Non-goals
 
@@ -148,9 +148,20 @@ again (one rebuild per SHA after upgrade).
 
 **Implementation**: `aaiclick/orchestration/execution/runner.py`
 
-Delete the `_BUILD_FIELDS` check in `_build_dag_from_dicts` and its docstring
-sentence. The module-child restriction stays (module tasks carry aaiclick's
-credentials). `test_execution.py`'s "cannot declare an image build" test flips
+Replace the `_BUILD_FIELDS` rejection in `_build_dag_from_dicts` with a
+remote allowlist; the module-child restriction stays (module tasks carry
+aaiclick's credentials). The clone runs on the worker with its git credentials
+and network, so a shell/jvm child may only name a remote that is:
+
+- the parent's own build `git_remote` (same repo, any SHA/Dockerfile), or
+- a prefix match in the worker's `AAICLICK_CHILD_BUILD_REMOTES`
+  (comma-separated, e.g. `https://github.com/myorg/,git@github.com:myorg/`).
+
+Either way the scheme must be `https://` or scp-style `git@host:` — never
+`file://`, `ssh://` to arbitrary hosts, or a local path. Anything else raises
+`ValueError` naming the remote and the setting. Default (setting unset): only
+the parent's own repo — my call. Job submissions and module children are not
+checked; they are already trusted callers. `test_execution.py`'s "cannot declare an image build" test flips
 to assert the child is committed with its build source and a build task is
 injected for it.
 
@@ -219,7 +230,8 @@ launch path.
 - Unit: rewrite `test_docker_build.py`'s build-arg tests — `_collect_build_args`
   emits no index URL; secret flags are present when the env vars are set; `compute_image_tag` differs for two remotes at one SHA.
 - Unit: a shell task returning a child with `git_remote`/`git_sha` commits it
-  and injects one build task.
+  and injects one build task; parametrize the allowlist — parent's remote and a
+  configured prefix pass, `file://`, a local path and an unlisted host raise.
 - e2e (CI already builds images): compose stack with buildkitd builds a
   sandbox-style repo with no Dockerfile in registry mode; helm e2e builds
   in-cluster.
