@@ -9,6 +9,7 @@ from aaiclick.orchestration.docker_config import (
     BUILD_MODE_REGISTRY,
     GitDetectionError,
     RemoteHead,
+    check_child_build_remote,
     compute_image_tag,
     get_build_mode,
     get_buildkit_addr,
@@ -253,3 +254,12 @@ def test_get_buildkit_addr(monkeypatch):
     monkeypatch.delenv("AAICLICK_BUILDKIT_ADDR")
     with pytest.raises(RuntimeError, match="AAICLICK_BUILDKIT_ADDR"):
         get_buildkit_addr()
+
+
+def test_check_child_build_remote_trusts_parent_repo_any_scheme(monkeypatch):
+    """The parent's own repo came from a trusted submitter, so its scheme is not
+    second-guessed — only listed prefixes are held to https/git@."""
+    monkeypatch.delenv("AAICLICK_CHILD_BUILD_REMOTES", raising=False)
+    check_child_build_remote("git://git.internal/repo.git", "git://git.internal/repo.git")
+    with pytest.raises(ValueError, match="AAICLICK_CHILD_BUILD_REMOTES"):
+        check_child_build_remote("git://git.internal/other.git", "git://git.internal/repo.git")

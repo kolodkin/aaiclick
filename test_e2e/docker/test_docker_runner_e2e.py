@@ -27,6 +27,7 @@ import pytest
 from job_wait import run_worker_until_done
 from runner_flow import (
     run_build_job,
+    run_child_build_flow,
     run_jvm_fanout_flow,
     run_jvm_flow,
     run_shell_command_env_flow,
@@ -70,6 +71,12 @@ async def test_docker_runner_build_sees_no_worker_secrets(orch_ctx, docker_e2e_l
     build_env = entry.result["value"]
     assert "AAICLICK_" not in build_env
     assert "8080/simple" not in build_env
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_shell_child_declares_build(orch_ctx, docker_e2e_user_repo):
+    """A shell task's child declares its own build of the parent's repo."""
+    await run_child_build_flow("docker_e2e_child_build", docker_e2e_user_repo)
 
 
 @pytest.mark.docker_e2e

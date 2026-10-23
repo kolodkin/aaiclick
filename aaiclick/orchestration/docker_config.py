@@ -138,9 +138,9 @@ _UNSAFE_REMOTE = re.compile(r"(^|[/:])\.\.(/|$)|[%\\]")
 
 
 def check_child_build_remote(remote: str | None, parent_remote: str | None) -> None:
-    """Admit a shell/jvm child's build remote: the parent's own build repo, or
-    one under a prefix in ``AAICLICK_CHILD_BUILD_REMOTES``, over ``https://``
-    or ``git@host:`` only. The worker clones it with its own git credentials
+    """Admit a shell/jvm child's build remote: the parent's own build repo
+    (trusted, any scheme), or one under a prefix in
+    ``AAICLICK_CHILD_BUILD_REMOTES`` over ``https://`` or ``git@host:`` only. The worker clones it with its own git credentials
     and network, so the container must not pick an arbitrary one.
 
     Raises:
@@ -152,8 +152,10 @@ def check_child_build_remote(remote: str | None, parent_remote: str | None) -> N
         for p in (p.strip() for p in os.environ.get("AAICLICK_CHILD_BUILD_REMOTES", "").split(","))
         if p
     ]
+    if remote and remote == parent_remote:
+        return
     if remote and _CHILD_REMOTE_SCHEME.match(remote) and not _UNSAFE_REMOTE.search(remote):
-        if remote == parent_remote or remote.startswith(tuple(prefixes)):
+        if remote.startswith(tuple(prefixes)):
             return
     raise ValueError(
         f"a shell/jvm task may build only its own repo or a remote listed in "

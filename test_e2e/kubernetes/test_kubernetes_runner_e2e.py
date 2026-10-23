@@ -17,7 +17,13 @@ from __future__ import annotations
 import subprocess
 
 import pytest
-from runner_flow import run_jvm_fanout_flow, run_jvm_flow, run_shell_command_env_flow, run_smoke_flow
+from runner_flow import (
+    run_child_build_flow,
+    run_jvm_fanout_flow,
+    run_jvm_flow,
+    run_shell_command_env_flow,
+    run_smoke_flow,
+)
 from sandbox_e2e import run_sandbox_submission
 
 from aaiclick.orchestration.execution.kubernetes_worker import _pod_name
@@ -28,6 +34,12 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
     """Build the fixture image, run the entry task's chain as Pods, assert it
     completes and the Objects flowed through ClickHouse across Pods."""
     await run_smoke_flow("k8s_e2e_smoke", kubernetes_e2e_user_repo)
+
+
+@pytest.mark.kubernetes_e2e
+async def test_kubernetes_runner_shell_child_declares_build(orch_ctx, kubernetes_e2e_user_repo):
+    """A shell task's child declares its own build of the parent's repo."""
+    await run_child_build_flow("k8s_e2e_child_build", kubernetes_e2e_user_repo)
 
 
 @pytest.mark.kubernetes_e2e

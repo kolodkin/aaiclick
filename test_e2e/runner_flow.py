@@ -8,6 +8,7 @@ nightlies prove the same path.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -107,6 +108,50 @@ async def run_shell_command_env_flow(job_name: str, cwd: Path) -> Task:
     assert tasks[0].status == TASK_COMPLETED, tasks[0].error
     assert tasks[0].result == native_ref({"k": "v"}), tasks[0].result
     return tasks[0]
+
+
+# Writes argv[1] to out.json: the parent returns it as its child DAG.
+_WRITE_OUT_JSON = (
+    "python -c \"import os, sys; open(os.environ['AAICLICK_IO_DIR'] + '/out.json', 'w').write(sys.argv[1])\""
+)
+
+
+async def run_child_build_flow(job_name: str, user_repo: UserRepo) -> None:
+    """A shell task built from ``user_repo`` returns a child that declares its
+    own build of the same repo (an explicit ``dockerfile`` makes it a distinct
+    image): the child's build task runs and the child runs in that image."""
+    child = {
+        "_aaiclick_type": "task",
+        "entry_type": "shell",
+        "command": ["python", "-c", "import sample_jobs"],
+        "git_remote": user_repo.remote,
+        "git_sha": user_repo.sha,
+        "dockerfile": "Dockerfile",
+    }
+    cwd = user_repo.worktree
+    aaiclick_cli(
+        "register-job", "shell.placeholder", "--name", job_name, "--build", "--git-remote", user_repo.remote, cwd=cwd
+    )
+    aaiclick_cli(
+        "run-job",
+        job_name,
+        "--git-sha",
+        user_repo.sha,
+        "--entry-type",
+        "shell",
+        "--command",
+        f"{_WRITE_OUT_JSON} {shlex.quote(json.dumps(child))}",
+        cwd=cwd,
+    )
+
+    completed = await run_worker_until_done(job_name)
+    assert completed.status == JOB_COMPLETED, completed.error
+
+    tasks = await get_tasks_for_job(completed.id)
+    assert all(t.status == TASK_COMPLETED for t in tasks), [(t.name, t.status, t.error) for t in tasks]
+    assert sum(t.is_image_build for t in tasks) == 2, [t.name for t in tasks]
+    spawned = next(t for t in tasks if t.command == child["command"])
+    assert parse_image_source(spawned.image_source).dockerfile == "Dockerfile"
 
 
 async def run_jvm_flow(job_name: str, user_repo: UserRepo, jvm_image: str) -> None:
