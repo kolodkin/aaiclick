@@ -128,27 +128,8 @@ async def run_child_build_flow(job_name: str, user_repo: UserRepo) -> None:
         "git_sha": user_repo.sha,
         "dockerfile": "child.Dockerfile",
     }
-    cwd = user_repo.worktree
-    aaiclick_cli(
-        "register-job", "shell.placeholder", "--name", job_name, "--build", "--git-remote", user_repo.remote, cwd=cwd
-    )
-    aaiclick_cli(
-        "run-job",
-        job_name,
-        "--git-sha",
-        user_repo.sha,
-        "--entry-type",
-        "shell",
-        "--command",
-        f"{_WRITE_OUT_JSON} {shlex.quote(json.dumps(child))}",
-        cwd=cwd,
-    )
-
-    completed = await run_worker_until_done(job_name)
-    assert completed.status == JOB_COMPLETED, completed.error
-
-    tasks = await get_tasks_for_job(completed.id)
-    assert all(t.status == TASK_COMPLETED for t in tasks), [(t.name, t.status, t.error) for t in tasks]
+    command = f"{_WRITE_OUT_JSON} {shlex.quote(json.dumps(child))}"
+    tasks = await run_build_job(job_name, "shell.placeholder", user_repo, "--entry-type", "shell", "--command", command)
     assert sum(t.is_image_build for t in tasks) == 2, [t.name for t in tasks]
     spawned = next(t for t in tasks if t.command == child["command"])
     source = parse_image_source(spawned.image_source or {})

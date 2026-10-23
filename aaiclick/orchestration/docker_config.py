@@ -186,6 +186,11 @@ def get_build_mode() -> BuildMode:
     )
 
 
+def _dockerfile(source: ImageBuild) -> str:
+    """The Dockerfile path normalised, so every spelling of the default is one image."""
+    return posixpath.normpath(source.dockerfile or "Dockerfile")
+
+
 def compute_image_tag(source: ImageBuild) -> str:
     """``[<registry>/]aaiclick-job:<sha>``, plus ``-<dockerfile>`` when a
     Dockerfile other than the default is named: the same commit built from two
@@ -193,7 +198,7 @@ def compute_image_tag(source: ImageBuild) -> str:
     registry = get_registry()
     prefix = f"{registry}/" if registry else ""
     tag = source.git_sha
-    dockerfile = posixpath.normpath(source.dockerfile or "Dockerfile")
+    dockerfile = _dockerfile(source)
     if dockerfile != "Dockerfile":
         tag += "-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", dockerfile)[:80]
     return f"{prefix}aaiclick-job:{tag}"
@@ -204,7 +209,7 @@ def image_key(source: ImageBuild) -> str:
     dockerfile)``. ``git_branch`` is deliberately excluded — it does not change
     the built image, only where the SHA was found. This is the dedup key for
     ``build_tasks``."""
-    parts = "\x00".join([source.git_remote, source.git_sha, source.dockerfile or ""])
+    parts = "\x00".join([source.git_remote, source.git_sha, _dockerfile(source)])
     return hashlib.sha256(parts.encode("utf-8")).hexdigest()
 
 

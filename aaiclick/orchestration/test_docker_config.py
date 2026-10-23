@@ -262,3 +262,11 @@ def test_check_child_build_remote_trusts_parent_repo_any_scheme(monkeypatch):
     check_child_build_remote("git://git.internal/repo.git", "git://git.internal/repo.git")
     with pytest.raises(ValueError, match="AAICLICK_CHILD_BUILD_REMOTES"):
         check_child_build_remote("git://git.internal/other.git", "git://git.internal/repo.git")
+
+
+@pytest.mark.parametrize("dockerfile", [None, "Dockerfile", "./Dockerfile"])
+def test_default_dockerfile_spellings_share_build_identity(dockerfile):
+    """Dedup key and tag agree: every spelling of the default is one build."""
+    default = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40)
+    source = default.model_copy(update={"dockerfile": dockerfile})
+    assert (image_key(source), compute_image_tag(source)) == (image_key(default), compute_image_tag(default))
