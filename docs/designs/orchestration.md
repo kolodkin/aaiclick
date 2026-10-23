@@ -148,10 +148,10 @@ They compose freely: a `shell` task runs the same way — "run this argv, succes
 
 The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** on any worker. The job row carries no runner state — only the optional `resources` snapshot (`docs/designs/kubernetes_runner.md` "Configuration").
 
-| Source     | How                                                                                                     | When built              |
-|------------|---------------------------------------------------------------------------------------------------------|-------------------------|
-| `build`    | git repo → `aaiclick-job:<sha>-<key>` image built from `git clone` + `docker buildx build` on buildkitd | build task in the graph |
-| `prebuilt` | `image="python:3.12"` run verbatim, no build stage                                                      | never                   |
+| Source     | How                                                                                               | When built              |
+|------------|---------------------------------------------------------------------------------------------------|-------------------------|
+| `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker buildx build` on buildkitd | build task in the graph |
+| `prebuilt` | `image="python:3.12"` run verbatim, no build stage                                                | never                   |
 
 The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default, then to the remote's branch head — the working tree only when the remote is unknown too; see `docker_config.resolve_image_source`). Defaults resolve **at submission**, so `image_source` always names a concrete commit. `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
 
@@ -172,7 +172,7 @@ Commit points always inject one **ordinary build task** per distinct image ident
 
 Both set, or neither, raises in the build task naming both variables. Local mode is single-host by construction: the image lives only in the building host's daemon, so a kubernetes worker refuses to start with it. Crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. The container launch path never builds — it only derives the tag.
 
-The tag is `aaiclick-job:<sha>-<image_key[:12]>`, so another remote or Dockerfile at the same SHA cannot overwrite an image.
+The tag is `aaiclick-job:<sha>`, suffixed `-<dockerfile>` when a non-default Dockerfile is named, so two Dockerfiles at one commit are two images.
 
 **Builds run on buildkitd**, never on the host daemon: the build task drives the buildx remote driver at `AAICLICK_BUILDKIT_ADDR` (one builder per address + TLS settings, created on first use; optional `AAICLICK_BUILDKIT_TLS_{CACERT,CERT,KEY}`). Clone, default-Dockerfile scaffolding and push credentials stay in the worker; Dockerfile steps run in buildkitd's sandbox and see neither the worker's env nor `docker.sock`. `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may carry a token, so they reach builds as BuildKit secrets (`pip_index_url`, `pip_extra_index_url`), never as build-args. buildkitd does not know dockerd's `host-gateway`, so the worker resolves it in `AAICLICK_DOCKER_BUILD_ADD_HOST` to the bridge gateway IP. The deploy scaffolds run a rootless buildkitd; the helm chart also confines its egress with a NetworkPolicy.
 

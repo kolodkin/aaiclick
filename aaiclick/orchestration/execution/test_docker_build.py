@@ -318,14 +318,14 @@ async def test_resolve_launch_image_rejects_missing_source():
 
 
 @pytest.mark.parametrize(
-    "registry, expected_prefix",
+    "registry, expected_tag",
     [
         # Empty reads as unset (``get_registry``): the local-build mode.
-        pytest.param("", "aaiclick-job:", id="no-registry"),
-        pytest.param("registry.example:5000", "registry.example:5000/aaiclick-job:", id="registry"),
+        pytest.param("", "aaiclick-job:" + "a" * 40, id="no-registry"),
+        pytest.param("registry.example:5000", "registry.example:5000/aaiclick-job:" + "a" * 40, id="registry"),
     ],
 )
-async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected_prefix):
+async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected_tag):
     """The build task in the graph owns the build in both modes (its dependency
     edge guaranteed the push); launch only computes the tag."""
     build = AsyncMock()
@@ -333,7 +333,6 @@ async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected
     monkeypatch.setattr(docker_build, "build_image_to_tag", build)
     source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
 
-    expected_tag = f"{expected_prefix}{'a' * 40}-{docker_config.image_key(source)[:12]}"
     assert await resolve_launch_image(source, task_id=1) == expected_tag
     build.assert_not_awaited()
 

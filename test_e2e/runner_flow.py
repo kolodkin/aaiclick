@@ -118,15 +118,15 @@ _WRITE_OUT_JSON = (
 
 async def run_child_build_flow(job_name: str, user_repo: UserRepo) -> None:
     """A shell task built from ``user_repo`` returns a child that declares its
-    own build of the same repo (an explicit ``dockerfile`` makes it a distinct
-    image): the child's build task runs and the child runs in that image."""
+    own build of the same commit from ``child.Dockerfile``: a second image, so
+    the child's own build task runs and the child runs in that image."""
     child = {
         "_aaiclick_type": "task",
         "entry_type": "shell",
         "command": ["python", "-c", "import sample_jobs"],
         "git_remote": user_repo.remote,
         "git_sha": user_repo.sha,
-        "dockerfile": "Dockerfile",
+        "dockerfile": "child.Dockerfile",
     }
     cwd = user_repo.worktree
     aaiclick_cli(
@@ -152,7 +152,7 @@ async def run_child_build_flow(job_name: str, user_repo: UserRepo) -> None:
     assert sum(t.is_image_build for t in tasks) == 2, [t.name for t in tasks]
     spawned = next(t for t in tasks if t.command == child["command"])
     source = parse_image_source(spawned.image_source or {})
-    assert isinstance(source, ImageBuild) and source.dockerfile == "Dockerfile", source
+    assert isinstance(source, ImageBuild) and source.dockerfile == "child.Dockerfile", source
 
 
 async def run_jvm_flow(job_name: str, user_repo: UserRepo, jvm_image: str) -> None:

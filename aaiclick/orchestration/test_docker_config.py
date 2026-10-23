@@ -196,22 +196,20 @@ async def test_resolve_remote_head_unreachable_remote(tmp_path):
         await resolve_remote_head(str(tmp_path / "nowhere"), None)
 
 
-def test_compute_image_tag_without_registry(monkeypatch):
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    source = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40)
-    assert compute_image_tag(source) == f"aaiclick-job:{'b' * 40}-{image_key(source)[:12]}"
-
-
 @pytest.mark.parametrize(
-    "other",
+    "dockerfile, suffix",
     [
-        pytest.param({"git_remote": "https://x/evil.git"}, id="remote"),
-        pytest.param({"dockerfile": "alt.Dockerfile"}, id="dockerfile"),
+        pytest.param(None, "", id="default"),
+        pytest.param("Dockerfile", "", id="explicit-default"),
+        pytest.param("docker/gpu.Dockerfile", "-docker-gpu.Dockerfile", id="named"),
     ],
 )
-def test_compute_image_tag_differs_per_identity(other):
-    base = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40)
-    assert compute_image_tag(base) != compute_image_tag(base.model_copy(update=other))
+def test_compute_image_tag(monkeypatch, dockerfile, suffix):
+    """The commit SHA, plus the Dockerfile when one other than the default is
+    named: the same commit built from two Dockerfiles is two images."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    source = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40, dockerfile=dockerfile)
+    assert compute_image_tag(source) == f"aaiclick-job:{'b' * 40}{suffix}"
 
 
 @pytest.mark.parametrize(

@@ -186,12 +186,15 @@ def get_build_mode() -> BuildMode:
 
 
 def compute_image_tag(source: ImageBuild) -> str:
-    """``[<registry>/]aaiclick-job:<sha>-<image_key[:12]>`` — keyed by the full
-    build identity, so another remote or Dockerfile at the same SHA cannot
-    overwrite the image."""
+    """``[<registry>/]aaiclick-job:<sha>``, plus ``-<dockerfile>`` when a
+    Dockerfile other than the default is named: the same commit built from two
+    Dockerfiles is two images. Characters a tag cannot hold become ``-``."""
     registry = get_registry()
     prefix = f"{registry}/" if registry else ""
-    return f"{prefix}aaiclick-job:{source.git_sha}-{image_key(source)[:12]}"
+    tag = source.git_sha
+    if source.dockerfile and source.dockerfile != "Dockerfile":
+        tag += "-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", source.dockerfile)[:80]
+    return f"{prefix}aaiclick-job:{tag}"
 
 
 def image_key(source: ImageBuild) -> str:

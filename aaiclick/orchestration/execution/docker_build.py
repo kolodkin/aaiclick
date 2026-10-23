@@ -251,7 +251,7 @@ async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: in
     """Resolve the image tag a container actually launches with.
 
     The tag is derived from the source (prebuilt tag verbatim, computed
-    ``aaiclick-job:<sha>-<key>`` for a build). Never builds: the ``build >> task``
+    ``aaiclick-job:<sha>[-<dockerfile>]`` for a build). Never builds: the ``build >> task``
     dependency edge guarantees the build task has already pushed the tag
     (registry mode) or left it in this host's daemon (local mode), so the
     launch path pulls or runs directly (spec: docs/designs/orchestration.md

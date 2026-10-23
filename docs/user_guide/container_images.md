@@ -74,9 +74,9 @@ project itself is never `pip install .`-ed. Limits:
 - A `.dockerignore` that excludes the manifest hides it from the install.
 - Python code next to a `pom.xml` with no Python manifest gets the JVM image;
   a mixed repo adds a Python manifest.
-- The image is cached per build identity (`aaiclick-job:<sha>-<key>`, keyed by
-  remote, SHA and Dockerfile): a commit built before the worker learned
-  manifests keeps its old image until a new commit lands.
+- The image is cached per commit (`aaiclick-job:<sha>`, plus `-<dockerfile>`
+  when one is named): a commit built before the worker learned manifests
+  keeps its old image until a new commit lands.
 - The JVM default is single-module, JDK/JRE 21 from Docker Hub, and expects
   `aaiclick-task-api` declared in the pom (`docs/designs/java-sdk.md`).
 
