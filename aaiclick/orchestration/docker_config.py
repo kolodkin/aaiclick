@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import posixpath
 import re
 from decimal import Decimal
 from typing import Literal, NamedTuple
@@ -192,8 +193,9 @@ def compute_image_tag(source: ImageBuild) -> str:
     registry = get_registry()
     prefix = f"{registry}/" if registry else ""
     tag = source.git_sha
-    if source.dockerfile and source.dockerfile != "Dockerfile":
-        tag += "-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", source.dockerfile)[:80]
+    dockerfile = posixpath.normpath(source.dockerfile or "Dockerfile")
+    if dockerfile != "Dockerfile":
+        tag += "-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", dockerfile)[:80]
     return f"{prefix}aaiclick-job:{tag}"
 
 

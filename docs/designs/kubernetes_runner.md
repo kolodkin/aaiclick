@@ -186,7 +186,7 @@ lightweight Kubernetes) plus the same Postgres / ClickHouse services. A
     - **Registry**: a local `registry:2` on `127.0.0.1:5000` + a kind
       `containerdConfigPatches` mirror (`localhost:5000` → `http://kind-registry:5000`,
       with the registry joined to the `kind` docker network). So the image tag
-      `localhost:5000/aaiclick-job:<sha>` is pushed by a host-network buildkitd over loopback
+      `localhost:5000/aaiclick-job:<sha>[-<dockerfile>]` is pushed by a host-network buildkitd over loopback
       (trusted — no insecure-registry config) and pulled in-cluster via the
       mirror.
     - **Pod → host DBs**: route via the kind network's gateway IP (read off the

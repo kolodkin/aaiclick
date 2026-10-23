@@ -201,6 +201,7 @@ async def test_resolve_remote_head_unreachable_remote(tmp_path):
     [
         pytest.param(None, "", id="default"),
         pytest.param("Dockerfile", "", id="explicit-default"),
+        pytest.param("./Dockerfile", "", id="dot-default"),
         pytest.param("docker/gpu.Dockerfile", "-docker-gpu.Dockerfile", id="named"),
     ],
 )
