@@ -78,7 +78,7 @@ def get_url() -> str:
                 "Install with: pip install aaiclick[distributed]"
             ) from e
     if sql_url:
-        return sql_url.replace("postgresql+asyncpg://", "postgresql://")
+        return sql_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
 
     host = os.getenv("POSTGRES_HOST", "localhost")
     port = os.getenv("POSTGRES_PORT", "5432")
@@ -86,7 +86,7 @@ def get_url() -> str:
     password = os.getenv("POSTGRES_PASSWORD", "secret")
     database = os.getenv("POSTGRES_DB", "aaiclick")
 
-    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
 
 
 def run_migrations_offline() -> None:
