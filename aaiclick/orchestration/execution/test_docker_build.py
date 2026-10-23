@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
@@ -259,7 +259,7 @@ async def test_build_image_to_tag_builds_on_miss(monkeypatch, registry, push):
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
-    assert build.await_args.kwargs == {"push": push}
+    build.assert_awaited_once_with(ANY, ANY, ANY, ANY, push=push)
 
 
 @pytest.mark.parametrize(

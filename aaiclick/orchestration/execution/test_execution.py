@@ -848,7 +848,7 @@ async def test_finish_shell_result_child_build_allowlist(orch_ctx, monkeypatch, 
     await finish_shell_result(parent, child)
     tasks = await get_tasks_for_job(job.id)
     spawned = next(t for t in tasks if t.id != parent.id and not t.is_image_build)
-    assert spawned.image_source["git_remote"] == remote
+    assert spawned.image_source is not None and spawned.image_source["git_remote"] == remote
     assert any(t.is_image_build for t in tasks)
 
 

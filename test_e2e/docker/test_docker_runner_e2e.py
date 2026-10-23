@@ -68,6 +68,7 @@ async def test_docker_runner_build_sees_no_worker_secrets(orch_ctx, docker_e2e_l
     worker env and no index URL: those reach builds only as mounted secrets."""
     tasks = await run_build_job("docker_e2e_build_env_leak", "leak_jobs.read_build_env", docker_e2e_leak_repo)
     entry = next(t for t in tasks if t.entrypoint == "leak_jobs.read_build_env")
+    assert entry.result is not None
     build_env = entry.result["value"]
     assert "AAICLICK_" not in build_env
     assert "8080/simple" not in build_env

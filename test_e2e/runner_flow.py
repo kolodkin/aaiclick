@@ -151,7 +151,8 @@ async def run_child_build_flow(job_name: str, user_repo: UserRepo) -> None:
     assert all(t.status == TASK_COMPLETED for t in tasks), [(t.name, t.status, t.error) for t in tasks]
     assert sum(t.is_image_build for t in tasks) == 2, [t.name for t in tasks]
     spawned = next(t for t in tasks if t.command == child["command"])
-    assert parse_image_source(spawned.image_source).dockerfile == "Dockerfile"
+    source = parse_image_source(spawned.image_source or {})
+    assert isinstance(source, ImageBuild) and source.dockerfile == "Dockerfile", source
 
 
 async def run_jvm_flow(job_name: str, user_repo: UserRepo, jvm_image: str) -> None:
