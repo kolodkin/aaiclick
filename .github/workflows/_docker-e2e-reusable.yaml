@@ -84,7 +84,9 @@ jobs:
     env:
       # Test wait timeout, kept under timeout-minutes above.
       AAICLICK_JOB_WAIT_TIMEOUT: "600"
-      AAICLICK_BASE_IMAGE: ${{ inputs.base_image || 'aaiclick-e2e-base:local' }}
+      # Pushed to the CI registry so buildkitd, which cannot see the host
+      # daemon's images, can build FROM it.
+      AAICLICK_BASE_IMAGE: ${{ inputs.base_image || 'localhost:5000/aaiclick-e2e-base:local' }}
 
     steps:
       - name: Checkout code
@@ -102,6 +104,9 @@ jobs:
       # localhost on the runner so the runner-side resolution works too.
       - name: Map host.docker.internal to localhost
         run: echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+
+      - name: Start buildkitd
+        uses: ./.github/actions/start-buildkitd
 
       - name: Start git daemon
         uses: ./.github/actions/start-git-daemon
@@ -177,6 +182,10 @@ jobs:
           version: ${{ steps.wheel.outputs.version }}
           tag: ${{ env.AAICLICK_BASE_IMAGE }}
 
+      - name: Push base image to the CI registry
+        if: inputs.base_image == ''
+        run: docker push "${AAICLICK_BASE_IMAGE}"
+
       # --- Common: migrations, test ---------------------------------------
 
       - name: Run database migrations
@@ -196,12 +205,14 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_RUNNER: "docker"
           AAICLICK_REGISTRY: "host.docker.internal:5000"
+          AAICLICK_BUILDKIT_ADDR: "tcp://127.0.0.1:1234"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.
           AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
           # Build and task containers don't inherit the runner's /etc/hosts
-          # entry, so add the host-gateway mapping explicitly for both.
+          # entry, so add the host-gateway mapping explicitly for both (the
+          # worker resolves host-gateway to the bridge IP for buildkitd).
           AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"
           AAICLICK_DOCKER_RUN_ADD_HOST: "host.docker.internal:host-gateway"
         uses: ./.github/actions/run-pytest

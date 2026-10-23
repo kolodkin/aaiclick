@@ -9,8 +9,10 @@ from aaiclick.orchestration.docker_config import (
     BUILD_MODE_REGISTRY,
     GitDetectionError,
     RemoteHead,
+    check_child_build_remote,
     compute_image_tag,
     get_build_mode,
+    get_buildkit_addr,
     image_key,
     resolve_image_source,
     resolve_remote_head,
@@ -194,9 +196,21 @@ async def test_resolve_remote_head_unreachable_remote(tmp_path):
         await resolve_remote_head(str(tmp_path / "nowhere"), None)
 
 
-def test_compute_image_tag_without_registry(monkeypatch):
+@pytest.mark.parametrize(
+    "dockerfile, suffix",
+    [
+        pytest.param(None, "", id="default"),
+        pytest.param("Dockerfile", "", id="explicit-default"),
+        pytest.param("./Dockerfile", "", id="dot-default"),
+        pytest.param("docker/gpu.Dockerfile", "-docker-gpu.Dockerfile", id="named"),
+    ],
+)
+def test_compute_image_tag(monkeypatch, dockerfile, suffix):
+    """The commit SHA, plus the Dockerfile when one other than the default is
+    named: the same commit built from two Dockerfiles is two images."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    assert compute_image_tag("b" * 40) == f"aaiclick-job:{'b' * 40}"
+    source = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40, dockerfile=dockerfile)
+    assert compute_image_tag(source) == f"aaiclick-job:{'b' * 40}{suffix}"
 
 
 @pytest.mark.parametrize(
@@ -231,3 +245,28 @@ def test_resource_flags(resources, expected):
 def test_resource_flags_rejects(resources, match):
     with pytest.raises(ValueError, match=match):
         resource_flags(resources)
+
+
+def test_get_buildkit_addr(monkeypatch):
+    monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
+    assert get_buildkit_addr() == "tcp://buildkitd:1234"
+    monkeypatch.delenv("AAICLICK_BUILDKIT_ADDR")
+    with pytest.raises(RuntimeError, match="AAICLICK_BUILDKIT_ADDR"):
+        get_buildkit_addr()
+
+
+def test_check_child_build_remote_trusts_parent_repo_any_scheme(monkeypatch):
+    """The parent's own repo came from a trusted submitter, so its scheme is not
+    second-guessed — only listed prefixes are held to https/git@."""
+    monkeypatch.delenv("AAICLICK_CHILD_BUILD_REMOTES", raising=False)
+    check_child_build_remote("git://git.internal/repo.git", "git://git.internal/repo.git")
+    with pytest.raises(ValueError, match="AAICLICK_CHILD_BUILD_REMOTES"):
+        check_child_build_remote("git://git.internal/other.git", "git://git.internal/repo.git")
+
+
+@pytest.mark.parametrize("dockerfile", [None, "Dockerfile", "./Dockerfile"])
+def test_default_dockerfile_spellings_share_build_identity(dockerfile):
+    """Dedup key and tag agree: every spelling of the default is one build."""
+    default = ImageBuild(git_remote="https://x/a.git", git_sha="b" * 40)
+    source = default.model_copy(update={"dockerfile": dockerfile})
+    assert (image_key(source), compute_image_tag(source)) == (image_key(default), compute_image_tag(default))

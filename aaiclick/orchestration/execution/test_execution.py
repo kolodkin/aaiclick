@@ -70,6 +70,7 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
 from aaiclick.orchestration.result import TaskResult, task_result, tasks_list
+from aaiclick.orchestration.runner_config import ImageBuild
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.testing import seed_registry_row
 
@@ -802,12 +803,53 @@ async def test_finish_shell_result_rejects_module_child(orch_ctx, child):
         await finish_shell_result(task, child)
 
 
-async def test_finish_shell_result_rejects_build_child(orch_ctx):
-    """A build declaration would make the worker build whatever repo the container names."""
-    task = create_task(None, entry_type="shell", command=["true"])
-    child = {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"], "git_remote": "https://x/y.git"}
-    with pytest.raises(ValueError, match="cannot declare an image build"):
-        await finish_shell_result(task, child)
+_PARENT_REMOTE = "https://git/parent.git"
+
+
+@pytest.mark.parametrize(
+    "remote, allow, ok",
+    [
+        pytest.param(_PARENT_REMOTE, "", True, id="parent-repo"),
+        pytest.param("https://github.com/myorg/x.git", "https://github.com/myorg/", True, id="https-prefix"),
+        pytest.param("git@github.com:myorg/x.git", "git@github.com:myorg/", True, id="scp-prefix"),
+        pytest.param("https://github.com/myorg-evil/x.git", "https://github.com/myorg/", False, id="prefix-collision"),
+        pytest.param("https://github.com/myorg/x.git", "https://github.com/myorg", True, id="prefix-no-slash"),
+        pytest.param("https://github.com/myorg-evil/x.git", "https://github.com/myorg", False, id="no-slash-collision"),
+        pytest.param("https://github.com/myorg/../evil/x.git", "https://github.com/myorg/", False, id="dot-segment"),
+        pytest.param(
+            "https://github.com/myorg/%2E%2e/evil/x.git", "https://github.com/myorg/", False, id="encoded-dot"
+        ),
+        pytest.param(
+            "https://github.com/myorg/..%2Fevil/x.git", "https://github.com/myorg/", False, id="encoded-slash"
+        ),
+        pytest.param("https://github.com/myorg/..\\evil/x.git", "https://github.com/myorg/", False, id="backslash"),
+        pytest.param("file:///etc", "file:///", False, id="file-scheme"),
+        pytest.param("/srv/repo", "/srv/", False, id="local-path"),
+        pytest.param("https://elsewhere/x.git", "", False, id="unlisted"),
+        pytest.param(None, "", False, id="no-remote"),
+    ],
+)
+async def test_finish_shell_result_child_build_allowlist(orch_ctx, monkeypatch, remote, allow, ok):
+    """The worker clones what a shell/jvm child names with its own git
+    credentials, so only the parent's repo or an allowlisted prefix builds."""
+    monkeypatch.setenv("AAICLICK_CHILD_BUILD_REMOTES", allow)
+    job = await _shell_job_coro(f"child_build_{ok}", ["true"])
+    parent = (await get_tasks_for_job(job.id))[0]
+    parent.image_source = ImageBuild(git_remote=_PARENT_REMOTE, git_sha="a" * 40).model_dump()
+    child = {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"], "git_sha": "b" * 40}
+    if remote is not None:
+        child["git_remote"] = remote
+
+    if not ok:
+        with pytest.raises(ValueError, match="AAICLICK_CHILD_BUILD_REMOTES"):
+            await finish_shell_result(parent, child)
+        return
+
+    await finish_shell_result(parent, child)
+    tasks = await get_tasks_for_job(job.id)
+    spawned = next(t for t in tasks if t.id != parent.id and not t.is_image_build)
+    assert spawned.image_source is not None and spawned.image_source["git_remote"] == remote
+    assert any(t.is_image_build for t in tasks)
 
 
 async def test_returned_native_kwarg_stays_literal(orch_ctx):

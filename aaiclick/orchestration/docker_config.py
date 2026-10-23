@@ -12,6 +12,8 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import posixpath
+import re
 from decimal import Decimal
 from typing import Literal, NamedTuple
 
@@ -117,6 +119,51 @@ def get_registry() -> str | None:
     return os.environ.get("AAICLICK_REGISTRY") or None
 
 
+def get_buildkit_addr() -> str:
+    """The buildkitd every build runs on (``AAICLICK_BUILDKIT_ADDR``, e.g.
+    ``tcp://buildkitd:1234``). Raises when unset: builds never fall back to
+    the host docker daemon."""
+    addr = os.environ.get("AAICLICK_BUILDKIT_ADDR")
+    if not addr:
+        raise RuntimeError(
+            "AAICLICK_BUILDKIT_ADDR is not set on this worker, but this job builds its image from source. "
+            "Point it at a buildkitd (e.g. tcp://buildkitd:1234), or submit the job with a prebuilt image (image=...)."
+        )
+    return addr
+
+
+_CHILD_REMOTE_SCHEME = re.compile(r"^(https://|git@[^:/]+:)")
+# git's HTTP client normalises ``..``, and a server may decode ``%2F`` / ``\`` into
+# separators, either of which walks out of a prefix; plain remotes need none of them.
+_UNSAFE_REMOTE = re.compile(r"(^|[/:])\.\.(/|$)|[%\\]")
+
+
+def check_child_build_remote(remote: str | None, parent_remote: str | None) -> None:
+    """Admit a shell/jvm child's build remote: the parent's own build repo
+    (trusted, any scheme), or one under a prefix in
+    ``AAICLICK_CHILD_BUILD_REMOTES`` over ``https://`` or ``git@host:`` only. The worker clones it with its own git credentials
+    and network, so the container must not pick an arbitrary one.
+
+    Raises:
+        ValueError: naming the remote and the setting.
+    """
+    # A prefix always ends on a path boundary, so ``myorg`` does not admit ``myorg-evil``.
+    prefixes = [
+        p if p.endswith(("/", ":")) else f"{p}/"
+        for p in (p.strip() for p in os.environ.get("AAICLICK_CHILD_BUILD_REMOTES", "").split(","))
+        if p
+    ]
+    if remote and remote == parent_remote:
+        return
+    if remote and _CHILD_REMOTE_SCHEME.match(remote) and not _UNSAFE_REMOTE.search(remote):
+        if remote.startswith(tuple(prefixes)):
+            return
+    raise ValueError(
+        f"a shell/jvm task may build only its own repo or a remote listed in "
+        f"AAICLICK_CHILD_BUILD_REMOTES (https:// or git@host:); got {remote!r}"
+    )
+
+
 def get_build_mode() -> BuildMode:
     """Which of the two mutually exclusive build modes the worker runs in.
 
@@ -139,11 +186,22 @@ def get_build_mode() -> BuildMode:
     )
 
 
-def compute_image_tag(git_sha: str) -> str:
-    """``[<registry>/]aaiclick-job:<sha>``."""
+def _dockerfile(source: ImageBuild) -> str:
+    """The Dockerfile path normalised, so every spelling of the default is one image."""
+    return posixpath.normpath(source.dockerfile or "Dockerfile")
+
+
+def compute_image_tag(source: ImageBuild) -> str:
+    """``[<registry>/]aaiclick-job:<sha>``, plus ``-<dockerfile>`` when a
+    Dockerfile other than the default is named: the same commit built from two
+    Dockerfiles is two images. Characters a tag cannot hold become ``-``."""
     registry = get_registry()
     prefix = f"{registry}/" if registry else ""
-    return f"{prefix}aaiclick-job:{git_sha}"
+    tag = source.git_sha
+    dockerfile = _dockerfile(source)
+    if dockerfile != "Dockerfile":
+        tag += "-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", dockerfile)[:80]
+    return f"{prefix}aaiclick-job:{tag}"
 
 
 def image_key(source: ImageBuild) -> str:
@@ -151,7 +209,7 @@ def image_key(source: ImageBuild) -> str:
     dockerfile)``. ``git_branch`` is deliberately excluded — it does not change
     the built image, only where the SHA was found. This is the dedup key for
     ``build_tasks``."""
-    parts = "\x00".join([source.git_remote, source.git_sha, source.dockerfile or ""])
+    parts = "\x00".join([source.git_remote, source.git_sha, _dockerfile(source)])
     return hashlib.sha256(parts.encode("utf-8")).hexdigest()
 
 

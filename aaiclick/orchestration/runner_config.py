@@ -33,7 +33,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 class ImageBuild(BaseModel):
     """Build the image from a git repo at a SHA. ``image_tag`` is computed
-    (``aaiclick-job:<sha>``), not stored here."""
+    (``aaiclick-job:<sha>[-<dockerfile>]``), not stored here."""
 
     type: Literal["build"] = "build"
     git_remote: str

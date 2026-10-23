@@ -17,8 +17,8 @@ which is what `kubectl logs -f` needs).
 !!! info "Why the CLI, not `aiodocker` / `kubernetes_asyncio`"
     Neither Docker nor Kubernetes ships an *official* async client — both async
     libraries are third-party, so adopting them means two unrelated
-    dependencies, not unification. The build path (`docker build` with BuildKit,
-    build-args, `--add-host`, registry auth) is also far simpler via the CLI. If
+    dependencies, not unification. The build path (`docker buildx build` on a remote
+    buildkitd, secrets, `--add-host`, registry auth) is also far simpler via the CLI. If
     a host runs k8s jobs it already has `kubectl`, exactly as docker jobs assume
     `docker`.
 
@@ -186,7 +186,7 @@ lightweight Kubernetes) plus the same Postgres / ClickHouse services. A
     - **Registry**: a local `registry:2` on `127.0.0.1:5000` + a kind
       `containerdConfigPatches` mirror (`localhost:5000` → `http://kind-registry:5000`,
       with the registry joined to the `kind` docker network). So the image tag
-      `localhost:5000/aaiclick-job:<sha>` is pushed by the host over loopback
+      `localhost:5000/aaiclick-job:<sha>[-<dockerfile>]` is pushed by a host-network buildkitd over loopback
       (trusted — no insecure-registry config) and pulled in-cluster via the
       mirror.
     - **Pod → host DBs**: route via the kind network's gateway IP (read off the

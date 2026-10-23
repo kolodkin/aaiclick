@@ -374,7 +374,9 @@ default) to select a prebuilt image — mutually exclusive with the git build
 fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job`
 stamps the resolved image on the job's entry task; dynamic child tasks inherit
 their parent's image unless they declare their own
-(`create_task(image=...)` or `create_task(git_remote=..., git_sha=...)`).
+(`create_task(image=...)` or `create_task(git_remote=..., git_sha=...)`). A
+shell or jvm task may only return children built from its own repo or a
+prefix in the worker's `AAICLICK_CHILD_BUILD_REMOTES`.
 
 | Flag           | Default                          | Auto-sets |
 |----------------|----------------------------------|-----------|
@@ -396,8 +398,11 @@ mutually exclusive build modes:
 
 | Env var                    | Mode     | What the build task does                                                              |
 |----------------------------|----------|---------------------------------------------------------------------------------------|
-| `AAICLICK_REGISTRY=<host>` | registry | Pulls if the registry has the SHA, else builds and pushes; every worker pulls the tag |
-| `AAICLICK_LOCAL_BUILD=1`   | local    | Builds into the worker's own Docker daemon, no push — single-host deployments         |
+| `AAICLICK_REGISTRY=<host>` | registry | Skips if the registry has the image, else builds and pushes; every worker pulls it    |
+| `AAICLICK_LOCAL_BUILD=1`   | local    | Builds and loads into the worker's own Docker daemon, no push — single-host only      |
+
+Either way the build runs on the buildkitd at `AAICLICK_BUILDKIT_ADDR`, not on
+the worker's daemon, so Dockerfile steps never see the worker's credentials.
 
 Setting both, or neither, fails the build task with an error naming the two
 variables. Kubernetes `build` sources need registry mode: the cluster cannot
@@ -581,6 +586,8 @@ the job's retention lifecycle. Fetch them via
 | `AAICLICK_DOCKER_BIN`                | `docker`                              | Docker CLI used by the docker runner                                                                                                                                    |
 | `AAICLICK_REGISTRY`                  | unset                                 | Registry build mode for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build`                            |
 | `AAICLICK_LOCAL_BUILD`               | unset                                 | Local build mode for `build` images — kept in the worker's Docker daemon, never pushed; mutually exclusive with `AAICLICK_REGISTRY`                                     |
+| `AAICLICK_BUILDKIT_ADDR`             | unset                                 | buildkitd address for `build` images (e.g. `tcp://buildkitd:1234`); required to build                                                                                   |
+| `AAICLICK_CHILD_BUILD_REMOTES`       | unset                                 | Comma-separated remote prefixes a shell/jvm task's children may build from, besides its own repo                                                                        |
 
 # Internal Design
 

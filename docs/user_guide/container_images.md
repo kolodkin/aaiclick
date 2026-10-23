@@ -59,7 +59,7 @@ The default honours a dependency manifest at the repo root:
 | `pom.xml`, no Python manifest                        | jvm      | `mvn package`, SDK shim as `ENTRYPOINT`                             |
 | `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                                |
 
-`uv` runs on the worker's `PIP_*` index args with the checkout mounted as its
+`uv` runs on the worker's `PIP_*` index settings with the checkout mounted as its
 working directory, so `-r` / `-c` includes, path and workspace dependencies
 resolve. Packages the base image ships — aaiclick and everything it depends
 on — keep the base image's version whatever the manifest pins, so a user lock
@@ -69,17 +69,30 @@ project itself is never `pip install .`-ed. Limits:
 - Installs from the checkout must be non-editable: the mount is gone at
   runtime, so `-e .` points nowhere (a `uv.lock` export already skips the
   project). The mount has no `.git`, so a setuptools-scm project cannot build.
-- The install layer uses BuildKit mounts; a custom worker image needs `buildx`
-  like the shipped ones.
+- Builds run on a buildkitd (`AAICLICK_BUILDKIT_ADDR`); a custom worker image
+  needs the docker CLI with `buildx` like the shipped ones.
 - A `.dockerignore` that excludes the manifest hides it from the install.
 - Python code next to a `pom.xml` with no Python manifest gets the JVM image;
   a mixed repo adds a Python manifest.
-- The image is cached per commit (`aaiclick-job:<sha>`): a commit built before
-  the worker learned manifests keeps its old image until a new commit lands.
+- The image is cached per commit (`aaiclick-job:<sha>`, plus `-<dockerfile>`
+  when one is named): a commit built before the worker learned manifests
+  keeps its old image until a new commit lands.
 - The JVM default is single-module, JDK/JRE 21 from Docker Hub, and expects
   `aaiclick-task-api` declared in the pom (`docs/designs/java-sdk.md`).
 
 Beyond these, check in a `Dockerfile`.
+
+!!! warning "Private index URLs are secrets, not build-args"
+    `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may embed a
+    token, so a Dockerfile that declares `ARG PIP_INDEX_URL` no longer receives
+    them. Mount them into the step that installs:
+
+    ```dockerfile
+    # syntax=docker/dockerfile:1
+    RUN --mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL \
+        --mount=type=secret,id=pip_extra_index_url,env=PIP_EXTRA_INDEX_URL \
+        pip install --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" -r requirements.txt
+    ```
 
 # Kubernetes dispatching worker
 
@@ -138,14 +151,12 @@ The worker Deployment sets `serviceAccountName: aaiclick-worker` and runs
 or using a private image, need the Role widened to that namespace and
 `AAICLICK_K8S_IMAGE_PULL_SECRET` set.
 
-!!! warning "The k8s worker also needs Docker to build the task image"
-    For `build` image sources, a host-pinned `build-image` task runs
-    `docker build` / `docker push` on the worker (that is why
-    `aaiclick-kubectl` bundles the docker CLI). So it also needs a reachable
-    Docker daemon — a mounted host socket, a remote `DOCKER_HOST`, or a build
-    sidecar — plus `AAICLICK_REGISTRY` pointing at a registry the cluster can pull
-    from. If task images are prebuilt and pushed out-of-band, submit with
-    `image=` to skip the build and no daemon is needed.
+!!! warning "`build` sources need buildkitd and a registry"
+    A host-pinned `build-image` task runs `docker buildx build --push` on the
+    worker against `AAICLICK_BUILDKIT_ADDR` (the chart's `buildkitd`, enabled by
+    default) — no Docker daemon. Set `env.registry` to a registry both
+    buildkitd and the cluster reach. With prebuilt images, submit with `image=`
+    and no build runs.
 
 Out-of-cluster use (talking to a remote cluster) instead mounts a kubeconfig and
 sets `KUBECONFIG`.

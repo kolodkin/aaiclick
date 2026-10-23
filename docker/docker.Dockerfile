@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 # aaiclick + Docker CLI (client only). For the docker-dispatching worker,
-# which runs `docker build`/`docker run` against a mounted host daemon. The
-# buildx plugin makes `docker build` use BuildKit, which the default build
-# Dockerfiles need for their mounts (docker_scaffold.render_default_dockerfile).
+# which runs `docker run` against a mounted host daemon and builds task images
+# on a buildkitd through the buildx plugin's remote driver.
 ARG BASE_REF=ghcr.io/kolodkin/aaiclick:latest
 FROM ${BASE_REF}
 

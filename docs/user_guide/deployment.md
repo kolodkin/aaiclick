@@ -47,6 +47,12 @@ password afterwards in the UI, not by editing the env var.
 - Both scaffolds set the worker's `AAICLICK_RUNNER` (`docker` in compose,
   `kubernetes` in the chart), which turns `--image` / `--build` jobs into
   containers or Pods. Without it a worker runs subprocess tasks only.
+- `--build` jobs build on the scaffold's rootless `buildkitd`
+  (`AAICLICK_BUILDKIT_ADDR`), never on the worker's Docker daemon. In compose
+  its build steps can still reach host-published ports (Postgres,
+  ClickHouse); the chart blocks private ranges with a NetworkPolicy
+  (`buildkit.networkPolicy`). Plain-HTTP registries go in
+  `buildkit.insecureRegistries`.
 - `AAICLICK_SANDBOX=<git remote>` on the API server enables the
   [sandbox](sandbox.md) page; the server pushes submissions there and the
   workers build them.

@@ -5,10 +5,12 @@ See docs/designs/orchestration.md — "Image source".
 An ordinary module task injected at commit points (see
 ``orchestration.image_injection``) for every distinct build-source image in a
 job with a build image source. It runs on the dispatching worker host
-(``image_source=NULL`` ⇒ subprocess vehicle) because it needs the docker CLI
-and daemon socket. The body is cache-first via ``build_image_to_tag``:
-registry mode pulls (someone already pushed this SHA → done), else clone +
-build + push; local mode checks the host daemon, else clone + build. Cross-job
+(``image_source=NULL`` ⇒ subprocess vehicle): clone, default-Dockerfile
+scaffolding and push credentials stay in trusted worker code, while the
+Dockerfile itself runs on buildkitd. The body is cache-first via
+``build_image_to_tag``: registry mode asks the registry (already pushed →
+done), else clone + build + push; local mode checks the host daemon, else
+clone + build + load. Cross-job
 dedup is the registry (or the daemon cache) itself — a lost race
 double-builds, which is wasteful but correct.
 """
@@ -60,4 +62,4 @@ async def run_image_build(
     """
     get_build_mode()
     source = ImageBuild(git_remote=git_remote, git_sha=git_sha, git_branch=git_branch, dockerfile=dockerfile)
-    await build_image_to_tag(source, compute_image_tag(git_sha))
+    await build_image_to_tag(source, compute_image_tag(source))

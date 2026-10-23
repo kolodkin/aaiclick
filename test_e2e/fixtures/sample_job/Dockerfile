@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Starter Dockerfile for an aaiclick docker-runner job.
 #
 # Customize freely — base image, install method, dependencies, USER, etc.
@@ -8,18 +9,20 @@
 #
 # Build-args the framework forwards (optional — declare only what you use):
 #   GIT_REMOTE, GIT_SHA, GIT_BRANCH
-#   PIP_INDEX_URL, PIP_EXTRA_INDEX_URL  (e.g. corporate / test pypi)
 #   PIP_TRUSTED_HOST                    (allow plain HTTP for the index host)
 #   AAICLICK_VERSION                    (matches the host's installed version)
 #   BASE_IMAGE                          (ghcr.io/kolodkin/aaiclick at that version,
 #                                        or AAICLICK_BASE_IMAGE on the worker)
+#
+# Secrets the framework forwards (index URLs may carry a token, so they are
+# never build-args; mount them into the RUN step that needs them):
+#   pip_index_url, pip_extra_index_url  (e.g. corporate / test pypi)
 
 FROM python:3.10-slim
 
 ARG GIT_REMOTE
 ARG GIT_SHA
 ARG GIT_BRANCH
-ARG PIP_INDEX_URL
 ARG PIP_TRUSTED_HOST
 ARG AAICLICK_VERSION
 
@@ -35,9 +38,12 @@ ENV GIT_REMOTE=${GIT_REMOTE} \
 
 # Install aaiclick. Pinned to the host's version so the host worker and the
 # container speak the same IPC protocol.
-RUN pip install --no-cache-dir \
+RUN --mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL \
+    --mount=type=secret,id=pip_extra_index_url,env=PIP_EXTRA_INDEX_URL \
+    pip install --no-cache-dir \
     --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" \
     --extra-index-url https://pypi.org/simple/ \
+    ${PIP_EXTRA_INDEX_URL:+--extra-index-url "${PIP_EXTRA_INDEX_URL}"} \
     ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}} \
     "aaiclick[distributed]==${AAICLICK_VERSION}"
 
@@ -48,4 +54,6 @@ RUN pip install --no-cache-dir \
 # CLI does when run from the repo.
 COPY . /src
 WORKDIR /src
-RUN pip install --no-cache-dir /src
+RUN --mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL \
+    --mount=type=secret,id=pip_extra_index_url,env=PIP_EXTRA_INDEX_URL \
+    pip install --no-cache-dir /src

@@ -16,11 +16,12 @@ name: Kubernetes Runner E2E (reusable)
 #     via /etc/hosts (aaiclick-postgres/-clickhouse -> 127.0.0.1 -> extraPortMapping
 #     -> NodePort), and inside job pods via CoreDNS (Service name). The pod
 #     inherits the host DSN verbatim through build_runner_env, so no runner change.
-#   - The job image tag stays localhost:5000/aaiclick-job:<sha>: the host pushes
+#   - The job image tag is localhost:5000/aaiclick-job:<sha>[-<dockerfile>]: buildkitd pushes
 #     to localhost:5000 (-> NodePort 30500 -> registry pod) and the node's
 #     containerd resolves it via the mirror localhost:5000 -> localhost:30500.
-#   - The host-side image build reaches the in-cluster pypi via
-#     host.docker.internal:8080 (--add-host=...:host-gateway), unchanged.
+#   - Images build on a host-network buildkitd (start-buildkitd), which pushes
+#     to localhost:5000 like the host did and reaches the in-cluster pypi via
+#     host.docker.internal:8080 (--add-host=...:<bridge gateway>).
 
 on:
   workflow_call:
@@ -102,6 +103,9 @@ jobs:
           echo "AAICLICK_SQL_URL=postgresql+asyncpg://aaiclick:secret@aaiclick-postgres:5432/aaiclick" >> "$GITHUB_ENV"
           echo "AAICLICK_CH_URL=clickhouse://default:click123@aaiclick-clickhouse:8123/default" >> "$GITHUB_ENV"
 
+      - name: Start buildkitd
+        uses: ./.github/actions/start-buildkitd
+
       - name: Start git daemon
         uses: ./.github/actions/start-git-daemon
 
@@ -146,8 +150,8 @@ jobs:
 
       # A git build whose repo has no Dockerfile layers on the aaiclick base
       # image at the worker's version, and no published image matches the
-      # wheel under test. Build that base from the same wheel on the runner's
-      # daemon — the build task runs there — and point the worker at it via
+      # wheel under test. Build that base from the same wheel, push it where
+      # buildkitd can pull it, and point the worker at it via
       # AAICLICK_BASE_IMAGE below (mirrors the docker e2e).
       - name: Resolve the installed aaiclick version
         id: wheel
@@ -157,7 +161,11 @@ jobs:
         uses: ./.github/actions/build-base-image
         with:
           version: ${{ steps.wheel.outputs.version }}
-          tag: aaiclick-e2e-base:local
+          tag: localhost:5000/aaiclick-e2e-base:local
+
+      # buildkitd cannot see the host daemon's images; it pulls the base from the registry.
+      - name: Push base image to the CI registry
+        run: docker push localhost:5000/aaiclick-e2e-base:local
 
       # --- Common: migrations, test ---------------------------------------
 
@@ -170,7 +178,8 @@ jobs:
           # AAICLICK_SQL_URL / AAICLICK_CH_URL come from the "Wire host DSNs" step.
           AAICLICK_RUNNER: "kubernetes"
           AAICLICK_REGISTRY: "localhost:5000"
-          AAICLICK_BASE_IMAGE: "aaiclick-e2e-base:local"
+          AAICLICK_BASE_IMAGE: "localhost:5000/aaiclick-e2e-base:local"
+          AAICLICK_BUILDKIT_ADDR: "tcp://127.0.0.1:1234"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
           AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"

@@ -27,6 +27,7 @@ import pytest
 from job_wait import run_worker_until_done
 from runner_flow import (
     run_build_job,
+    run_child_build_flow,
     run_jvm_fanout_flow,
     run_jvm_flow,
     run_shell_command_env_flow,
@@ -59,6 +60,24 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
         entry.result,
         entry.error,
     )
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_build_sees_no_worker_secrets(orch_ctx, docker_e2e_leak_repo):
+    """A Dockerfile step — even one declaring ``ARG PIP_INDEX_URL`` — sees no
+    worker env and no index URL: those reach builds only as mounted secrets."""
+    tasks = await run_build_job("docker_e2e_build_env_leak", "leak_jobs.read_build_env", docker_e2e_leak_repo)
+    entry = next(t for t in tasks if t.entrypoint == "leak_jobs.read_build_env")
+    assert entry.result is not None
+    build_env = entry.result["value"]
+    assert "AAICLICK_" not in build_env
+    assert "8080/simple" not in build_env
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_shell_child_declares_build(orch_ctx, docker_e2e_user_repo):
+    """A shell task's child declares its own build of the parent's repo."""
+    await run_child_build_flow("docker_e2e_child_build", docker_e2e_user_repo)
 
 
 @pytest.mark.docker_e2e

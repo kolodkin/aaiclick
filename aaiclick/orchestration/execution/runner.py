@@ -66,6 +66,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
+from ..docker_config import check_child_build_remote
 from ..factories import create_task
 from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
 from ..models import (
@@ -89,7 +90,7 @@ from ..task_registry import fresh_task_registry
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
-from .execution_worker_context import TaskInfo, current_task_info
+from .execution_worker_context import TaskInfo, current_task_info, get_current_task_info
 from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
@@ -730,8 +731,9 @@ def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tu
     dict passes the same entry validation a Python caller gets, and only a
     ``module`` parent may return a ``module`` child: module tasks run with
     aaiclick's credentials, which a shell/jvm container must not grant itself.
-    For the same reason a shell/jvm child may not declare an image build — the
-    worker would build whatever repo the container names.
+    A shell/jvm child may declare an image build only from an admitted remote
+    (``docker_config.check_child_build_remote``): the build itself runs on
+    buildkitd, but the worker clones the repo.
 
     Raises:
         ValueError: on a duplicate handle or an invalid entry.
@@ -762,10 +764,9 @@ def _build_dag_from_dicts(items: list[dict], parent_entry_type: EntryType) -> tu
         if parent_entry_type != ENTRY_MODULE:
             if entry_type == ENTRY_MODULE:
                 raise ValueError(f"a {parent_entry_type} task cannot return a module task")
-            if declared := _BUILD_FIELDS & fields.keys():
-                raise ValueError(
-                    f"a {parent_entry_type} task cannot declare an image build ({', '.join(sorted(declared))})"
-                )
+            if _BUILD_FIELDS & fields.keys():
+                parent_source = get_current_task_info().image_source or {}
+                check_child_build_remote(fields.get("git_remote"), parent_source.get("git_remote"))
         task = create_task(fields.pop(ENTRYPOINT, None), **fields)
         claim(handle, task)
         return task

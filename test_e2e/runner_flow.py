@@ -8,6 +8,7 @@ nightlies prove the same path.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -107,6 +108,32 @@ async def run_shell_command_env_flow(job_name: str, cwd: Path) -> Task:
     assert tasks[0].status == TASK_COMPLETED, tasks[0].error
     assert tasks[0].result == native_ref({"k": "v"}), tasks[0].result
     return tasks[0]
+
+
+# Writes argv[1] to out.json: the parent returns it as its child DAG.
+_WRITE_OUT_JSON = (
+    "python -c \"import os, sys; open(os.environ['AAICLICK_IO_DIR'] + '/out.json', 'w').write(sys.argv[1])\""
+)
+
+
+async def run_child_build_flow(job_name: str, user_repo: UserRepo) -> None:
+    """A shell task built from ``user_repo`` returns a child that declares its
+    own build of the same commit from ``child.Dockerfile``: a second image, so
+    the child's own build task runs and the child runs in that image."""
+    child = {
+        "_aaiclick_type": "task",
+        "entry_type": "shell",
+        "command": ["python", "-c", "import sample_jobs"],
+        "git_remote": user_repo.remote,
+        "git_sha": user_repo.sha,
+        "dockerfile": "child.Dockerfile",
+    }
+    command = f"{_WRITE_OUT_JSON} {shlex.quote(json.dumps(child))}"
+    tasks = await run_build_job(job_name, "shell.placeholder", user_repo, "--entry-type", "shell", "--command", command)
+    assert sum(t.is_image_build for t in tasks) == 2, [t.name for t in tasks]
+    spawned = next(t for t in tasks if t.command == child["command"])
+    source = parse_image_source(spawned.image_source or {})
+    assert isinstance(source, ImageBuild) and source.dockerfile == "child.Dockerfile", source
 
 
 async def run_jvm_flow(job_name: str, user_repo: UserRepo, jvm_image: str) -> None:
