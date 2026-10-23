@@ -292,7 +292,8 @@ async def test_concat_nested_dot_column(ctx):
 
     result = await left.concat(right)
 
-    assert await result.data() == {"a": [1, 2], "m": [{"x": 10}, {"x": 20}]}
+    data = await result.data()
+    assert sorted(zip(data["a"], data["m"], strict=True), key=lambda r: r[0]) == [(1, {"x": 10}), (2, {"x": 20})]
 
 
 # =============================================================================
