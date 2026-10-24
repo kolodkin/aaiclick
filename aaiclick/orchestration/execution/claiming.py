@@ -385,7 +385,7 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
             await session.execute(
                 text(
                     f"UPDATE tasks SET status = :pending, run_epoch = run_epoch + 1, "
-                    f"execution_worker_id = NULL, claimed_at = NULL, claim_expires_at = NULL, started_at = NULL, "
+                    f"execution_worker_id = NULL, claim_expires_at = NULL, started_at = NULL, "
                     f"completed_at = NULL, error = NULL, result = NULL, "
                     f"retry_after = NULL WHERE id IN ({ph})"
                 ),

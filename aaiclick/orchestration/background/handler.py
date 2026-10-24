@@ -380,7 +380,7 @@ class BackgroundHandler(ABC):
                 text(
                     "UPDATE tasks SET status = :status, run_epoch = run_epoch + 1, "
                     "attempt = :attempt, retry_after = :retry_after, "
-                    "execution_worker_id = NULL, claimed_at = NULL, "
+                    "execution_worker_id = NULL, "
                     "started_at = NULL, completed_at = NULL "
                     "WHERE id = :task_id AND status = :failure_cleanup"
                 ),

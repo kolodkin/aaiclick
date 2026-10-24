@@ -484,7 +484,6 @@ class Task(_DependencyOps, SQLModel, table=True):
         sa_column=Column(String, nullable=False, index=True),
     )
     created_at: datetime = utc_field(default_factory=utc_now, index=True)
-    claimed_at: datetime | None = utc_field(default=None)
     # Ownership expiry, renewed by the owning worker's heartbeat; the sweep
     # reclaims a RUNNING task once it passes, whatever the worker's status.
     claim_expires_at: datetime | None = utc_field(default=None)

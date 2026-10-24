@@ -193,7 +193,6 @@ async def test_clear_clears_task_fields(orch_ctx):
     worker = await register_execution_worker()
     t = _task(job.id, status=TASK_COMPLETED)
     t.execution_worker_id = worker.id
-    t.claimed_at = utc_now()
     t.started_at = utc_now()
     t.completed_at = utc_now()
     t.error = "old error"
@@ -205,7 +204,6 @@ async def test_clear_clears_task_fields(orch_ctx):
     reset = await _get(t.id)
     assert reset.status == TASK_PENDING
     assert reset.execution_worker_id is None
-    assert reset.claimed_at is None
     assert reset.started_at is None
     assert reset.completed_at is None
     assert reset.error is None
