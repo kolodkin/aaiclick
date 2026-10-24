@@ -75,14 +75,6 @@ SELECT projections.
 **When to revisit**: before accepting user-supplied column names from
 external sources (CSV headers, parquet) as a supported path.
 
-## Merge `claimed_at` and `started_at`
-
-With no CLAIMED phase, both claim paths write the same `:now` to
-`tasks.claimed_at` and `tasks.started_at`, and every reset clears both.
-Drop one (likely `claimed_at`) and point its readers at the other.
-
-**When to revisit**: the next migration on the `tasks` table.
-
 ## Tenants — Kubernetes Control Plane
 
 Multi-tenancy as a fleet layer rather than a filtered column: a control

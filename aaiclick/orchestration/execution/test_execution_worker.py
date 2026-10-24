@@ -261,7 +261,7 @@ async def test_claim_next_task_basic(orch_ctx):
     assert task.job_id == job.id
     assert task.status == TASK_RUNNING
     assert task.execution_worker_id == execution_worker.id
-    assert task.claimed_at is not None
+    assert task.started_at is not None
     assert task.claim_expires_at is not None
 
     # Verify job status changed to RUNNING

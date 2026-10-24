@@ -60,7 +60,7 @@ class SqliteDbHandler(DbHandler):
         await session.execute(
             text(
                 "UPDATE tasks "
-                "SET status = :running_status, execution_worker_id = :execution_worker_id, claimed_at = :now, started_at = :now, "
+                "SET status = :running_status, execution_worker_id = :execution_worker_id, started_at = :now, "
                 "claim_expires_at = :claim_expires_at WHERE id = :task_id"
             ),
             {
