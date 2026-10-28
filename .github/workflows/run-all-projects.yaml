@@ -26,6 +26,19 @@ jobs:
     with:
       project: cyber_threat_feeds
 
+  imdb-dataset-builder:
+    uses: ./.github/workflows/project-example.yaml
+    with:
+      project: imdb_dataset_builder
+      args: --sample
+
+  movie-plot-rag:
+    uses: ./.github/workflows/project-example.yaml
+    with:
+      project: movie_plot_rag
+    secrets:
+      AAICLICK_AI_API_KEY: ${{ secrets.AAICLICK_AI_API_KEY }}
+
   basic-lineage:
     uses: ./.github/workflows/project-basic-lineage.yaml
     with:

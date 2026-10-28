@@ -17,6 +17,14 @@ script as the single entry point.
 
     --8<-- "example_projects/cyber_threat_feeds/README.md"
 
+=== "IMDb Dataset Builder"
+
+    --8<-- "example_projects/imdb_dataset_builder/README.md"
+
+=== "Movie Plot RAG"
+
+    --8<-- "example_projects/movie_plot_rag/README.md"
+
 === "NYC Taxi Pipeline"
 
     --8<-- "example_projects/nyc_taxi_pipeline/README.md"
