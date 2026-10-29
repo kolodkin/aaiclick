@@ -83,8 +83,16 @@ jobs:
       - name: Setup uv
         uses: ./.github/actions/setup-uv
         with:
-          sync-args: "--extra dev --extra examples"
+          sync-args: "--extra dev"
           cache-dependency-glob: "pyproject.toml\nuv.lock\nexample_projects/${{ inputs.project }}/uv.lock"
+
+      # Example-only deps stay out of aaiclick's own pyproject; CPU torch first so
+      # sentence-transformers does not pull multi-GB CUDA wheels.
+      - name: Install movie_plot_rag deps
+        if: inputs.project == 'movie_plot_rag'
+        run: |
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install litellm sentence-transformers
 
       # movie_plot_rag's generation step needs an LLM. Without a hosted model
       # configured (vars.AAICLICK_AI_MODEL + AAICLICK_AI_API_KEY), serve a small
