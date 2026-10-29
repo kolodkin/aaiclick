@@ -26,8 +26,6 @@ Usage:
     python -m aaiclick execution-worker start
 """
 
-import asyncio
-
 from aaiclick.orchestration import job
 
 from .consolidated import analyze_consolidated, build_consolidated_table
@@ -106,13 +104,3 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     )
 
     return threat_report
-
-
-async def main():
-    """Register the cyber threat feeds pipeline job."""
-    created_job = await cyber_threat_pipeline()
-    print(f"Registered job: {created_job.name} (ID: {created_job.id})")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

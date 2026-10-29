@@ -3,7 +3,20 @@ Example Projects
 
 End-to-end projects demonstrating aaiclick orchestration with real-world data.
 Each project lives in `example_projects/<name>/` and includes a shell
-script as the single entry point.
+script as the single entry point. Each script runs in exactly one
+[deployment mode](orchestration.md#deployment-modes):
+
+| Project            | Mode        |
+|--------------------|-------------|
+| Basic Worker       | Distributed |
+| chdb Benchmark     | Local       |
+| Cyber Threat Feeds | Local       |
+| Movie Plot RAG     | Local       |
+| NYC Taxi Pipeline  | Distributed |
+
+Local scripts ignore any server URLs in the environment and take job kwargs as
+`--params '<JSON>'`; distributed scripts apply migrations, start a background
+and an execution worker, and take job kwargs as `--set KEY=VALUE`.
 
 === "Basic Worker"
 
@@ -16,6 +29,10 @@ script as the single entry point.
 === "Cyber Threat Feeds"
 
     --8<-- "example_projects/cyber_threat_feeds/README.md"
+
+=== "Movie Plot RAG"
+
+    --8<-- "example_projects/movie_plot_rag/README.md"
 
 === "NYC Taxi Pipeline"
 

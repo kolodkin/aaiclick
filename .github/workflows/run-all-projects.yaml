@@ -26,7 +26,14 @@ jobs:
     with:
       project: cyber_threat_feeds
 
-  basic-lineage:
-    uses: ./.github/workflows/project-basic-lineage.yaml
+  movie-plot-rag:
+    uses: ./.github/workflows/project-example.yaml
     with:
-      ai_preset: nim
+      project: movie_plot_rag
+    secrets:
+      AAICLICK_AI_API_KEY: ${{ secrets.AAICLICK_AI_API_KEY }}
+
+  chdb-benchmark:
+    uses: ./.github/workflows/project-example.yaml
+    with:
+      project: chdb_benchmark
