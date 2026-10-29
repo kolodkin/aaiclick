@@ -19,24 +19,13 @@ on:
           - basic_worker
           - nyc_taxi_pipeline
           - cyber_threat_feeds
-          - imdb_dataset_builder
           - movie_plot_rag
-      args:
-        description: "Extra arguments for the project script"
-        required: false
-        type: string
-        default: ""
   workflow_call:
     inputs:
       project:
         description: "Example project to run (directory name under example_projects/)"
         required: true
         type: string
-      args:
-        description: "Extra arguments for the project script"
-        required: false
-        type: string
-        default: ""
     secrets:
       AAICLICK_AI_API_KEY:
         description: "Hosted-model key for movie_plot_rag (AAICLICK_AI_MODEL names the model)"
@@ -121,7 +110,7 @@ jobs:
           AAICLICK_AI_API_KEY: ${{ secrets.AAICLICK_AI_API_KEY }}
         run: |
           mkdir -p tmp
-          example_projects/${{ inputs.project }}/${{ inputs.project }}.sh ${{ inputs.args }} 2>&1 \
+          example_projects/${{ inputs.project }}/${{ inputs.project }}.sh 2>&1 \
             | tee tmp/project_output.txt
           exit ${PIPESTATUS[0]}
 
