@@ -1,0 +1,22 @@
+# Standalone copies of this project (see "Standalone Usage" in ../CLAUDE.md)
+# have no monorepo .gitignore above them, so the run-time clutter is listed here.
+
+# uv virtualenv and Python bytecode
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# aaiclick local dev data (chdb + SQLite) when AAICLICK_LOCAL_ROOT points here
+.aaiclick/
+
+# Local secrets (AAICLICK_AI_API_KEY etc.)
+.env
+
+# Run output (AAICLICK_REPORT_FILE, CI tee targets)
+tmp/
