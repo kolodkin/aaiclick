@@ -8,3 +8,7 @@ dependencies = [
     "aaiclick",
     "rich>=13.0",
 ]
+
+# The monorepo checkout, not a PyPI release — examples always exercise this tree.
+[tool.uv.sources]
+aaiclick = { path = "../..", editable = true }

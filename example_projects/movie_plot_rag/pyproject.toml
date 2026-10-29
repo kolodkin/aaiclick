@@ -16,6 +16,8 @@ dependencies = [
 # CPU-only torch keeps the install a few hundred MB instead of multi-GB CUDA
 # wheels — this example only ever embeds ~1k short texts.
 [tool.uv.sources]
+# The monorepo checkout, not a PyPI release — examples always exercise this tree.
+aaiclick = { path = "../..", editable = true }
 torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]

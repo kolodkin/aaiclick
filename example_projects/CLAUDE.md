@@ -59,6 +59,14 @@ example_projects/<name>/
 - The nested `<name>/` folder is the Python package — the outer folder is the project directory
 - `<name>.sh` is the user-facing entry point — `cd`s to its own directory, then runs the project
 - Shell scripts use `PYTHON="${PYTHON:-uv run python}"` for dual-mode support (monorepo or standalone)
+- `pyproject.toml` depends on `aaiclick` (or `aaiclick[distributed]` for distributed-mode projects)
+  through a uv path source on the monorepo checkout — never a PyPI release:
+  ```toml
+  [tool.uv.sources]
+  aaiclick = { path = "../..", editable = true }
+  ```
+  `uv run python` from the project directory therefore always exercises this tree; CI runs each
+  project the same way, with no root sync.
 - Each `.sh` supports exactly **one** deployment mode, named in its header comment and README:
   - **Local**: `unset AAICLICK_CH_URL AAICLICK_SQL_URL`, `python -m aaiclick setup`, then
     `python -m <name> "$@"`. `__main__.py` runs the job inline with
@@ -77,8 +85,9 @@ example_projects/<name>/
 Projects can be copied out of the monorepo and run independently:
 
 1. Copy the `<name>/` project directory
-2. `uv sync` (installs dependencies from `pyproject.toml` + `uv.lock`)
-3. `./name.sh` (or `cd <name> && python -m <name>`)
+2. Delete the `[tool.uv.sources]` `aaiclick` line (it points at the monorepo) so `uv` resolves a
+   PyPI release, and `uv lock`
+3. `uv sync`, then `./name.sh`
 
 ## Task Return Values
 

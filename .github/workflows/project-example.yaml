@@ -83,16 +83,10 @@ jobs:
       - name: Setup uv
         uses: ./.github/actions/setup-uv
         with:
-          sync-args: "--extra dev"
-          cache-dependency-glob: "pyproject.toml\nuv.lock\nexample_projects/${{ inputs.project }}/uv.lock"
-
-      # Example-only deps stay out of aaiclick's own pyproject; CPU torch first so
-      # sentence-transformers does not pull multi-GB CUDA wheels.
-      - name: Install movie_plot_rag deps
-        if: inputs.project == 'movie_plot_rag'
-        run: |
-          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-          uv pip install litellm sentence-transformers
+          # Each project is its own uv project whose aaiclick is a path source on
+          # this checkout, so the root env is never synced here.
+          sync-args: ""
+          cache-dependency-glob: "example_projects/${{ inputs.project }}/uv.lock"
 
       # movie_plot_rag's generation step needs an LLM. Without a hosted model
       # configured (vars.AAICLICK_AI_MODEL + AAICLICK_AI_API_KEY), serve a small
@@ -111,16 +105,8 @@ jobs:
           timeout 60 sh -c 'until curl -sf localhost:11434/api/tags >/dev/null; do sleep 1; done'
           curl -sf localhost:11434/api/pull -d '{"model":"${{ env.CI_OLLAMA_MODEL }}","stream":false}'
 
-      - name: Run database migrations
-        env:
-          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
-          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
-        run: |
-          uv run python -m aaiclick migrate upgrade head
-
       - name: Run example project
         env:
-          PYTHON: "uv run --project ${{ github.workspace }} python"
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
