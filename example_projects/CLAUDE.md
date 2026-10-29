@@ -53,6 +53,7 @@ example_projects/<name>/
 ├── uv.lock              # Locked dependency versions
 ├── <name>.sh            # Shell runner: sets env vars, runs the job, manages workers
 ├── README.md            # Title, description, how to run (see README Convention above)
+├── .gitignore           # Run-time clutter (.venv/, __pycache__/, .aaiclick/, tmp/) for standalone copies
 └── SPEC.md              # Optional: design notes / architectural rationale
 ```
 
