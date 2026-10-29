@@ -80,7 +80,8 @@ async def _complete(prompt: str, context: str, system: str) -> str:
         {"role": "system", "content": system},
         {"role": "user", "content": f"Context:\n{context}\n\n{prompt}"},
     ]
-    response = await acompletion(model=_model(), messages=messages, api_key=_api_key())
+    # Answers are 2-3 sentences; a cap stops a small local model looping forever.
+    response = await acompletion(model=_model(), messages=messages, api_key=_api_key(), max_tokens=256)
     return response.choices[0].message.content or ""  # type: ignore[union-attr]
 
 
