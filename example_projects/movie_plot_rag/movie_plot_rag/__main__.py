@@ -1,10 +1,4 @@
-"""Entry point for `python -m movie_plot_rag` — run the DAG in one process.
-
-``ajob_test`` executes every task inline, so breakpoints work and there is no
-worker log to tail. That is the one thing ``aaiclick run-job`` cannot do: it
-records the job and a worker executes it. Real runs should go through
-``run-job`` (see the package docstring), which is why this entry point does
-not offer a register-only mode.
+"""Entry point for ``python -m movie_plot_rag`` — run the job inline (local mode).
 
 Accepts ``--params '<JSON object>'`` to override pipeline kwargs, e.g.
 ``--params '{"corpus_size": 200, "top_k": 5}'``.
@@ -13,28 +7,14 @@ Accepts ``--params '<JSON object>'`` to override pipeline kwargs, e.g.
 import argparse
 import asyncio
 import json
+import sys
 
 from aaiclick.orchestration import ajob_test
 
-from . import main
-
-
-def _parse_params() -> dict:
-    parser = argparse.ArgumentParser(
-        prog="python -m movie_plot_rag",
-        description="Execute the movie plot RAG pipeline inline, without a worker.",
-    )
-    parser.add_argument(
-        "--params",
-        default="{}",
-        help='JSON object of pipeline kwargs, e.g. \'{"corpus_size": 200, "top_k": 5}\'',
-    )
-    return json.loads(parser.parse_args().params)
-
-
-async def _run_inline(**kwargs) -> None:
-    await ajob_test(await main(**kwargs))
-
+from . import movie_plot_rag_pipeline
 
 if __name__ == "__main__":
-    asyncio.run(_run_inline(**_parse_params()))
+    parser = argparse.ArgumentParser(prog="python -m movie_plot_rag", description="Run the movie plot RAG job inline.")
+    parser.add_argument("--params", default="{}", help="JSON object of pipeline kwargs, e.g. '{\"corpus_size\": 200}'")
+    job = asyncio.run(ajob_test(movie_plot_rag_pipeline, **json.loads(parser.parse_args().params)))
+    sys.exit(0 if job.status == "COMPLETED" else 1)

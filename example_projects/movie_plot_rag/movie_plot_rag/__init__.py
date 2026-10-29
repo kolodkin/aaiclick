@@ -16,19 +16,11 @@ aaiclick, with ClickHouse as the vector store:
 Data source: HenryWaltson/TMDB-IMDB-Movies-Dataset (Hugging Face Parquet) —
 TMDB plot synopses cross-referenced with IMDb vote counts.
 
-Usage:
-    # With a worker running, run the pipeline and block on its progress
-    # (requires PostgreSQL or SQLite orchestration backend):
-    python -m aaiclick execution-worker start &
-    python -m aaiclick run-job movie_plot_rag.movie_plot_rag_pipeline \
-        --set corpus_size=300 --progress
-
-    # Or execute the whole DAG in-process against embedded chdb + SQLite, no
-    # worker — handy for debugging:
+Usage (local mode — the whole DAG in-process on embedded chdb + SQLite):
     python -m movie_plot_rag --params '{"corpus_size": 300}'
 
-    Both paths need a reachable AI provider: a local Ollama server holding
-    the model (`ollama pull llama3.1:8b` for the default) or a hosted key.
+    Needs a reachable AI provider: a local Ollama server holding the model
+    (`ollama pull llama3.1:8b` for the default) or a hosted key.
 
 Environment variables:
     AAICLICK_AI_MODEL         — LiteLLM model string for the generation step
@@ -98,10 +90,9 @@ def _require_ai_provider() -> None:
     A one-token completion covers both shapes — a hosted model missing its key,
     or an Ollama model whose server is down or whose weights were never pulled.
 
-    Checked from both ``main()`` and the ``@job`` body. The body is the
-    authoritative one — ``run-job`` and catalog re-runs never go through
-    ``main()`` — and it still fires before any data is loaded, so a missing
-    provider costs seconds rather than a full embed-and-search run.
+    Called from the ``@job`` body, which runs when the job is created and so
+    before any data is loaded: a missing provider costs seconds rather than a
+    full embed-and-search run.
     """
     try:
         completion(model=_model(), messages=[{"role": "user", "content": "ping"}], api_key=_api_key(), max_tokens=1)
@@ -370,18 +361,3 @@ def movie_plot_rag_pipeline(
         top_k=top_k,
         generation=generation,
     )
-
-
-async def main(**kwargs):
-    """Register the pipeline job and return it.
-
-    Kept as the seam ``__main__`` uses to get a job it can hand to
-    ``ajob_test`` for an inline run; the shell runner registers through
-    ``aaiclick run-job`` instead and never calls this. ``**kwargs`` are
-    forwarded to ``movie_plot_rag_pipeline`` (e.g. ``corpus_size``,
-    ``top_k``).
-    """
-    _require_ai_provider()
-    created_job = await movie_plot_rag_pipeline(**kwargs)
-    print(f"Registered job: {created_job.name} (ID: {created_job.id})")
-    return created_job
