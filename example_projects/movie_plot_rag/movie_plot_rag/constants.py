@@ -4,7 +4,7 @@ import os
 
 from aaiclick.data.models import ColumnInfo
 
-# Same HF Parquet dump imdb-dataset-builder uses for plot enrichment — it
+# HF Parquet dump of TMDB movies — it
 # carries TMDB overviews plus IMDb vote counts, so the corpus can be curated
 # to well-known movies entirely inside ClickHouse.
 TMDB_URL = os.environ.get(
