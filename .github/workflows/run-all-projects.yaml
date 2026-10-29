@@ -33,7 +33,7 @@ jobs:
     secrets:
       AAICLICK_AI_API_KEY: ${{ secrets.AAICLICK_AI_API_KEY }}
 
-  basic-lineage:
-    uses: ./.github/workflows/project-basic-lineage.yaml
+  chdb-benchmark:
+    uses: ./.github/workflows/project-example.yaml
     with:
-      ai_preset: nim
+      project: chdb_benchmark

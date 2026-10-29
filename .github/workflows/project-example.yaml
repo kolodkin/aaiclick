@@ -19,6 +19,7 @@ on:
           - basic_worker
           - nyc_taxi_pipeline
           - cyber_threat_feeds
+          - chdb_benchmark
           - movie_plot_rag
   workflow_call:
     inputs:
@@ -38,6 +39,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CI_OLLAMA_MODEL: qwen2.5:0.5b
 
 jobs:
   run-project:
@@ -84,6 +86,23 @@ jobs:
           sync-args: "--extra dev --extra examples"
           cache-dependency-glob: "pyproject.toml\nuv.lock\nexample_projects/${{ inputs.project }}/uv.lock"
 
+      # movie_plot_rag's generation step needs an LLM. Without a hosted model
+      # configured (vars.AAICLICK_AI_MODEL + AAICLICK_AI_API_KEY), serve a small
+      # Ollama model locally; its weights are cached between runs.
+      - name: Cache Ollama models
+        if: inputs.project == 'movie_plot_rag' && vars.AAICLICK_AI_MODEL == ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-${{ env.CI_OLLAMA_MODEL }}
+
+      - name: Start Ollama
+        if: inputs.project == 'movie_plot_rag' && vars.AAICLICK_AI_MODEL == ''
+        run: |
+          docker run -d --name ollama -p 11434:11434 -v ~/.ollama:/root/.ollama ollama/ollama:0.12.0
+          timeout 60 sh -c 'until curl -sf localhost:11434/api/tags >/dev/null; do sleep 1; done'
+          curl -sf localhost:11434/api/pull -d '{"model":"${{ env.CI_OLLAMA_MODEL }}","stream":false}'
+
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
@@ -106,7 +125,7 @@ jobs:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
-          AAICLICK_AI_MODEL: ${{ vars.AAICLICK_AI_MODEL }}
+          AAICLICK_AI_MODEL: ${{ vars.AAICLICK_AI_MODEL || format('ollama/{0}', env.CI_OLLAMA_MODEL) }}
           AAICLICK_AI_API_KEY: ${{ secrets.AAICLICK_AI_API_KEY }}
         run: |
           mkdir -p tmp

@@ -60,6 +60,7 @@ all = ["aaiclick[distributed,server]"]
 # Third-party deps of example_projects/, so CI can run them from this env.
 examples = [
     "litellm>=1.0.0",
+    "rich>=13.0",
     "sentence-transformers>=3.0.0",
     "torch>=2.1.0",
 ]

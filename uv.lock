@@ -76,6 +76,7 @@ docs = [
 ]
 examples = [
     { name = "litellm" },
+    { name = "rich" },
     { name = "sentence-transformers" },
     { name = "torch", version = "2.14.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version < '3.11' and sys_platform == 'darwin'" },
     { name = "torch", version = "2.14.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version < '3.11' and sys_platform != 'darwin'" },
@@ -128,6 +129,7 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.8.0" },
     { name = "python-dotenv", specifier = ">=1.2.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "rich", marker = "extra == 'examples'", specifier = ">=13.0" },
     { name = "sentence-transformers", marker = "extra == 'examples'", specifier = ">=3.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0,<2.1" },
     { name = "sqlmodel", specifier = ">=0.0.38" },
