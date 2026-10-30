@@ -135,9 +135,10 @@ def base_url(
     """
     port = _free_port()
     root = tmp_path_factory.mktemp("aaiclick-root")
-    # The test process must point at the same root: tests create jobs
-    # in-process (helpers.submit_job), and in local mode that is a SQLite file
-    # under this directory — a different root is a different database.
+    # A second root, kept by ``tmp_path_factory`` past fixture teardown so
+    # ``pytest_terminal_summary`` can still read ``<root>/*.log``; sandbox
+    # clones and the setup marker land here too. The databases stay in
+    # ``worker_databases``'s root via the pinned URLs ``env`` carries over.
     mp = pytest.MonkeyPatch()
     mp.setenv("AAICLICK_LOCAL_ROOT", str(root))
     # An empty bare repo enables the sandbox page; submissions push into it.

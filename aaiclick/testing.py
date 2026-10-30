@@ -1,6 +1,6 @@
 """Shared test helpers and fixtures.
 
-``worker_databases()`` gives each xdist worker its own CH and SQL databases;
+``worker_databases()`` gives each pytest process its own CH and SQL databases;
 conftests wrap it in their own autouse session fixture. Per-subpackage
 conftests import the pytest fixtures defined here (``orch_module_ctx``,
 ``orch_module_ctx_no_ch``, ``orch_ctx``, ``orch_ctx_no_ch``). pytest
@@ -22,7 +22,7 @@ import sys
 import tempfile
 from collections import Counter
 from collections.abc import AsyncIterator, Iterator
-from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -34,7 +34,7 @@ from sqlalchemy import create_engine, text
 from sqlmodel import select
 
 from aaiclick.__main__ import main
-from aaiclick.backend import is_chdb, is_local, parse_ch_url
+from aaiclick.backend import get_root, is_chdb, is_local, is_sqlite, parse_ch_url
 from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 from aaiclick.data.object_context import ChClient, get_ch_client
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
@@ -91,7 +91,7 @@ async def reset_sql_tables() -> None:
     migrations don't have to re-run between tests.
     """
     async with get_sql_session() as session:
-        if is_local():
+        if is_sqlite():
             result = await session.execute(
                 text("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
             )
@@ -289,42 +289,28 @@ def _pg_connect(dbname: str):
 
 @contextmanager
 def worker_ch_database() -> Iterator[None]:
-    """Per-worker CH isolation — tempdir for chdb, database for real CH.
-
-    Every xdist worker gets its own ``default`` CH database:
-
-    - **chdb**: a per-worker tempdir (chdb forbids multiple data paths
-      per process, and separate processes can't share one directory).
-    - **real CH**: a ``default_<worker>`` database in the shared server.
+    """Per-process CH isolation — ``<root>/chdb_data`` for chdb, a
+    ``default_<worker>`` database for a real server.
 
     Without this, the per-test ``DROP TABLE`` sweep would cross worker
-    boundaries in real-CH CI jobs. Like ``worker_sql_database``, real CH is
-    migrated before yielding, for processes that need the schema at startup
-    (the web e2e server and workers); chdb migrates itself on first use
-    (``init_oplog_tables``).
+    boundaries in real-CH CI jobs. Both are migrated before yielding, for
+    processes that need the schema at startup (the web e2e server and
+    workers). chdb is migrated in a throwaway subprocess so the parent holds
+    no session until a test needs one — except in local mode, where
+    ``init_oplog_tables`` migrates on first use.
     """
-    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
-
     if is_chdb():
-        if not worker:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("AAICLICK_CH_URL", f"chdb://{get_root() / 'chdb_data'}")
+            if not is_local():
+                _ch_upgrade_in_subprocess()
             yield
-            return
-        tmp_dir = tempfile.mkdtemp(prefix=f"aaiclick_chdb_{worker}_")
-        prior_url = os.environ.get("AAICLICK_CH_URL")
-        os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
-        try:
-            yield
-        finally:
-            if prior_url is None:
-                os.environ.pop("AAICLICK_CH_URL", None)
-            else:
-                os.environ["AAICLICK_CH_URL"] = prior_url
-            shutil.rmtree(tmp_dir, ignore_errors=True)
         return
 
     # Distributed extra only — keep inline so local-only installs can import this module.
     import clickhouse_connect  # noqa: PLC0415
 
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
     if not worker:
         ch_upgrade_standalone()
         yield
@@ -348,53 +334,39 @@ def worker_ch_database() -> Iterator[None]:
     admin.command(f"CREATE DATABASE `{db_name}`")
     admin.close()
 
-    prior_url = os.environ["AAICLICK_CH_URL"]
-    os.environ["AAICLICK_CH_URL"] = prior_url.rsplit("/", 1)[0] + f"/{db_name}"
-    ch_upgrade_standalone()
-    try:
-        yield
-    finally:
-        os.environ["AAICLICK_CH_URL"] = prior_url
-        admin = _admin()
-        admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
-        admin.close()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("AAICLICK_CH_URL", os.environ["AAICLICK_CH_URL"].rsplit("/", 1)[0] + f"/{db_name}")
+        ch_upgrade_standalone()
+        try:
+            yield
+        finally:
+            admin = _admin()
+            admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
+            admin.close()
 
 
 @contextmanager
 def worker_sql_database() -> Iterator[None]:
-    """Per-worker SQL isolation — SQLite file for local, database for Postgres.
+    """Per-process SQL isolation — ``<root>/local.db`` for SQLite, a
+    ``<base>_<worker>`` database for Postgres.
 
-    Local mode: one SQLite file per worker. Schema is created once via
-    ``SQLModel.metadata.create_all``; per-test cleanup is a ``DELETE FROM``
-    sweep in ``reset_sql_tables`` — no tempdir-per-test needed.
-
-    Distributed mode: one Postgres database per worker, migrated once via
-    Alembic; per-test cleanup is ``TRUNCATE ... RESTART IDENTITY CASCADE``.
+    SQLite: schema created once via ``SQLModel.metadata.create_all``;
+    per-test cleanup is a ``DELETE FROM`` sweep in ``reset_sql_tables``.
+    Postgres: migrated once via Alembic; per-test cleanup is
+    ``TRUNCATE ... RESTART IDENTITY CASCADE``.
     """
-    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
-
-    if is_local():
-        tmp_dir = tempfile.mkdtemp(prefix=f"aaiclick_sql_{worker or 'main'}_")
-        db_path = os.path.join(tmp_dir, "test.db")
-        prior_url = os.environ.get("AAICLICK_SQL_URL")
-        os.environ["AAICLICK_SQL_URL"] = f"sqlite+aiosqlite:///{db_path}"
-
-        engine = create_engine(f"sqlite:///{db_path}")
-        SQLModel.metadata.create_all(engine)
-        engine.dispose()
-        try:
+    if is_sqlite():
+        db_path = get_root() / "local.db"
+        _create_sqlite_schema(db_path)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db_path}")
             yield
-        finally:
-            if prior_url is None:
-                os.environ.pop("AAICLICK_SQL_URL", None)
-            else:
-                os.environ["AAICLICK_SQL_URL"] = prior_url
-            shutil.rmtree(tmp_dir, ignore_errors=True)
         return
 
     # Distributed extra only — keep inline so local-only installs can import this module.
     from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT  # noqa: PLC0415
 
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
     if not worker:
         config = get_alembic_config()
         command.upgrade(config, "head")
@@ -414,31 +386,59 @@ def worker_sql_database() -> Iterator[None]:
     cur.close()
     conn.close()
 
-    sql_url = os.environ.get("AAICLICK_SQL_URL")
-    if sql_url and "postgresql" in sql_url:
-        base = sql_url.rsplit("/", 1)[0]
-        os.environ["AAICLICK_SQL_URL"] = f"{base}/{db_name}"
+    with pytest.MonkeyPatch.context() as mp:
+        sql_url = os.environ.get("AAICLICK_SQL_URL")
+        if sql_url and "postgresql" in sql_url:
+            mp.setenv("AAICLICK_SQL_URL", f"{sql_url.rsplit('/', 1)[0]}/{db_name}")
+        config = get_alembic_config()
+        command.upgrade(config, "head")
+        try:
+            yield
+        finally:
+            conn = _pg_connect("postgres")
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            cur = conn.cursor()
+            cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+            cur.close()
+            conn.close()
 
-    config = get_alembic_config()
-    command.upgrade(config, "head")
 
-    try:
-        yield
-    finally:
-        conn = _pg_connect("postgres")
-        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        cur = conn.cursor()
-        cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
-        cur.close()
-        conn.close()
+def _worker_tempdir(kind: str) -> tempfile.TemporaryDirectory[str]:
+    """A throwaway directory named after this pytest process. Removal errors
+    are ignored: chdb's process-wide Session may still hold it at teardown."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
+    return tempfile.TemporaryDirectory(prefix=f"aaiclick_{kind}_{worker or 'main'}_", ignore_cleanup_errors=True)
+
+
+def _create_sqlite_schema(db_path: Path) -> None:
+    """Create the orchestration schema once; per-test cleanup is a ``DELETE FROM`` sweep."""
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    engine.dispose()
+
+
+def _ch_upgrade_in_subprocess() -> None:
+    """Migrate the chdb directory ``AAICLICK_CH_URL`` points at in a throwaway
+    process: chdb allows one data path per process, so doing it here would pin
+    the parent's Session to that directory."""
+    script = "from aaiclick.oplog.migrate import ch_upgrade_standalone; ch_upgrade_standalone()"
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 @contextmanager
 def worker_databases() -> Iterator[None]:
-    """This xdist worker's own CH and SQL databases, pointed to by the
-    ``AAICLICK_*_URL`` env vars until exit."""
-    with worker_ch_database(), worker_sql_database():
-        yield
+    """This pytest process's own CH and SQL databases until exit.
+
+    ``AAICLICK_LOCAL_ROOT`` is pinned to a fresh tempdir, so file-backed
+    backends (SQLite, chdb) live under it in ``local start``'s layout and a
+    run never opens ``~/.aaiclick`` — which a running ``local start`` holds
+    the chdb lock on — with or without xdist. Server-backed backends
+    (Postgres, ClickHouse) get a per-xdist-worker database.
+    """
+    with _worker_tempdir("root") as root, pytest.MonkeyPatch.context() as mp:
+        mp.setenv("AAICLICK_LOCAL_ROOT", root)
+        with worker_ch_database(), worker_sql_database():
+            yield
 
 
 @pytest.fixture(scope="module")
@@ -453,8 +453,17 @@ async def orch_module_ctx():
         yield
 
 
-# Runs in a child process: the parent of mp-worker tests must never open chdb.
-_CH_UPGRADE_SCRIPT = "from aaiclick.oplog.migrate import ch_upgrade_standalone; ch_upgrade_standalone()"
+@contextmanager
+def _mp_chdb_dir() -> Iterator[None]:
+    """A migrated per-module chdb tempdir that ``AAICLICK_CH_URL`` points at.
+
+    Migrated up front: with a non-SQLite SQL backend the child's
+    ``init_oplog_tables`` only checks for pending migrations.
+    """
+    with _worker_tempdir("chdb_mp") as tmp_dir, pytest.MonkeyPatch.context() as mp:
+        mp.setenv("AAICLICK_CH_URL", f"chdb://{tmp_dir}")
+        _ch_upgrade_in_subprocess()
+        yield
 
 
 @pytest.fixture(scope="module")
@@ -466,30 +475,13 @@ async def orch_module_ctx_no_ch():
     Must live in a dedicated module (no ``orch_ctx`` alongside) so the
     module-scoped chdb session doesn't collide.
 
-    Under chdb, redirects ``AAICLICK_CH_URL`` to a per-module tempdir so
-    mp-worker children open a fresh chdb file that no other module's
-    session holds a lock on. The tempdir is migrated in a throwaway
-    subprocess first: with a non-SQLite SQL backend the child's
-    ``init_oplog_tables`` only checks for pending migrations.
+    Under chdb, redirects ``AAICLICK_CH_URL`` to a per-module tempdir
+    (``_mp_chdb_dir``) so mp-worker children open a fresh chdb file that no
+    other module's session holds a lock on.
     """
-    prior_url = None
-    tmp_dir = None
-    if is_chdb():
-        tmp_dir = tempfile.mkdtemp(prefix="aaiclick_chdb_mp_")
-        prior_url = os.environ.get("AAICLICK_CH_URL")
-        os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
-        subprocess.run([sys.executable, "-c", _CH_UPGRADE_SCRIPT], check=True)
-    try:
+    with _mp_chdb_dir() if is_chdb() else nullcontext():
         async with module_orch_scope(orch_context()):
             yield
-    finally:
-        if is_chdb():
-            if prior_url is None:
-                os.environ.pop("AAICLICK_CH_URL", None)
-            else:
-                os.environ["AAICLICK_CH_URL"] = prior_url
-            if tmp_dir is not None:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @pytest.fixture
