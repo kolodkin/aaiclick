@@ -12,6 +12,7 @@ long-running process loops (``execution-worker start``, ``local start``,
 from __future__ import annotations
 
 import asyncio
+import copy
 import signal
 
 from aaiclick.backend import LOOPBACK_HOSTS, is_local
@@ -49,6 +50,32 @@ async def start_execution_worker(max_tasks: int | None = None) -> None:
         await mp_worker_main_loop(max_tasks=max_tasks)
 
 
+# Timestamped so a gap between two worker lines (a slow first chdb query, a
+# stuck task) is visible from the log alone.
+LOCAL_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def local_log_config(base: dict) -> dict:
+    """Return uvicorn's logging config extended with an ``INFO`` stderr handler
+    for the ``aaiclick`` logger tree.
+
+    uvicorn only wires up its own loggers; Python's ``WARNING`` default then
+    silently drops the execution worker's "executing task" / "completed task"
+    lines. ``base`` (``uvicorn.config.LOGGING_CONFIG``) is copied, not mutated,
+    and goes through uvicorn so the config also applies inside the ``--reload``
+    child process, where the workers actually run.
+    """
+    config = copy.deepcopy(base)
+    config["formatters"]["aaiclick"] = {"format": LOCAL_LOG_FORMAT}
+    config["handlers"]["aaiclick"] = {
+        "class": "logging.StreamHandler",
+        "formatter": "aaiclick",
+        "stream": "ext://sys.stderr",
+    }
+    config["loggers"]["aaiclick"] = {"handlers": ["aaiclick"], "level": "INFO", "propagate": False}
+    return config
+
+
 async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = False) -> None:
     """Run the combined REST + MCP server with workers in a single local-mode process.
 
@@ -75,6 +102,7 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
     # Inline: keep the [server] extra optional — users without it never hit this import.
     try:
         import uvicorn  # noqa: PLC0415
+        from uvicorn.config import LOGGING_CONFIG  # noqa: PLC0415
 
         if not reload:
             # The app module also needs the [server] extra.
@@ -87,10 +115,13 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
 
     # Reload watches the filesystem and re-imports — uvicorn needs the app as an
     # import string in that mode. In normal mode we hand it the app object directly.
+    log_config = local_log_config(LOGGING_CONFIG)
     config = (
-        uvicorn.Config("aaiclick.server.app:app", host=host, port=port, log_level="info", reload=True)
+        uvicorn.Config(
+            "aaiclick.server.app:app", host=host, port=port, log_level="info", log_config=log_config, reload=True
+        )
         if reload
-        else uvicorn.Config(app, host=host, port=port, log_level="info")
+        else uvicorn.Config(app, host=host, port=port, log_level="info", log_config=log_config)
     )
     await uvicorn.Server(config).serve()
 
