@@ -150,9 +150,11 @@ h2 { font-size: 18px; margin: 0 0 4px; }
   box-shadow: var(--hi), var(--shadow);
   cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
 }
-.cmd:hover { border-color: var(--accent); background: var(--panel-strong); transform: translateY(-1px); }
+.cmd:hover:not(.disabled) { border-color: var(--accent); background: var(--panel-strong); transform: translateY(-1px); }
 .cmd code { font: 13px var(--mono); color: var(--accent-text); }
 .cmd .desc { color: var(--muted); }
+.cmd.disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.55); }
+.group-label .dist-only { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 /* tables */
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--panel);

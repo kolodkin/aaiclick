@@ -52,6 +52,7 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 **Prompt**: _(empty)_ or `help`
 
 Displays a help/command reference showing available commands and their descriptions.
+In local mode (auth disabled) the Account and Administration groups are greyed out and marked "(Distributed mode only)".
 
 ## Jobs List (`@jobs`)
 
