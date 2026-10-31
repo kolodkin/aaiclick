@@ -152,10 +152,9 @@ behind the server.
 
 ## Timestamps
 
-The server stores and returns every datetime as naive UTC — an ISO string with
-no `Z` or offset (see `aaiclick/datetime_utils.py`). `new Date()` would read
-that as browser-local time, so always parse API timestamps with `parseUtc` from
-`src/lib/format.ts`. A new server datetime field must keep this convention.
+The server returns every datetime as naive UTC: ISO with no `Z` or offset.
+`new Date()` reads that as local time, so parse with `parseUtc` in
+`src/lib/format.ts`. New server datetime fields must stay naive UTC.
 
 # Live updates
 
