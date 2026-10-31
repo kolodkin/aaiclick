@@ -195,6 +195,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
           onNodeClick={(_event, node) => {
             if (node.type === "task") onPrompt(`@task ${node.id}`);
           }}
+          colorMode="dark"
           onlyRenderVisibleElements
           fitView
           // Cap zoom at 1:1 — fitView's default maxZoom of 2 blows a
