@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
+import logging.config
 import signal
 
 from aaiclick.backend import LOOPBACK_HOSTS, is_local
@@ -21,6 +23,8 @@ from .background import BackgroundWorker
 from .execution import mp_worker_main_loop
 from .execution.runner_env import validate_worker_runner
 from .orch_context import orch_context
+
+logger = logging.getLogger(__name__)
 
 
 async def start_execution_worker(max_tasks: int | None = None) -> None:
@@ -46,33 +50,36 @@ async def start_execution_worker(max_tasks: int | None = None) -> None:
             "'execution-worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
             "Use 'local start' for local mode (chdb + SQLite)."
         )
+    configure_logging()
     async with orch_context():
         await mp_worker_main_loop(max_tasks=max_tasks)
 
 
-# Timestamped so a gap between two worker lines (a slow first chdb query, a
-# stuck task) is visible from the log alone.
-LOCAL_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+# INFO stderr logging for the ``aaiclick`` logger tree. Python's WARNING
+# default would drop the workers' "executing task" / "completed task" lines;
+# the timestamp makes a gap between two of them visible from the log alone.
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+_AAICLICK_LOGGING = {
+    "formatters": {"aaiclick": {"format": LOG_FORMAT}},
+    "handlers": {"aaiclick": {"class": "logging.StreamHandler", "formatter": "aaiclick", "stream": "ext://sys.stderr"}},
+    "loggers": {"aaiclick": {"handlers": ["aaiclick"], "level": "INFO", "propagate": False}},
+}
+
+
+def configure_logging() -> None:
+    """Apply ``_AAICLICK_LOGGING`` to this process (the standalone worker loops)."""
+    logging.config.dictConfig({"version": 1, "disable_existing_loggers": False, **_AAICLICK_LOGGING})
 
 
 def local_log_config(base: dict) -> dict:
-    """Return uvicorn's logging config extended with an ``INFO`` stderr handler
-    for the ``aaiclick`` logger tree.
+    """Return uvicorn's logging config (``base``) extended with ``_AAICLICK_LOGGING``.
 
-    uvicorn only wires up its own loggers; Python's ``WARNING`` default then
-    silently drops the execution worker's "executing task" / "completed task"
-    lines. ``base`` (``uvicorn.config.LOGGING_CONFIG``) is copied, not mutated,
-    and goes through uvicorn so the config also applies inside the ``--reload``
-    child process, where the workers actually run.
+    Handed to uvicorn rather than applied here so it also reaches the
+    ``--reload`` child process, where the workers actually run.
     """
     config = copy.deepcopy(base)
-    config["formatters"]["aaiclick"] = {"format": LOCAL_LOG_FORMAT}
-    config["handlers"]["aaiclick"] = {
-        "class": "logging.StreamHandler",
-        "formatter": "aaiclick",
-        "stream": "ext://sys.stderr",
-    }
-    config["loggers"]["aaiclick"] = {"handlers": ["aaiclick"], "level": "INFO", "propagate": False}
+    for section, entries in _AAICLICK_LOGGING.items():
+        config[section].update(entries)
     return config
 
 
@@ -115,13 +122,9 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
 
     # Reload watches the filesystem and re-imports — uvicorn needs the app as an
     # import string in that mode. In normal mode we hand it the app object directly.
-    log_config = local_log_config(LOGGING_CONFIG)
-    config = (
-        uvicorn.Config(
-            "aaiclick.server.app:app", host=host, port=port, log_level="info", log_config=log_config, reload=True
-        )
-        if reload
-        else uvicorn.Config(app, host=host, port=port, log_level="info", log_config=log_config)
+    target = "aaiclick.server.app:app" if reload else app
+    config = uvicorn.Config(
+        target, host=host, port=port, log_level="info", log_config=local_log_config(LOGGING_CONFIG), reload=reload
     )
     await uvicorn.Server(config).serve()
 
@@ -142,13 +145,14 @@ async def start_background(poll_interval: float = 10.0) -> None:
             "'background start' requires distributed backends (ClickHouse server + PostgreSQL). "
             "Use 'local start' for local mode (chdb + SQLite) — it includes background cleanup."
         )
+    configure_logging()
     cleanup = BackgroundWorker(poll_interval=poll_interval)
     await cleanup.start()
     shutdown = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, shutdown.set)
-    print(f"Background cleanup worker started (poll_interval={poll_interval}s)")
+    logger.info("Background cleanup worker started (poll_interval=%ss)", poll_interval)
     await shutdown.wait()
-    print("Shutting down background cleanup worker...")
+    logger.info("Shutting down background cleanup worker...")
     await cleanup.stop()

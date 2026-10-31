@@ -138,13 +138,6 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 Auth is off in local mode, so `--host` accepts loopback addresses only
 (`127.0.0.1`, `localhost`, `::1`). Serving other machines needs distributed mode.
 
-The process logs its own `INFO` lines to stderr with timestamps, next to
-uvicorn's: `chdb session ready in Ns` when the embedded engine starts, and the
-execution worker's `executing task` / `completed task` pair around every task,
-so a slow task shows up as a gap between its two lines. The first task after a
-start is slower than the rest: the engine's first DDL and first insert fault
-more of its ~540 MB library into memory, once per process.
-
 ## Distributed mode
 
 Independent worker processes claim tasks from the shared PostgreSQL queue and
@@ -159,6 +152,17 @@ python -m aaiclick background start        # scheduler + cleanup
 
 !!! warning "`execution-worker start`/`background start` require distributed backends"
     In local mode, use `local start` instead.
+
+## Worker logs
+
+Every long-running command (`local start`, `execution-worker start`,
+`background start`) writes timestamped `INFO` lines to stderr. The execution
+worker logs `executing task` before each task and `completed task` (or the
+failure state) after it, so a slow task shows up as a gap between its two
+lines. Local mode also logs `chdb session ready in Ns` when the embedded
+engine starts; the first task after a start is still slower than the rest, as
+the engine's first DDL and first insert fault more of its ~540 MB library into
+memory, once per process.
 
 # Running Jobs
 
