@@ -49,7 +49,7 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 
 **Implementation**: `src/views/Home.tsx`
 
-**Prompt**: _(empty)_
+**Prompt**: _(empty)_ or `help`
 
 Displays a help/command reference showing available commands and their descriptions.
 

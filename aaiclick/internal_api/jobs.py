@@ -214,14 +214,15 @@ async def run_job(request: RunJobRequest) -> JobView:
     """Run a job immediately.
 
     The entrypoint is derived from ``request.name``: dotted names become the
-    entrypoint directly, bare names reuse the registered job's entrypoint (or
-    fall back to the name itself if not yet registered). When a matching
+    entrypoint directly, bare names reuse the registered job's entrypoint
+    (``"shell"`` jobs may run unregistered under the bare name). When a matching
     ``RegisteredJob`` exists, the new job links to it and inherits its
     ``default_kwargs``; otherwise it runs standalone.
 
     Raises ``Invalid`` when the request's fields contradict each other
     (e.g. ``image`` together with ``build``) or need an image source
-    (``resources``, ``jvm``) but none resolves.
+    (``resources``, ``jvm``) but none resolves, and ``NotFound`` for a bare
+    ``"module"`` name with no registered job.
     """
     if "." in request.name:
         entrypoint = request.name
@@ -229,6 +230,9 @@ async def run_job(request: RunJobRequest) -> JobView:
     else:
         name = request.name
         registered = await get_registered_job(name)
+        if registered is None and request.entry_type == "module":
+            # A bare module name is not a callable; the task would only fail on the worker.
+            raise NotFound(f"No registered job named '{name}'; register it or pass a dotted entrypoint")
         entrypoint = registered.entrypoint if registered is not None else request.name
 
     try:
