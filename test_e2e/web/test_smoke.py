@@ -75,6 +75,16 @@ def test_jobs_view_loads(page, base_url: str, shot) -> None:
 
 
 @_spa_built
+def test_home_chip_returns_home(page, base_url: str, shot) -> None:
+    """The "← home" chip emits the empty prompt, which must still navigate."""
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.get_by_text("← home").click()
+    page.wait_for_url(lambda url: "p=" not in url)
+    assert page.input_value("#prompt") == ""
+    shot("home-chip")
+
+
+@_spa_built
 def test_prompt_updates_url(page, base_url: str, shot) -> None:
     """Typing into the prompt input updates the URL query parameter."""
     page.goto(f"{base_url}/")
@@ -165,7 +175,7 @@ def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path
 
 @_spa_built
 def test_task_view_colors_logs_by_keyword(page, base_url: str, shot) -> None:
-    """The task view colors lines by keyword and shows timestamps only when toggled."""
+    """The task view colors lines by keyword and shows timestamps only when toggled; the toggle survives a reload."""
     task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_keyword_lines")
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
@@ -184,6 +194,10 @@ def test_task_view_colors_logs_by_keyword(page, base_url: str, shot) -> None:
     page.get_by_label("Show timestamps").check()
     logs.locator(".ts").first.wait_for(timeout=5000)
     shot("task-logs-timestamps")
+
+    page.reload()
+    logs.locator(".ts").first.wait_for(timeout=15000)
+    assert page.get_by_label("Show timestamps").is_checked()
 
 
 @_spa_built

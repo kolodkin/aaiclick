@@ -31,7 +31,7 @@ export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
               <th>Entrypoint</th>
               <th>Enabled</th>
               <th>Schedule</th>
-              <th>Next run</th>
+              <th className="nowrap">Next run</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -45,8 +45,10 @@ export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
                 <td>
                   <EnabledToggle name={r.name} enabled={r.enabled} />
                 </td>
-                <td className="mono">{r.schedule ?? "manual"}</td>
-                <td>{r.next_run_at ?? "—"}</td>
+                <td className="mono nowrap">{r.schedule ?? "manual"}</td>
+                <td className="mono nowrap">
+                  <span className="next-run">{r.next_run_at ?? "—"}</span>
+                </td>
                 <td>
                   <div className="row-actions">
                     <AdminButton className="btn btn-primary btn-sm" onClick={() => onPrompt(`run ${r.name}`)}>

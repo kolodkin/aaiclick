@@ -8,7 +8,7 @@ import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
 import { mintableScopes } from "../lib/auth";
 import type { ScopeLevel } from "../api/types";
-import { relativeTime } from "../lib/format";
+import { parseUtc, relativeTime } from "../lib/format";
 
 const DEFAULT_EXPIRY_DAYS = "90";
 
@@ -130,7 +130,7 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
                 <td>
                   <span className="badge b-PENDING">{t.scope}</span>
                 </td>
-                <td>{t.expires_at ? new Date(t.expires_at).toLocaleDateString() : "never"}</td>
+                <td>{t.expires_at ? parseUtc(t.expires_at).toLocaleDateString() : "never"}</td>
                 <td>{relativeTime(t.last_used_at)}</td>
                 <td>
                   {t.revoked_at ? (

@@ -40,7 +40,7 @@ function parseScoped(rest: string): { job: string | null; object: string | null 
 
 export function parsePrompt(raw: string): Route {
   const p = raw.trim();
-  if (p === "") return { kind: "home" };
+  if (p === "" || p === "help") return { kind: "home" };
   if (p === "@all") return { kind: "all" };
   if (p === "@jobs") return { kind: "jobs" };
   if (p === "@registered") return { kind: "registered" };

@@ -15,7 +15,7 @@ import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
-import { relativeTime } from "../lib/format";
+import { parseUtc, relativeTime } from "../lib/format";
 
 const ROLES: Role[] = ["viewer", "member", "admin"];
 
@@ -198,7 +198,7 @@ export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
       {link && (
         <SecretPanel
           title="One-time link"
-          hint={`Valid until ${new Date(link.expires_at).toLocaleString()} — single use. Hand it over out of band.`}
+          hint={`Valid until ${parseUtc(link.expires_at).toLocaleString()} — single use. Hand it over out of band.`}
           value={link.url ?? link.token}
           onDone={() => setLink(null)}
         />
