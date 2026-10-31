@@ -75,6 +75,16 @@ def test_jobs_view_loads(page, base_url: str, shot) -> None:
 
 
 @_spa_built
+def test_home_chip_returns_home(page, base_url: str, shot) -> None:
+    """The "← home" chip emits the empty prompt, which must still navigate."""
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.get_by_text("← home").click()
+    page.wait_for_url(lambda url: "p=" not in url)
+    assert page.input_value("#prompt") == ""
+    shot("home-chip")
+
+
+@_spa_built
 def test_prompt_updates_url(page, base_url: str, shot) -> None:
     """Typing into the prompt input updates the URL query parameter."""
     page.goto(f"{base_url}/")
