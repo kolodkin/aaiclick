@@ -39,19 +39,21 @@ async def create_sales() -> Object:
     return await create_object_from_value(
         {
             "product": ["Widget", "Gadget", "Gizmo"],
+            "category": ["Tools", "Toys", "Tools"],
             "quantity": [10, 5, 8],
-            "price": [9.99, 24.99, 14.99],
         }
     )
 
 
 @task
-async def report(factor: int, sales: Object) -> dict:
-    """Joins both flows; runs after multiply and create_sales complete."""
-    revenue = round(await (sales["quantity"] * sales["price"]).sum().data(), 2)
-    summary = {"factor": factor, "revenue": revenue, "scaled": round(revenue * factor, 2)}
-    print(f"Report: {summary}")  # → {'factor': 18, 'revenue': 344.77, 'scaled': 6205.86}
-    return summary
+async def report(factor: int, sales: Object) -> Object:
+    """Joins both flows: groups the sales Object and returns a new Object."""
+    by_category = await sales.group_by("category").sum("quantity")
+    data = await by_category.data()
+    print(f"Factor: {factor}")  # → 18
+    totals = dict(sorted(zip(data["category"], data["quantity"], strict=True)))
+    print(f"Quantity by category: {totals}")  # → {'Tools': 18, 'Toys': 5}
+    return by_category
     # --8<-- [end:tasks]
 
 
