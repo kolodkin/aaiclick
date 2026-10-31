@@ -90,7 +90,7 @@ async def test_run_job_rejects_image_with_build(orch_ctx, capsys):
     """``--image`` and ``--build`` reach ``run_job`` together: the CLI reports
     the refusal and exits 1 instead of a traceback."""
     with pytest.raises(SystemExit) as exc_info:
-        await run_cli("run-job", "j", "--image", "python:3.12", "--build")
+        await run_cli("run-job", "m.j", "--image", "python:3.12", "--build")
 
     assert exc_info.value.code == 1
     assert "mutually exclusive" in capsys.readouterr().err
@@ -231,7 +231,7 @@ def test_parse_set_kwargs_rejects_missing_equals():
 
 async def test_run_job_set_takes_precedence_over_kwargs_json(orch_ctx):
     """Documented precedence: default_kwargs < --kwargs < --set."""
-    await run_cli("run-job", "j", "--kwargs", '{"corpus_size": 10, "keep": 1}', "--set", "corpus_size=300")
+    await run_cli("run-job", "m.j", "--kwargs", '{"corpus_size": 10, "keep": 1}', "--set", "corpus_size=300")
 
     assert (await _only_task()).kwargs == {"corpus_size": 300, "keep": 1}
 
@@ -292,7 +292,7 @@ async def test_job_wait_timeout_exits_nonzero(orch_ctx, capsys):
 async def test_run_job_does_not_block_without_progress(orch_ctx):
     """``run-job`` stays fire-and-forget by default."""
     with patch("aaiclick.__main__.cli_wait.wait_for_job") as waiter:
-        await run_cli("run-job", "j")
+        await run_cli("run-job", "m.j")
 
     waiter.assert_not_called()
 

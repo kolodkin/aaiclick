@@ -32,8 +32,8 @@ const NAVIGATE: Cmd[] = [
 const ACTIONS: Cmd[] = [
   {
     code: "run <name>",
-    desc: "Run a registered job with defaults. Add ? to edit params.",
-    cmd: "run nyc_taxi_pipeline",
+    desc: "Run a registered job, or any module.function entrypoint. Add ? to edit params.",
+    cmd: "run nyc_taxi_pipeline.nyc_taxi_pipeline",
   },
   { code: "cancel <name|id>", desc: "Cancel a pending/running job.", cmd: "cancel nyc_taxi_pipeline" },
   { code: "register", desc: "Register a new job (entrypoint, schedule, kwargs).", cmd: "register" },
