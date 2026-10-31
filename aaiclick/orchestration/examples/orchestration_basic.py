@@ -46,10 +46,11 @@ async def create_sales() -> Object:
 
 
 @task
-async def report(factor: int, sales: Object) -> Object:
-    """Joins both flows: categories whose total quantity reaches ``factor``."""
-    top = await sales.group_by("category").having(f"sum(quantity) >= {int(factor)}").sum("quantity")
-    print(f"Categories with quantity >= {factor}: {await top.data()}")  # → {'category': ['Tools'], 'quantity': [18]}
+async def report(min_quantity: int, sales: Object) -> Object:
+    """Joins both flows: categories whose total quantity reaches ``min_quantity``."""
+    # having() takes raw SQL; int() keeps a non-int job kwarg out of the query
+    top = await sales.group_by("category").having(f"sum(quantity) >= {int(min_quantity)}").sum("quantity")
+    print(f"Top categories: {await top.data()}")  # → {'category': ['Tools'], 'quantity': [18]}
     return top
     # --8<-- [end:tasks]
 
@@ -61,7 +62,7 @@ def basic_pipeline(y: int = 6):
     arith = simple_arithmetic()
     product = multiply(x=arith, y=y)  # passing a Task makes multiply wait for it
     sales = create_sales()  # no inputs, so it runs in parallel with the chain
-    return report(factor=product, sales=sales)
+    return report(min_quantity=product, sales=sales)
     # --8<-- [end:job]
 
 
