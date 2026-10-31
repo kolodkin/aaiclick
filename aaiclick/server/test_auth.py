@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import httpx
 import jwt
 import pytest
 
@@ -20,7 +21,7 @@ from aaiclick.internal_api.errors import Forbidden, Unauthorized
 from aaiclick.view_models import Problem, ProblemCode
 
 from . import auth
-from .app import API_PREFIX
+from .app import API_PREFIX, app
 from .auth import warn_if_open
 from .conftest import api_token_headers, bearer, mcp_http, mcp_rpc, mcp_tool_names
 
@@ -50,6 +51,15 @@ async def test_local_mode_answers_only_loopback_hosts(monkeypatch, anon_client, 
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     response = await anon_client.get("/health", headers={"host": host})
     assert response.status_code == status
+
+
+async def test_local_mode_skips_host_check_off_loopback(monkeypatch):
+    """Bound to a reachable address (``--host 0.0.0.0``), the server is open to that network anyway."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://10.0.0.5") as client:
+        response = await client.get("/health", headers={"host": "aaiclick.example.com"})
+    assert response.status_code == 200
 
 
 async def test_enabled_ignores_host_header(enabled, anon_client):

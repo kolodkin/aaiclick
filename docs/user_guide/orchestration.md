@@ -135,8 +135,13 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 # Stop with Ctrl+C / SIGTERM.
 ```
 
-Auth is off in local mode, so `--host` accepts loopback addresses only
-(`127.0.0.1`, `localhost`, `::1`). Serving other machines needs distributed mode.
+`--host` defaults to `127.0.0.1`.
+
+!!! warning "`--host 0.0.0.0` opens the server with no auth"
+    Local mode has auth off: anyone who can reach the port is admin. Bind a
+    non-loopback address only on a trusted network. Use distributed mode for
+    per-user logins. On loopback the server still rejects non-loopback `Host`
+    headers to block DNS rebinding — see [Auth](../designs/auth.md).
 
 ## Distributed mode
 
