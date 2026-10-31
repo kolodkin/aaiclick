@@ -1,7 +1,7 @@
 chdb Benchmark
 ---
 
-Compares aaiclick's Object API against native chdb SQL on identical data (1M rows, 10 runs averaged). Measures ingest, column sum, multiply, filter, sort, count distinct, and group-by operations.
+Compares aaiclick's Object API against native chdb SQL on identical data (1M rows, 10 runs averaged). Measures ingest, column sum, multiply, filter, sort, count distinct, and group-by operations. Runs in local mode: an in-memory chdb session, no servers.
 
 ```bash
 ./chdb_benchmark.sh

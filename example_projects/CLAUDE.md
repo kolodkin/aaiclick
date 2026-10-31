@@ -53,18 +53,30 @@ example_projects/<name>/
 ├── uv.lock              # Locked dependency versions
 ├── <name>.sh            # Shell runner: sets env vars, runs the job, manages workers
 ├── README.md            # Title, description, how to run (see README Convention above)
+├── .gitignore           # Run-time clutter (.venv/, __pycache__/, .aaiclick/, tmp/) for standalone copies
 └── SPEC.md              # Optional: design notes / architectural rationale
 ```
 
 - The nested `<name>/` folder is the Python package — the outer folder is the project directory
-- `__main__.py` imports and calls `main()` from `__init__.py`
 - `<name>.sh` is the user-facing entry point — `cd`s to its own directory, then runs the project
 - Shell scripts use `PYTHON="${PYTHON:-uv run python}"` for dual-mode support (monorepo or standalone)
-- Orchestration projects: `.sh` starts the workers, then runs
-  `python -m aaiclick run-job <name>.<job_func> --progress "$@"`. A dotted entrypoint needs no
-  prior registration; `--progress` blocks, prints the task table on each change, and exits
-  non-zero on failure — never hand-roll a poll loop, job-id scrape, or status branch. Forwarding
-  `"$@"` lets callers override job kwargs with `--set KEY=VALUE`
+- `pyproject.toml` depends on `aaiclick` (or `aaiclick[distributed]` for distributed-mode projects)
+  through a uv path source on the monorepo checkout — never a PyPI release:
+  ```toml
+  [tool.uv.sources]
+  aaiclick = { path = "../..", editable = true }
+  ```
+  `uv run python` from the project directory therefore always exercises this tree; CI runs each
+  project the same way, with no root sync.
+- Each `.sh` supports exactly **one** deployment mode, named in its header comment and README:
+  - **Local**: `unset AAICLICK_CH_URL AAICLICK_SQL_URL`, `python -m aaiclick setup`, then
+    `python -m <name> "$@"`. `__main__.py` runs the job inline with
+    `ajob_test(<job_func>, **params)` (`--params '<JSON>'`) and exits non-zero unless it completed.
+  - **Distributed**: require `AAICLICK_CH_URL` / `AAICLICK_SQL_URL` (`: "${VAR:?...}"`), run
+    `python -m aaiclick migrate upgrade head`, start `background` + `execution-worker`, then
+    `python -m aaiclick run-job <name>.<job_func> --progress "$@"` (`--set KEY=VALUE` overrides).
+    `--progress` blocks, prints the task table on each change, and exits non-zero on failure.
+  - No custom flag parsing, poll loops, job-id scraping or log juggling — forward `"$@"`.
 - Each example project should have a `report.py` file containing final report printout logic
 - The `@job` function returns the terminal task directly (e.g. `return report`) — the framework auto-discovers all upstream tasks via the dependency graph; `report.py` is only responsible for the printout
 - Always prefer `Object.markdown()` for rendering tables in `report.py` — avoid custom table rendering logic
@@ -74,8 +86,9 @@ example_projects/<name>/
 Projects can be copied out of the monorepo and run independently:
 
 1. Copy the `<name>/` project directory
-2. `uv sync` (installs dependencies from `pyproject.toml` + `uv.lock`)
-3. `./name.sh` (or `cd <name> && python -m <name>`)
+2. Delete the `[tool.uv.sources]` `aaiclick` line (it points at the monorepo) so `uv` resolves a
+   PyPI release, and `uv lock`
+3. `uv sync`, then `./name.sh`
 
 ## Task Return Values
 

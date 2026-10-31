@@ -50,6 +50,31 @@ Unsupported. Shell and jvm tasks speak the Task Interface's file data plane
 Object needs a per-language task runner that owns the ClickHouse dependency
 and the lifecycle (refcounts, pins, ephemeral-table ownership, oplog).
 
+## Task Cache Directories
+
+Tasks have no cache that outlives their process or container, so a container
+task re-downloads model weights, datasets or package caches on every run
+(e.g. Ollama weights for an LLM step). Add two cache scopes a task can read
+and write by path:
+
+| Scope  | Lifetime                                           | Example                          |
+|--------|----------------------------------------------------|----------------------------------|
+| job    | Shared by a job's tasks, dropped when the job ends | intermediate files between tasks |
+| global | Shared by every job, kept until evicted            | model weights, HF / pip caches   |
+
+| Runner     | Backing                                                 |
+|------------|---------------------------------------------------------|
+| subprocess | Directories under `~/.aaiclick` (`AAICLICK_LOCAL_ROOT`) |
+| docker     | Host directories bind-mounted into the container        |
+| kubernetes | PersistentVolumeClaims mounted into the Pod             |
+
+Open points: how a task names the paths (env vars vs. a helper), concurrent
+writers to one global entry, eviction and size limits, and ReadWriteMany
+storage or node affinity on Kubernetes.
+
+**When to revisit**: when an example project or user job runs a container task
+with a large download it should not repeat.
+
 ## Protect Upstream Outputs on Re-run
 
 `clear_task` re-runs a task against upstream outputs that may be gone: a

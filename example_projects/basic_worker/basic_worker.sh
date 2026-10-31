@@ -1,32 +1,18 @@
-#!/bin/bash
-# Basic worker example: run a job on a worker and follow its progress.
+#!/usr/bin/env bash
+# Basic Worker — distributed mode: ClickHouse + PostgreSQL servers at
+# AAICLICK_CH_URL / AAICLICK_SQL_URL, with a worker executing the tasks.
 #
-# Expected output: prints every 0.5 seconds for 3 seconds (6 ticks total)
-#
-# Usage: ./basic_worker.sh
-
-set -e
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
-
+# Usage: ./basic_worker.sh [--set KEY=VALUE ...]
+set -euo pipefail
+cd "$(dirname "$0")"
 PYTHON="${PYTHON:-uv run python}"
 
-echo "## Basic Worker Example"
-echo
+: "${AAICLICK_CH_URL:?set to a ClickHouse server, e.g. clickhouse://default:pass@localhost:8123/default}"
+: "${AAICLICK_SQL_URL:?set to PostgreSQL, e.g. postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick}"
+$PYTHON -m aaiclick migrate upgrade head
 
-$PYTHON -m aaiclick background start &
-BACKGROUND_PID=$!
-$PYTHON -m aaiclick execution-worker start &
-WORKER_PID=$!
-# Give the worker a chance to flush its output before the script exits.
-stop_workers() {
-    kill $WORKER_PID $BACKGROUND_PID 2>/dev/null || true
-    wait $WORKER_PID $BACKGROUND_PID 2>/dev/null || true
-}
-trap stop_workers EXIT
+$PYTHON -m aaiclick background start & BG_PID=$!
+$PYTHON -m aaiclick execution-worker start & WORKER_PID=$!
+trap 'kill $WORKER_PID $BG_PID 2>/dev/null || true; wait 2>/dev/null || true' EXIT
 
-# A dotted entrypoint needs no prior registration, and --progress blocks until
-# the job is terminal, prints the task table on every change, and exits
-# non-zero on failure — no job-id scraping, poll loop, or fixed sleep.
-$PYTHON -m aaiclick run-job basic_worker.periodic_print_job --progress --timeout 60
+$PYTHON -m aaiclick run-job basic_worker.periodic_print_job --progress --timeout 60 "$@"

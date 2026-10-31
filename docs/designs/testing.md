@@ -8,8 +8,9 @@ around chdb's single-session-per-process constraint.
 
 # Fixtures
 
-All shared fixtures live in `aaiclick/testing.py` and register globally
-via `pytest_plugins = ["aaiclick.testing"]` in `aaiclick/conftest.py`.
+All shared fixtures live in `aaiclick/testing.py`; `aaiclick/conftest.py`
+imports them so pytest registers them at the root (a nested
+`pytest_plugins` is ignored under `--pyargs`).
 Subpackage conftests only hold subpackage-local fixtures.
 
 | Conftest                                         | Content                                          |
@@ -26,8 +27,8 @@ context manager:
 
 | Context manager       | Purpose                                                                |
 |-----------------------|------------------------------------------------------------------------|
-| `worker_ch_database`  | Per-xdist-worker chdb tempdir / CH database                            |
-| `worker_sql_database` | Per-xdist-worker SQLite file / Postgres database                       |
+| `worker_ch_database`  | `<root>/chdb_data` for chdb / per-xdist-worker database for real CH    |
+| `worker_sql_database` | `<root>/local.db` for SQLite / per-xdist-worker database for Postgres  |
 
 **Module-scoped** — one entry per test module, explicit via `orch_ctx*`:
 
@@ -100,10 +101,13 @@ migrates that tempdir first — with chdb + Postgres the child's
     Put shared-setup tests in their own module (e.g.
     `test_execution_shared_runs.py`).
 
-# Per-xdist-worker Isolation
+# Per-process Isolation
 
-`worker_databases()` gives each xdist worker its own
-CH path + SQL database. The per-test reset
+`worker_databases()` pins `AAICLICK_LOCAL_ROOT` to a temp directory for
+each pytest process, with or without xdist. File-backed backends (SQLite,
+chdb) live under it in `local start`'s layout, so a plain `pytest` never
+opens `~/.aaiclick`, which a running `local start` holds the chdb lock on;
+server-backed backends get a per-xdist-worker database. The per-test reset
 (`drop_all_ch_tables` + `reset_sql_tables`) scopes to
 `database = currentDatabase()`, so it's safe even on shared distributed
 servers.
