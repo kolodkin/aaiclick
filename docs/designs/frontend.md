@@ -150,6 +150,12 @@ When the server adds a model, run `npm run gen-types` and add one re-export
 line. **CI runs `gen-types` and fails on any diff**, so the types can't fall
 behind the server.
 
+## Timestamps
+
+The server returns every datetime as naive UTC: ISO with no `Z` or offset.
+`new Date()` reads that as local time, so parse with `parseUtc` in
+`src/lib/format.ts`. New server datetime fields must stay naive UTC.
+
 # Live updates
 
 One SSE connection per UI session carries a single event kind, `changed`,

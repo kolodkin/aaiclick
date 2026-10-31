@@ -175,7 +175,7 @@ def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path
 
 @_spa_built
 def test_task_view_colors_logs_by_keyword(page, base_url: str, shot) -> None:
-    """The task view colors lines by keyword and shows timestamps only when toggled."""
+    """The task view colors lines by keyword and shows timestamps only when toggled; the toggle survives a reload."""
     task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_keyword_lines")
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
@@ -194,6 +194,10 @@ def test_task_view_colors_logs_by_keyword(page, base_url: str, shot) -> None:
     page.get_by_label("Show timestamps").check()
     logs.locator(".ts").first.wait_for(timeout=5000)
     shot("task-logs-timestamps")
+
+    page.reload()
+    logs.locator(".ts").first.wait_for(timeout=15000)
+    assert page.get_by_label("Show timestamps").is_checked()
 
 
 @_spa_built

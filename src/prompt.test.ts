@@ -21,6 +21,10 @@ describe("viewer routes", () => {
     expect(parsePrompt("@sandbox 42")).toEqual({ kind: "sandbox-file", id: "42" });
   });
 
+  test("help shows the home command reference", () => {
+    expect(parsePrompt("help")).toEqual({ kind: "home" });
+  });
+
   test("existing routes still parse", () => {
     expect(parsePrompt("@jobs")).toEqual({ kind: "jobs" });
     expect(parsePrompt("@job x graph")).toEqual({ kind: "job", name: "x", view: "graph" });
