@@ -17,7 +17,7 @@ import logging
 import logging.config
 import signal
 
-from aaiclick.backend import is_local
+from aaiclick.backend import LOOPBACK_HOSTS, is_local
 
 from .background import BackgroundWorker
 from .execution import mp_worker_main_loop
@@ -98,6 +98,13 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
             "'local start' requires local mode (chdb + SQLite). "
             "Use `worker start` + `background start` + "
             "`uvicorn aaiclick.server.app:app` in distributed mode."
+        )
+    if host not in LOOPBACK_HOSTS:
+        logger.warning(
+            "local mode has no auth — %s:%d is open to every client that can reach it; "
+            "list browser-facing host names in AAICLICK_ALLOWED_HOSTS",
+            host,
+            port,
         )
 
     # Inline: keep the [server] extra optional — users without it never hit this import.

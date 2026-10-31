@@ -46,10 +46,10 @@ Password-reset variables are listed in their own section.
     In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the scaffold's
     `change-me-...` placeholder, the server refuses to start. In local mode auth
     is disabled, every request is allowed, and the server logs a single startup
-    `WARNING`. `local start` binds `127.0.0.1` by default, and a request arriving
-    on loopback must carry a loopback `Host` header, so DNS rebinding cannot reach
-    it from a web page. `--host 0.0.0.0` opens the server to that network with
-    no auth; requests arriving on the non-loopback address skip the `Host` check.
+    `WARNING`. `local start` binds `127.0.0.1` by default, and the server answers
+    only a loopback `Host` header or one listed in `AAICLICK_ALLOWED_HOSTS`
+    (comma-separated), so DNS rebinding cannot reach it from a web page.
+    `--host 0.0.0.0` opens the server to the network with no auth.
 
 # Data Model
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import httpx
 import jwt
 import pytest
 
@@ -21,7 +20,7 @@ from aaiclick.internal_api.errors import Forbidden, Unauthorized
 from aaiclick.view_models import Problem, ProblemCode
 
 from . import auth
-from .app import API_PREFIX, app
+from .app import API_PREFIX
 from .auth import warn_if_open
 from .conftest import api_token_headers, bearer, mcp_http, mcp_rpc, mcp_tool_names
 
@@ -44,22 +43,16 @@ async def test_local_mode_returns_synthetic_admin(monkeypatch):
         pytest.param("[::1]:5255", 200, id="ipv6-loopback"),
         pytest.param("evil.example:5255", 400, id="rebound-domain"),
         pytest.param("127.0.0.1.evil.example", 400, id="loopback-prefix"),
+        pytest.param("203.0.113.7", 200, id="allowed-ip"),
+        pytest.param("AAIClick.example.com:80", 200, id="allowed-name-case-port"),
     ],
 )
-async def test_local_mode_answers_only_loopback_hosts(monkeypatch, anon_client, host, status):
+async def test_local_mode_answers_only_allowed_hosts(monkeypatch, anon_client, host, status):
     """DNS rebinding reaches an open local server through the browser; its Host header gives it away."""
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
+    monkeypatch.setenv("AAICLICK_ALLOWED_HOSTS", "203.0.113.7, aaiclick.example.com")
     response = await anon_client.get("/health", headers={"host": host})
     assert response.status_code == status
-
-
-async def test_local_mode_skips_host_check_off_loopback(monkeypatch):
-    """Bound to a reachable address (``--host 0.0.0.0``), the server is open to that network anyway."""
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://10.0.0.5") as client:
-        response = await client.get("/health", headers={"host": "aaiclick.example.com"})
-    assert response.status_code == 200
 
 
 async def test_enabled_ignores_host_header(enabled, anon_client):
