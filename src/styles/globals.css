@@ -190,6 +190,10 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .toggle.on .switch::after { left: 18px; }
 .toggle.on { color: var(--green); }
 .toggle.off { color: var(--muted); }
+/* Fixed widths so flipping enabled/disabled doesn't resize table columns. */
+.toggle { min-width: 92px; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.next-run { display: inline-block; min-width: 19ch; }
 
 /* progress */
 .progress { display: flex; align-items: center; gap: 8px; }
