@@ -6,11 +6,16 @@ function formatSeconds(secs: number): string {
   return `${hours}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
+// Stored timestamps are naive UTC (no offset); parse as UTC, not browser-local.
+export function parseUtc(iso: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`);
+}
+
 // `at` is an ISO string or epoch ms; `now` lets a caller that re-renders on a
 // timer pass the clock reading that render used instead of reading it again.
 export function relativeTime(at: string | number | null | undefined, now: number = Date.now()): string {
   if (!at) return "—";
-  const then = typeof at === "number" ? at : new Date(at).getTime();
+  const then = typeof at === "number" ? at : parseUtc(at).getTime();
   const secs = Math.max(0, Math.round((now - then) / 1000));
   if (secs < 60) return `${secs}s ago`;
   const mins = Math.round(secs / 60);
@@ -22,8 +27,8 @@ export function relativeTime(at: string | number | null | undefined, now: number
 
 export function durationBetween(start: string | null | undefined, end: string | null | undefined): string {
   if (!start) return "—";
-  const from = new Date(start).getTime();
-  const to = end ? new Date(end).getTime() : Date.now();
+  const from = parseUtc(start).getTime();
+  const to = end ? parseUtc(end).getTime() : Date.now();
   return formatSeconds(Math.max(0, Math.round((to - from) / 1000)));
 }
 
