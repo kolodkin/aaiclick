@@ -47,13 +47,10 @@ async def create_sales() -> Object:
 
 @task
 async def report(factor: int, sales: Object) -> Object:
-    """Joins both flows: groups the sales Object and returns a new Object."""
-    by_category = await sales.group_by("category").sum("quantity")
-    data = await by_category.data()
-    print(f"Factor: {factor}")  # → 18
-    totals = dict(sorted(zip(data["category"], data["quantity"], strict=True)))
-    print(f"Quantity by category: {totals}")  # → {'Tools': 18, 'Toys': 5}
-    return by_category
+    """Joins both flows: categories whose total quantity reaches ``factor``."""
+    top = await sales.group_by("category").having(f"sum(quantity) >= {factor}").sum("quantity")
+    print(f"Categories with quantity >= {factor}: {await top.data()}")  # → {'category': ['Tools'], 'quantity': [18]}
+    return top
     # --8<-- [end:tasks]
 
 
