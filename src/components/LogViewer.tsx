@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import type { LogLine, TaskAttempt } from "../api/types";
 import { useTaskLogs, type LogTask } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
+import { parseUtc } from "../lib/format";
 import { logTone } from "../lib/logTone";
 import { isTaskStarted, isTerminalTask, statusClass } from "../lib/status";
 
@@ -10,9 +11,7 @@ const SHOW_TS_KEY = "aaiclick.logs.showTimestamps";
 // Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
 // timestamp prefix. Kept tiny and dependency-free; the value is informational.
 function fmtTs(iso: string): string {
-  // Stored timestamps are naive UTC (no offset); parse as UTC, not browser-local.
-  const utc = /[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
-  const d = new Date(utc);
+  const d = parseUtc(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toISOString().slice(11, 23);
 }

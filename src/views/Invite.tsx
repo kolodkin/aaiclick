@@ -7,6 +7,7 @@ import { Panel } from "../components/Panel";
 import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
 import { invitableRoles } from "../lib/auth";
+import { parseUtc } from "../lib/format";
 
 const GRANT_HELP: Record<Role, string> = {
   viewer: "reads, and nothing else",
@@ -51,7 +52,7 @@ export function Invite({ onPrompt }: { onPrompt: (v: string) => void }) {
       {link && (
         <SecretPanel
           title="One-time link"
-          hint={`Valid until ${new Date(link.expires_at).toLocaleString()} — single use. Hand it over out of band.`}
+          hint={`Valid until ${parseUtc(link.expires_at).toLocaleString()} — single use. Hand it over out of band.`}
           value={link.url ?? link.token}
           onDone={() => setLink(null)}
         />
