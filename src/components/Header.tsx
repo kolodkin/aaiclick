@@ -17,7 +17,7 @@ export function Header({ prompt, onPrompt }: HeaderProps) {
           id="prompt"
           value={prompt}
           onChange={(e) => onPrompt(e.target.value)}
-          placeholder="Type a command…  try @jobs, @registered, or run <name>"
+          placeholder="Type a command…  try @jobs, @registered, or run <registered job>"
           autoComplete="off"
           spellCheck={false}
         />
