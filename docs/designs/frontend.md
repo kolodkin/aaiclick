@@ -17,8 +17,8 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 | Graph        | React Flow 12 + dagre 3 | Layered DAG view of job tasks (both MIT)       |
 
 ??? info "Why React Flow + dagre for the graph"
-    React Flow renders nodes as React components, so `StatusBadge` and the
-    status CSS variables are reused directly; Cytoscape.js scales better but
+    [React Flow](https://reactflow.dev) renders nodes as React components, so
+    `StatusBadge` and the status CSS variables are reused directly; Cytoscape.js scales better but
     draws to canvas, forcing the visual language to be rebuilt in its own
     stylesheet language. React Flow ships no layout algorithm, so an engine is
     needed either way — d3 cannot supply one (`d3-hierarchy` is trees only and
@@ -26,6 +26,9 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 
     The maintained dagre package is `@dagrejs/dagre`; the unscoped `dagre` has
     not shipped since 2022.
+
+    The graph hides React Flow's corner attribution
+    (`proOptions.hideAttribution`); this credit replaces it.
 
     dagre is imported only by `layout()` in `src/lib/graphLayout.ts`. Group
     containers use its compound mode, which pads a cluster symmetrically and
