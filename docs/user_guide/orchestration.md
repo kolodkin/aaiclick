@@ -160,9 +160,9 @@ Every long-running command (`local start`, `execution-worker start`,
 worker logs `executing task` before each task and `completed task` (or the
 failure state) after it, so a slow task shows up as a gap between its two
 lines. Local mode also logs `chdb session ready in Ns` when the embedded
-engine starts; the first task after a start is still slower than the rest, as
-the engine's first DDL and first insert fault more of its ~540 MB library into
-memory, once per process.
+engine starts. The first task after a start is still slower than the rest: the
+engine's first DDL and first insert fault more of its ~540 MB library into
+memory.
 
 # Running Jobs
 

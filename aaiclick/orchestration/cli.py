@@ -58,9 +58,8 @@ async def start_execution_worker(max_tasks: int | None = None) -> None:
 # INFO stderr logging for the ``aaiclick`` logger tree. Python's WARNING
 # default would drop the workers' "executing task" / "completed task" lines;
 # the timestamp makes a gap between two of them visible from the log alone.
-LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 _AAICLICK_LOGGING = {
-    "formatters": {"aaiclick": {"format": LOG_FORMAT}},
+    "formatters": {"aaiclick": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
     "handlers": {"aaiclick": {"class": "logging.StreamHandler", "formatter": "aaiclick", "stream": "ext://sys.stderr"}},
     "loggers": {"aaiclick": {"handlers": ["aaiclick"], "level": "INFO", "propagate": False}},
 }
