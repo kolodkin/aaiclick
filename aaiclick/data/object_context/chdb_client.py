@@ -13,6 +13,8 @@ Thread-safe for concurrent access from background workers.
 from __future__ import annotations
 
 import atexit
+import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +26,8 @@ from aaiclick.backend import get_ch_url
 from aaiclick.data.sql_utils import quote_identifier, quote_sql_literal
 
 from .arrow_types import ch_type_to_pa
+
+logger = logging.getLogger(__name__)
 
 
 def _with_settings(query: str, settings: dict | None) -> str:
@@ -299,11 +303,20 @@ def get_shared_session(path: str | None = None) -> Session:
     """
     data_path = path or get_chdb_data_path()
     if data_path not in _sessions:
+        started = time.perf_counter()
         if data_path == ":memory:":
-            _sessions[data_path] = Session()
+            session = Session()
         else:
             Path(data_path).mkdir(parents=True, exist_ok=True)
-            _sessions[data_path] = Session(data_path)
+            session = Session(data_path)
+        # The constructor is cheap; the first statement faults the ~540 MB
+        # engine into memory. Run one now so that cost is paid at process start,
+        # under this log line, rather than inside the first task. Cache before
+        # warming: chdb allows one engine per process, so a failed warm-up must
+        # not leave an orphan for the next call to duplicate.
+        _sessions[data_path] = session
+        session.query("SELECT 1")
+        logger.info("chdb session ready in %.1fs (%s)", time.perf_counter() - started, data_path)
     return _sessions[data_path]
 
 

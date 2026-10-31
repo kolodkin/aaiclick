@@ -269,9 +269,9 @@ def setup(*, force: bool = False) -> SetupResult:
     if is_chdb():
         chdb_path = get_chdb_data_path()
         Path(chdb_path).mkdir(parents=True, exist_ok=True)
-        # chdb's Session is a per-process singleton: opening it here also
-        # populates the shared cache so subsequent callers reuse the same handle.
-        get_shared_session(chdb_path).query("SELECT 1")
+        # chdb's Session is a per-process singleton; open it here so later
+        # callers reuse the handle.
+        get_shared_session(chdb_path)
         steps.append(SetupStep(name="chdb", status="ok", detail=chdb_path))
     else:
         steps.append(
