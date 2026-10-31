@@ -13,7 +13,7 @@ const SANDBOX: Cmd = { code: "@sandbox", desc: "Submit a single-file job and run
 const NAVIGATE: Cmd[] = [
   { code: "@jobs", desc: "List all jobs, newest first.", cmd: "@jobs" },
   { code: "@registered", desc: "Registered jobs — run, register, enable/disable.", cmd: "@registered" },
-  { code: "@job <name>", desc: "Job detail — header + tasks table.", cmd: "@job nyc_taxi_pipeline" },
+  { code: "@job <name>", desc: "Job detail — header + tasks table.", cmd: "@jobs" },
   { code: "@task <id>", desc: "Task detail — status bar + live logs.", cmd: "@task 1" },
   {
     code: "@data [job <ref>] [<object>]",
@@ -33,9 +33,9 @@ const ACTIONS: Cmd[] = [
   {
     code: "run <name>",
     desc: "Run a registered job, or any module.function entrypoint. Add ? to edit params.",
-    cmd: "run nyc_taxi_pipeline.nyc_taxi_pipeline",
+    cmd: "@registered",
   },
-  { code: "cancel <name|id>", desc: "Cancel a pending/running job.", cmd: "cancel nyc_taxi_pipeline" },
+  { code: "cancel <name|id>", desc: "Cancel a pending/running job.", cmd: "@jobs" },
   { code: "register", desc: "Register a new job (entrypoint, schedule, kwargs).", cmd: "register" },
   { code: "enable / disable <name>", desc: "Toggle a registered job on/off via @registered.", cmd: "@registered" },
 ];
