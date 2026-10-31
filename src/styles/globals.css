@@ -147,6 +147,9 @@ h2 { font-size: 18px; margin: 0 0 4px; }
 .cmd:hover { border-color: var(--accent); background: var(--panel-strong); transform: translateY(-1px); }
 .cmd code { font: 13px var(--mono); color: var(--accent-text); }
 .cmd .desc { color: var(--muted); }
+.cmd.disabled { opacity: .45; cursor: not-allowed; }
+.cmd.disabled:hover { border-color: var(--border); background: var(--panel); transform: none; }
+.group-label .dist-only { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
 /* tables */
 table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--panel);
