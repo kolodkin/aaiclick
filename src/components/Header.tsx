@@ -9,9 +9,9 @@ export function Header({ prompt, onPrompt }: HeaderProps) {
   const { me, signOut } = useAuth();
   return (
     <header>
-      <div className="logo">
+      <button type="button" className="logo" id="header-home" onClick={() => onPrompt("")}>
         aai<span>click</span>
-      </div>
+      </button>
       <div className="prompt-wrap">
         <input
           id="prompt"
