@@ -39,9 +39,11 @@ _REGISTERED_JOB = {
 }
 
 
-def _stub_session(page, role: str) -> None:
-    """Serve a fixed principal and one registered job, whatever the backend."""
-    me = {"id": 1, "username": f"{role}_user", "role": role, "mfa_enabled": False}
+def _stub_session(page, role: str, user_id: int | None = 1) -> None:
+    """Serve a fixed principal and one registered job, whatever the backend.
+    ``user_id=None`` mimics local mode's synthetic admin, which has no user row."""
+    username = f"{role}_user" if user_id is not None else None
+    me = {"id": user_id, "username": username, "role": role, "mfa_enabled": False}
     page.route(
         "**/api/v0/auth/me",
         lambda route: route.fulfill(
@@ -94,3 +96,24 @@ def test_admin_sees_mutating_controls_enabled(page, base_url: str, shot) -> None
         assert button.is_enabled(), f"{name!r} should be enabled for an admin"
 
     assert page.locator("button.toggle").first.is_enabled()
+
+
+@_spa_built
+@pytest.mark.parametrize(
+    "mode, user_id, disabled",
+    [("local", None, True), ("distributed", 1, False)],
+)
+def test_home_account_groups_gated_by_mode(
+    page, base_url: str, shot, mode: str, user_id: int | None, disabled: bool
+) -> None:
+    """Account and Administration need real users, so local mode greys them out."""
+    _stub_session(page, "admin", user_id)
+    page.set_viewport_size({"width": 1280, "height": 1300})
+    open_page(page, f"{base_url}/")
+    page.wait_for_selector(".cmd-list")
+    shot(f"home-{mode}")
+
+    for code in ("@account", "@tokens", "@users", "@audit"):
+        cmd = page.locator(".cmd", has_text=code)
+        assert cmd.get_attribute("aria-disabled") == str(disabled).lower(), code
+    assert page.get_by_text("(Distributed mode only)").count() == (2 if disabled else 0)
