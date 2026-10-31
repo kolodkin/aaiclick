@@ -38,7 +38,6 @@ from aaiclick.auth.models import (
     ScopeLevel,
     scope_admits,
 )
-from aaiclick.backend import LOOPBACK_HOSTS
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import ProblemCode
@@ -211,13 +210,12 @@ def warn_if_open() -> None:
 _HOST_NAME_RE = re.compile(r"^(\[[^\]]*\]|[^:]*)")
 
 
-class LoopbackHostMiddleware:
-    """With auth off, answer only requests whose ``Host`` is loopback.
+class AllowedHostMiddleware:
+    """With auth off, answer only requests whose ``Host`` is loopback or in ``AAICLICK_ALLOWED_HOSTS``.
 
-    An open server trusts every caller. Binding to 127.0.0.1 keeps other
-    machines out, but a web page can rebind its own domain to 127.0.0.1 (DNS
-    rebinding) and reach the server through the browser; such a request still
-    carries the page's domain in ``Host``.
+    An open server trusts every caller. A web page can rebind its own domain to
+    the server's address (DNS rebinding) and reach it through the browser; such
+    a request still carries the page's domain in ``Host``.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -226,7 +224,7 @@ class LoopbackHostMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] in ("http", "websocket") and not config.auth_enabled():
             match = _HOST_NAME_RE.match(Headers(scope=scope).get("host", ""))
-            if match is None or match.group(1).lower() not in LOOPBACK_HOSTS:
+            if match is None or match.group(1).lower() not in config.allowed_hosts():
                 await PlainTextResponse("Invalid host header", status_code=400)(scope, receive, send)
                 return
         await self.app(scope, receive, send)

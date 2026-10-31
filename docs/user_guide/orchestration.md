@@ -135,8 +135,18 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 # Stop with Ctrl+C / SIGTERM.
 ```
 
-Auth is off in local mode, so `--host` accepts loopback addresses only
-(`127.0.0.1`, `localhost`, `::1`). Serving other machines needs distributed mode.
+`--host` defaults to `127.0.0.1`.
+
+!!! warning "`--host 0.0.0.0` opens the server with no auth"
+    Local mode has auth off: anyone who can reach the port is admin. Use
+    distributed mode for per-user logins. To block DNS rebinding the server
+    answers only loopback `Host` headers, so list the names browsers use in
+    `AAICLICK_ALLOWED_HOSTS` — see [Auth](../designs/auth.md).
+
+    ```bash
+    AAICLICK_ALLOWED_HOSTS=203.0.113.7,aaiclick.lan \
+      python -m aaiclick local start --host 0.0.0.0 --port 80
+    ```
 
 ## Distributed mode
 
