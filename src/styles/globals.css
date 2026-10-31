@@ -327,7 +327,15 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   border-radius: 10px;
   overflow: hidden;
   background: rgba(10, 14, 26, .35);
+  /* React Flow's light-theme controls and attribution vanish on the dark canvas. */
+  --xy-controls-button-background-color: var(--panel-strong);
+  --xy-controls-button-background-color-hover: var(--border);
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-color-hover: var(--text);
+  --xy-controls-button-border-color: var(--border);
+  --xy-attribution-background-color: var(--panel);
 }
+.graph-canvas .react-flow__attribution a { color: var(--muted); }
 .gnode { position: relative;
   width: 220px;
   height: 76px;
