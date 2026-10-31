@@ -41,11 +41,18 @@
         "source": "github",
         "repo": "obra/superpowers-marketplace"
       }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
     }
   },
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
     "superpowers@superpowers-marketplace": true,
-    "devpowers@devpowers": true
+    "devpowers@devpowers": true,
+    "ponytail@ponytail": true
   }
 }
