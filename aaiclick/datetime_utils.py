@@ -1,9 +1,12 @@
 """Internal datetime helpers.
 
+See docs/designs/frontend.md — "Timestamps".
+
 Storage convention is naive UTC: SQLAlchemy ``DateTime()`` columns hold
 timezone-naive datetimes whose values are always UTC. ``utc_now()`` is a
 drop-in replacement for the deprecated ``datetime.utcnow()``, and
-``utc_field()`` declares a table model's datetime field.
+``utc_field()`` declares a table model's datetime field. API responses carry
+the same naive values, which the SPA parses as UTC.
 """
 
 import sqlite3

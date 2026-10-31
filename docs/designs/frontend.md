@@ -150,6 +150,13 @@ When the server adds a model, run `npm run gen-types` and add one re-export
 line. **CI runs `gen-types` and fails on any diff**, so the types can't fall
 behind the server.
 
+## Timestamps
+
+The server stores and returns every datetime as naive UTC — an ISO string with
+no `Z` or offset (see `aaiclick/datetime_utils.py`). `new Date()` would read
+that as browser-local time, so always parse API timestamps with `parseUtc` from
+`src/lib/format.ts`. A new server datetime field must keep this convention.
+
 # Live updates
 
 One SSE connection per UI session carries a single event kind, `changed`,
