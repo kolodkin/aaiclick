@@ -3,6 +3,7 @@
 import pytest
 from sqlmodel import select
 
+from ...testing import get_task_runs
 from ..factories import create_job, create_task
 from ..jobs import get_task
 from ..models import (
@@ -246,7 +247,7 @@ async def test_release_cancelled_run(orch_ctx):
     (task,) = await _job_tasks(job_id)
     assert task.status == TASK_PENDING_CANCELLED_CLEANUP
     assert task.execution_worker_id is None
-    assert task.run_statuses == [TASK_CANCELLED]
+    assert [r.status for r in await get_task_runs(task.id)] == [TASK_CANCELLED]
 
 
 async def test_release_cancelled_run_is_noop_unless_cancelled(orch_ctx):
@@ -258,10 +259,10 @@ async def test_release_cancelled_run_is_noop_unless_cancelled(orch_ctx):
     assert await release_cancelled_run(task_id) is False
     (task,) = await _job_tasks(job_id)
     assert task.execution_worker_id == worker.id
-    assert task.run_statuses == [TASK_RUNNING]
+    assert [r.status for r in await get_task_runs(task.id)] == [TASK_RUNNING]
 
     await cancel_job(job_id)
     assert await release_cancelled_run(task_id, expected_epoch=1) is False
     (task,) = await _job_tasks(job_id)
     assert task.execution_worker_id == worker.id
-    assert task.run_statuses == [TASK_RUNNING]
+    assert [r.status for r in await get_task_runs(task.id)] == [TASK_RUNNING]

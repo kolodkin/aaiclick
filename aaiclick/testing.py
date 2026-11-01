@@ -31,7 +31,7 @@ from unittest.mock import patch
 import pytest
 from alembic import command
 from sqlalchemy import create_engine, text
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.__main__ import main
 from aaiclick.backend import get_root, is_chdb, is_local, is_sqlite, parse_ch_url
@@ -40,7 +40,7 @@ from aaiclick.data.object_context import ChClient, get_ch_client
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
-from aaiclick.orchestration.models import TASK_COMPLETED, JobStatus, SQLModel, Task, TaskStatus
+from aaiclick.orchestration.models import TASK_COMPLETED, TASK_RUNNING, JobStatus, SQLModel, Task, TaskRun, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context, task_scope
 from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
 from aaiclick.snowflake import get_snowflake_id
@@ -625,10 +625,18 @@ async def set_task_runs(task_id: int, run_ids: list[int], run_statuses: list[Tas
     """Record ``run_ids`` as the task's attempts (each ``COMPLETED`` unless
     ``run_statuses`` says otherwise) — for log tests that flush ``task_logs``
     rows by hand instead of running the task."""
+    statuses: list[TaskStatus] = run_statuses if run_statuses is not None else [TASK_COMPLETED] * len(run_ids)
     async with get_sql_session() as session:
-        task = await session.get(Task, task_id)
-        assert task is not None
-        task.run_ids = run_ids
-        task.run_statuses = run_statuses if run_statuses is not None else [TASK_COMPLETED] * len(run_ids)
-        session.add(task)
+        for run_id, status in zip(run_ids, statuses, strict=True):
+            completed_at = None if status == TASK_RUNNING else utc_now()
+            session.add(TaskRun(run_id=run_id, task_id=task_id, status=status, completed_at=completed_at))
         await session.commit()
+
+
+async def get_task_runs(task_id: int) -> list[TaskRun]:
+    """The task's attempts, oldest first."""
+    async with get_sql_session() as session:
+        rows = await session.execute(
+            select(TaskRun).where(col(TaskRun.task_id) == task_id).order_by(col(TaskRun.run_id))
+        )
+        return list(rows.scalars().all())

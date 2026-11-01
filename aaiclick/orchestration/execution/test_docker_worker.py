@@ -10,6 +10,7 @@ import pytest
 
 from aaiclick.data.object.refs import native_ref
 
+from ...testing import get_task_runs
 from ..logging import read_task_logs
 from ..models import TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, Task
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, ImagePrebuilt
@@ -122,7 +123,8 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     monkeypatch.setattr(execution_worker, "check_run_aborted", fake_check_aborted)
     # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
-    # No DB here: skip the post-exit output handling (covered by the fake-CLI tests).
+    # No DB here: skip the run count and post-exit output handling (covered by the fake-CLI tests).
+    monkeypatch.setattr(execution_worker, "get_run_count", AsyncMock(return_value=0))
     monkeypatch.setattr(execution_worker, "_collect_unfollowed_output", AsyncMock())
 
     dispatch = JobDispatch(RUNNER_DOCKER, None, image_source=ImagePrebuilt(image_tag="aaiclick-job:abc"))
@@ -174,8 +176,8 @@ async def test_module_container_that_registered_its_run_is_left_alone(orch_ctx, 
         container_registers_run=True,
     )
 
-    assert len(stored.run_ids) == 1
-    assert await read_task_logs(stored.id, stored.run_ids[0]) == []
+    (run,) = await get_task_runs(stored.id)
+    assert await read_task_logs(stored.id, run.run_id) == []
 
 
 async def test_module_container_that_died_in_bootstrap_gets_its_output_logged(orch_ctx, monkeypatch, tmp_path):
@@ -186,8 +188,8 @@ async def test_module_container_that_died_in_bootstrap_gets_its_output_logged(or
         monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER, _docker_dispatch(ENTRY_MODULE), result_row=None
     )
 
-    assert len(stored.run_ids) == 1
-    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    (run,) = await get_task_runs(stored.id)
+    lines = await read_task_logs(stored.id, run.run_id)
     assert {(line.stream, line.text) for line in lines} == {
         ("stdout", "container says hi"),
         ("stderr", "container warns"),
@@ -220,7 +222,7 @@ async def test_bootstrap_failure_is_only_printed_when_task_logs_go_to_console(or
         monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER, _docker_dispatch(ENTRY_MODULE), result_row=None
     )
 
-    assert stored.run_ids == []
+    assert await get_task_runs(stored.id) == []
     assert f"[task {stored.id}] container says hi" in capsys.readouterr().out
 
 
@@ -305,8 +307,8 @@ async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp
         _docker_dispatch(ENTRY_JVM)._replace(command=["com.example.Pipeline"]),
     )
 
-    assert len(stored.run_ids) == 1
-    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    (run,) = await get_task_runs(stored.id)
+    lines = await read_task_logs(stored.id, run.run_id)
     assert [(line.stream, line.text) for line in lines] == [("stdout", "container says hi")]
     argv = (tmp_path / "create-argv").read_text().split()
     assert argv[-1] == "com.example.Pipeline"

@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from sqlmodel import select
 
+from ...testing import get_task_runs
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..factories import create_job, create_task
 from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING, Task
@@ -117,7 +118,7 @@ async def test_mp_worker_kills_cancelled_module_task(orch_ctx_no_ch):
         create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 60.0, "steps": 600}),
     )
     loop = asyncio.create_task(mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1))
-    while (await _task_row(job.id)).run_statuses != [TASK_RUNNING]:
+    while [r.status for r in await get_task_runs((await _task_row(job.id)).id)] != [TASK_RUNNING]:
         await asyncio.sleep(0.05)
 
     await cancel_job(job.id)

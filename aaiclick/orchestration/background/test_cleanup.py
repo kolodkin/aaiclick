@@ -27,8 +27,10 @@ from .conftest import (
     insert_run_ref,
     insert_table_registry,
     insert_task,
+    insert_task_run,
     make_worker,
     mock_ch,
+    task_run_statuses,
 )
 
 
@@ -197,6 +199,18 @@ async def test_delete_job_data_keeps_job_until_every_table_drops(bg_db):
     assert await _table_names(bg_db, "table_registry") == {"t_stuck"}
     async with AsyncSession(bg_db) as session:
         assert (await session.execute(text("SELECT id FROM jobs WHERE id = 998"))).scalar_one() == 998
+
+
+async def test_delete_job_removes_task_runs(bg_db):
+    """Job expiry takes the job's ``task_runs`` rows with its tasks."""
+    await insert_job(bg_db, 998, status="COMPLETED")
+    await insert_task(bg_db, 100, 998, status="COMPLETED")
+    await insert_task_run(bg_db, 111, 100)
+    await insert_task_run(bg_db, 222, 100)
+
+    await make_worker(bg_db)._delete_job_data(998)
+
+    assert await task_run_statuses(bg_db, 100) == []
 
 
 async def test_delete_job_data_removes_remote_task_results(bg_db):

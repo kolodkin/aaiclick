@@ -5,6 +5,7 @@ from sqlmodel import select
 
 from ...datetime_utils import utc_now
 from ...snowflake import get_snowflake_id
+from ...testing import get_task_runs, set_task_runs
 from ..factories import create_job, create_task
 from ..lifecycle.db_lifecycle import TableRunRef
 from ..models import (
@@ -214,8 +215,8 @@ async def test_clear_drops_last_run_refs(orch_ctx):
     """A cleared run may be killed before it drops its run_refs; clear_task drops them."""
     job = await create_job("clear_run_refs", EP)
     t = _task(job.id, status=TASK_RUNNING)
-    t.run_ids = [111, 222]
     await _insert(t, TableRunRef(table_name="t_old", run_id="111"), TableRunRef(table_name="t_live", run_id="222"))
+    await set_task_runs(t.id, [111, 222])
 
     await clear_task(t.id)
 
@@ -249,16 +250,18 @@ async def test_clear_fences_stale_failure_cleanup(orch_ctx):
     """A stale-epoch _set_pending_failure_cleanup is a no-op; the matching epoch applies."""
     job = await create_job("fence_cleanup", EP)
     t = _task(job.id, status=TASK_RUNNING)
-    t.run_statuses = [TASK_RUNNING]
     await _insert(t)
+    await set_task_runs(t.id, [111], [TASK_RUNNING])
 
     await clear_task(t.id)  # run_epoch 0 -> 1
 
     await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=0)
     assert await _status(t.id) == TASK_PENDING
+    assert [r.status for r in await get_task_runs(t.id)] == [TASK_RUNNING]
 
     await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=1)
     assert await _status(t.id) == TASK_PENDING_FAILURE_CLEANUP
+    assert [r.status for r in await get_task_runs(t.id)] == [TASK_FAILED]
 
 
 async def test_check_run_aborted(orch_ctx):

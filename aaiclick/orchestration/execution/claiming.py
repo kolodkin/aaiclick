@@ -5,7 +5,7 @@ See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
 
 from typing import cast
 
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -27,8 +27,9 @@ from ..models import (
     Job,
     JobStatus,
     Task,
+    TaskRun,
     TaskStatus,
-    end_current_run,
+    end_run,
 )
 from ..orch_context import get_db_handler, get_sql_session
 from ..sql_utils import batched, in_clause
@@ -110,7 +111,7 @@ async def update_task_status(
     """
     Update a task's status and optional error/result.
 
-    Also updates the last entry in run_statuses to match the new status.
+    A ``COMPLETED`` / ``FAILED`` status also closes the task's open run.
 
     Args:
         task_id: Task ID to update
@@ -134,6 +135,8 @@ async def update_task_status(
 
         _apply_task_status(task, status, error, result)
         session.add(task)
+        if status in (TASK_COMPLETED, TASK_FAILED):
+            await end_run(session, task_id, status)
         await session.commit()
         return True
 
@@ -147,7 +150,7 @@ def _owns_run(task: Task | None, expected_epoch: int | None) -> bool:
 
 
 def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result: dict | None) -> None:
-    """Write ``status`` and its timestamps onto ``task``, mirroring it into ``run_statuses``."""
+    """Write ``status`` and its timestamps onto ``task``."""
     task.status = status
     if status == TASK_RUNNING:
         task.started_at = utc_now()
@@ -161,8 +164,6 @@ def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result
             task.error = None
         if result:
             task.result = result
-
-    task.run_statuses = end_current_run(task.run_statuses, status)
 
 
 async def complete_task_and_roll_up(task_id: int, job_id: int, result: dict | None, expected_epoch: int) -> bool:
@@ -191,6 +192,7 @@ async def complete_task_and_roll_up(task_id: int, job_id: int, result: dict | No
 
         _apply_task_status(task, TASK_COMPLETED, None, result)
         session.add(task)
+        await end_run(session, task_id, TASK_COMPLETED)
         await session.flush()
         await roll_up_job(session, job_id)
         await session.commit()
@@ -286,8 +288,8 @@ async def release_cancelled_run(task_id: int, expected_epoch: int | None = None)
 
     ``execution_worker_id`` is the worker's ownership, held from claim until it
     reports back. A cancelled task refuses the normal status write, so the
-    worker calls this instead: the last ``run_statuses`` entry is stamped
-    ``CANCELLED`` and the ownership released. The cancelled-cleanup pass keys
+    worker calls this instead: the open run is stamped ``CANCELLED`` and the
+    ownership released. The cancelled-cleanup pass keys
     on that release, so it never drops the refs of a run still being stopped.
 
     Returns False without writing unless the task is cancelling or cancelled
@@ -302,8 +304,8 @@ async def release_cancelled_run(task_id: int, expected_epoch: int | None = None)
             return False
 
         task.execution_worker_id = None
-        task.run_statuses = end_current_run(task.run_statuses, TASK_CANCELLED)
         session.add(task)
+        await end_run(session, task.id, TASK_CANCELLED)
         await session.commit()
         return True
 
@@ -375,8 +377,14 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
 
         for batch in batched(affected):
             # A cleared run may be killed before it drops its own run_refs; no cleanup pass sees a PENDING task.
-            run_ids = (await session.execute(select(Task.run_ids).where(col(Task.id).in_(batch)))).scalars()
-            last_runs = [str(r[-1]) for r in run_ids if r]
+            latest = (
+                await session.execute(
+                    select(func.max(TaskRun.run_id))
+                    .where(col(TaskRun.task_id).in_(batch))
+                    .group_by(col(TaskRun.task_id))
+                )
+            ).scalars()
+            last_runs = [str(r) for r in latest]
             if last_runs:
                 rph, rparams = in_clause(last_runs, "rid")
                 await session.execute(text(f"DELETE FROM table_run_refs WHERE run_id IN ({rph})"), rparams)

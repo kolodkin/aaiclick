@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import select
 
-from aaiclick.testing import set_task_image_source
+from aaiclick.testing import get_task_runs, set_task_image_source
 
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..decorators import job, task
@@ -278,7 +278,7 @@ async def test_local_worker_cancelled_mid_run(orch_ctx):
     loop = asyncio.create_task(
         execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
     )
-    while (await _task_row(job.id)).run_statuses != [TASK_RUNNING]:
+    while [r.status for r in await get_task_runs((await _task_row(job.id)).id)] != [TASK_RUNNING]:
         await asyncio.sleep(0.05)
 
     await cancel_job(job.id)
@@ -287,7 +287,7 @@ async def test_local_worker_cancelled_mid_run(orch_ctx):
     task = await _task_row(job.id)
     assert task.status == TASK_PENDING_CANCELLED_CLEANUP
     assert task.execution_worker_id is None
-    assert task.run_statuses == [TASK_CANCELLED]
+    assert [r.status for r in await get_task_runs(task.id)] == [TASK_CANCELLED]
 
     await run_cancelled_cleanup()
     assert (await _task_row(job.id)).status == TASK_CANCELLED

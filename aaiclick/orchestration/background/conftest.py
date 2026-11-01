@@ -78,8 +78,6 @@ async def insert_task(
     status,
     attempt=0,
     max_retries=0,
-    run_ids="[]",
-    run_statuses="[]",
     error=None,
     execution_worker_id=None,
     claim_expired_by=None,
@@ -90,9 +88,9 @@ async def insert_task(
         await session.execute(
             text(
                 "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, "
-                "created_at, max_retries, attempt, run_ids, run_statuses, error, execution_worker_id, claim_expires_at) "
+                "created_at, max_retries, attempt, error, execution_worker_id, claim_expires_at) "
                 "VALUES (:id, :job_id, 'test.func', 'test', '{}', :status, "
-                ":now, :max_retries, :attempt, :run_ids, :run_statuses, :error, :execution_worker_id, :claim_expires_at)"
+                ":now, :max_retries, :attempt, :error, :execution_worker_id, :claim_expires_at)"
             ),
             {
                 "id": task_id,
@@ -101,14 +99,31 @@ async def insert_task(
                 "now": now,
                 "max_retries": max_retries,
                 "attempt": attempt,
-                "run_ids": run_ids,
-                "run_statuses": run_statuses,
                 "error": error,
                 "execution_worker_id": execution_worker_id,
                 "claim_expires_at": None if claim_expired_by is None else now - claim_expired_by,
             },
         )
         await session.commit()
+
+
+async def insert_task_run(engine, run_id, task_id, *, status="COMPLETED"):
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO task_runs (run_id, task_id, status, started_at) VALUES (:run_id, :task_id, :status, :now)"
+            ),
+            {"run_id": run_id, "task_id": task_id, "status": status, "now": utc_now()},
+        )
+        await session.commit()
+
+
+async def task_run_statuses(engine, task_id) -> list[str]:
+    async with AsyncSession(engine) as session:
+        result = await session.execute(
+            text("SELECT status FROM task_runs WHERE task_id = :task_id ORDER BY run_id"), {"task_id": task_id}
+        )
+        return [row[0] for row in result.fetchall()]
 
 
 async def insert_worker(engine, worker_id, *, stale_by=timedelta(0)):

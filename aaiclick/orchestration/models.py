@@ -11,9 +11,10 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, ClassVar, Literal, Union, cast
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, UniqueConstraint, func, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
-from sqlmodel import JSON, Column, Field, Relationship, SQLModel
+from sqlmodel import JSON, Column, Field, Relationship, SQLModel, col, select
 
 from ..auth.models import User
 from ..datetime_utils import utc_field, utc_now
@@ -108,26 +109,6 @@ CANCELLABLE_TASK_STATUSES: tuple[TaskStatus, ...] = (
 
 CANCELLING_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_PENDING_CANCELLED_CLEANUP, TASK_CANCELLED)
 """Statuses under which a worker aborts the run and no other status write lands."""
-
-
-def end_current_run(run_statuses: list[TaskStatus], status: TaskStatus) -> list[TaskStatus]:
-    """Stamp ``status`` on the in-flight run — the last entry, while it is still
-    ``RUNNING``. A finished run keeps how it ended."""
-    if run_statuses and run_statuses[-1] == TASK_RUNNING:
-        return [*run_statuses[:-1], status]
-    return run_statuses
-
-
-def fail_run_values(run_statuses: list[TaskStatus], error: str) -> dict[str, str | list[TaskStatus]]:
-    """Column values that hand a failed run to ``PENDING_FAILURE_CLEANUP``.
-
-    Shared by the worker's own failure report and the expired-claim sweep;
-    each caller adds its own ownership guard to the UPDATE."""
-    return {
-        "status": TASK_PENDING_FAILURE_CLEANUP,
-        "error": error,
-        "run_statuses": end_current_run(run_statuses, TASK_FAILED),
-    }
 
 
 EXECUTION_WORKER_ACTIVE = "ACTIVE"
@@ -497,10 +478,6 @@ class Task(_DependencyOps, SQLModel, table=True):
     max_retries: int = Field(default=0)
     attempt: int = Field(default=0)
     retry_after: datetime | None = utc_field(default=None)
-    run_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
-    run_statuses: list[TaskStatus] = Field(
-        default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]")
-    )
     # Fencing token bumped by clear_task. A worker captures this at claim time
     # and gates every status write on it, so a cleared run's late writes are
     # rejected — see clear_task / check_run_aborted in execution/claiming.py.
@@ -527,7 +504,8 @@ class RemoteTaskResult(SQLModel, table=True):
 
     The Pod writes one row keyed by ``(task_id, run_epoch)``; the host reads
     it at the epoch it claimed and then writes the terminal ``Task`` status
-    itself. The Pod never writes ``Task.status``/``run_statuses`` — preserving
+    itself. The Pod never writes ``Task.status`` or a terminal ``task_runs``
+    status — preserving
     the reaper invariant (see ``docker_worker`` module docstring). ``run_epoch``
     fences stale attempts: a cleared/re-run task bumps the live epoch, so an
     old Pod's row lands under a stale key and is ignored.
@@ -543,6 +521,37 @@ class RemoteTaskResult(SQLModel, table=True):
     result_ref: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     error: str | None = Field(default=None)
     created_at: datetime = utc_field(default_factory=utc_now)
+
+
+class TaskRun(SQLModel, table=True):
+    """One attempt of a task. The in-flight attempt is the task's latest row
+    while its status is ``RUNNING``; attempt N is the Nth row ordered by
+    ``run_id``. ClickHouse ``task_logs`` rows key on ``run_id``.
+    """
+
+    __tablename__: ClassVar[str] = "task_runs"
+
+    run_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    task_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("tasks.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    status: TaskStatus = Field(sa_column=Column(String, nullable=False))
+    started_at: datetime = utc_field(default_factory=utc_now)
+    completed_at: datetime | None = utc_field(default=None)
+
+
+async def end_run(session: AsyncSession, task_id: int, status: TaskStatus) -> None:
+    """Stamp ``status`` and ``completed_at`` on the task's in-flight run: its
+    latest row, while still ``RUNNING``. A finished run keeps how it ended, so
+    a second ender affects no row. Callers issue this only after their
+    task-level write landed, in the same transaction.
+    """
+    latest = select(func.max(TaskRun.run_id)).where(col(TaskRun.task_id) == task_id).scalar_subquery()
+    await session.execute(
+        update(TaskRun)
+        .where(col(TaskRun.run_id) == latest, col(TaskRun.status) == TASK_RUNNING)
+        .values(status=status, completed_at=utc_now())
+    )
 
 
 # Type alias for tasks/groups that can be applied
