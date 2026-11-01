@@ -82,3 +82,8 @@ test("attempts stamped before created_at stay on the axis", () => {
   expect(rows[0].queued).toBeNull();
   expect(rows[0].blocked).toBeNull();
 });
+
+test("a very large job lays out without exceeding argument limits", () => {
+  const many = Array.from({ length: 60_000 }, (_, i) => task(`t${i}`, [[i % 50, (i % 50) + 1, "COMPLETED"]], 0));
+  expect(() => timelineRows(many, T0 + 60_000)).not.toThrow();
+});

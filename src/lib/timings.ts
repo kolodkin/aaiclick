@@ -53,8 +53,9 @@ export function timelineRows(
   const spans = rows.flatMap((r) => [r.blocked, r.queued, ...r.waits, ...r.attempts.map((a) => a.span)]);
   const starts = [...rows.map((r) => ms(r.task.created_at)), ...spans.map((s) => s?.start ?? Infinity)];
   // Every span start counts, not just created_at: host clock skew can put an attempt first.
-  const origin = rows.length ? Math.min(...starts) : now;
-  const end = Math.max(origin + 1000, ...spans.map((s) => s?.end ?? origin));
+  // reduce, not Math.min(...xs): spreading every span overflows the call stack on big jobs.
+  const origin = rows.length ? starts.reduce((a, b) => Math.min(a, b), Infinity) : now;
+  const end = spans.reduce((a, s) => Math.max(a, s?.end ?? origin), origin + 1000);
   return { origin, end, rows };
 }
 

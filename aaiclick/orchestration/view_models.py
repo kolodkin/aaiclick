@@ -461,9 +461,10 @@ def build_job_graph_view(
 
 
 def _ready_at(task: Task, upstream: set[int], tasks_by_id: Mapping[int, Task]) -> datetime | None:
-    if not upstream:
+    # A dependency on a task removed by retention counts as met, as in the scheduler's join.
+    finished = [tasks_by_id[i].completed_at for i in upstream if i in tasks_by_id]
+    if not finished:
         return task.created_at
-    finished = [tasks_by_id[i].completed_at if i in tasks_by_id else None for i in upstream]
     if any(at is None for at in finished):
         return None
     return max(at for at in finished if at is not None)

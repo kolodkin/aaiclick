@@ -11,7 +11,7 @@ from sqlmodel import update
 
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.models import TASK_COMPLETED, TASK_FAILED, Group, Task
+from aaiclick.orchestration.models import DEPENDENCY_TASK, TASK_COMPLETED, TASK_FAILED, Dependency, Group, Task
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.testing import set_task_runs
@@ -95,6 +95,27 @@ async def test_timings_ready_at_through_group(orch_ctx):
     await _finish(second, late)
 
     assert _by_id(await jobs.get_job_timings(job.id))[after.id].ready_at == late
+
+
+async def test_timings_ignores_swept_upstream(orch_ctx):
+    """A dependency on a task removed by retention counts as met, as the scheduler's join treats it."""
+    job = await create_job("timings_swept", _SAMPLE_TASK)
+    task = create_task(_SAMPLE_TASK)
+    await commit_tasks(task, job_id=job.id)
+    async with get_sql_session() as session:
+        session.add(
+            Dependency(
+                previous_id=get_snowflake_id(),
+                previous_type=DEPENDENCY_TASK,
+                next_id=task.id,
+                next_type=DEPENDENCY_TASK,
+            )
+        )
+        await session.commit()
+
+    timing = _by_id(await jobs.get_job_timings(job.id))[task.id]
+
+    assert timing.ready_at == timing.created_at
 
 
 async def test_timings_unknown_ref(orch_ctx):
