@@ -410,7 +410,7 @@ python -m aaiclick job cancel <id>
 python -m aaiclick job list [--status RUNNING] [--like "%crawl%"] [--limit 20 --offset 40]
 python -m aaiclick job enable <name>          # Enable a registered job
 python -m aaiclick job disable <name>         # Disable a registered job
-python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--build | --image python:3.12]
+python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--build | --image python:3.12] [--replace]
 python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--entry-type module|shell|jvm] [--command 'python main.py'] [--command-env K=v] [--image python:3.12]
 python -m aaiclick registered-job list        # List registered jobs
 ```
