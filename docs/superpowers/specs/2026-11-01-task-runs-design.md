@@ -32,10 +32,13 @@ row to many `task_runs` rows. The `run_ids` / `run_statuses` JSON arrays on
 
 # Anti-Goals
 
-- A second source of truth for "the current run". The current run is the one
-  row with `status = RUNNING`; there is no index column.
-- Reintroducing the reaper double-write race. The Pod never writes
-  `task_runs`, exactly as it never wrote `run_statuses`.
+- A second source of truth for "the current run". The current run is the
+  task's latest row (`max(run_id)`), exactly as it is the last array entry
+  today; there is no index column.
+- Reintroducing the reaper double-write race. A container or Pod inserts its
+  own `RUNNING` row via `register_run`, as it appends to `run_statuses` today,
+  but never writes a terminal run status. Terminal writes stay with the host
+  worker and the reaper.
 
 # Constraints
 
@@ -62,8 +65,9 @@ real entity, which the Kubernetes runner design already treats them as.
 
 ```python
 class TaskRun(SQLModel, table=True):
-    """One attempt of a task. The in-flight attempt is the row with
-    ``status = RUNNING``; attempt N is the Nth row ordered by ``run_id``."""
+    """One attempt of a task. The in-flight attempt is the task's latest row
+    while its status is ``RUNNING``; attempt N is the Nth row ordered by
+    ``run_id``."""
 
     __tablename__: ClassVar[str] = "task_runs"
 
@@ -90,23 +94,35 @@ Statuses written to `task_runs.status`: `RUNNING`, `COMPLETED`, `FAILED`,
 | Today                                                                 | After                                                                                              |
 |-----------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
 | `register_run` appends to `run_ids` and `run_statuses`                | `register_run` inserts a `RUNNING` row with `started_at = now` and returns its `run_id`            |
-| `end_current_run(run_statuses, status)` rewrites the last array entry | `end_run_values(status)` → `UPDATE task_runs SET status, completed_at = now WHERE task_id = ? AND status = RUNNING` |
+| `end_current_run(run_statuses, status)` rewrites the last array entry | `end_run(session, task_id, status)` → `UPDATE task_runs SET status, completed_at = now WHERE run_id = (latest for task) AND status = RUNNING` |
 | `fail_run_values(run_statuses, error)` + a prior SELECT               | Task `UPDATE` as today minus the array; run `UPDATE` above in the same transaction; SELECT dropped |
 | `_apply_task_status` mirrors status into the array                    | Same transaction issues the run `UPDATE` for `COMPLETED` / `FAILED`                                |
 | `release_cancelled_run` stamps `CANCELLED` on the last entry          | Run `UPDATE` with `CANCELLED`                                                                      |
 | Dead-worker sweep selects `run_statuses` per task, then updates        | One task `UPDATE` plus one run `UPDATE` per expired task; the SELECT is gone                        |
 
-The run `UPDATE` is idempotent and race-free by construction: a second ender
-finds no `RUNNING` row and affects zero rows. Callers do not check its
-rowcount; the task-level status guard remains the verdict, as today.
+The run `UPDATE` targets the latest row only while it is still `RUNNING`, so
+a finished run keeps how it ended and a second ender affects zero rows. It is
+issued only after the task-level write landed, in the same transaction: in the
+ORM paths the task row is already locked and checked, and in the statement
+paths (`_set_pending_failure_cleanup`, the dead-worker sweep) the run `UPDATE`
+runs only when the task `UPDATE`'s rowcount is nonzero. A fenced late writer
+whose epoch guard failed therefore never touches the new attempt's row. The
+task-level status guard remains the verdict, as today.
 
 `clear_task` drops `table_run_refs` for the latest run. It reads
 `max(run_id)` per task from `task_runs` instead of `run_ids[-1]`. It does not
-delete run rows; a cleared task's earlier attempts remain visible, as today.
+delete or close run rows: a cleared task's latest row may stay `RUNNING`, as
+its last array entry does today. `get_cleanup_tasks` in `handler.py` and
+`clean_task_runs` in `background_worker.py` read `run_ids[-1]` the same way
+and get the same `max(run_id)` subquery.
 
-`delete_job` relies on the `ondelete="CASCADE"` FK. SQLite needs
-`PRAGMA foreign_keys` on, so the builder checks how the existing cascades
-(`remote_task_results`, dependencies) are enforced and follows that.
+`_delete_job_data` in `background_worker.py` deletes child rows with explicit
+SQL rather than FK cascade; `task_runs` gets its own `DELETE` there. The
+`ondelete="CASCADE"` on the FK is belt and braces for Postgres.
+
+`register_run` is called from inside module containers and Pods as well as
+from the host. Today it silently tolerates a missing task; an FK insert will
+not, so the missing-task case must raise or be checked explicitly.
 
 # Reads
 
@@ -117,9 +133,12 @@ delete run rows; a cleared task's earlier attempts remain visible, as today.
   detail endpoint serves one task, so no N+1. The builder confirms the list
   view does not use it.
 - `get_run_count` queries the table. The output-rescue check in
-  `execution_worker.py` compares a count taken before launch against the count
-  after, so the worker captures the pre-launch count explicitly instead of
-  reading `len(task.run_ids)` off the claimed ORM object.
+  `execution_worker.py` detects "the container never registered its run" by
+  the count not having moved. The worker captures the pre-launch count
+  explicitly instead of reading `len(task.run_ids)` off the claimed ORM
+  object. `log_test_helpers.container_registers_run` models the same thing.
+- `task_to_detail` is sync, so the `COUNT(*)` is fetched in `get_task` and
+  passed in.
 
 # API and UI
 
