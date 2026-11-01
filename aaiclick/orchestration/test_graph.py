@@ -11,6 +11,7 @@ from .graph import (
     drop_cycle_edges,
     group_member_tasks,
     rollup_status,
+    upstream_task_ids,
 )
 from .models import (
     DEPENDENCY_GROUP,
@@ -159,3 +160,14 @@ def test_build_graph_edges_skips_group_edge_with_nothing_to_anchor():
 )
 def test_rollup_status(statuses, expected):
     assert rollup_status(statuses) == expected
+
+
+def test_upstream_task_ids_task_to_task():
+    assert upstream_task_ids([_task_dep(1, 2), _task_dep(2, 3)], {}) == {2: {1}, 3: {2}}
+
+
+def test_upstream_task_ids_group_waits_on_direct_members_only():
+    """Matches the scheduler: a nested group's tasks do not gate the dependent."""
+    dependencies = [DependencyRow(10, DEPENDENCY_GROUP, 9, DEPENDENCY_TASK)]
+
+    assert upstream_task_ids(dependencies, {10: {1, 2}, 11: {3}}) == {9: {1, 2}}
