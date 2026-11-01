@@ -48,6 +48,7 @@ class TaskTimingView(BaseModel):
     name: str
     status: TaskStatus
     created_at: datetime
+    ready_at: datetime | None  # last upstream finished; created_at if no deps; None while blocked
     attempts: list[TaskAttemptView] = Field(default_factory=list)  # reused, ordered by run_id
 
 class JobTimingsView(BaseModel):
@@ -61,6 +62,10 @@ class JobTimingsView(BaseModel):
   same constant-size-SQL reasoning as `get_job_graph`.
 - Router: `@router.get("/{ref}/timings")` next to `/{ref}/graph`, same auth.
 - Never-run tasks appear with `attempts=[]`.
+- `ready_at` = latest `completed_at` among the task's upstream tasks, with
+  group dependencies expanded onto member tasks the way `get_job_graph` does
+  (reuse that expansion, don't re-derive it). No upstream → `created_at`. Any
+  upstream unfinished → `None`. Computed on read; no migration.
 - No server-side ordering beyond attempts-by-`run_id`; the client sorts.
 - Runs from before a `clear_task` stay in `attempts` — the clear's
   `CANCELLED` run marks the boundary. Gaps between attempts are labelled
@@ -98,14 +103,18 @@ live updates arrive like Graph's.
   `completed_at`, or now while anything is running.
 - Rows: sorted by first attempt's `started_at`; never-run tasks last, no bar.
 - Per row, left to right:
-  - Queue lead-in (faint dotted): `created_at` → first attempt start.
+  - **Blocked** (grey dots): `created_at` → `ready_at`, waiting on upstream.
+  - **Queued** (yellow hatch): `ready_at` → first attempt start, ready but no
+    worker.
   - Each attempt as a bar, coloured by its status (reuse `b-<STATUS>`
     classes). Earlier attempts faded.
-  - Backoff (faint dotted): previous attempt end → next attempt start.
+  - **Waiting** (yellow hatch): previous attempt end → next attempt start.
   - A `RUNNING` attempt extends to now.
   - A gap still open (task `PENDING` after a failed attempt) is drawn to now.
     *(builder call)*
-- Hover a row: queued Xs, per attempt "#n STATUS Ys".
+- Hover a row: blocked Xs · queued Ys, then per attempt "#n STATUS Zs · waited Ws".
+- **Total** column: `ready_at` → last attempt end (or now).
+- Never-run row: "not started" in place of a bar.
 - Click a row: `@task <id>`, same as Table.
 - **parallel** strip: count of attempts running at each instant, as a step
   bar/heat strip under the rows.
@@ -116,18 +125,21 @@ live updates arrive like Graph's.
 +----------------------------------------------------------------+
 | [Table] [Graph] [Timings] [Duration]                           |
 |                                                                |
-| NAME                 DURATION                                  |
-| flaky_load           [xx][xx][=================]  3.1s         |
+| NAME                 RUN TIME                                  |
+| flaky_load #3        [=================]          1.9s         |
 | extract              [==============]             1.8s         |
 | report               [========]                   1.0s         |
+| flaky_load #2        [xx]                         0.6s         |
+| flaky_load #1        [xx]                         0.5s         |
 +----------------------------------------------------------------+
 ```
 
-- One row per task that has run, all bars starting at 0, sorted longest first,
-  with the total beside it. Never-run tasks are omitted.
-- Duration = sum of all attempts' run time; queue and gaps excluded. The bar
-  is segmented per attempt, coloured by status, so retry cost is visible.
-- Hover and click as in Timings.
+- One row per **attempt**, all bars starting at 0, sorted longest first, with
+  the run time beside it. Bar coloured by the attempt's status.
+- Name: task name, plus ` #n` when the task has more than one attempt.
+- Run time = attempt `started_at` → `completed_at` (or now while `RUNNING`).
+- Never-run tasks are omitted; a footer counts them.
+- Click: `@task <id>`. Hover: status and start time.
 
 Rendering: plain divs positioned with CSS percentages; no chart dependency.
 Re-render on a 1s tick while the job is `RUNNING` or `PENDING`, so live bars
