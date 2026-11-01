@@ -3,7 +3,7 @@ from __future__ import annotations
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.models import JOB_CANCELLED, JOB_PENDING
-from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
+from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobTimingsView, JobView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
@@ -67,6 +67,15 @@ async def test_job_stats(orch_ctx, app_client):
     assert response.status_code == 200
     stats = JobStatsView.model_validate(response.json())
     assert stats.job_id == created.id
+
+
+async def test_job_timings(orch_ctx, app_client):
+    created = await create_job("http_timings", simple_task)
+
+    response = await app_client.get(f"{API_PREFIX}/jobs/{created.id}/timings")
+
+    assert response.status_code == 200
+    assert JobTimingsView.model_validate(response.json()).job_id == created.id
 
 
 async def test_cancel_job(orch_ctx, app_client):
