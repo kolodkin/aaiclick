@@ -96,7 +96,7 @@ export function useTask(id: string) {
 // whatever its status says (PENDING may be cleared, UPSTREAM_FAILED never ran).
 export type LogTask = Pick<TaskDetail, "id" | "status" | "runs">;
 
-export function useTaskLogs({ id, status, runs }: LogTask, attempt: number | null) {
+export function useTaskLogs({ id, status, runs = 0 }: LogTask, attempt: number | null) {
   const started = isTaskStarted(status);
   const terminal = isTerminalTask(status);
   const qc = useQueryClient();

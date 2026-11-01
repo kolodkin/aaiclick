@@ -1008,30 +1008,30 @@ export interface components {
              * Array
              * @default 0
              */
-            array: number;
+            array?: number;
             /** Default */
             default?: string | null;
             /**
              * Description
              * @default
              */
-            description: string;
+            description?: string;
             /**
              * Fieldtype
              * @default s
              * @enum {string}
              */
-            fieldtype: "s" | "a";
+            fieldtype?: "s" | "a";
             /**
              * Low Cardinality
              * @default false
              */
-            low_cardinality: boolean;
+            low_cardinality?: boolean;
             /**
              * Nullable
              * @default false
              */
-            nullable: boolean;
+            nullable?: boolean;
             /** Type */
             type: string;
         };
@@ -1056,7 +1056,7 @@ export interface components {
              * @default read
              * @enum {string}
              */
-            scope: "read" | "write" | "admin";
+            scope?: "read" | "write" | "admin";
         };
         /** CreateUserRequest */
         CreateUserRequest: {
@@ -1069,7 +1069,7 @@ export interface components {
              * @default viewer
              * @enum {string}
              */
-            role: "viewer" | "member" | "admin";
+            role?: "viewer" | "member" | "admin";
             /** Username */
             username: string;
         };
@@ -1087,7 +1087,7 @@ export interface components {
              * Scope
              * @default persistent
              */
-            scope: string;
+            scope?: string;
             /**
              * Updated At
              * Format: date-time
@@ -1102,7 +1102,7 @@ export interface components {
              * Name
              * @default
              */
-            name: string;
+            name?: string;
             /** Queries */
             queries: {
                 [key: string]: components["schemas"]["ObjectQuery"];
@@ -1111,7 +1111,7 @@ export interface components {
              * Scope
              * @default persistent
              */
-            scope: string;
+            scope?: string;
         };
         /**
          * DashboardResults
@@ -1196,13 +1196,13 @@ export interface components {
              * Attaches Build
              * @default false
              */
-            attaches_build: boolean;
+            attaches_build?: boolean;
             /**
              * Kind
              * @default dependency
              * @enum {string}
              */
-            kind: "dependency" | "build";
+            kind?: "dependency" | "build";
             /** Source Id */
             source_id: string;
             /** Target Id */
@@ -1229,7 +1229,7 @@ export interface components {
              * Is Image Build
              * @default false
              */
-            is_image_build: boolean;
+            is_image_build?: boolean;
             /**
              * Kind
              * @enum {string}
@@ -1264,7 +1264,7 @@ export interface components {
              * @default viewer
              * @enum {string}
              */
-            role: "viewer" | "member" | "admin";
+            role?: "viewer" | "member" | "admin";
             /** Username */
             username: string;
         };
@@ -1287,7 +1287,7 @@ export interface components {
              * Completed Tasks
              * @default 0
              */
-            completed_tasks: number;
+            completed_tasks?: number;
             /**
              * Created At
              * Format: date-time
@@ -1326,7 +1326,7 @@ export interface components {
              * Total Tasks
              * @default 0
              */
-            total_tasks: number;
+            total_tasks?: number;
         };
         /**
          * JobGraphView
@@ -1337,7 +1337,7 @@ export interface components {
              * Dropped Cycle Edges
              * @default 0
              */
-            dropped_cycle_edges: number;
+            dropped_cycle_edges?: number;
             /** Edges */
             edges?: components["schemas"]["GraphEdgeView"][];
             /** Job Id */
@@ -1385,7 +1385,7 @@ export interface components {
              * Completed Tasks
              * @default 0
              */
-            completed_tasks: number;
+            completed_tasks?: number;
             /**
              * Created At
              * Format: date-time
@@ -1420,7 +1420,7 @@ export interface components {
              * Total Tasks
              * @default 0
              */
-            total_tasks: number;
+            total_tasks?: number;
         };
         /**
          * LayoutEdgeView
@@ -1478,7 +1478,7 @@ export interface components {
              * Mfa Enabled
              * @default false
              */
-            mfa_enabled: boolean;
+            mfa_enabled?: boolean;
             /**
              * Role
              * @enum {string}
@@ -1562,26 +1562,26 @@ export interface components {
              * @default json
              * @enum {string}
              */
-            fmt: "json" | "csv";
+            fmt?: "json" | "csv";
             /**
              * Limit
              * @default 100
              */
-            limit: number;
+            limit?: number;
             /** Object */
             object: string;
             /**
              * Offset
              * @default 0
              */
-            offset: number;
+            offset?: number;
             /** Order By */
             order_by?: components["schemas"]["OrderBy"][];
             /**
              * Scope
              * @default persistent
              */
-            scope: string;
+            scope?: string;
             /** Where */
             where?: string | null;
         };
@@ -1783,7 +1783,7 @@ export interface components {
              * Build
              * @default false
              */
-            build: boolean;
+            build?: boolean;
             /** Default Kwargs */
             default_kwargs?: {
                 [key: string]: unknown;
@@ -1794,7 +1794,7 @@ export interface components {
              * Enabled
              * @default true
              */
-            enabled: boolean;
+            enabled?: boolean;
             /** Entrypoint */
             entrypoint: string;
             /** Git Remote */
@@ -1805,7 +1805,7 @@ export interface components {
              * Name
              * @default
              */
-            name: string;
+            name?: string;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
             /** Resources */
@@ -1824,7 +1824,7 @@ export interface components {
              * Build
              * @default false
              */
-            build: boolean;
+            build?: boolean;
             /**
              * Created At
              * Format: date-time
@@ -1873,7 +1873,7 @@ export interface components {
              * Build
              * @default false
              */
-            build: boolean;
+            build?: boolean;
             /** Command */
             command?: string[] | null;
             /** Command Env */
@@ -1887,7 +1887,7 @@ export interface components {
              * @default module
              * @enum {string}
              */
-            entry_type: "module" | "shell";
+            entry_type?: "module" | "shell";
             /** Git Branch */
             git_branch?: string | null;
             /** Git Remote */
@@ -2011,7 +2011,7 @@ export interface components {
              * Scope
              * @default persistent
              */
-            scope: string | null;
+            scope?: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -2030,7 +2030,7 @@ export interface components {
              * Name
              * @default
              */
-            name: string;
+            name?: string;
             /** Object */
             object: string;
             /** Order By */
@@ -2039,7 +2039,7 @@ export interface components {
              * Scope
              * @default persistent
              */
-            scope: string | null;
+            scope?: string | null;
             /** Where */
             where?: string | null;
         };
@@ -2156,7 +2156,7 @@ export interface components {
              * Is Image Build
              * @default false
              */
-            is_image_build: boolean;
+            is_image_build?: boolean;
             /** Job Id */
             job_id: string;
             /** Kwargs */
@@ -2167,7 +2167,7 @@ export interface components {
              * Max Retries
              * @default 0
              */
-            max_retries: number;
+            max_retries?: number;
             /** Name */
             name: string;
             /** Result */
@@ -2178,7 +2178,7 @@ export interface components {
              * Runs
              * @default 0
              */
-            runs: number;
+            runs?: number;
             /** Started At */
             started_at?: string | null;
             /**
@@ -2249,7 +2249,7 @@ export interface components {
              * Is Image Build
              * @default false
              */
-            is_image_build: boolean;
+            is_image_build?: boolean;
             /** Job Id */
             job_id: string;
             /** Name */
@@ -2274,7 +2274,7 @@ export interface components {
              * Token Type
              * @default bearer
              */
-            token_type: string;
+            token_type?: string;
         };
         /** UserView */
         UserView: {
