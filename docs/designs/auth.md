@@ -48,7 +48,8 @@ Password-reset variables are listed in their own section.
     is disabled, every request is allowed, and the server logs a single startup
     `WARNING`. `local start` binds `127.0.0.1` by default, and the server answers
     only a loopback `Host` header or one listed in `AAICLICK_ALLOWED_HOSTS`
-    (comma-separated), so DNS rebinding cannot reach it from a web page.
+    (comma-separated), so DNS rebinding cannot reach it from a web page — see
+    [DNS Rebinding](../user_guide/dns_rebinding.md).
     `--host 0.0.0.0` opens the server to the network with no auth.
 
 # Data Model

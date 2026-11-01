@@ -78,6 +78,7 @@ nav:
     - Task Interface: user_guide/task_interface.md
     - Container Images: user_guide/container_images.md
     - Deployment: user_guide/deployment.md
+    - DNS Rebinding: user_guide/dns_rebinding.md
     - Sandbox: user_guide/sandbox.md
     - Lineage: user_guide/lineage.md
     - Operation Log: user_guide/oplog.md

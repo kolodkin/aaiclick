@@ -141,7 +141,7 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
     Local mode has auth off: anyone who can reach the port is admin. Use
     distributed mode for per-user logins. To block DNS rebinding the server
     answers only loopback `Host` headers, so list the names browsers use in
-    `AAICLICK_ALLOWED_HOSTS` — see [Auth](../designs/auth.md).
+    `AAICLICK_ALLOWED_HOSTS` — see [DNS Rebinding](dns_rebinding.md).
 
     ```bash
     AAICLICK_ALLOWED_HOSTS=203.0.113.7,aaiclick.lan \
