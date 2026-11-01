@@ -25,7 +25,7 @@ vehicle with **only** `command_env` and `AAICLICK_IO_DIR` (no DB credentials
 reach the image), waits, and reads `out.json` back. The one difference is the
 argv: the class name, which the image's `ENTRYPOINT` — the SDK bootstrap —
 receives; the runner cannot know a JVM classpath, the image owns it. The shim
-never touches `run_ids` or `task_logs`, so the host registers each attempt
+never touches `task_runs` or `task_logs`, so the host registers each attempt
 (`register_host_log_run`) and follows the container's output into
 `task_logs`.
 
