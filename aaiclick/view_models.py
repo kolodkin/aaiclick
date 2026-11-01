@@ -144,8 +144,6 @@ class RegisterJobRequest(BaseModel):
     git_remote: str | None = None
     dockerfile: str | None = None
     resources: dict[str, Any] | None = None
-    # Overwrite an existing registration of the same name; every field is
-    # replaced, so omitted ones (e.g. schedule) are cleared.
     replace: bool = False
 
     @model_validator(mode="after")

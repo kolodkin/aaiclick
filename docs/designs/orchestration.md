@@ -344,9 +344,8 @@ Catalog of known jobs, separate from individual runs. Each entry stores entrypoi
 
 ## Registration & CRUD
 
-- `register_job(name, entrypoint, schedule, default_kwargs, preservation_mode, enabled)` — create a new catalog entry
+- `register_job(name, entrypoint, schedule, default_kwargs, preservation_mode, enabled, replace)` — create a catalog entry; `replace=True` overwrites an existing one
 - `get_registered_job(name)` — lookup by name
-- `upsert_registered_job(...)` — insert or update
 - `enable_job(name)` / `disable_job(name)` — toggle enabled, recompute `next_run_at`
 - `list_registered_jobs(enabled_only)` — list all or enabled only
 

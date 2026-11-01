@@ -23,9 +23,6 @@ from aaiclick.orchestration.registered_jobs import (
 from aaiclick.orchestration.registered_jobs import (
     register_job as _register_job_impl,
 )
-from aaiclick.orchestration.registered_jobs import (
-    upsert_registered_job as _upsert_registered_job_impl,
-)
 from aaiclick.orchestration.view_models import (
     RegisteredJobView,
     registered_job_to_view,
@@ -94,9 +91,7 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     callable (validated before persisting), or ``Invalid`` if the image-source
     fields contradict each other (see ``register_job``).
 
-    With ``request.replace`` an existing registration is overwritten instead:
-    every stored field (schedule, enabled, default_kwargs, image settings)
-    takes the request's value, so omitted fields are cleared.
+    ``request.replace`` overwrites an existing registration instead of raising.
 
     Entrypoint validation is skipped for containerized registrations
     (``image`` or ``build``): the entrypoint resolves inside the image at run
@@ -106,8 +101,7 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     if request.image is None and not request.build:
         _validate_entrypoint(request.entrypoint)
     try:
-        register = _upsert_registered_job_impl if request.replace else _register_job_impl
-        registered = await register(
+        registered = await _register_job_impl(
             name=request.name,
             entrypoint=request.entrypoint,
             schedule=request.schedule,
@@ -119,6 +113,7 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             git_remote=request.git_remote,
             dockerfile=request.dockerfile,
             resources=request.resources,
+            replace=request.replace,
         )
     except RegisteredJobAlreadyExists as exc:
         raise Conflict(str(exc)) from exc
