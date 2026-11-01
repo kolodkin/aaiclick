@@ -100,9 +100,11 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
             "`uvicorn aaiclick.server.app:app` in distributed mode."
         )
     if host not in LOOPBACK_HOSTS:
-        raise RuntimeError(
-            f"'local start' runs with auth disabled and binds loopback only, not {host!r}. "
-            "Use distributed mode to serve other machines."
+        logger.warning(
+            "local mode has no auth — %s:%d is open to every client that can reach it; "
+            "list browser-facing host names in AAICLICK_ALLOWED_HOSTS",
+            host,
+            port,
         )
 
     # Inline: keep the [server] extra optional — users without it never hit this import.
