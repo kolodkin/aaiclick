@@ -1,7 +1,9 @@
-# Job Timings View
+# Job Timings and Duration Views
 
-A third tab on the job detail page, beside **Table** and **Graph**: every task
-as horizontal bars on a shared time axis, Gantt-style.
+Two new tabs on the job detail page, beside **Table** and **Graph**:
+
+- **Timings** — every task as horizontal bars on a shared time axis, Gantt-style.
+- **Duration** — tasks ranked longest to shortest.
 
 ## Intent
 
@@ -11,7 +13,7 @@ Answer, at a glance, why a job took as long as it did:
 - **Idle gaps** — stretches where nothing in the job ran.
 - **Parallelism** — how many tasks ran at once; a mostly-sequential job is obvious.
 - **Retries** — earlier failed attempts and the backoff between them.
-- **Which task took longest** — a second mode ranks tasks by duration.
+- **Which task took longest** — the Duration tab.
 
 Non-goals: zoom/pan, dependency arrows (Graph covers those), group nesting,
 CLI or MCP exposure.
@@ -67,20 +69,21 @@ class JobTimingsView(BaseModel):
 
 ## UI
 
-Route: `@job <name> timings` → `view: "timings"`, and
-`@job <name> timings duration` → ranked mode. `JobViewMode` widens to
-`"table" | "graph" | "timings"`; the sort mode rides on the route
-(`timingsSort: "start" | "duration"`) so links stay shareable.
+Routes: `@job <name> timings` → `view: "timings"`, `@job <name> duration` →
+`view: "duration"`. `JobViewMode` widens to
+`"table" | "graph" | "timings" | "duration"`; links stay shareable.
+
+Both tabs read the same `useJobTimings` query.
 
 Hook: `useJobTimings(ref)`, query key `["job-timings", ref]`, added to
 `LIVE_KEYS` in `src/api/events.ts` — `TaskRun` is already a watched model, so
 live updates arrive like Graph's.
 
-### Start mode (default)
+### Timings tab
 
 ```
 +----------------------------------------------------------------+
-| [Table] [Graph] [Timings]     [by start] [by duration]         |
+| [Table] [Graph] [Timings] [Duration]                           |
 |                                                                |
 | NAME                0s      1s      2s      3s      4s      5s |
 | extract           ..[======]                                   |
@@ -107,12 +110,24 @@ live updates arrive like Graph's.
 - **parallel** strip: count of attempts running at each instant, as a step
   bar/heat strip under the rows.
 
-### Duration mode
+### Duration tab
 
-- Same rows, one bar each, all starting at 0, sorted longest first, with the
-  number beside it. Duration = sum of all attempts' run time (queue and
-  backoff excluded).
-- Parallel strip and queue/backoff hidden — no shared time axis.
+```
++----------------------------------------------------------------+
+| [Table] [Graph] [Timings] [Duration]                           |
+|                                                                |
+| NAME                 DURATION                                  |
+| flaky_load           [xx][xx][=================]  3.1s         |
+| extract              [==============]             1.8s         |
+| report               [========]                   1.0s         |
++----------------------------------------------------------------+
+```
+
+- One row per task that has run, all bars starting at 0, sorted longest first,
+  with the total beside it. Never-run tasks are omitted.
+- Duration = sum of all attempts' run time; queue and gaps excluded. The bar
+  is segmented per attempt, coloured by status, so retry cost is visible.
+- Hover and click as in Timings.
 
 Rendering: plain divs positioned with CSS percentages; no chart dependency.
 Re-render on a 1s tick while the job is `RUNNING` or `PENDING`, so live bars
