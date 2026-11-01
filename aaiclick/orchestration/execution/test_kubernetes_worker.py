@@ -13,6 +13,7 @@ import pytest
 
 from aaiclick.data.object.refs import native_ref
 
+from ...testing import get_task_runs
 from ..kubernetes_config import KubernetesConfig
 from ..logging import read_task_logs
 from ..models import TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, Task
@@ -352,8 +353,8 @@ async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path)
     )
     stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, spec)
 
-    assert len(stored.run_ids) == 1
-    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    (run,) = await get_task_runs(stored.id)
+    lines = await read_task_logs(stored.id, run.run_id)
     assert [(line.stream, line.text) for line in lines] == [("stdout", "pod says hi")]
     applied = json.loads((tmp_path / "applied.json").read_text())
     task = applied["spec"]["containers"][0]

@@ -88,6 +88,20 @@ async def test_logs_read_one_attempt(orch_ctx, attempt, expected_text, expected_
     assert [(a.attempt, a.status) for a in result.attempts] == [(1, TASK_FAILED), (2, TASK_COMPLETED)]
 
 
+async def test_logs_attempts_carry_times(orch_ctx):
+    """Attempts list each run's start and end even when no run wrote logs."""
+    job = await create_job("logs_attempt_times", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    await set_task_runs(task.id, [11, 12], [TASK_FAILED, TASK_COMPLETED])
+
+    result = await get_task_logs(task.id)
+
+    assert result.available is False
+    assert [a.attempt for a in result.attempts] == [1, 2]
+    assert all(isinstance(a.started_at, datetime) for a in result.attempts)
+    assert all(a.completed_at is not None for a in result.attempts)
+
+
 @pytest.mark.parametrize(
     "run_ids, attempt",
     [

@@ -15,6 +15,7 @@ from ..background.handler import COMPLETE_JOB_SQL
 from ..execution.claiming import cancel_job, complete_task_and_roll_up, update_task_status
 from ..execution.execution_worker import register_execution_worker
 from ..execution.pg_handler import CLAIM_NEXT_TASK_SQL
+from ..execution.runner import register_run
 from ..factories import create_job
 from ..jobs import get_tasks_for_job
 from ..models import TASK_RUNNING, Task
@@ -244,6 +245,16 @@ async def test_task_status_write_publishes_one_signal(orch_ctx, live_bus):
     await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
         await update_task_status(task.id, TASK_RUNNING)
+    assert len(signals) == 1
+
+
+async def test_register_run_publishes_one_signal(orch_ctx, live_bus):
+    """A new attempt changes the task's run count, so the UI must hear about it."""
+    job = await create_job("events_register_run", SAMPLE_TASK)
+    task = (await get_tasks_for_job(job.id))[0]
+    await asyncio.sleep(SETTLE)
+    async with recording(live_bus) as signals:
+        await register_run(task.id)
     assert len(signals) == 1
 
 

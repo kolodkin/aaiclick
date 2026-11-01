@@ -182,7 +182,7 @@ class BackgroundWorker:
         A task scheduled for retry keeps its pins: they hold its input tables
         for the next attempt.
         """
-        run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
+        run_ids_to_clean = [str(t.run_id) for t in tasks if t.run_id is not None]
         if run_ids_to_clean:
             await self._handler.clean_task_runs(session, run_ids_to_clean)
         for t in pin_tasks:
@@ -401,6 +401,7 @@ class BackgroundWorker:
             await session.execute(
                 text(f"DELETE FROM remote_task_results WHERE task_id IN ({job_tasks})"), {"job_id": job_id}
             )
+            await session.execute(text(f"DELETE FROM task_runs WHERE task_id IN ({job_tasks})"), {"job_id": job_id})
 
             # Delete ref tables for tables belonging to this job
             await _delete_table_refs(session, table_names)

@@ -5,7 +5,6 @@ Concrete implementations live in sqlite_handler.py and pg_handler.py.
 
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import NamedTuple, cast
@@ -32,7 +31,7 @@ from ..models import (
     TASK_UPSTREAM_FAILED,
     Task,
     TaskStatus,
-    fail_run_values,
+    end_run,
 )
 from ..sql_utils import in_clause
 
@@ -265,17 +264,12 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     await _complete_job(session, job_id, failed)
 
 
-def _run_ids(value: list | str | None) -> list:
-    """Decode a raw ``run_ids`` column: a list on PostgreSQL, JSON text on SQLite."""
-    return value if isinstance(value, list) else json.loads(value or "[]")
-
-
 class CleanupTask(NamedTuple):
-    """Row returned by get_cleanup_tasks."""
+    """Row returned by get_cleanup_tasks; ``run_id`` is the latest attempt, if any."""
 
     task_id: int
     job_id: int
-    run_ids: list
+    run_id: int | None
     attempt: int
     max_retries: int
 
@@ -298,12 +292,14 @@ class BackgroundHandler(ABC):
         ownership is released here (as ``release_cancelled_run`` would).
         """
         expired = (col(Task.status) == TASK_RUNNING) & (col(Task.claim_expires_at) < now)
-        for task_id, run_statuses in (await session.execute(select(Task.id, Task.run_statuses).where(expired))).all():
-            await session.execute(
+        for task_id in (await session.execute(select(Task.id).where(expired))).scalars().all():
+            result = await session.execute(
                 update(Task)
                 .where(col(Task.id) == task_id, expired)
-                .values(**fail_run_values(run_statuses, DEAD_WORKER_ERROR), run_epoch=col(Task.run_epoch) + 1)
+                .values(status=TASK_PENDING_FAILURE_CLEANUP, error=DEAD_WORKER_ERROR, run_epoch=col(Task.run_epoch) + 1)
             )
+            if cast(CursorResult, result).rowcount > 0:
+                await end_run(session, task_id, TASK_FAILED)
         await session.execute(
             text(
                 "UPDATE tasks SET execution_worker_id = NULL "
@@ -347,12 +343,15 @@ class BackgroundHandler(ABC):
         stopped, so only unowned ones are returned; a failure-cleanup task
         was always reported back first.
         """
-        unowned = " AND execution_worker_id IS NULL" if status == TASK_PENDING_CANCELLED_CLEANUP else ""
+        unowned = " AND t.execution_worker_id IS NULL" if status == TASK_PENDING_CANCELLED_CLEANUP else ""
         result = await session.execute(
-            text(f"SELECT id, job_id, run_ids, attempt, max_retries FROM tasks WHERE status = :status{unowned}"),
+            text(
+                "SELECT t.id, t.job_id, (SELECT MAX(r.run_id) FROM task_runs r WHERE r.task_id = t.id), "
+                f"t.attempt, t.max_retries FROM tasks t WHERE t.status = :status{unowned}"
+            ),
             {"status": status},
         )
-        return [CleanupTask._make((*row[:2], _run_ids(row[2]), *row[3:])) for row in result.fetchall()]
+        return [CleanupTask._make(row) for row in result.fetchall()]
 
     @staticmethod
     async def transition_failure_cleanup(

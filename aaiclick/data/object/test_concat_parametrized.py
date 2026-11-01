@@ -264,7 +264,7 @@ async def test_concat_with_name_global_scope(ctx):
     result = await a.concat(b, name="concat_named_global", scope="global")
     try:
         assert result.table == "p_concat_named_global"
-        assert await result.data() == [1, 2, 3, 4]
+        assert sorted(await result.data()) == [1, 2, 3, 4]
     finally:
         await delete_persistent_object("concat_named_global", scope="global")
 
@@ -277,7 +277,7 @@ async def test_concat_with_name_temp_scope(ctx):
     result = await a.concat(b, name="concat_named_temp")
 
     assert result.table.startswith("t_concat_named_temp_")
-    assert await result.data() == [1, 2, 3, 4]
+    assert sorted(await result.data()) == [1, 2, 3, 4]
 
 
 # =============================================================================

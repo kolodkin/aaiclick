@@ -30,9 +30,9 @@ async def _insert_tasks(engine, job_id, statuses):
             await session.execute(
                 text(
                     "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, "
-                    "status, created_at, max_retries, attempt, run_statuses) "
+                    "status, created_at, max_retries, attempt) "
                     "VALUES (:id, :job_id, 'test.func', 'test', '{}', "
-                    ":status, :now, 0, 0, '[]')"
+                    ":status, :now, 0, 0)"
                 ),
                 {
                     "id": job_id * 100 + idx,
@@ -49,9 +49,9 @@ async def _insert_task(engine, *, task_id, job_id, status, group_id=None):
         await session.execute(
             text(
                 "INSERT INTO tasks (id, job_id, group_id, entrypoint, name, kwargs, "
-                "status, created_at, max_retries, attempt, run_statuses) "
+                "status, created_at, max_retries, attempt) "
                 "VALUES (:id, :job_id, :group_id, 'test.func', 'test', '{}', "
-                ":status, :now, 0, 0, '[]')"
+                ":status, :now, 0, 0)"
             ),
             {
                 "id": task_id,

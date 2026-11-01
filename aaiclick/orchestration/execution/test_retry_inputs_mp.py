@@ -11,6 +11,7 @@ from sqlmodel import select
 
 from aaiclick.data.object.refs import native_ref
 
+from ...testing import get_task_runs
 from ..background.background_worker import BackgroundWorker
 from ..background.test_failure_cleanup import run_cleanup_pass, run_failure_cleanup
 from ..fixtures.retry_pipelines import retry_pipeline
@@ -55,7 +56,7 @@ async def test_retry_reads_its_input(retried_run):
 async def test_retry_records_both_attempts(retried_run):
     _, consumer = retried_run
     assert consumer.attempt == 1
-    assert consumer.run_statuses == [TASK_FAILED, TASK_COMPLETED]
+    assert [r.status for r in await get_task_runs(consumer.id)] == [TASK_FAILED, TASK_COMPLETED]
 
 
 async def test_success_releases_input_pins(retried_run):

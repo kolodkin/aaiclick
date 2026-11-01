@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import type { LogLine, TaskAttempt } from "../api/types";
 import { useTaskLogs, type LogTask } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
-import { parseUtc } from "../lib/format";
+import { attemptTitle, parseUtc } from "../lib/format";
 import { logTone } from "../lib/logTone";
 import { isTaskStarted, isTerminalTask, statusClass } from "../lib/status";
 
@@ -60,7 +60,7 @@ function AttemptPicker({
           type="button"
           className={`log-try${a.attempt === current ? " on" : ""}`}
           aria-pressed={a.attempt === current}
-          title={`Attempt ${a.attempt}: ${a.status}`}
+          title={attemptTitle(a)}
           data-testid={`log-try-${a.attempt}`}
           onClick={() => onPick(a.attempt)}
         >
