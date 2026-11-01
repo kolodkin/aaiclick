@@ -3,6 +3,8 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-yaml
+        # --unsafe: mkdocs.yml needs the !!python/name tag for Mermaid fences.
+        args: [--unsafe]
         # Helm chart templates are Go templates that render to YAML, not valid
         # standalone YAML (unquoted `{{ .Values.x }}`, multi-doc `---`).
         exclude: '^(test_e2e/kubernetes/chart|aaiclick/deploy/templates/helm/aaiclick)/templates/'

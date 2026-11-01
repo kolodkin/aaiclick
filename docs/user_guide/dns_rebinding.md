@@ -7,17 +7,11 @@ guard stops it.
 
 # Normal use
 
-```
-You type localhost:5255 in the browser
-            │
-            ▼
-Browser sends the request, labeled  Host: localhost
-            │
-            ▼
-Server: is "localhost" on my list?  ──► yes
-            │
-            ▼
-Request handled. You are admin.
+```mermaid
+flowchart TD
+    A[You type localhost:5255 in the browser] --> B[Browser sends the request<br>labeled Host: localhost]
+    B --> C{Server: is localhost<br>on my list?}
+    C -- yes --> D[Request handled.<br>You are admin.]
 ```
 
 # The attack
@@ -26,19 +20,15 @@ The attacker owns two cheap things: a website, `evil.com`, and the DNS server
 that answers "what address is evil.com?". DNS is the phone book; the attacker
 writes the entry and can change it any time.
 
-```
-1. You open evil.com in a tab. Your aaiclick server is still running.
-   evil.com's DNS answers:  evil.com = 203.0.113.9  (attacker's machine)
-   The page loads and its script starts running in your browser.
-
-2. That DNS answer had a lifetime of a few seconds. The browser forgets it.
-
-3. The script asks the browser: fetch http://evil.com:5255/api/jobs
-   Browser asks DNS again: what address is evil.com?
-   evil.com's DNS now answers:  evil.com = 127.0.0.1  (your own machine)
-
-4. Browser connects to 127.0.0.1:5255. That is your aaiclick server.
-   The browser labels the request  Host: evil.com  — the name it asked for.
+```mermaid
+flowchart TD
+    A[You open evil.com in a tab.<br>Your aaiclick server is still running.] --> B[Browser asks evil.com's DNS:<br>what address is evil.com?]
+    B --> C[DNS answers 203.0.113.9<br>the attacker's machine<br>with a lifetime of a few seconds]
+    C --> D[Page loads.<br>Its script starts running in your browser.]
+    D --> E[Script: fetch http://evil.com:5255/api/jobs]
+    E --> F[DNS answer expired.<br>Browser asks evil.com's DNS again.]
+    F --> G[DNS now answers 127.0.0.1<br>your own machine]
+    G --> H[Browser connects to 127.0.0.1:5255<br>your aaiclick server<br>labeled Host: evil.com]
 ```
 
 The browser allows this because its rule is "a page may only talk to its own
@@ -51,14 +41,10 @@ The browser always writes the site's real name into `Host`; a script cannot
 fake it. The server drops any local-mode request whose `Host` is not on its
 list.
 
-```
-Script sends request, labeled  Host: evil.com
-            │
-            ▼
-Server: is "evil.com" on my list?  ──► no
-            │
-            ▼
-Server answers 400. Nothing happens.
+```mermaid
+flowchart TD
+    A[Script sends request<br>labeled Host: evil.com] --> B{Server: is evil.com<br>on my list?}
+    B -- no --> C[Server answers 400.<br>Nothing happens.]
 ```
 
 The list:
@@ -79,11 +65,10 @@ aaiclick tab's memory, and the browser does not add the header on its own. The
 attacker can reach the server but cannot prove who they are, so the server
 answers 401.
 
-```
-Script sends request, no Authorization header
-            │
-            ▼
-Server: no token  ──► 401. Nothing happens.
+```mermaid
+flowchart TD
+    A[Script sends request<br>no Authorization header] --> B{Server: token present?}
+    B -- no --> C[Server answers 401.<br>Nothing happens.]
 ```
 
 # Real-world examples
