@@ -25,7 +25,7 @@ export function JobsTable({ jobs, onPrompt }: { jobs: JobView[]; onPrompt: (v: s
               <StatusBadge status={j.status} reason={j.error} />
             </td>
             <td>
-              <ProgressBar done={j.completed_tasks ?? 0} total={j.total_tasks ?? 0} />
+              <ProgressBar done={j.completed_tasks} total={j.total_tasks} />
             </td>
             <td>{relativeTime(j.created_at)}</td>
             <td className="mono">{durationBetween(j.started_at, j.completed_at)}</td>

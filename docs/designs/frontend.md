@@ -130,7 +130,9 @@ Two files, created two different ways:
   pipes the server's schema (`python -m aaiclick.server.dump_openapi`, which
   prints `app.openapi()`) through `openapi-typescript`. It mirrors the *entire*
   API — every path, operation, and model. Treat it like a lockfile: machine-
-  owned, not meant to be read.
+  owned, not meant to be read. `--default-non-nullable false` makes fields
+  with a server default optional, so requests may omit them. Responses get
+  the same optional types, so readers need a fallback.
 - **`src/api/types.ts`** — hand-written, ~30 lines. It holds no field
   definitions; it re-exports the handful of models the SPA uses under ergonomic
   names, borrowing their shapes from `schema.ts`:

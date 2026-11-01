@@ -41,7 +41,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
           items={[
             { k: "Task ID", v: `#${task.id}`, mono: true },
             { k: "Job", v: String(task.job_id), mono: true },
-            { k: "Attempt", v: `${task.attempt}/${task.max_retries}`, mono: true },
+            { k: "Attempt", v: `${task.attempt}/${task.max_retries ?? 0}`, mono: true },
             {
               k: "Execution worker",
               v: task.execution_worker_id == null ? "—" : String(task.execution_worker_id),

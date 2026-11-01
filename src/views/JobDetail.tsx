@@ -64,7 +64,7 @@ export function JobDetail({
             { k: "Started", v: relativeTime(job.started_at) },
             { k: "Completed", v: relativeTime(job.completed_at) },
             { k: "Duration", v: durationMs(job.duration_ms) },
-            { k: "Progress", v: <ProgressBar done={job.completed_tasks ?? 0} total={job.total_tasks ?? 0} /> },
+            { k: "Progress", v: <ProgressBar done={job.completed_tasks} total={job.total_tasks} /> },
           ]}
         />
         {job.error && <div className="err">{job.error}</div>}
