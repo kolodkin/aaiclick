@@ -43,11 +43,14 @@ async def test_local_mode_returns_synthetic_admin(monkeypatch):
         pytest.param("[::1]:5255", 200, id="ipv6-loopback"),
         pytest.param("evil.example:5255", 400, id="rebound-domain"),
         pytest.param("127.0.0.1.evil.example", 400, id="loopback-prefix"),
+        pytest.param("203.0.113.7", 200, id="allowed-ip"),
+        pytest.param("AAIClick.example.com:80", 200, id="allowed-name-case-port"),
     ],
 )
-async def test_local_mode_answers_only_loopback_hosts(monkeypatch, anon_client, host, status):
+async def test_local_mode_answers_only_allowed_hosts(monkeypatch, anon_client, host, status):
     """DNS rebinding reaches an open local server through the browser; its Host header gives it away."""
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
+    monkeypatch.setenv("AAICLICK_ALLOWED_HOSTS", "203.0.113.7, aaiclick.example.com")
     response = await anon_client.get("/health", headers={"host": host})
     assert response.status_code == status
 

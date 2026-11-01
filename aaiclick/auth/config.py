@@ -11,7 +11,7 @@ import os
 from typing import NamedTuple
 from urllib.parse import quote
 
-from ..backend import is_local
+from ..backend import LOOPBACK_HOSTS, is_local
 
 ENV_SECRET = "AAICLICK_JWT_SECRET"
 ENV_ACCESS_TTL = "AAICLICK_JWT_ACCESS_TTL"
@@ -19,6 +19,7 @@ ENV_REFRESH_TTL = "AAICLICK_JWT_REFRESH_TTL"
 ENV_ADMIN_USERNAME = "AAICLICK_ADMIN_USERNAME"
 ENV_ADMIN_PASSWORD = "AAICLICK_ADMIN_PASSWORD"
 ENV_PUBLIC_URL = "AAICLICK_PUBLIC_URL"
+ENV_ALLOWED_HOSTS = "AAICLICK_ALLOWED_HOSTS"
 
 
 ENV_PASSWORD_RESET_TTL = "AAICLICK_PASSWORD_RESET_TTL"
@@ -37,6 +38,12 @@ class AdminSeed(NamedTuple):
 def auth_enabled() -> bool:
     """Enforced in distributed mode, disabled in local mode (hardcoded convention)."""
     return not is_local()
+
+
+def allowed_hosts() -> frozenset[str]:
+    """Host names an open (local-mode) server answers: loopback plus ``AAICLICK_ALLOWED_HOSTS``."""
+    extra = {h.strip().lower() for h in os.getenv(ENV_ALLOWED_HOSTS, "").split(",") if h.strip()}
+    return LOOPBACK_HOSTS | extra
 
 
 def jwt_secret() -> str | None:
