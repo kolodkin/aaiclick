@@ -22,13 +22,11 @@ writes the entry and can change it any time.
 
 ```mermaid
 flowchart TD
-    A[You open evil.com in a tab.<br>Your aaiclick server is still running.] --> B[Browser asks evil.com's DNS:<br>what address is evil.com?]
-    B --> C[DNS answers 203.0.113.9<br>the attacker's machine<br>with a lifetime of a few seconds]
-    C --> D[Page loads.<br>Its script starts running in your browser.]
-    D --> E[Script: fetch http://evil.com:5255/api/jobs]
-    E --> F[DNS answer expired.<br>Browser asks evil.com's DNS again.]
-    F --> G[DNS now answers 127.0.0.1<br>your own machine]
-    G --> H[Browser connects to 127.0.0.1:5255<br>your aaiclick server<br>labeled Host: evil.com]
+    A[You open evil.com in a tab.<br>Your aaiclick server is still running.] --> B[evil.com's DNS: evil.com = 203.0.113.9<br>the attacker's machine, valid a few seconds]
+    B --> C[Page loads.<br>Its script starts running in your browser.]
+    C --> D[Script: fetch http://evil.com:5255/api/v0/jobs]
+    D --> E[Answer expired. evil.com's DNS now says:<br>evil.com = 127.0.0.1, your own machine]
+    E --> F[Browser connects to 127.0.0.1:5255<br>your aaiclick server<br>labeled Host: evil.com]
 ```
 
 The browser allows this because its rule is "a page may only talk to its own
@@ -51,7 +49,7 @@ The list:
 
 ```
 Always on it:   localhost, 127.0.0.1, ::1
-You can add:    AAICLICK_ALLOWED_HOSTS=aaiclick.lan,192.168.1.5
+You can add:    AAICLICK_ALLOWED_HOSTS=203.0.113.7,aaiclick.lan
 ```
 
 Add names only when you run `--host 0.0.0.0` and open the UI by those names.
@@ -61,9 +59,7 @@ Each name you add is trusted, so list only names whose DNS you control.
 
 Distributed mode requires an `Authorization: Bearer` token on every request.
 The frontend sets that header itself; a script on `evil.com` cannot read your
-aaiclick tab's memory, and the browser does not add the header on its own. The
-attacker can reach the server but cannot prove who they are, so the server
-answers 401.
+aaiclick tab's memory, and the browser does not add the header on its own.
 
 ```mermaid
 flowchart TD
