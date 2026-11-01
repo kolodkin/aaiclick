@@ -303,9 +303,9 @@ modify it, `--git-sha` per run). Python and REST use `image` / `build`.
 Container vs Pod is the worker's `AAICLICK_RUNNER` — see
 [Deployment](deployment.md).
 
-Registering an existing name fails (HTTP 409). Pass `--replace` (REST/MCP:
-`"replace": true`) to overwrite it — e.g. after a job's signature change
-leaves stale `default_kwargs`. Every field is replaced: omitting `--schedule`
+Registering an existing name fails (HTTP 409). Pass `--replace` (Python
+`replace=True`, REST/MCP `"replace": true`) to overwrite it — e.g. after a
+signature change leaves stale `default_kwargs`. Every field is replaced: omitting `--schedule`
 clears the schedule, and `enabled` resets to true.
 
 ## Enable, disable, list registrations
