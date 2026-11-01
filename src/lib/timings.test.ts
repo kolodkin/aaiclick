@@ -73,3 +73,12 @@ test("formatRun keeps a decimal under a minute", () => {
   expect(formatRun(2100)).toBe("2.1s");
   expect(formatRun(90_000)).toBe("1m 30s");
 });
+
+test("attempts stamped before created_at stay on the axis", () => {
+  const skewed = { ...task("early", [[-90, -60, "COMPLETED"]]), ready_at: at(0) };
+  const { origin, rows } = timelineRows([skewed], T0);
+  expect(origin).toBe(T0 - 90_000);
+  expect(rows[0].total).toBe(30_000);
+  expect(rows[0].queued).toBeNull();
+  expect(rows[0].blocked).toBeNull();
+});

@@ -17,6 +17,8 @@ const ms = (iso: string) => parseUtc(iso).getTime();
 const endOr = (iso: string | null | undefined, now: number) => (iso ? ms(iso) : now);
 // Clock skew can put an end before its start; never draw a negative width.
 const span = (start: number, end: number): Span => ({ start, end: Math.max(start, end) });
+// A wait of zero length (or negative, under skew) is not drawn at all.
+const gap = (start: number, end: number): Span | null => (end > start ? { start, end } : null);
 
 function row(t: TaskTimingView, now: number): TimelineRow {
   const created = ms(t.created_at);
@@ -28,16 +30,17 @@ function row(t: TaskTimingView, now: number): TimelineRow {
   }));
   const first = attempts[0]?.span.start;
   const last = attempts.at(-1);
-  const waits = attempts.slice(1).map((a, i) => span(attempts[i].span.end, a.span.start));
+  const waits = attempts.map((a, i) => (i ? gap(attempts[i - 1].span.end, a.span.start) : null));
   // A failed last attempt with the task back in PENDING is an open wait until the next run.
-  if (last && last.status !== "RUNNING" && t.status === "PENDING") waits.push(span(last.span.end, now));
+  if (last && last.status !== "RUNNING" && t.status === "PENDING") waits.push(gap(last.span.end, now));
   return {
     task: t,
-    blocked: ready === created ? null : span(created, ready ?? first ?? now),
-    queued: ready != null && first != null ? span(ready, first) : null,
+    blocked: gap(created, ready ?? first ?? now),
+    queued: ready != null && first != null ? gap(ready, first) : null,
     attempts,
-    waits,
-    total: ready != null && last ? Math.max(0, last.span.end - ready) : null,
+    waits: waits.filter((w): w is Span => w !== null),
+    // min(): a skewed clock can stamp the first attempt before ready_at.
+    total: ready != null && last && first != null ? last.span.end - Math.min(ready, first) : null,
   };
 }
 
@@ -47,10 +50,11 @@ export function timelineRows(
 ): { origin: number; end: number; rows: TimelineRow[] } {
   const rows = tasks.map((t) => row(t, now));
   rows.sort((a, b) => (a.attempts[0]?.span.start ?? Infinity) - (b.attempts[0]?.span.start ?? Infinity));
-  const starts = rows.map((r) => ms(r.task.created_at));
-  const origin = starts.length ? Math.min(...starts) : now;
-  const ends = rows.flatMap((r) => [r.blocked, r.queued, ...r.waits, ...r.attempts.map((a) => a.span)]);
-  const end = Math.max(origin + 1000, ...ends.map((s) => s?.end ?? origin));
+  const spans = rows.flatMap((r) => [r.blocked, r.queued, ...r.waits, ...r.attempts.map((a) => a.span)]);
+  const starts = [...rows.map((r) => ms(r.task.created_at)), ...spans.map((s) => s?.start ?? Infinity)];
+  // Every span start counts, not just created_at: host clock skew can put an attempt first.
+  const origin = rows.length ? Math.min(...starts) : now;
+  const end = Math.max(origin + 1000, ...spans.map((s) => s?.end ?? origin));
   return { origin, end, rows };
 }
 

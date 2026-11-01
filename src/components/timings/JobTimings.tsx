@@ -114,8 +114,8 @@ function hover(r: ReturnType<typeof timelineRows>["rows"][number]): string {
   ];
   if (head.some(Boolean)) lines.push(head.filter(Boolean).join(" · "));
   r.attempts.forEach((a, i) => {
-    const wait = r.waits[i];
-    const waited = wait && i < r.attempts.length - 1 ? ` · waited ${formatRun(wait.end - wait.start)}` : "";
+    const next = r.attempts[i + 1];
+    const waited = next ? ` · waited ${formatRun(Math.max(0, next.span.start - a.span.end))}` : "";
     lines.push(`#${a.attempt} ${a.status} ${formatRun(a.span.end - a.span.start)}${waited}`);
   });
   return lines.join("\n");
