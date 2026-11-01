@@ -50,11 +50,24 @@ const ADMIN: Cmd[] = [
   { code: "@audit", desc: "Request audit log — who called what, when.", cmd: "@audit" },
 ];
 
-function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => void }) {
+function CmdList({
+  items,
+  onPrompt,
+  disabled = false,
+}: {
+  items: Cmd[];
+  onPrompt: (v: string) => void;
+  disabled?: boolean;
+}) {
   return (
     <div className="cmd-list">
       {items.map((c) => (
-        <div key={c.code} className="cmd" onClick={() => onPrompt(c.cmd)}>
+        <div
+          key={c.code}
+          className={disabled ? "cmd disabled" : "cmd"}
+          aria-disabled={disabled}
+          onClick={disabled ? undefined : () => onPrompt(c.cmd)}
+        >
           <code>{c.code}</code>
           <span className="desc">{c.desc}</span>
         </div>
@@ -67,6 +80,9 @@ export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
   const { me } = useAuth();
   const sandbox = useSandboxConfig();
   const navigate = sandbox.data?.enabled ? [...NAVIGATE, SANDBOX] : NAVIGATE;
+  // Local mode (auth disabled): /auth/me returns a synthetic admin with no user row.
+  const local = me !== null && me.id === null;
+  const distOnly = local && <span className="dist-only"> (Distributed mode only)</span>;
   return (
     <>
       <h2>aaiclick</h2>
@@ -75,12 +91,12 @@ export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
       <CmdList items={navigate} onPrompt={onPrompt} />
       <div className="group-label">Actions</div>
       <CmdList items={ACTIONS} onPrompt={onPrompt} />
-      <div className="group-label">Account</div>
-      <CmdList items={ACCOUNT} onPrompt={onPrompt} />
+      <div className="group-label">Account{distOnly}</div>
+      <CmdList items={ACCOUNT} onPrompt={onPrompt} disabled={local} />
       {me?.role === "admin" && (
         <>
-          <div className="group-label">Administration</div>
-          <CmdList items={ADMIN} onPrompt={onPrompt} />
+          <div className="group-label">Administration{distOnly}</div>
+          <CmdList items={ADMIN} onPrompt={onPrompt} disabled={local} />
         </>
       )}
     </>
