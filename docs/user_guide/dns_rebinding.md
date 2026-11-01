@@ -85,3 +85,16 @@ Script sends request, no Authorization header
             ▼
 Server: no token  ──► 401. Nothing happens.
 ```
+
+# Real-world examples
+
+Local servers that trusted every caller and were fixed with the same `Host` check:
+
+| CVE                                                               | Product             | What the web page could do             |
+|-------------------------------------------------------------------|---------------------|----------------------------------------|
+| [CVE-2024-28224](https://nvd.nist.gov/vuln/detail/CVE-2024-28224) | Ollama < 0.1.29     | Call the full model API, delete models |
+| [CVE-2018-7160](https://nvd.nist.gov/vuln/detail/CVE-2018-7160)   | Node.js `--inspect` | Attach as debugger, run any code       |
+| [CVE-2018-5702](https://nvd.nist.gov/vuln/detail/CVE-2018-5702)   | Transmission ≤ 2.92 | Write arbitrary files via RPC          |
+
+The Ollama write-up by NCC Group is the clearest walk-through:
+[Technical Advisory: Ollama DNS Rebinding Attack](https://research.nccgroup.com/2024/04/08/technical-advisory-ollama-dns-rebinding-attack-cve-2024-28224/).
