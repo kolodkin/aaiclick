@@ -165,8 +165,8 @@ One SSE connection per UI session carries a single event kind, `changed`,
 with no payload. The client invalidates its whole React Query cache on each
 frame and REST supplies authoritative state — events are signals, not data.
 
-The signal itself is not a UI concept: it means "a `jobs`, `tasks` or
-`groups` row committed". The SSE stream is its first consumer, not its only
+The signal itself is not a UI concept: it means "a `jobs`, `tasks`,
+`groups` or `task_runs` row committed". The SSE stream is its first consumer, not its only
 one — see Consumers below. Layers 1-3 are shared; layers 4-7 are the
 browser's path through them.
 
@@ -181,7 +181,7 @@ path carries job or user data; only the final REST refetch does.
 
 | Layer            | Protocol                                                                        | Producer → consumer                                 | Handler                                                                                                                                          |
 |------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit                                                     |
+| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` / `task_runs` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit                                                     |
 | 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `events/postgres.py` — `PostgresTransport.before_commit` notifies; `feed` holds one `LISTEN` connection per consuming process, `state` tracks it |
 | 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each subscriber                         | `events/bus.py` — `EventBus.publish` / `close`, `EventBus.subscription()` → `Subscription.wait()`                                                |
 | 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                      | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns bus + listener per lifespan                                    |

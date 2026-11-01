@@ -58,10 +58,11 @@ the live epoch, so the Pod's row lands under the old epoch (ignored), the host
 reads its own captured epoch, and terminal status writes stay fenced exactly as
 today.
 
-!!! warning "The Pod must never write `Task.status` or `Task.run_statuses`"
+!!! warning "The Pod must never write `Task.status` or a terminal `task_runs` status"
     Terminal writes happen only in the host via `_handle_task_result`, or in the
     reaper via `mark_dead_workers`. The Pod writes only its own
-    `remote_task_results` row. Violating this reintroduces the double-write race the
+    `remote_task_results` row and, for module images, the `RUNNING` `task_runs`
+    row `register_run` opens. Violating this reintroduces the double-write race the
     reaper invariant exists to prevent.
 
 # Logs: Pod streams to ClickHouse

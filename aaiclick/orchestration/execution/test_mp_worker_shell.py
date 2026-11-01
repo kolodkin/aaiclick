@@ -9,6 +9,7 @@ from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_task
 from aaiclick.orchestration.models import Task
 from aaiclick.orchestration.orch_context import commit_tasks
+from aaiclick.testing import get_task_runs
 
 
 async def _persisted_shell_task(command, command_env=None) -> Task:
@@ -51,8 +52,8 @@ async def test_shell_in_child_streams_logs_to_clickhouse(orch_ctx_no_ch):
 
     refreshed = await get_task(task.id)
     assert refreshed is not None
-    assert len(refreshed.run_ids) == 1
-    assert read_logs_via_child(task.id, refreshed.run_ids[-1]) == ["first line", "second line"]
+    (run,) = await get_task_runs(task.id)
+    assert read_logs_via_child(task.id, run.run_id) == ["first line", "second line"]
 
 
 async def test_mp_shell_task_result_reaches_result_ref(orch_ctx_no_ch):

@@ -1,3 +1,5 @@
+import type { TaskAttempt } from "../api/types";
+
 function formatSeconds(secs: number): string {
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
@@ -30,6 +32,11 @@ export function durationBetween(start: string | null | undefined, end: string | 
   const from = parseUtc(start).getTime();
   const to = end ? parseUtc(end).getTime() : Date.now();
   return formatSeconds(Math.max(0, Math.round((to - from) / 1000)));
+}
+
+// A still-running attempt shows its elapsed time so far.
+export function attemptTitle(a: TaskAttempt): string {
+  return `Attempt ${a.attempt}: ${a.status} · started ${parseUtc(a.started_at).toLocaleString()} · ${durationBetween(a.started_at, a.completed_at)}`;
 }
 
 export function durationMs(ms: number | null | undefined): string {

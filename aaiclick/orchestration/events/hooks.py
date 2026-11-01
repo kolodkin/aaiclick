@@ -1,4 +1,4 @@
-"""Session listeners that turn a job/task/group write that changes rows into a change signal.
+"""Session listeners that turn a job/task/group/task-run write that changes rows into a change signal.
 
 Detection hooks the SQLAlchemy ``Session`` rather than each write site:
 roughly twenty call sites mutate these tables, many through raw SQL, and a
@@ -23,10 +23,10 @@ from sqlalchemy.sql import TableClause
 from sqlalchemy.sql.dml import UpdateBase
 from sqlalchemy.sql.elements import TextClause
 
-from ..models import Group, Job, Task
+from ..models import Group, Job, Task, TaskRun
 from .transport import get_transport
 
-_WATCHED_MODELS = (Job, Task, Group)
+_WATCHED_MODELS = (Job, Task, Group, TaskRun)
 # Derived, so adding a model to the tuple above updates the regex and the
 # Core-statement check together.
 WATCHED_TABLES = tuple(model.__tablename__ for model in _WATCHED_MODELS)

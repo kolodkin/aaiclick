@@ -5,6 +5,7 @@ from sqlmodel import select
 
 from ...datetime_utils import utc_now
 from ...snowflake import get_snowflake_id
+from ...testing import get_task_runs, set_task_runs
 from ..factories import create_job, create_task
 from ..lifecycle.db_lifecycle import TableRunRef
 from ..models import (
@@ -214,14 +215,29 @@ async def test_clear_drops_last_run_refs(orch_ctx):
     """A cleared run may be killed before it drops its run_refs; clear_task drops them."""
     job = await create_job("clear_run_refs", EP)
     t = _task(job.id, status=TASK_RUNNING)
-    t.run_ids = [111, 222]
     await _insert(t, TableRunRef(table_name="t_old", run_id="111"), TableRunRef(table_name="t_live", run_id="222"))
+    await set_task_runs(t.id, [111, 222])
 
     await clear_task(t.id)
 
     async with get_sql_session() as session:
         rows = (await session.execute(select(TableRunRef.run_id))).scalars().all()
     assert rows == ["111"]
+
+
+async def test_clear_closes_running_run_as_cancelled(orch_ctx):
+    """A cleared in-flight attempt is closed as CANCELLED, so it neither shows as
+    running forever nor absorbs the next attempt's outcome; finished runs keep theirs."""
+    job = await create_job("clear_closes_run", EP)
+    t = _task(job.id, status=TASK_RUNNING)
+    await _insert(t)
+    await set_task_runs(t.id, [111, 222], [TASK_FAILED, TASK_RUNNING])
+
+    await clear_task(t.id)
+
+    runs = await get_task_runs(t.id)
+    assert [r.status for r in runs] == [TASK_FAILED, TASK_CANCELLED]
+    assert runs[1].completed_at is not None
 
 
 async def test_clear_nonexistent_task_raises(orch_ctx):
@@ -249,16 +265,19 @@ async def test_clear_fences_stale_failure_cleanup(orch_ctx):
     """A stale-epoch _set_pending_failure_cleanup is a no-op; the matching epoch applies."""
     job = await create_job("fence_cleanup", EP)
     t = _task(job.id, status=TASK_RUNNING)
-    t.run_statuses = [TASK_RUNNING]
     await _insert(t)
+    await set_task_runs(t.id, [111], [TASK_RUNNING])
 
     await clear_task(t.id)  # run_epoch 0 -> 1
 
     await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=0)
     assert await _status(t.id) == TASK_PENDING
+    assert [r.status for r in await get_task_runs(t.id)] == [TASK_CANCELLED]
 
+    # The new attempt never registered a run, so it must not restamp the cleared one.
     await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=1)
     assert await _status(t.id) == TASK_PENDING_FAILURE_CLEANUP
+    assert [r.status for r in await get_task_runs(t.id)] == [TASK_CANCELLED]
 
 
 async def test_check_run_aborted(orch_ctx):

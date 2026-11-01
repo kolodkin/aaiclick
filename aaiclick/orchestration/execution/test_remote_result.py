@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 from sqlmodel import select
 
+from ...testing import get_task_runs
 from ..factories import create_job
 from ..models import TASK_RUNNING, RemoteTaskResult, Task
 from ..orch_context import get_sql_session
@@ -74,7 +75,7 @@ async def test_remote_entry_main_writes_failure_row_on_exception(orch_ctx):
 
 async def test_remote_entry_main_does_not_write_terminal_task_status(orch_ctx):
     """Reaper invariant: the entrypoint never flips the Task to a terminal
-    status — only run_ids / run_statuses are appended (TASK_RUNNING for the
+    status — only a RUNNING task_runs row is added (TASK_RUNNING for the
     attempt)."""
     job = await create_job(
         "test_remote_entry_invariant",
@@ -89,8 +90,7 @@ async def test_remote_entry_main_does_not_write_terminal_task_status(orch_ctx):
         task_after = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
     assert task_after.status == original_status
     assert task_after.error is None
-    assert len(task_after.run_ids) == 1
-    assert task_after.run_statuses == [TASK_RUNNING]
+    assert [r.status for r in await get_task_runs(task_after.id)] == [TASK_RUNNING]
 
 
 def test_collect_remote_result_returns_payload():

@@ -30,10 +30,12 @@ from ..models import (
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
     SELF_STOP_AFTER,
+    TASK_FAILED,
+    TASK_PENDING_FAILURE_CLEANUP,
     ExecutionWorker,
     ExecutionWorkerStatus,
     Task,
-    fail_run_values,
+    end_run,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
@@ -275,7 +277,9 @@ async def _follow_output(vehicle: TaskVehicle[H, P], task: Task, handle: H, run_
         await follow_vehicle_output(argv, task.id, task.job_id, run_id)
 
 
-async def _collect_unfollowed_output(vehicle: TaskVehicle[H, P], task: Task, handle: H) -> None:
+async def _collect_unfollowed_output(
+    vehicle: TaskVehicle[H, P], task: Task, handle: H, runs_before: int | None
+) -> None:
     """Handle an exited vehicle's output that no host follower read.
 
     A run the vehicle never registered (its bootstrap failed before
@@ -289,7 +293,7 @@ async def _collect_unfollowed_output(vehicle: TaskVehicle[H, P], task: Task, han
         if argv is None:
             return
         destination = task_logs_destination()
-        rescue = destination != TASK_LOGS_CONSOLE and await get_run_count(task.id) == len(task.run_ids)
+        rescue = destination != TASK_LOGS_CONSOLE and await get_run_count(task.id) == runs_before
         if not rescue and destination == TASK_LOGS_CLICKHOUSE:
             return
         run_id = await register_run(task.id) if rescue else None
@@ -322,6 +326,12 @@ async def drive_vehicle(
     ``task_logs`` and drained before ``cleanup`` removes it — fully after a
     clean exit, briefly after a vehicle error, not at all when unwinding.
     Without one, :func:`_collect_unfollowed_output` runs before ``cleanup``."""
+    # Best-effort like the output handling it feeds: a DB error here must not fail the run.
+    runs_before: int | None = None
+    try:
+        runs_before = await get_run_count(task.id)
+    except Exception:
+        logger.error("Failed to count runs for task %s", task.id, exc_info=True)
     handle = await vehicle.launch(task, execution_worker_id)
     follower = None
     if log_run_id is not None:
@@ -344,7 +354,7 @@ async def drive_vehicle(
             raise WorkerStopped
         drain_timeout = OUTPUT_FOLLOWER_DRAIN_TIMEOUT if error is None else OUTPUT_FOLLOWER_ERROR_GRACE
         if follower is None:
-            await _collect_unfollowed_output(vehicle, task, handle)
+            await _collect_unfollowed_output(vehicle, task, handle, runs_before)
         return vehicle.collect(handle, exit_code, error, cancelled.is_set(), payload)
     finally:
         done.set()
@@ -363,18 +373,18 @@ async def _set_pending_failure_cleanup(task_id: int, error: str, expected_epoch:
 
     Both guards sit in the UPDATE's WHERE clause, so they hold atomically on
     every backend, not only where ``FOR UPDATE`` locks the row; the rowcount
-    is the verdict. The prior SELECT only feeds ``run_statuses``.
+    is the verdict, and only a landed write closes the open run as FAILED.
     """
     async with get_sql_session() as session:
-        task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
-        if task is None:
-            return False
         stmt = update(Task).where(col(Task.id) == task_id, col(Task.status).not_in(CANCELLING_TASK_STATUSES))
         if expected_epoch is not None:
             stmt = stmt.where(col(Task.run_epoch) == expected_epoch)
-        result = await session.execute(stmt.values(**fail_run_values(task.run_statuses, error)))
+        result = await session.execute(stmt.values(status=TASK_PENDING_FAILURE_CLEANUP, error=error))
+        landed = cast(CursorResult, result).rowcount > 0
+        if landed:
+            await end_run(session, task_id, TASK_FAILED)
         await session.commit()
-        return cast(CursorResult, result).rowcount > 0
+        return landed
 
 
 async def register_execution_worker(

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -82,12 +82,13 @@ from ..models import (
     Group,
     Job,
     Task,
+    TaskRun,
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, ImageBuild, validate_task_entry
 from ..task_registry import fresh_task_registry
-from .claiming import update_job_status, update_task_status
+from .claiming import TaskNotFound, update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import TaskInfo, current_task_info, get_current_task_info
@@ -332,22 +333,21 @@ async def resolve_plain_kwargs(kwargs: dict, job_id: int) -> dict:
 
 
 async def register_run(task_id: int) -> int:
-    """Mint a per-attempt snowflake run_id and record the attempt on the Task.
+    """Mint a per-attempt snowflake run_id and open the attempt as a
+    ``RUNNING`` ``task_runs`` row.
 
-    Appends the new run_id to ``run_ids`` and ``TASK_RUNNING`` to
-    ``run_statuses``. Shared by ``execute_task`` (module tasks, in the task
-    process) and the shell vehicles (host side), so every attempt — module or
-    shell — keys its ClickHouse ``task_logs`` rows by a registered run_id.
+    Shared by ``execute_task`` (module tasks, in the task process) and the
+    shell vehicles (host side), so every attempt — module or shell — keys its
+    ClickHouse ``task_logs`` rows by a registered run_id.
+
+    Raises ``TaskNotFound`` for an unknown task: a run row is never orphaned.
     """
     run_id = get_snowflake_id()
     async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id))
-        db_task = result.scalar_one_or_none()
-        if db_task is not None:
-            db_task.run_ids = [*db_task.run_ids, run_id]
-            db_task.run_statuses = [*db_task.run_statuses, TASK_RUNNING]
-            session.add(db_task)
-            await session.commit()
+        if await session.get(Task, task_id) is None:
+            raise TaskNotFound(f"Task {task_id} not found")
+        session.add(TaskRun(run_id=run_id, task_id=task_id, status=TASK_RUNNING))
+        await session.commit()
     return run_id
 
 
@@ -355,13 +355,11 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
     """
     Execute a single task inside orch_context.
 
-    Generates a per-attempt run_id (snowflake) and appends it to the Task's
-    run_ids/run_statuses arrays; the attempt's output streams to CH
-    ``task_logs`` under that run_id.
+    Registers a per-attempt run_id (snowflake) as a ``task_runs`` row; the
+    attempt's output streams to CH ``task_logs`` under that run_id.
 
     Returns:
-        The task result. Caller is responsible for updating run_statuses to
-        the final status.
+        The task result. The caller closes the run with its final status.
 
     Shell tasks (``entry_type="shell"``) delegate to
     :func:`execute_shell_task` — every in-process caller gets the module/shell
@@ -545,10 +543,11 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
 
 
 async def get_run_count(task_id: int) -> int:
-    """How many attempts the task has registered (``len(run_ids)``)."""
+    """How many attempts the task has registered (``task_runs`` rows)."""
     async with get_sql_session() as session:
-        run_ids = (await session.execute(select(Task.run_ids).where(col(Task.id) == task_id))).scalar_one_or_none()
-    return len(run_ids or [])
+        return (
+            await session.execute(select(func.count()).select_from(TaskRun).where(col(TaskRun.task_id) == task_id))
+        ).scalar_one()
 
 
 async def register_host_log_run(task: Task, entry_type: EntryType) -> int | None:
