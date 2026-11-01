@@ -2112,11 +2112,18 @@ export interface components {
         };
         /**
          * TaskAttemptView
-         * @description One run of a task, from ``Task.run_ids`` / ``Task.run_statuses``.
+         * @description One run of a task, from ``task_runs``.
          */
         TaskAttemptView: {
             /** Attempt */
             attempt: number;
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
             /**
              * Status
              * @enum {string}
