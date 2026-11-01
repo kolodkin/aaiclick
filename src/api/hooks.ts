@@ -19,6 +19,7 @@ import type {
   InviteView,
   JobDetail,
   JobGraphView,
+  JobTimingsView,
   JobView,
   MfaSetupView,
   ObjectDetail,
@@ -72,6 +73,14 @@ export function useJobGraph(ref: string) {
   return useQuery({
     queryKey: ["job-graph", ref],
     queryFn: () => fetchJSON<JobGraphView>(`/jobs/${encodeURIComponent(ref)}/graph`),
+    enabled: ref.length > 0,
+  });
+}
+
+export function useJobTimings(ref: string) {
+  return useQuery({
+    queryKey: ["job-timings", ref],
+    queryFn: () => fetchJSON<JobTimingsView>(`/jobs/${encodeURIComponent(ref)}/timings`),
     enabled: ref.length > 0,
   });
 }

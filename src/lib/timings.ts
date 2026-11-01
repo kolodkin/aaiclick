@@ -62,7 +62,7 @@ export function parallelCounts(rows: TimelineRow[], origin: number, end: number,
   });
 }
 
-export type DurationRow = { taskId: string; label: string; status: TaskStatus; ms: number };
+export type DurationRow = { taskId: string; attempt: number; label: string; status: TaskStatus; ms: number };
 
 export function durationRows(tasks: TaskTimingView[], now: number): DurationRow[] {
   return tasks
@@ -70,6 +70,7 @@ export function durationRows(tasks: TaskTimingView[], now: number): DurationRow[
       const attempts = t.attempts ?? [];
       return attempts.map((a) => ({
         taskId: t.id,
+        attempt: a.attempt,
         label: attempts.length > 1 ? `${t.name} #${a.attempt}` : t.name,
         status: a.status,
         ms: Math.max(0, endOr(a.completed_at, now) - ms(a.started_at)),

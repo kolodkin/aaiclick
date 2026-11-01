@@ -28,5 +28,7 @@ describe("viewer routes", () => {
   test("existing routes still parse", () => {
     expect(parsePrompt("@jobs")).toEqual({ kind: "jobs" });
     expect(parsePrompt("@job x graph")).toEqual({ kind: "job", name: "x", view: "graph" });
+    expect(parsePrompt("@job x timings")).toEqual({ kind: "job", name: "x", view: "timings" });
+    expect(parsePrompt("@job x duration")).toEqual({ kind: "job", name: "x", view: "duration" });
   });
 });
