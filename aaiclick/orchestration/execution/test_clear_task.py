@@ -225,6 +225,21 @@ async def test_clear_drops_last_run_refs(orch_ctx):
     assert rows == ["111"]
 
 
+async def test_clear_closes_running_run_as_cancelled(orch_ctx):
+    """A cleared in-flight attempt is closed as CANCELLED, so it neither shows as
+    running forever nor absorbs the next attempt's outcome; finished runs keep theirs."""
+    job = await create_job("clear_closes_run", EP)
+    t = _task(job.id, status=TASK_RUNNING)
+    await _insert(t)
+    await set_task_runs(t.id, [111, 222], [TASK_FAILED, TASK_RUNNING])
+
+    await clear_task(t.id)
+
+    runs = await get_task_runs(t.id)
+    assert [r.status for r in runs] == [TASK_FAILED, TASK_CANCELLED]
+    assert runs[1].completed_at is not None
+
+
 async def test_clear_nonexistent_task_raises(orch_ctx):
     """Clearing a missing task raises TaskNotFound."""
     with pytest.raises(TaskNotFound, match="999999999"):
@@ -257,11 +272,12 @@ async def test_clear_fences_stale_failure_cleanup(orch_ctx):
 
     await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=0)
     assert await _status(t.id) == TASK_PENDING
-    assert [r.status for r in await get_task_runs(t.id)] == [TASK_RUNNING]
+    assert [r.status for r in await get_task_runs(t.id)] == [TASK_CANCELLED]
 
+    # The new attempt never registered a run, so it must not restamp the cleared one.
     await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=1)
     assert await _status(t.id) == TASK_PENDING_FAILURE_CLEANUP
-    assert [r.status for r in await get_task_runs(t.id)] == [TASK_FAILED]
+    assert [r.status for r in await get_task_runs(t.id)] == [TASK_CANCELLED]
 
 
 async def test_check_run_aborted(orch_ctx):

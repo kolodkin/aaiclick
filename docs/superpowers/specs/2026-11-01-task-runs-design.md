@@ -110,9 +110,10 @@ whose epoch guard failed therefore never touches the new attempt's row. The
 task-level status guard remains the verdict, as today.
 
 `clear_task` drops `table_run_refs` for the latest run. It reads
-`max(run_id)` per task from `task_runs` instead of `run_ids[-1]`. It does not
-delete or close run rows: a cleared task's latest row may stay `RUNNING`, as
-its last array entry does today. `get_cleanup_tasks` in `handler.py` and
+`max(run_id)` per task from `task_runs` instead of `run_ids[-1]`. It closes
+any still-`RUNNING` run of the cleared tasks as `CANCELLED`, so a cleared
+attempt neither reads as running forever nor absorbs the next attempt's
+outcome. Earlier attempts stay visible. `get_cleanup_tasks` in `handler.py` and
 `clean_task_runs` in `background_worker.py` read `run_ids[-1]` the same way
 and get the same `max(run_id)` subquery.
 

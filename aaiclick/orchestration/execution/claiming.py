@@ -389,6 +389,13 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
                 rph, rparams = in_clause(last_runs, "rid")
                 await session.execute(text(f"DELETE FROM table_run_refs WHERE run_id IN ({rph})"), rparams)
 
+            # Close the cleared in-flight run so it neither reads as running forever nor absorbs the next outcome.
+            await session.execute(
+                update(TaskRun)
+                .where(col(TaskRun.task_id).in_(batch), col(TaskRun.status) == TASK_RUNNING)
+                .values(status=TASK_CANCELLED, completed_at=utc_now())
+            )
+
             ph, params = in_clause(batch, "id")
             await session.execute(
                 text(
