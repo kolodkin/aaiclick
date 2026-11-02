@@ -17,14 +17,15 @@ import { openStream } from "./client";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 
-// The query keys a jobs/tasks/groups commit can change. Listed rather than
+// The query keys a jobs/tasks/groups commit can change — ["objects"] too, as
+// tasks write job objects and the commit that finishes them signals the stream. Listed rather than
 // invalidating everything, because two keys deliberately opt out of the
 // stream: ["task-logs"] is written outside the SQL commit (so it polls while a
 // task runs) and ["registered-jobs"] changes only through its own mutations.
 // An untargeted invalidateQueries() refetches both on every signal — up to
 // twice a second on a busy job, which is more traffic than the polling this
 // replaces.
-const LIVE_KEYS = [["jobs"], ["job"], ["job-graph"], ["job-timings"], ["task"]];
+const LIVE_KEYS = [["jobs"], ["job"], ["job-graph"], ["job-timings"], ["task"], ["objects"]];
 
 function invalidateLive(qc: QueryClient): void {
   for (const queryKey of LIVE_KEYS) void qc.invalidateQueries({ queryKey });

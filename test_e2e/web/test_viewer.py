@@ -69,7 +69,7 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
     menu = page.get_by_test_id("job-objects")
     menu.locator("summary").click()
-    items = menu.get_by_role("menuitem")
+    items = menu.locator("li a")
     assert items.all_inner_texts() == [
         "customers",
         "daily_totals",
@@ -102,5 +102,7 @@ def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
     page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
     menu = page.get_by_test_id("job-objects")
     menu.locator("summary").click()
-    playwright_api.expect(menu.get_by_role("menuitem")).to_have_count(6)
+    playwright_api.expect(menu.locator("li a")).to_have_count(6)
     shot("task-objects-menu-phone")
+    page.keyboard.press("Escape")
+    playwright_api.expect(menu.locator("li a").first).to_be_hidden()
