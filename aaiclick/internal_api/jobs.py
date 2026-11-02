@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from aaiclick.orchestration.execution import claiming
-from aaiclick.orchestration.models import TASK_COMPLETED, Dependency, Group, Job, Task
+from aaiclick.orchestration.graph import DependencyRow, upstream_task_ids
+from aaiclick.orchestration.models import TASK_COMPLETED, Dependency, Group, Job, Task, TaskRun
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
@@ -23,8 +24,10 @@ from aaiclick.orchestration.view_models import (
     JobDetail,
     JobGraphView,
     JobStatsView,
+    JobTimingsView,
     JobView,
     build_job_graph_view,
+    build_job_timings_view,
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
@@ -147,6 +150,34 @@ async def get_job(ref: RefId) -> JobDetail:
     return job_to_detail(job, tasks)
 
 
+async def _load_graph_rows(ref: RefId, session: AsyncSession) -> tuple[Job, list[Task], list[Group], list[Dependency]]:
+    """Resolve a job ref and load its tasks, groups and dependency rows."""
+    job, tasks = await _load_job_and_tasks(ref, session)
+    groups = list((await session.execute(select(Group).where(Group.job_id == job.id))).scalars().all())
+    if not tasks and not groups:
+        return job, tasks, groups, []
+
+    # Dependency rows are scoped by their endpoint ids, not by job — the
+    # table has no ``job_id``. Match with subqueries rather than inlining
+    # the ids: the SQL text stays constant-size so the statement cache
+    # hits, and a large job cannot blow SQLite's bind-parameter ceiling.
+    endpoint_ids = (
+        select(Task.id).where(Task.job_id == job.id).union_all(select(Group.id).where(Group.job_id == job.id))
+    )
+    dependencies = list(
+        (
+            await session.execute(
+                select(Dependency).where(
+                    col(Dependency.next_id).in_(endpoint_ids) | col(Dependency.previous_id).in_(endpoint_ids)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return job, tasks, groups, dependencies
+
+
 async def get_job_graph(ref: RefId) -> JobGraphView:
     """Return the job's dependency graph as task nodes and task-to-task edges.
 
@@ -154,30 +185,33 @@ async def get_job_graph(ref: RefId) -> JobGraphView:
     receives no ``Group`` or ``Dependency`` rows.
     """
     async with get_sql_session() as session:
-        job, tasks = await _load_job_and_tasks(ref, session)
-        groups = list((await session.execute(select(Group).where(Group.job_id == job.id))).scalars().all())
-        if not tasks and not groups:
-            return JobGraphView(job_id=job.id)
+        job, tasks, groups, dependencies = await _load_graph_rows(ref, session)
+    if not tasks and not groups:
+        return JobGraphView(job_id=job.id)
+    return build_job_graph_view(job, tasks, groups, dependencies)
 
-        # Dependency rows are scoped by their endpoint ids, not by job — the
-        # table has no ``job_id``. Match with subqueries rather than inlining
-        # the ids: the SQL text stays constant-size so the statement cache
-        # hits, and a large job cannot blow SQLite's bind-parameter ceiling.
-        endpoint_ids = (
-            select(Task.id).where(Task.job_id == job.id).union_all(select(Group.id).where(Group.job_id == job.id))
-        )
-        dependencies = list(
+
+async def get_job_timings(ref: RefId) -> JobTimingsView:
+    """Return each task's ready time and per-attempt spans for the Timings view."""
+    async with get_sql_session() as session:
+        job, tasks, _groups, dependencies = await _load_graph_rows(ref, session)
+        runs = list(
             (
                 await session.execute(
-                    select(Dependency).where(
-                        col(Dependency.next_id).in_(endpoint_ids) | col(Dependency.previous_id).in_(endpoint_ids)
-                    )
+                    select(TaskRun)
+                    .where(col(TaskRun.task_id).in_(select(Task.id).where(Task.job_id == job.id)))
+                    .order_by(col(TaskRun.run_id))
                 )
             )
             .scalars()
             .all()
         )
-    return build_job_graph_view(job, tasks, groups, dependencies)
+    group_members: dict[int, set[int]] = {}
+    for task in tasks:
+        if task.group_id is not None:
+            group_members.setdefault(task.group_id, set()).add(task.id)
+    rows = [DependencyRow(d.previous_id, d.previous_type, d.next_id, d.next_type) for d in dependencies]
+    return build_job_timings_view(job, tasks, runs, upstream_task_ids(rows, group_members))
 
 
 async def job_stats(ref: RefId) -> JobStatsView:

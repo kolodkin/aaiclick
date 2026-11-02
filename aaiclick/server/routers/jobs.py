@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from aaiclick.internal_api import jobs as jobs_api
-from aaiclick.orchestration.view_models import JobDetail, JobGraphView, JobStatsView, JobView
+from aaiclick.orchestration.view_models import JobDetail, JobGraphView, JobStatsView, JobTimingsView, JobView
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from ..auth import require_admin
@@ -54,6 +54,15 @@ async def job_stats(ref: RefId) -> JobStatsView:
 )
 async def job_graph(ref: RefId) -> JobGraphView:
     return await jobs_api.get_job_graph(ref)
+
+
+@router.get(
+    "/{ref}/timings",
+    response_model=JobTimingsView,
+    responses=problem_responses(404),
+)
+async def job_timings(ref: RefId) -> JobTimingsView:
+    return await jobs_api.get_job_timings(ref)
 
 
 @router.post(

@@ -54,6 +54,7 @@ from aaiclick.orchestration.models import (
     Job,
     JobStatus,
     Task,
+    TaskRun,
     TaskStatus,
 )
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, orch_context, task_scope
@@ -150,6 +151,17 @@ async def _build(job_name: str, states: Mapping[str, TaskState], job_status: Job
             task.completed_at = _offset(state.completed_offset_s)
             task.is_image_build = task.name == "build_image"
             session.add(task)
+            # One attempt per started task, so the Timings and Duration tabs have bars.
+            if task.started_at is not None:
+                session.add(
+                    TaskRun(
+                        run_id=get_snowflake_id(),
+                        task_id=task.id,
+                        status=state.status,
+                        started_at=task.started_at,
+                        completed_at=task.completed_at,
+                    )
+                )
 
         # Seed the job row too, or the header contradicts the tasks below it —
         # a PENDING job above a graph with RUNNING and FAILED nodes.
