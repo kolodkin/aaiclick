@@ -8,6 +8,7 @@ each spawned child). Shares ``_cancel_all_pending_tasks`` and
 
 from sqlmodel import select
 
+from ...testing import get_task_runs
 from ..background.test_failure_cleanup import run_failure_cleanup  # noqa: E402  (test-sibling import)
 from ..factories import create_job, create_task
 from ..models import (
@@ -110,7 +111,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, 
         t = result.scalar_one()
         assert t.status == TASK_COMPLETED
         assert t.attempt == 2
-        assert t.run_statuses == [TASK_FAILED, TASK_FAILED, TASK_COMPLETED]
+        assert [r.status for r in await get_task_runs(t.id)] == [TASK_FAILED, TASK_FAILED, TASK_COMPLETED]
         assert t.error is None
 
     async with get_sql_session() as session:

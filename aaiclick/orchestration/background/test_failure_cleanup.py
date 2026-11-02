@@ -8,7 +8,6 @@ Verifies that the background worker correctly:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
@@ -30,8 +29,10 @@ from .conftest import (
     insert_pin_ref,
     insert_run_ref,
     insert_task,
+    insert_task_run,
     insert_worker,
     make_worker,
+    task_run_statuses,
 )
 
 
@@ -98,10 +99,10 @@ async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
         status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=3,
-        run_ids="[111]",
         error="task failed",
         execution_worker_id=WORKER_ID,
     )
+    await insert_task_run(bg_db, 111, 100)
     await insert_run_ref(bg_db, "t_intermediate", "111")
 
     await make_worker(bg_db)._process_failure_cleanup()
@@ -126,9 +127,9 @@ async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
         status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=0,
-        run_ids="[111]",
         error="task failed",
     )
+    await insert_task_run(bg_db, 111, 100)
     await insert_run_ref(bg_db, "t_table", "111")
 
     await make_worker(bg_db)._process_failure_cleanup()
@@ -158,9 +159,9 @@ async def test_failure_cleanup_pin_refs(bg_db, max_retries, expected_pins):
         status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=max_retries,
-        run_ids="[111]",
         error="task failed",
     )
+    await insert_task_run(bg_db, 111, 100)
     await insert_pin_ref(bg_db, "t_upstream_data", 100)
     await insert_pin_ref(bg_db, "t_other_data", 100)
     await insert_pin_ref(bg_db, "t_upstream_data", 200)
@@ -182,9 +183,9 @@ async def test_failure_cleanup_completes_job_when_all_failed(bg_db):
         status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=0,
-        run_ids="[222]",
         error="oops",
     )
+    await insert_task_run(bg_db, 222, 101)
 
     await make_worker(bg_db)._process_failure_cleanup()
 
@@ -201,9 +202,9 @@ async def test_failure_cleanup_does_not_complete_job_with_retries(bg_db):
         status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=2,
-        run_ids="[111]",
         error="will retry",
     )
+    await insert_task_run(bg_db, 111, 100)
 
     await make_worker(bg_db)._process_failure_cleanup()
 
@@ -220,9 +221,10 @@ async def test_failure_cleanup_retry_backoff(bg_db):
         status="PENDING_FAILURE_CLEANUP",
         attempt=1,
         max_retries=5,
-        run_ids="[111, 222]",
         error="failed again",
     )
+    await insert_task_run(bg_db, 111, 100)
+    await insert_task_run(bg_db, 222, 100)
 
     before = utc_now()
     await make_worker(bg_db)._process_failure_cleanup()
@@ -260,7 +262,8 @@ async def test_failure_cleanup_bumps_run_epoch(bg_db, max_retries, expected_stat
     write would pass the epoch guard and land on another worker's run.
     """
     await insert_job(bg_db, 1000)
-    await insert_task(bg_db, 100, 1000, status="PENDING_FAILURE_CLEANUP", max_retries=max_retries, run_ids="[111]")
+    await insert_task(bg_db, 100, 1000, status="PENDING_FAILURE_CLEANUP", max_retries=max_retries)
+    await insert_task_run(bg_db, 111, 100)
     assert await _get_run_epoch(bg_db, 100) == 0
 
     await make_worker(bg_db)._process_failure_cleanup()
@@ -287,10 +290,10 @@ async def test_dead_worker_sweep_leaves_its_running_task(bg_db):
     assert (status, owner) == ("RUNNING", WORKER_ID)
 
 
-async def test_expired_claim_is_reclaimed_and_fenced(bg_db):
+async def test_dead_worker_sweep_closes_run_once(bg_db):
     """An expired RUNNING claim goes to PENDING_FAILURE_CLEANUP with its run
     closed as FAILED and a bumped ``run_epoch``, so the lost owner's late
-    writes are rejected."""
+    writes are rejected. A second sweep finds no open run and changes nothing."""
     await insert_job(bg_db, 1000)
     await insert_worker(bg_db, WORKER_ID)
     await insert_task(
@@ -298,19 +301,18 @@ async def test_expired_claim_is_reclaimed_and_fenced(bg_db):
         100,
         1000,
         status="RUNNING",
-        run_statuses='["FAILED", "RUNNING"]',
         execution_worker_id=WORKER_ID,
         claim_expired_by=timedelta(seconds=1),
     )
+    await insert_task_run(bg_db, 111, 100, status="FAILED")
+    await insert_task_run(bg_db, 222, 100, status="RUNNING")
     await insert_task(bg_db, 101, 1000, status="RUNNING", execution_worker_id=WORKER_ID)
 
+    await make_worker(bg_db)._release_expired_claims()
     await make_worker(bg_db)._release_expired_claims()
 
     status, _, _, error, _, _ = await _get_task_status(bg_db, 100)
     assert (status, error) == ("PENDING_FAILURE_CLEANUP", "Task claim expired (worker lost)")
     assert await _get_run_epoch(bg_db, 100) == 1
-    async with AsyncSession(bg_db) as session:
-        run_statuses = (await session.execute(text("SELECT run_statuses FROM tasks WHERE id = 100"))).scalar_one()
-    # A list on PostgreSQL, JSON text on SQLite.
-    assert (run_statuses if isinstance(run_statuses, list) else json.loads(run_statuses)) == ["FAILED", "FAILED"]
+    assert await task_run_statuses(bg_db, 100) == ["FAILED", "FAILED"]
     assert (await _get_task_status(bg_db, 101))[0] == "RUNNING"

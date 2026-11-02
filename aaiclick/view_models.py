@@ -144,6 +144,7 @@ class RegisterJobRequest(BaseModel):
     git_remote: str | None = None
     dockerfile: str | None = None
     resources: dict[str, Any] | None = None
+    replace: bool = False
 
     @model_validator(mode="after")
     def _default_name_from_entrypoint(self) -> RegisterJobRequest:

@@ -22,6 +22,7 @@ from .conftest import (
     insert_pin_ref,
     insert_run_ref,
     insert_task,
+    insert_task_run,
     insert_worker,
     make_worker,
 )
@@ -47,7 +48,8 @@ async def test_cancelled_cleanup_settles_unowned_task(bg_db):
     """An unowned cancelled task loses its last run's run_refs and its pin_refs
     and settles to CANCELLED; the cancelled job stays CANCELLED."""
     await insert_job(bg_db, 1000, status="CANCELLED")
-    await insert_task(bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]")
+    await insert_task(bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP")
+    await insert_task_run(bg_db, 111, 100)
     await insert_run_ref(bg_db, "t_partial", "111")
     await insert_pin_ref(bg_db, "t_upstream", 100)
     await insert_pin_ref(bg_db, "t_upstream", 200)
@@ -68,9 +70,8 @@ async def test_cancelled_cleanup_waits_for_owning_worker(bg_db):
     dropped until the worker reports the run back."""
     await insert_job(bg_db, 1000, status="CANCELLED")
     await insert_worker(bg_db, WORKER_ID)
-    await insert_task(
-        bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=WORKER_ID
-    )
+    await insert_task(bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", execution_worker_id=WORKER_ID)
+    await insert_task_run(bg_db, 111, 100)
     await insert_run_ref(bg_db, "t_partial", "111")
     await insert_pin_ref(bg_db, "t_upstream", 100)
 
@@ -106,10 +107,10 @@ async def test_expired_claim_releases_cancelled_task(bg_db):
         100,
         1000,
         status="PENDING_CANCELLED_CLEANUP",
-        run_ids="[111]",
         execution_worker_id=WORKER_ID,
         claim_expired_by=timedelta(seconds=1),
     )
+    await insert_task_run(bg_db, 111, 100)
     worker = make_worker(bg_db)
 
     await worker._release_expired_claims()

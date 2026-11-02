@@ -275,6 +275,7 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         dockerfile=args.dockerfile,
         git_remote=args.git_remote,
         image=args.image,
+        replace=args.replace,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)
@@ -919,6 +920,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--image",
         default=None,
         help="Default prebuilt image to run verbatim (no build stage); mutually exclusive with --build",
+    )
+    register_job_parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Overwrite an existing registration; omitted fields (e.g. --schedule) are cleared",
     )
     _add_json_flag(register_job_parser)
 

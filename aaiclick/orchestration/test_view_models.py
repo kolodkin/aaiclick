@@ -79,7 +79,6 @@ def _make_task(
     kwargs: dict | None = None,
     execution_worker_id: int | None = None,
     result: dict | None = None,
-    run_ids: list[int] | None = None,
     attempt: int = 1,
 ) -> Task:
     return Task(
@@ -96,7 +95,6 @@ def _make_task(
         execution_worker_id=execution_worker_id,
         result=result,
         attempt=attempt,
-        run_ids=run_ids or [],
     )
 
 
@@ -121,7 +119,7 @@ def test_task_to_view_omits_detail_fields():
 
 
 def test_task_to_detail_counts_runs_not_attempts():
-    detail = task_to_detail(_make_task(status=TASK_PENDING, attempt=0, run_ids=[11, 12]))
+    detail = task_to_detail(_make_task(status=TASK_PENDING, attempt=0), runs=2)
     assert detail.runs == 2
 
 

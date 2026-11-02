@@ -12,7 +12,7 @@ entry type, and the `log_path` plumbing disappears end to end.
 Module (Python) tasks already stream logs to CH via `capture_task_output`; their
 file tee is pure redundancy. Shell tasks are the opposite: their output lands
 **only** in a host file (host-shell pipe, docker `docker logs`, kubernetes
-`kubectl logs`), they never get `run_ids`, and `GET /tasks/{id}/logs` returns
+`kubectl logs`), they never get a registered run, and `GET /tasks/{id}/logs` returns
 `available=False` for them. The file is host-local, so shell logs are invisible
 cross-host today.
 
@@ -23,12 +23,11 @@ first) and a removal half (delete every file path and `log_path` column).
 
 ## Run registration
 
-`execute_task` currently mints a per-attempt snowflake `run_id` and appends it
-to `Task.run_ids` / `run_statuses`. That block is factored into a shared helper
-(`register_run(task_id) -> run_id` in `aaiclick/orchestration/execution/runner.py`)
-so shell vehicles can call it at launch. Shell tasks then key their CH log rows
-by a real `run_id`, and the existing `get_task_logs` read path (`run_ids[-1]`)
-works for them unchanged.
+Each attempt is a `task_runs` row keyed by a snowflake `run_id`, opened by a
+shared helper (`register_run(task_id) -> run_id` in
+`aaiclick/orchestration/execution/runner.py`) that shell vehicles call at launch.
+Shell tasks then key their CH log rows by a real `run_id`, and `get_task_logs`
+(latest `task_runs` row by default) works for them unchanged.
 
 ## Capture per runner
 

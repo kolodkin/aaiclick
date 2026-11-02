@@ -82,16 +82,18 @@ class TaskDetail(TaskView):
     result: dict[str, Any] | None = None
     execution_worker_id: SnowflakeId | None = None
     max_retries: int = 0
-    # Runs registered so far (``len(Task.run_ids)``), not ``attempt``: a cleared
+    # Runs registered so far (``task_runs`` rows), not ``attempt``: a cleared
     # task is ``PENDING`` with ``attempt = 0`` yet still has logs to show.
     runs: int = 0
 
 
 class TaskAttemptView(BaseModel):
-    """One run of a task, from ``Task.run_ids`` / ``Task.run_statuses``."""
+    """One run of a task, from ``task_runs``."""
 
     attempt: int
     status: TaskStatus
+    started_at: datetime
+    completed_at: datetime | None = None
 
 
 class TaskLogsView(BaseModel):
@@ -304,7 +306,7 @@ def task_to_view(task: Task) -> TaskView:
     )
 
 
-def task_to_detail(task: Task) -> TaskDetail:
+def task_to_detail(task: Task, runs: int) -> TaskDetail:
     return TaskDetail(
         id=task.id,
         job_id=task.job_id,
@@ -320,7 +322,7 @@ def task_to_detail(task: Task) -> TaskDetail:
         execution_worker_id=task.execution_worker_id,
         error=task.error,
         max_retries=task.max_retries,
-        runs=len(task.run_ids),
+        runs=runs,
     )
 
 

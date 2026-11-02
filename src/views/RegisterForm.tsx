@@ -33,6 +33,7 @@ export function RegisterForm({ name, onPrompt }: { name: string; onPrompt: (v: s
         default_kwargs: parsed,
         enabled,
         build: false,
+        replace: false,
       },
       {
         onSuccess: (rj) => {

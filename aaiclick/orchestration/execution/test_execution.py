@@ -23,7 +23,7 @@ from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
 )
-from aaiclick.orchestration.execution.claiming import update_task_status
+from aaiclick.orchestration.execution.claiming import TaskNotFound, update_task_status
 from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.execution_worker_context import get_current_task_info
@@ -34,6 +34,7 @@ from aaiclick.orchestration.execution.runner import (
     execute_shell_task,
     execute_task,
     finish_shell_result,
+    get_run_count,
     import_callback,
     register_returned_tasks,
     register_run,
@@ -72,7 +73,7 @@ from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
 from aaiclick.orchestration.result import TaskResult, task_result, tasks_list
 from aaiclick.orchestration.runner_config import ImageBuild
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.testing import seed_registry_row
+from aaiclick.testing import get_task_runs, seed_registry_row
 
 
 class _SampleModel(BaseModel):
@@ -268,7 +269,7 @@ async def test_execute_shell_task_splits_streams(orch_ctx):
     await execute_shell_task(task)
     refreshed = await get_task(task.id)
     assert refreshed is not None
-    lines = await read_task_logs(task.id, refreshed.run_ids[-1])
+    lines = await read_task_logs(task.id, (await get_task_runs(task.id))[-1].run_id)
     # Cross-stream ordering is approximate (two pipes) — compare as a set.
     assert {(line.stream, line.text) for line in lines} == {("stdout", "out line"), ("stderr", "err line")}
 
@@ -290,7 +291,7 @@ async def test_shell_output_goes_to_task_logs_destination(
     assert ("out line" in capsys.readouterr().out) is on_console
     refreshed = await get_task(task.id)
     assert refreshed is not None
-    texts = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
+    texts = [line.text for line in await read_task_logs(task.id, (await get_task_runs(task.id))[-1].run_id)]
     assert ("out line" in texts) is in_task_logs
 
 
@@ -303,12 +304,12 @@ async def test_module_output_goes_to_task_logs_destination(
     await run_job_tasks(job)
     assert ("This is stdout" in capsys.readouterr().out) is on_console
     task = (await get_tasks_for_job(job.id))[0]
-    texts = [line.text for line in await read_task_logs(task.id, task.run_ids[-1])]
+    texts = [line.text for line in await read_task_logs(task.id, (await get_task_runs(task.id))[-1].run_id)]
     assert ("This is stdout" in texts) is in_task_logs
 
 
-async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
-    """Each register_run call mints a distinct run_id and appends RUNNING."""
+async def test_register_run_inserts_running_rows(orch_ctx):
+    """Each register_run call mints a distinct run_id and inserts an open RUNNING row."""
     job = await create_job("register_run_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     task = (await get_tasks_for_job(job.id))[0]
 
@@ -316,10 +317,16 @@ async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
     run2 = await register_run(task.id)
 
     assert run1 != run2
-    refreshed = await get_task(task.id)
-    assert refreshed is not None
-    assert refreshed.run_ids == [run1, run2]
-    assert refreshed.run_statuses == [TASK_RUNNING, TASK_RUNNING]
+    runs = await get_task_runs(task.id)
+    assert [r.run_id for r in runs] == [run1, run2]
+    assert [r.status for r in runs] == [TASK_RUNNING, TASK_RUNNING]
+    assert all(r.completed_at is None for r in runs)
+
+
+async def test_register_run_missing_task_raises(orch_ctx):
+    """A run row cannot be orphaned: registering against a missing task raises."""
+    with pytest.raises(TaskNotFound):
+        await register_run(999999999)
 
 
 # Execution tests
@@ -547,8 +554,8 @@ async def test_task_pydantic_result_passes_between_tasks(orch_ctx):
 async def test_execute_task_no_parameters(orch_ctx, entrypoint):
     """Test executing a task function with no parameters; the task info is
     scoped to the run and does not outlive it."""
-    task = create_task(entrypoint)
-    task.job_id = 1  # Set a dummy job_id
+    job = await create_job("execute_no_params", entrypoint)
+    task = (await get_tasks_for_job(job.id))[0]
 
     await execute_task(task)  # Should not raise
     with pytest.raises(RuntimeError, match="No task is currently executing"):
@@ -599,7 +606,7 @@ async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
     await run_job_tasks(job)
 
     task = (await get_tasks_for_job(job.id))[0]
-    assert len(task.run_ids) == 1
+    assert await get_run_count(task.id) == 1
     errors = [line.text for line in (await get_task_logs(task.id)).lines if line.stream == "stderr"]
     assert errors[-1].startswith(
         "ModuleNotFoundError: No module named 'aaiclick.orchestration.fixtures.no_such_module'"
