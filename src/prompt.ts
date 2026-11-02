@@ -90,6 +90,11 @@ export function promptFromUrl(): string {
   return new URLSearchParams(window.location.search).get(PARAM) ?? "";
 }
 
+// The app URL for a prompt, so a link can open it in a new tab.
+export function promptHref(prompt: string): string {
+  return `?${new URLSearchParams({ [PARAM]: prompt })}`;
+}
+
 export function pushPromptToUrl(prompt: string): void {
   const url = new URL(window.location.href);
   if (prompt) url.searchParams.set(PARAM, prompt);

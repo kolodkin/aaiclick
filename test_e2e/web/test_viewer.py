@@ -63,19 +63,33 @@ def test_dashboard_renders_saved_dashboard(page, base_url: str) -> None:
     playwright_api.expect(title).to_have_text("rows:3", timeout=15000)
 
 
+
 @_spa_built
 @_local_only
-def test_job_objects_dropdown_opens_object(page, base_url: str, shot) -> None:
+def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
-    select = page.get_by_test_id("job-objects")
-    select.wait_for(timeout=15000)
-    assert select.locator("option").all_inner_texts() == ["Objects (2)…", "daily_totals", "raw_sales"]
-    shot("job-objects-dropdown")
-    # The phone layout, where the header is tightest.
-    page.set_viewport_size({"width": 412, "height": 900})
-    shot("job-objects-dropdown-phone")
-    page.set_viewport_size({"width": 1280, "height": 900})
-    select.select_option("raw_sales")
+    menu = page.get_by_test_id("job-objects")
+    menu.locator("summary").click()
+    items = menu.get_by_role("menuitem")
+    assert items.all_inner_texts() == ["daily_totals", "raw_sales"]
+    new_tab = menu.get_by_label("Open raw_sales in a new tab")
+    assert new_tab.get_attribute("target") == "_blank"
+    assert "raw_sales" in (new_tab.get_attribute("href") or "")
+    shot("job-objects-menu")
+    items.get_by_text("raw_sales").click()
     page.wait_for_url(lambda url: "raw_sales" in url)
     page.get_by_test_id("object-rows").wait_for(timeout=15000)
     shot("job-objects-opened")
+
+
+@_spa_built
+@_local_only
+def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
+    page.set_viewport_size({"width": 412, "height": 900})
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
+    page.get_by_text("extract", exact=True).click()
+    page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
+    menu = page.get_by_test_id("job-objects")
+    menu.locator("summary").click()
+    playwright_api.expect(menu.get_by_role("menuitem")).to_have_count(2)
+    shot("task-objects-menu-phone")
