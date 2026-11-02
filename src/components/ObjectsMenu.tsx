@@ -70,6 +70,8 @@ export function ObjectsMenu({
   const allCmd = dataPrompt(scope);
   const shown = items.filter((o) => o.name.toLowerCase().includes(needle));
 
+  const tabAttrs = newTab ? { target: "_blank", rel: "noopener" } : {};
+
   // Middle-click never reaches onClick; the browser opens the href natively.
   const go = (e: MouseEvent, cmd: string) => {
     if (newTab || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -116,13 +118,7 @@ export function ObjectsMenu({
             const cmd = dataPrompt(scope, o.name);
             return (
               <li key={o.name}>
-                <a
-                  className="mono"
-                  href={promptHref(cmd)}
-                  target={newTab ? "_blank" : undefined}
-                  rel={newTab ? "noopener" : undefined}
-                  onClick={(e) => go(e, cmd)}
-                >
+                <a className="mono" href={promptHref(cmd)} {...tabAttrs} onClick={(e) => go(e, cmd)}>
                   {o.name}
                 </a>
               </li>
@@ -131,7 +127,7 @@ export function ObjectsMenu({
         </ul>
         {shown.length === 0 && <p className="sub objects-empty">no match</p>}
         {total > items.length && (
-          <a className="objects-more" href={promptHref(allCmd)} onClick={(e) => go(e, allCmd)}>
+          <a className="objects-more" href={promptHref(allCmd)} {...tabAttrs} onClick={(e) => go(e, allCmd)}>
             all {total} in @data →
           </a>
         )}
