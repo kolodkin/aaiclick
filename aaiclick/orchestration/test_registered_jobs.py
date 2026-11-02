@@ -21,7 +21,6 @@ from .registered_jobs import (
     list_registered_jobs,
     register_job,
     run_job,
-    upsert_registered_job,
 )
 
 
@@ -116,8 +115,9 @@ async def test_get_registered_job_not_found(orch_ctx):
     assert result is None
 
 
-async def test_upsert_creates_new(orch_ctx):
-    job = await upsert_registered_job(
+async def test_replace_creates_new(orch_ctx):
+    job = await register_job(
+        replace=True,
         name="upsert_new",
         entrypoint="myapp.upsert_new",
         schedule="*/10 * * * *",
@@ -127,12 +127,13 @@ async def test_upsert_creates_new(orch_ctx):
     assert job.next_run_at is not None
 
 
-async def test_upsert_updates_existing(orch_ctx):
+async def test_replace_updates_existing(orch_ctx):
     original = await register_job(
         name="upsert_existing",
         entrypoint="myapp.old_entrypoint",
     )
-    updated = await upsert_registered_job(
+    updated = await register_job(
+        replace=True,
         name="upsert_existing",
         entrypoint="myapp.new_entrypoint",
         schedule="0 12 * * *",
@@ -361,7 +362,7 @@ async def test_run_job_image_and_build_mutually_exclusive():
         await run_job("j", "m.f", image="python:3.12", build=True)
 
 
-@pytest.mark.parametrize("register", [register_job, upsert_registered_job])
+@pytest.mark.parametrize("replace", [False, True])
 @pytest.mark.parametrize(
     "fields, message",
     [
@@ -378,9 +379,9 @@ async def test_run_job_image_and_build_mutually_exclusive():
         ),
     ],
 )
-async def test_registration_rejects_build_modifiers_without_build(orch_ctx, register, fields, message):
+async def test_registration_rejects_build_modifiers_without_build(orch_ctx, replace, fields, message):
     with pytest.raises(ValueError, match=message):
-        await register(name="bad_reg", entrypoint="myapp.bad", **fields)
+        await register_job(name="bad_reg", entrypoint="myapp.bad", replace=replace, **fields)
     assert await get_registered_job("bad_reg") is None
 
 
@@ -448,8 +449,9 @@ async def test_register_job_with_image(orch_ctx):
     assert fetched.image == "python:3.12"
 
 
-async def test_upsert_job_with_image(orch_ctx):
-    await upsert_registered_job(
+async def test_replace_job_with_image(orch_ctx):
+    await register_job(
+        replace=True,
         name="upsert_prebuilt",
         entrypoint="myapp.prebuilt",
         image="python:3.12",
