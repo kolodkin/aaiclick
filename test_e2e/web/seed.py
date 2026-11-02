@@ -232,7 +232,8 @@ async def seed_viewer_objects() -> None:
         # runs' objects never leak into the dropdown.
         job_id = await _build(OBJECTS_JOB, DEFAULT_STATES, JOB_COMPLETED)
     async with orch_context(), task_scope(task_id=seed_id, job_id=job_id, run_id=seed_id):
-        for name in ("daily_totals", "raw_sales"):
+        # Six: enough that the menu shows its filter box.
+        for name in ("daily_totals", "raw_sales", "customers", "orders_clean", "returns", "weekly_totals"):
             await create_object_from_value({"id": [1, 2], "amount": [5, 7]}, name=name, scope="job")
 
 

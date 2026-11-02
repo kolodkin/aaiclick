@@ -70,7 +70,14 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     menu = page.get_by_test_id("job-objects")
     menu.locator("summary").click()
     items = menu.get_by_role("menuitem")
-    assert items.all_inner_texts() == ["daily_totals", "raw_sales"]
+    assert items.all_inner_texts() == [
+        "customers",
+        "daily_totals",
+        "orders_clean",
+        "raw_sales",
+        "returns",
+        "weekly_totals",
+    ]
     menu.get_by_test_id("objects-filter").fill("RAW")
     playwright_api.expect(items).to_have_text(["raw_sales"])
     # The toggle flips where a click opens the object; back off for the click below.
@@ -95,5 +102,5 @@ def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
     page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
     menu = page.get_by_test_id("job-objects")
     menu.locator("summary").click()
-    playwright_api.expect(menu.get_by_role("menuitem")).to_have_count(2)
+    playwright_api.expect(menu.get_by_role("menuitem")).to_have_count(6)
     shot("task-objects-menu-phone")

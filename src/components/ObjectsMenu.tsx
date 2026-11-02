@@ -5,6 +5,8 @@ import { dataPrompt, scopeKey } from "../lib/viewer";
 import { promptHref } from "../prompt";
 
 const NEW_TAB_KEY = "aaiclick.objects.newTab";
+// Short lists read at a glance; only longer ones get a filter box.
+const FILTER_MIN = 6;
 
 // A job's objects as a small popup of links. The "new tab" toggle picks where a
 // plain click opens one; ctrl/middle-click and long-press always offer a new tab.
@@ -46,14 +48,16 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
       <summary className="btn btn-sm">Objects ({items.length}) ▾</summary>
       <div className="objects-popup">
         <div className="objects-popup-head">
-          <input
-            className="scope-filter mono"
-            placeholder="filter objects…"
-            aria-label="Filter objects"
-            data-testid="objects-filter"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
+          {items.length >= FILTER_MIN && (
+            <input
+              className="scope-filter mono"
+              placeholder="filter objects…"
+              aria-label="Filter objects"
+              data-testid="objects-filter"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          )}
           <button
             type="button"
             className={`chip${newTab ? " chip-active" : ""}`}
