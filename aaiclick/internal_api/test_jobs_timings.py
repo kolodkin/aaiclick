@@ -11,7 +11,15 @@ from sqlmodel import update
 
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.models import DEPENDENCY_TASK, TASK_COMPLETED, TASK_FAILED, Dependency, Group, Task
+from aaiclick.orchestration.models import (
+    DEPENDENCY_TASK,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    Dependency,
+    Group,
+    Task,
+    TaskStatus,
+)
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.testing import set_task_runs
@@ -21,9 +29,9 @@ from . import errors, jobs
 _SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 
-async def _finish(task: Task, at: datetime) -> None:
+async def _finish(task: Task, at: datetime, status: TaskStatus = TASK_COMPLETED) -> None:
     async with get_sql_session() as session:
-        await session.execute(update(Task).where(Task.id == task.id).values(completed_at=at))
+        await session.execute(update(Task).where(Task.id == task.id).values(status=status, completed_at=at))
         await session.commit()
 
 
@@ -72,6 +80,18 @@ async def test_timings_ready_at_none_while_upstream_running(orch_ctx):
     report = create_task(_SAMPLE_TASK)
     raw >> report
     await commit_tasks(report, job_id=job.id)
+
+    assert _by_id(await jobs.get_job_timings(job.id))[report.id].ready_at is None
+
+
+async def test_timings_ready_at_none_after_upstream_failed(orch_ctx):
+    """A failed upstream stamps completed_at, but the scheduler never releases its dependents."""
+    job = await create_job("timings_upstream_failed", _SAMPLE_TASK)
+    raw = create_task(_SAMPLE_TASK)
+    report = create_task(_SAMPLE_TASK)
+    raw >> report
+    await commit_tasks(report, job_id=job.id)
+    await _finish(raw, utc_now(), TASK_FAILED)
 
     assert _by_id(await jobs.get_job_timings(job.id))[report.id].ready_at is None
 

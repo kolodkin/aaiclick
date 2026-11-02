@@ -462,12 +462,13 @@ def build_job_graph_view(
 
 def _ready_at(task: Task, upstream: set[int], tasks_by_id: Mapping[int, Task]) -> datetime | None:
     # A dependency on a task removed by retention counts as met, as in the scheduler's join.
-    finished = [tasks_by_id[i].completed_at for i in upstream if i in tasks_by_id]
-    if not finished:
+    present = [tasks_by_id[i] for i in upstream if i in tasks_by_id]
+    if not present:
         return task.created_at
-    if any(at is None for at in finished):
+    # Only COMPLETED releases a dependent; failed or cancelled upstreams also stamp completed_at.
+    if any(t.status != TASK_COMPLETED or t.completed_at is None for t in present):
         return None
-    return max(at for at in finished if at is not None)
+    return max(t.completed_at for t in present if t.completed_at is not None)
 
 
 def build_job_timings_view(
