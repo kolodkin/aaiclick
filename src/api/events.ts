@@ -24,7 +24,7 @@ const RECONNECT_MAX_MS = 30000;
 // An untargeted invalidateQueries() refetches both on every signal — up to
 // twice a second on a busy job, which is more traffic than the polling this
 // replaces.
-const LIVE_KEYS = [["jobs"], ["job"], ["job-graph"], ["task"]];
+const LIVE_KEYS = [["jobs"], ["job"], ["job-graph"], ["job-timings"], ["task"]];
 
 function invalidateLive(qc: QueryClient): void {
   for (const queryKey of LIVE_KEYS) void qc.invalidateQueries({ queryKey });

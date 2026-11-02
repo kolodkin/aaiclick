@@ -101,9 +101,9 @@ Header with job info, followed by a table of tasks. Auto-refreshes on the SSE `c
 | Started    | `started_at`   | Relative time                   |
 | Duration   | computed       | `started_at` to `completed_at` or now |
 
-A Table/Graph toggle switches the body between the tasks table and the
-dependency graph. The prompt carries the mode — `@job <name> graph` — so the
-view stays shareable as a URL.
+A Table / Graph / Timings / Duration toggle switches the body. The prompt
+carries the mode — `@job <name> graph`, `timings`, `duration` — so the view
+stays shareable as a URL.
 
 One edge is drawn per dependency, so a `Group` dependency is a single edge
 on the group's container — every member waits, as the scheduler enforces
@@ -120,6 +120,20 @@ drawn as React Flow subflows; clicking one does nothing, since only tasks have
 a detail view.
 
 Task statuses use the same color scheme as job statuses.
+
+**Timings** (`src/components/timings/`) is a Gantt view from
+`GET /jobs/{ref}/timings`: one row per task in start order, one bar per
+attempt (`task_runs`), earlier attempts faded. Before the first bar, grey dots
+mark time **blocked** on upstream tasks and yellow hatching time **queued**
+with no free worker; hatching also marks the wait between attempts. A task's
+`ready_at` — the latest upstream `completed_at`, groups expanded to direct
+members as the scheduler does — is computed on read. A strip under the rows
+counts attempts running at once; Total runs from `ready_at` to the last
+attempt's end.
+
+**Duration** reads the same endpoint and ranks every attempt by run time,
+longest first, labelled `name #n` when a task ran more than once. Both tabs
+tick every second while the job is active, so running bars grow.
 
 ## Task Detail (`@task <id>`)
 

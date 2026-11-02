@@ -10,6 +10,7 @@ the DB schema, keeping imports one-directional (SQLModel → pydantic).
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal
 
@@ -33,6 +34,7 @@ from .models import (
     SandboxFile,
     SandboxStatus,
     Task,
+    TaskRun,
     TaskStatus,
 )
 
@@ -178,6 +180,25 @@ class JobGraphView(ApiModel):
     edges: list[GraphEdgeView] = Field(default_factory=list)
     layout_edges: list[LayoutEdgeView] = Field(default_factory=list)
     dropped_cycle_edges: int = 0
+
+
+class TaskTimingView(ApiModel):
+    """One task's timeline: when it became ready and each attempt's span."""
+
+    id: SnowflakeId
+    name: str
+    status: TaskStatus
+    created_at: datetime
+    # Latest upstream ``completed_at``; ``created_at`` with no upstream; None while blocked.
+    ready_at: datetime | None = None
+    attempts: list[TaskAttemptView] = Field(default_factory=list)
+
+
+class JobTimingsView(ApiModel):
+    """Per-task timelines served by ``GET /jobs/{ref}/timings``."""
+
+    job_id: SnowflakeId
+    tasks: list[TaskTimingView] = Field(default_factory=list)
 
 
 class ClearTaskView(ApiModel):
@@ -437,6 +458,49 @@ def build_job_graph_view(
         ],
         layout_edges=[LayoutEdgeView(source_id=e.source_id, target_id=e.target_id) for e in graph.layout],
         dropped_cycle_edges=graph.dropped,
+    )
+
+
+def _ready_at(task: Task, upstream: set[int], tasks_by_id: Mapping[int, Task]) -> datetime | None:
+    # A dependency on a task removed by retention counts as met, as in the scheduler's join.
+    present = [tasks_by_id[i] for i in upstream if i in tasks_by_id]
+    if not present:
+        return task.created_at
+    # Only COMPLETED releases a dependent; failed or cancelled upstreams also stamp completed_at.
+    if any(t.status != TASK_COMPLETED or t.completed_at is None for t in present):
+        return None
+    return max(t.completed_at for t in present if t.completed_at is not None)
+
+
+def build_job_timings_view(
+    job: Job,
+    tasks: list[Task],
+    runs: list[TaskRun],
+    upstream: Mapping[int, set[int]],
+) -> JobTimingsView:
+    """Assemble each task's ready time and attempts (``runs`` ordered by ``run_id``)."""
+    tasks_by_id = {t.id: t for t in tasks}
+    attempts: dict[int, list[TaskAttemptView]] = {}
+    for run in runs:
+        mine = attempts.setdefault(run.task_id, [])
+        mine.append(
+            TaskAttemptView(
+                attempt=len(mine) + 1, status=run.status, started_at=run.started_at, completed_at=run.completed_at
+            )
+        )
+    return JobTimingsView(
+        job_id=job.id,
+        tasks=[
+            TaskTimingView(
+                id=t.id,
+                name=t.name,
+                status=t.status,
+                created_at=t.created_at,
+                ready_at=_ready_at(t, upstream.get(t.id, set()), tasks_by_id),
+                attempts=attempts.get(t.id, []),
+            )
+            for t in tasks
+        ],
     )
 
 

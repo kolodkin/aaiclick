@@ -385,6 +385,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/jobs/{ref}/timings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Timings */
+        get: operations["job_timings_api_v0_jobs__ref__timings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/jobs:run": {
         parameters: {
             query?: never;
@@ -1375,6 +1392,16 @@ export interface components {
             wall_time_ms: number | null;
         };
         /**
+         * JobTimingsView
+         * @description Per-task timelines served by ``GET /jobs/{ref}/timings``.
+         */
+        JobTimingsView: {
+            /** Job Id */
+            job_id: string;
+            /** Tasks */
+            tasks: components["schemas"]["TaskTimingView"][];
+        };
+        /**
          * JobView
          * @description Compact job representation used by list endpoints.
          */
@@ -2238,6 +2265,30 @@ export interface components {
             id: string;
             /** Queue Time Ms */
             queue_time_ms: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+        };
+        /**
+         * TaskTimingView
+         * @description One task's timeline: when it became ready and each attempt's span.
+         */
+        TaskTimingView: {
+            /** Attempts */
+            attempts: components["schemas"]["TaskAttemptView"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Ready At */
+            ready_at: string | null;
             /**
              * Status
              * @enum {string}
@@ -3306,6 +3357,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobStatsView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_timings_api_v0_jobs__ref__timings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: number | string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTimingsView"];
                 };
             };
             /** @description Not Found */
