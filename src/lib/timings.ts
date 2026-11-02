@@ -23,7 +23,7 @@ const gap = (start: number, end: number): Span | null => (end > start ? { start,
 function row(t: TaskTimingView, now: number): TimelineRow {
   const created = ms(t.created_at);
   const ready = t.ready_at ? ms(t.ready_at) : null;
-  const attempts = (t.attempts ?? []).map((a) => ({
+  const attempts = t.attempts.map((a) => ({
     span: span(ms(a.started_at), endOr(a.completed_at, now)),
     status: a.status,
     attempt: a.attempt,
@@ -72,7 +72,7 @@ export type DurationRow = { taskId: string; attempt: number; label: string; stat
 export function durationRows(tasks: TaskTimingView[], now: number): DurationRow[] {
   return tasks
     .flatMap((t) => {
-      const attempts = t.attempts ?? [];
+      const attempts = t.attempts;
       return attempts.map((a) => ({
         taskId: t.id,
         attempt: a.attempt,

@@ -214,8 +214,8 @@ default, so nested models need it too, hence the shared base.
 
 !!! warning "New API models must extend `ApiModel`"
     A plain `BaseModel` still works at runtime, but its defaulted response
-    fields regress to optional in `src/api/schema.ts`. CI's `gen-types` check
-    only verifies the file is fresh, so it won't catch this.
+    fields regress to optional in `src/api/schema.ts`. A server test walks every
+    response schema and fails on such a field.
 
 # Internal API Contract
 
