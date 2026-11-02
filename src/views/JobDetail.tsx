@@ -49,7 +49,7 @@ export function JobDetail({
             <span className="mono">{job.name}</span> <StatusBadge status={job.status} />
           </h2>
           <div className="spacer" />
-          <ObjectsMenu jobId={String(job.id)} onPrompt={onPrompt} />
+          <ObjectsMenu jobId={job.id} refreshKey={job.completed_tasks} onPrompt={onPrompt} />
           {cancellable && (
             <AdminButton className="btn btn-danger btn-sm" onClick={onCancel}>
               Cancel job

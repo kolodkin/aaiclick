@@ -37,7 +37,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
             <span className="mono">{task.name}</span> <StatusBadge status={task.status} />
           </h2>
           <div className="spacer" />
-          <ObjectsMenu jobId={String(task.job_id)} onPrompt={onPrompt} />
+          <ObjectsMenu jobId={task.job_id} refreshKey={task.status} onPrompt={onPrompt} />
         </div>
         <p className="sub">
           <LiveStatus updatedAt={dataUpdatedAt} queryKey="task" />

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useObjects } from "../api/hooks";
 import { dataPrompt, scopeKey } from "../lib/viewer";
 import { promptHref } from "../prompt";
@@ -11,9 +12,26 @@ const FILTER_MIN = 6;
 // A job's objects as a small popup of links. The "new tab" toggle picks where a
 // plain click opens one; ctrl/middle-click and long-press always offer a new tab.
 // Ids are 64-bit snowflakes carried as strings — never parse them.
-export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: string) => void }) {
+// `refreshKey` changes when the job may have new objects (a task finished); the
+// list refetches then rather than on every stream signal for any job.
+export function ObjectsMenu({
+  jobId,
+  refreshKey,
+  onPrompt,
+}: {
+  jobId: string;
+  refreshKey: string | number;
+  onPrompt: (v: string) => void;
+}) {
   const scope = scopeKey(jobId);
   const { data } = useObjects(scope);
+  const qc = useQueryClient();
+  const seenKey = useRef(refreshKey);
+  useEffect(() => {
+    if (seenKey.current === refreshKey) return;
+    seenKey.current = refreshKey;
+    void qc.invalidateQueries({ queryKey: ["objects", scope] });
+  }, [qc, scope, refreshKey]);
   const ref = useRef<HTMLDetailsElement>(null);
   const [newTab, setNewTab] = useState(() => localStorage.getItem(NEW_TAB_KEY) === "1");
   const [filter, setFilter] = useState("");
@@ -23,12 +41,13 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
     setNewTab(!newTab);
   };
 
+  const close = () => {
+    if (ref.current) ref.current.open = false;
+  };
+
   // While open, close on a click outside the popup or on Escape.
   useEffect(() => {
     if (!open) return;
-    const close = () => {
-      if (ref.current) ref.current.open = false;
-    };
     const onPointer = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) close();
     };
@@ -48,13 +67,14 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
   const total = data?.total ?? items.length;
   const filterable = items.length >= FILTER_MIN;
   const needle = filterable ? filter.toLowerCase() : "";
+  const allCmd = dataPrompt(scope);
   const shown = items.filter((o) => o.name.toLowerCase().includes(needle));
 
   // Middle-click never reaches onClick; the browser opens the href natively.
   const go = (e: MouseEvent, cmd: string) => {
     if (newTab || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    if (ref.current) ref.current.open = false;
+    close();
     onPrompt(cmd);
   };
 
@@ -111,7 +131,7 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
         </ul>
         {shown.length === 0 && <p className="sub objects-empty">no match</p>}
         {total > items.length && (
-          <a className="objects-more" href={promptHref(dataPrompt(scope))} onClick={(e) => go(e, dataPrompt(scope))}>
+          <a className="objects-more" href={promptHref(allCmd)} onClick={(e) => go(e, allCmd)}>
             all {total} in @data →
           </a>
         )}
