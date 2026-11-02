@@ -74,6 +74,26 @@ export function parsePrompt(raw: string): Route {
   return { kind: "unknown", raw: p };
 }
 
+// Argument-free commands offered on the unknown-command page. Role- and
+// config-gated ones (@users, @audit, @invite, @sandbox) stay on Home only.
+const BARE_COMMANDS = [
+  "help",
+  "@jobs",
+  "@registered",
+  "@data",
+  "@query",
+  "@dashboard",
+  "register",
+  "@account",
+  "@tokens",
+];
+
+// Commands completing what was typed, or all of them when nothing matches.
+export function suggestCommands(raw: string): string[] {
+  const hits = BARE_COMMANDS.filter((c) => c.startsWith(raw));
+  return hits.length ? hits : BARE_COMMANDS;
+}
+
 // Routes that render without a session — a reset link is followed by someone
 // who by definition cannot sign in yet.
 export const PUBLIC_ROUTES: ReadonlySet<Route["kind"]> = new Set(["reset"]);

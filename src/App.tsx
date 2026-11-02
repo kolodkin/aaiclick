@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { LiveUpdates } from "./api/events";
 import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
-import { parsePrompt, promptFromUrl, PUBLIC_ROUTES, pushPromptToUrl, type Route } from "./prompt";
+import { Chips } from "./components/Chips";
+import { parsePrompt, promptFromUrl, PUBLIC_ROUTES, pushPromptToUrl, suggestCommands, type Route } from "./prompt";
 import {
   Account,
   Audit,
@@ -75,14 +76,10 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
         <>
           <h2>Unknown command</h2>
           <p className="sub mono">{route.raw}</p>
-          <div className="chips">
-            <span className="chip" onClick={() => onPrompt("")}>
-              help
-            </span>
-            <span className="chip" onClick={() => onPrompt("@jobs")}>
-              @jobs
-            </span>
-          </div>
+          <Chips
+            chips={suggestCommands(route.raw).map((c) => ({ label: c, cmd: c === "help" ? "" : c }))}
+            onPrompt={onPrompt}
+          />
         </>
       );
   }
