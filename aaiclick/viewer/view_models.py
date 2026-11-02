@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, NamedTuple
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from aaiclick.api_model import ApiModel
 from aaiclick.data.view_models import ColumnSchema
 from aaiclick.log_models import PageLimit, PageOffset
 
@@ -27,7 +28,7 @@ class OrderBy(NamedTuple):
     dir: OrderDir
 
 
-class ObjectQuery(BaseModel):
+class ObjectQuery(ApiModel):
     """What to read from one object — a dashboard panel, or the saved part of a request."""
 
     object: str
@@ -43,7 +44,7 @@ class ObjectQueryRequest(ObjectQuery):
     fmt: QueryFormat = FMT_JSON
 
 
-class ObjectQueryResult(BaseModel):
+class ObjectQueryResult(ApiModel):
     """``meta`` + ``data`` for ``fmt="json"`` (ClickHouse JSONCompact), ``text`` for CSV."""
 
     meta: list[ColumnSchema] = Field(default_factory=list)
@@ -61,14 +62,14 @@ class SavedQuery(SavedQueryIn):
     updated_at: datetime
 
 
-class SavedQueryFilter(BaseModel):
+class SavedQueryFilter(ApiModel):
     scope: str | None = None  # also matches queries saved with no scope
     object: str | None = None
     limit: PageLimit = 50
     offset: PageOffset = 0
 
 
-class DashboardIn(BaseModel):
+class DashboardIn(ApiModel):
     name: str
     scope: str = "persistent"
     html: str
@@ -81,13 +82,13 @@ class Dashboard(DashboardIn):
     updated_at: datetime
 
 
-class DashboardSummary(BaseModel):
+class DashboardSummary(ApiModel):
     name: str
     scope: str
     updated_at: datetime
 
 
-class DashboardResults(BaseModel):
+class DashboardResults(ApiModel):
     """Column-oriented results per panel — the ``window.queries`` contract."""
 
     results: dict[str, dict[str, list[Any]]]
