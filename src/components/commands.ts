@@ -98,6 +98,8 @@ const ADMIN: Cmd[] = [
   { code: "@audit", desc: "Request audit log — who called what, when.", cmd: "@audit", complete: "@audit" },
 ];
 
+export const ALL_COMMANDS: Cmd[] = [...NAVIGATE, SANDBOX, ...ACTIONS, ...ACCOUNT, ...ADMIN];
+
 export interface CommandGroups {
   navigate: Cmd[];
   actions: Cmd[];
