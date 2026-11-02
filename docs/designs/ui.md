@@ -90,12 +90,14 @@ Table of jobs sorted by `created_at` descending. Auto-refreshes on the SSE `chan
 
 Header with job info, followed by a table of tasks. Auto-refreshes on the SSE `changed` signal.
 
-**Job header**: name, status badge, created/started/completed times, error (if any),
-and an Objects menu (hidden when the job has none): a popup of links to
-`@data job <id> <object>`, with a name filter on top once there are
-more than 5. A "new tab" toggle in the popup (remembered
-per browser) picks where a click opens; ctrl/middle-click and long-press always
-offer a new tab. The task page shows its job's menu too.
+**Job header**: name, status badge, created/started/completed times, error (if any).
+
+**Objects menu** (job and task pages; hidden when the job has none): a popup of
+links to `@data job <id> <object>`.
+
+- A name filter appears above 5 objects.
+- A "new tab" toggle, remembered per browser, picks where a click opens.
+- Ctrl/middle-click and long-press always offer a new tab.
 
 **Tasks table**:
 

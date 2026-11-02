@@ -9,11 +9,9 @@ const NEW_TAB_KEY = "aaiclick.objects.newTab";
 // Short lists read at a glance; only longer ones get a filter box.
 const FILTER_MIN = 6;
 
-// A job's objects as a small popup of links. The "new tab" toggle picks where a
-// plain click opens one; ctrl/middle-click and long-press always offer a new tab.
-// Ids are 64-bit snowflakes carried as strings — never parse them.
-// `refreshKey` changes when the job may have new objects (a task finished); the
-// list refetches then rather than on every stream signal for any job.
+// See docs/designs/ui.md — "Job Detail (`@job <name>`)".
+// `refreshKey` changes when the job may have new objects (a task finished), so
+// the list refetches then rather than on every stream signal.
 export function ObjectsMenu({
   jobId,
   refreshKey,
