@@ -5,7 +5,6 @@ export type JobViewMode = "table" | "graph" | "timings" | "duration";
 
 export type Route =
   | { kind: "home" }
-  | { kind: "all" }
   | { kind: "jobs" }
   | { kind: "registered" }
   | { kind: "register"; name: string }
@@ -41,7 +40,6 @@ function parseScoped(rest: string): { job: string | null; object: string | null 
 export function parsePrompt(raw: string): Route {
   const p = raw.trim();
   if (p === "" || p === "help") return { kind: "home" };
-  if (p === "@all") return { kind: "all" };
   if (p === "@jobs") return { kind: "jobs" };
   if (p === "@registered") return { kind: "registered" };
   if (p === "@tokens") return { kind: "tokens" };

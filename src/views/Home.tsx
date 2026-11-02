@@ -26,7 +26,6 @@ const NAVIGATE: Cmd[] = [
     cmd: "@query",
   },
   { code: "@dashboard [name]", desc: "Render a saved dashboard over object queries.", cmd: "@dashboard" },
-  { code: "@all", desc: "Every screen on one page.", cmd: "@all" },
 ];
 
 const ACTIONS: Cmd[] = [
