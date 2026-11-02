@@ -18,6 +18,8 @@ STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" 
 # the guard's return value — importing the package would break the lint job.
 playwright_api = pytest.importorskip("playwright.sync_api")
 
+from seed import OBJECTS_JOB  # noqa: E402  (must follow the playwright guard)
+
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs through chdb (local mode)")
 
@@ -59,3 +61,48 @@ def test_dashboard_renders_saved_dashboard(page, base_url: str) -> None:
     # reachable from the page; assert through Playwright's frame locator.
     title = page.frame_locator("[data-testid='dashboard-frame']").locator("#title")
     playwright_api.expect(title).to_have_text("rows:3", timeout=15000)
+
+
+@_spa_built
+@_local_only
+def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
+    menu = page.get_by_test_id("job-objects")
+    menu.locator("summary").click()
+    items = menu.locator("li a")
+    assert items.all_inner_texts() == [
+        "customers",
+        "daily_totals",
+        "orders_clean",
+        "raw_sales",
+        "returns",
+        "weekly_totals",
+    ]
+    menu.get_by_test_id("objects-filter").fill("RAW")
+    playwright_api.expect(items).to_have_text(["raw_sales"])
+    # The toggle flips where a click opens the object; back off for the click below.
+    toggle = menu.get_by_test_id("objects-new-tab")
+    toggle.click()
+    assert items.get_by_text("raw_sales").get_attribute("target") == "_blank"
+    shot("job-objects-menu")
+    toggle.click()
+    assert items.get_by_text("raw_sales").get_attribute("target") is None
+    items.get_by_text("raw_sales").click()
+    page.wait_for_url(lambda url: "raw_sales" in url)
+    page.get_by_test_id("object-rows").wait_for(timeout=15000)
+    shot("job-objects-opened")
+
+
+@_spa_built
+@_local_only
+def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
+    page.set_viewport_size({"width": 412, "height": 900})
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
+    page.get_by_text("extract", exact=True).click()
+    page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
+    menu = page.get_by_test_id("job-objects")
+    menu.locator("summary").click()
+    playwright_api.expect(menu.locator("li a")).to_have_count(6)
+    shot("task-objects-menu-phone")
+    page.keyboard.press("Escape")
+    playwright_api.expect(menu.locator("li a").first).to_be_hidden()

@@ -92,6 +92,13 @@ Header with job info, followed by a table of tasks. Auto-refreshes on the SSE `c
 
 **Job header**: name, status badge, created/started/completed times, error (if any).
 
+**Objects menu** (job and task pages; hidden when the job has none): a popup of
+links to `@data job <id> <object>`.
+
+- A name filter appears above 5 objects.
+- A "new tab" toggle, remembered per browser, picks where a click opens.
+- Ctrl/middle-click and long-press always offer a new tab.
+
 **Tasks table**:
 
 | Column     | Source field    | Notes                           |

@@ -43,6 +43,7 @@ from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import viewer as viewer_api
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import (
+    JOB_COMPLETED,
     JOB_RUNNING,
     TASK_CANCELLED,
     TASK_COMPLETED,
@@ -60,6 +61,10 @@ from aaiclick.orchestration.models import (
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, orch_context, task_scope
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.viewer.view_models import DashboardIn, ObjectQuery
+
+#: The job ``seed_viewer_objects`` gives job-scoped objects, for the job page's
+#: Objects dropdown.
+OBJECTS_JOB = "viewer_objects_job"
 
 ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
@@ -223,6 +228,13 @@ async def seed_viewer_objects() -> None:
                 queries={"top": ObjectQuery(object="orders", fields=["name", "amount"])},
             )
         )
+        # A fresh job per run: its name resolves to the latest, so earlier
+        # runs' objects never leak into the dropdown.
+        job_id = await _build(OBJECTS_JOB, DEFAULT_STATES, JOB_COMPLETED)
+    async with orch_context(), task_scope(task_id=seed_id, job_id=job_id, run_id=seed_id):
+        # Six: enough that the menu shows its filter box.
+        for name in ("daily_totals", "raw_sales", "customers", "orders_clean", "returns", "weekly_totals"):
+            await create_object_from_value({"id": [1, 2], "amount": [5, 7]}, name=name, scope="job")
 
 
 if __name__ == "__main__":
