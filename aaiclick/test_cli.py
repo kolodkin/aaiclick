@@ -242,6 +242,19 @@ async def test_register_job_set_merges_into_default_kwargs(orch_ctx):
     assert (await _only_registered_job()).default_kwargs == {"corpus_size": 300}
 
 
+async def test_register_job_replace_overwrites_existing(orch_ctx):
+    await run_cli("register-job", _VALID_ENTRYPOINT, "--kwargs", '{"x": 5, "y": 6}', "--schedule", "0 8 * * *")
+
+    with pytest.raises(SystemExit):
+        await run_cli("register-job", _VALID_ENTRYPOINT, "--kwargs", '{"y": 6}')
+    assert (await _only_registered_job()).default_kwargs == {"x": 5, "y": 6}
+
+    await run_cli("register-job", _VALID_ENTRYPOINT, "--kwargs", '{"y": 6}', "--replace")
+    registered = await _only_registered_job()
+    assert registered.default_kwargs == {"y": 6}
+    assert registered.schedule is None
+
+
 async def _seed_job(job_status: JobStatus | None, entrypoint: str, *, task_error: str | None = None) -> int:
     """Create a one-task job; set it to ``job_status`` with a failed task when
     ``task_error`` is given. ``None`` leaves the fresh job non-terminal."""

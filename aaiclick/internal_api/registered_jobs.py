@@ -91,6 +91,8 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     callable (validated before persisting), or ``Invalid`` if the image-source
     fields contradict each other (see ``register_job``).
 
+    ``request.replace`` overwrites an existing registration instead of raising.
+
     Entrypoint validation is skipped for containerized registrations
     (``image`` or ``build``): the entrypoint resolves inside the image at run
     time (module entry) or is unused (shell entry), so it is not importable on
@@ -111,6 +113,7 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             git_remote=request.git_remote,
             dockerfile=request.dockerfile,
             resources=request.resources,
+            replace=request.replace,
         )
     except RegisteredJobAlreadyExists as exc:
         raise Conflict(str(exc)) from exc

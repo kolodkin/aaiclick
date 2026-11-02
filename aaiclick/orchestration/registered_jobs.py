@@ -133,6 +133,7 @@ async def register_job(
     git_remote: str | None = None,
     dockerfile: str | None = None,
     resources: dict[str, Any] | None = None,
+    replace: bool = False,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -155,39 +156,60 @@ async def register_job(
             the repo root. ``None`` falls back to ``"Dockerfile"``.
         resources: Default Kubernetes-style requests/limits for every run's
             containers (``limits`` map to docker ``--cpus`` / ``--memory``).
+        replace: Overwrite an existing job of the same name instead of
+            raising. Every field takes the given value, so omitted ones
+            (e.g. ``schedule``) are cleared and ``enabled`` resets.
 
     Returns:
-        Created RegisteredJob
+        The created or replaced RegisteredJob
 
     Raises:
         ValueError: If ``image`` is combined with the build side, a build
             modifier is set without ``build``, or ``resources`` is set on a
             subprocess registration.
-        RegisteredJobAlreadyExists: If a job with this name already exists.
+        RegisteredJobAlreadyExists: If a job with this name already exists
+            and ``replace`` is false.
     """
     _validate_registration_fields(
         image=image, build=build, git_remote=git_remote, dockerfile=dockerfile, resources=resources
     )
     now = utc_now()
-    registered_job = _build_registered_job(
-        name=name,
-        entrypoint=entrypoint,
-        schedule=schedule,
-        default_kwargs=default_kwargs,
-        enabled=enabled,
-        preservation_mode=preservation_mode,
-        build=build,
-        dockerfile=dockerfile,
-        git_remote=git_remote,
-        image=image,
-        resources=resources,
-        now=now,
-    )
 
     async with get_sql_session() as session:
-        existing = await session.execute(_by_name(name))
-        if existing.scalar_one_or_none() is not None:
+        result = await session.execute(_by_name(name))
+        existing = result.scalar_one_or_none()
+
+        if existing is None:
+            registered_job = _build_registered_job(
+                name=name,
+                entrypoint=entrypoint,
+                schedule=schedule,
+                default_kwargs=default_kwargs,
+                enabled=enabled,
+                preservation_mode=preservation_mode,
+                build=build,
+                dockerfile=dockerfile,
+                git_remote=git_remote,
+                image=image,
+                resources=resources,
+                now=now,
+            )
+        elif not replace:
             raise RegisteredJobAlreadyExists(f"Registered job '{name}' already exists")
+        else:
+            registered_job = existing
+            registered_job.entrypoint = entrypoint
+            registered_job.schedule = schedule
+            registered_job.default_kwargs = default_kwargs
+            registered_job.preservation_mode = preservation_mode
+            registered_job.enabled = enabled
+            registered_job.build = build
+            registered_job.dockerfile = dockerfile
+            registered_job.git_remote = git_remote
+            registered_job.image = image
+            registered_job.resources = resources
+            registered_job.updated_at = now
+            registered_job.next_run_at = _next_run_at(schedule, enabled, now)
 
         session.add(registered_job)
         await session.commit()
@@ -208,93 +230,6 @@ async def get_registered_job(name: str) -> RegisteredJob | None:
     async with get_sql_session() as session:
         result = await session.execute(_by_name(name))
         return result.scalar_one_or_none()
-
-
-async def upsert_registered_job(
-    *,
-    name: str,
-    entrypoint: str,
-    schedule: str | None = None,
-    default_kwargs: dict[str, Any] | None = None,
-    enabled: bool = True,
-    preservation_mode: PreservationMode | None = None,
-    build: bool = False,
-    image: str | None = None,
-    git_remote: str | None = None,
-    dockerfile: str | None = None,
-    resources: dict[str, Any] | None = None,
-) -> RegisteredJob:
-    """Insert or update a registered job.
-
-    If a job with the given name exists, updates entrypoint, schedule,
-    default_kwargs, preservation_mode and the image-source defaults.
-    Otherwise creates a new entry.
-
-    Args:
-        name: Unique job name
-        entrypoint: Python dotted path
-        schedule: Cron expression (optional)
-        default_kwargs: Default parameters (optional)
-        enabled: Whether the job is enabled
-        preservation_mode: Default preservation mode for every run
-        build: Build the task image from the repo; mutually exclusive with
-            ``image``.
-        image: Default prebuilt image tag; mutually exclusive with ``build``.
-        git_remote: Build modifier — default git remote URL.
-        dockerfile: Build modifier — default Dockerfile path.
-        resources: Default Kubernetes-style requests/limits for every run's containers.
-
-    Returns:
-        The created or updated RegisteredJob
-
-    Raises:
-        ValueError: See ``register_job``.
-    """
-    _validate_registration_fields(
-        image=image, build=build, git_remote=git_remote, dockerfile=dockerfile, resources=resources
-    )
-    now = utc_now()
-
-    async with get_sql_session() as session:
-        result = await session.execute(_by_name(name))
-        existing = result.scalar_one_or_none()
-
-        if existing is not None:
-            existing.entrypoint = entrypoint
-            existing.schedule = schedule
-            existing.default_kwargs = default_kwargs
-            existing.preservation_mode = preservation_mode
-            existing.enabled = enabled
-            existing.build = build
-            existing.dockerfile = dockerfile
-            existing.git_remote = git_remote
-            existing.image = image
-            existing.resources = resources
-            existing.updated_at = now
-            existing.next_run_at = _next_run_at(schedule, enabled, now)
-            session.add(existing)
-            await session.commit()
-            await session.refresh(existing)
-            return existing
-
-        registered_job = _build_registered_job(
-            name=name,
-            entrypoint=entrypoint,
-            schedule=schedule,
-            default_kwargs=default_kwargs,
-            enabled=enabled,
-            preservation_mode=preservation_mode,
-            build=build,
-            dockerfile=dockerfile,
-            git_remote=git_remote,
-            image=image,
-            resources=resources,
-            now=now,
-        )
-        session.add(registered_job)
-        await session.commit()
-        await session.refresh(registered_job)
-        return registered_job
 
 
 async def _get_registered_or_raise(session, name: str) -> RegisteredJob:
