@@ -1812,7 +1812,7 @@ export interface components {
              * Replace
              * @default false
              */
-            replace: boolean;
+            replace?: boolean;
             /** Resources */
             resources?: {
                 [key: string]: unknown;
