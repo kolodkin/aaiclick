@@ -14,6 +14,7 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
   const { data } = useObjects(scope);
   const ref = useRef<HTMLDetailsElement>(null);
   const [newTab, setNewTab] = useState(() => localStorage.getItem(NEW_TAB_KEY) === "1");
+  const [filter, setFilter] = useState("");
   const toggleNewTab = () => {
     localStorage.setItem(NEW_TAB_KEY, newTab ? "0" : "1");
     setNewTab(!newTab);
@@ -30,6 +31,8 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
 
   const items = data?.items ?? [];
   if (items.length === 0) return null;
+  const needle = filter.toLowerCase();
+  const shown = items.filter((o) => o.name.toLowerCase().includes(needle));
 
   const go = (e: MouseEvent, cmd: string) => {
     if (newTab || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -42,17 +45,27 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
     <details className="objects-menu" ref={ref} data-testid="job-objects">
       <summary className="btn btn-sm">Objects ({items.length}) ▾</summary>
       <div className="objects-popup">
-        <button
-          type="button"
-          className={`chip${newTab ? " chip-active" : ""}`}
-          aria-pressed={newTab}
-          data-testid="objects-new-tab"
-          onClick={toggleNewTab}
-        >
-          ↗ new tab
-        </button>
+        <div className="objects-popup-head">
+          <input
+            className="scope-filter mono"
+            placeholder="filter objects…"
+            aria-label="Filter objects"
+            data-testid="objects-filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <button
+            type="button"
+            className={`chip${newTab ? " chip-active" : ""}`}
+            aria-pressed={newTab}
+            data-testid="objects-new-tab"
+            onClick={toggleNewTab}
+          >
+            ↗ new tab
+          </button>
+        </div>
         <ul role="menu">
-          {items.map((o) => {
+          {shown.map((o) => {
             const cmd = dataPrompt(scope, o.name);
             return (
               <li key={o.name} role="none">
@@ -70,6 +83,7 @@ export function ObjectsMenu({ jobId, onPrompt }: { jobId: string; onPrompt: (v: 
             );
           })}
         </ul>
+        {shown.length === 0 && <p className="sub objects-empty">no match</p>}
       </div>
     </details>
   );

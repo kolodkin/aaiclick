@@ -71,6 +71,8 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     menu.locator("summary").click()
     items = menu.get_by_role("menuitem")
     assert items.all_inner_texts() == ["daily_totals", "raw_sales"]
+    menu.get_by_test_id("objects-filter").fill("RAW")
+    playwright_api.expect(items).to_have_text(["raw_sales"])
     # The toggle flips where a click opens the object; back off for the click below.
     toggle = menu.get_by_test_id("objects-new-tab")
     toggle.click()
