@@ -33,7 +33,6 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 (empty prompt)  ──────▶  Help / command reference
 @jobs           ──────▶  Jobs list
 @job <name>     ──────▶  Job detail (tasks table)
-@task <id>      ──────▶  Task detail (status + logs)
 @data …         ──────▶  Objects of a scope and their rows
 @query …        ──────▶  Query panel over one object
 @dashboard …    ──────▶  Saved dashboard in a sandbox
@@ -42,6 +41,8 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 ```
 @jobs  ──click job row──▶  @job <name>  ──click task row──▶  @task <id>
 ```
+
+Tasks are reached only through a job — Home lists no `@task` command.
 
 # Modes
 
