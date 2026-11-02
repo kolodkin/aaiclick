@@ -97,18 +97,20 @@ function JobObjects({ jobId, onPrompt }: { jobId: string; onPrompt: (v: string) 
   const items = data?.items ?? [];
   if (items.length === 0) return null;
   return (
-    <select
-      data-testid="job-objects"
-      aria-label="Objects"
-      value=""
-      onChange={(e) => onPrompt(dataPrompt(scope, e.target.value))}
-    >
-      <option value="">Objects ({items.length})…</option>
-      {items.map((o) => (
-        <option key={o.name} value={o.name}>
-          {o.name}
-        </option>
-      ))}
-    </select>
+    <div className="field">
+      <select
+        data-testid="job-objects"
+        aria-label="Objects"
+        value=""
+        onChange={(e) => onPrompt(dataPrompt(scope, e.target.value))}
+      >
+        <option value="">Objects ({items.length})…</option>
+        {items.map((o) => (
+          <option key={o.name} value={o.name}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }

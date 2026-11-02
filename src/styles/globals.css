@@ -234,7 +234,8 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   border-radius: 14px; padding: 16px; margin-bottom: 16px;
   box-shadow: var(--hi), var(--shadow);
 }
-.detail-head .title-row { display: flex; align-items: center; gap: 10px; }
+.detail-head .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.detail-head .title-row .field { margin: 0; }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
 /* Content-sized items share a row, wrapping only when out of width, so the
    header stays short. */
