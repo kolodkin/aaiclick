@@ -1,5 +1,5 @@
 // See docs/designs/ui.md — "Job Detail (`@job <name>`)".
-import { useJob } from "../api/hooks";
+import { useJob, useObjects } from "../api/hooks";
 import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";
@@ -11,6 +11,7 @@ import { TasksTable } from "../components/TasksTable";
 import { JobDuration } from "../components/timings/JobDuration";
 import { JobTimings } from "../components/timings/JobTimings";
 import { durationMs, relativeTime } from "../lib/format";
+import { dataPrompt, scopeKey } from "../lib/viewer";
 import type { JobViewMode } from "../prompt";
 
 export function JobDetail({
@@ -48,6 +49,7 @@ export function JobDetail({
             <span className="mono">{job.name}</span> <StatusBadge status={job.status} />
           </h2>
           <div className="spacer" />
+          <JobObjects jobId={String(job.id)} onPrompt={onPrompt} />
           {cancellable && (
             <AdminButton className="btn btn-danger btn-sm" onClick={onCancel}>
               Cancel job
@@ -85,5 +87,28 @@ export function JobDetail({
       {view === "duration" && <JobDuration refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
       {tableView && <TasksTable tasks={job.tasks} onPrompt={onPrompt} />}
     </>
+  );
+}
+
+// Ids are 64-bit snowflakes carried as strings — never parse them.
+function JobObjects({ jobId, onPrompt }: { jobId: string; onPrompt: (v: string) => void }) {
+  const scope = scopeKey(jobId);
+  const { data } = useObjects(scope);
+  const items = data?.items ?? [];
+  if (items.length === 0) return null;
+  return (
+    <select
+      data-testid="job-objects"
+      aria-label="Objects"
+      value=""
+      onChange={(e) => onPrompt(dataPrompt(scope, e.target.value))}
+    >
+      <option value="">Objects ({items.length})…</option>
+      {items.map((o) => (
+        <option key={o.name} value={o.name}>
+          {o.name}
+        </option>
+      ))}
+    </select>
   );
 }

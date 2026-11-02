@@ -88,7 +88,9 @@ Table of jobs sorted by `created_at` descending. Auto-refreshes on the SSE `chan
 
 Header with job info, followed by a table of tasks. Auto-refreshes on the SSE `changed` signal.
 
-**Job header**: name, status badge, created/started/completed times, error (if any).
+**Job header**: name, status badge, created/started/completed times, error (if any),
+and an Objects dropdown (hidden when the job has none) — picking one opens
+`@data job <id> <object>`.
 
 **Tasks table**:
 
