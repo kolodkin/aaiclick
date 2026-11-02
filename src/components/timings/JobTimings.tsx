@@ -22,7 +22,7 @@ export function JobTimings({
 
   if (isLoading) return <p className="sub">loading timings…</p>;
   if (isError || !data) return <p className="err">Could not load job timings.</p>;
-  const tasks = data.tasks ?? [];
+  const tasks = data.tasks;
   if (tasks.length === 0) return <p className="sub">No tasks yet.</p>;
 
   const { origin, end, rows } = timelineRows(tasks, now);

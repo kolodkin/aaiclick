@@ -21,15 +21,13 @@ export function JobDuration({
 
   if (isLoading) return <p className="sub">loading durations…</p>;
   if (isError || !data) return <p className="err">Could not load job timings.</p>;
-  const tasks = data.tasks ?? [];
+  const tasks = data.tasks;
 
   const rows = durationRows(tasks, now);
   const notStarted = tasks.filter((t) => !t.attempts?.length).length;
   if (rows.length === 0) return <p className="sub">No task has started yet.</p>;
   const longest = Math.max(1, rows[0].ms);
-  const startedAt = new Map(
-    tasks.flatMap((t) => (t.attempts ?? []).map((a) => [`${t.id}#${a.attempt}`, a.started_at])),
-  );
+  const startedAt = new Map(tasks.flatMap((t) => t.attempts.map((a) => [`${t.id}#${a.attempt}`, a.started_at])));
 
   return (
     <>

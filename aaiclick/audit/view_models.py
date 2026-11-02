@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
-
+from ..api_model import ApiModel
 from ..log_models import PageLimit, PageOffset, SnowflakeId, UtcDateTime
 
 
-class AuditEntryView(BaseModel):
+class AuditEntryView(ApiModel):
     id: SnowflakeId
     at: datetime
     user_id: SnowflakeId | None
@@ -21,7 +20,7 @@ class AuditEntryView(BaseModel):
     client_ip: str | None
 
 
-class AuditListFilter(BaseModel):
+class AuditListFilter(ApiModel):
     """Filters for ``internal_api.list_audit``; ``path`` is a prefix match."""
 
     user_id: int | None = None

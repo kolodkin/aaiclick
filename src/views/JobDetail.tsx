@@ -83,7 +83,7 @@ export function JobDetail({
       {view === "graph" && <JobGraph refId={job.name} onPrompt={onPrompt} />}
       {view === "timings" && <JobTimings refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
       {view === "duration" && <JobDuration refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
-      {tableView && <TasksTable tasks={job.tasks ?? []} onPrompt={onPrompt} />}
+      {tableView && <TasksTable tasks={job.tasks} onPrompt={onPrompt} />}
     </>
   );
 }

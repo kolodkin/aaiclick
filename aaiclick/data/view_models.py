@@ -11,20 +11,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
-
+from ..api_model import ApiModel
 from .models import Schema
 from .scope import ObjectScope
 
 
-class ColumnSchema(BaseModel):
+class ColumnSchema(ApiModel):
     """One result column: its name and ClickHouse type string."""
 
     name: str
     type: str
 
 
-class ObjectView(BaseModel):
+class ObjectView(ApiModel):
     """Compact object representation used by list endpoints."""
 
     name: str

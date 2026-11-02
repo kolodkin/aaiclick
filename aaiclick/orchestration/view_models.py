@@ -14,8 +14,9 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from ..api_model import ApiModel
 from ..log_models import LogLine, SnowflakeId
 from .graph import DependencyRow, build_graph_edges, group_member_tasks, rollup_status
 from .models import (
@@ -38,7 +39,7 @@ from .models import (
 )
 
 
-class JobView(BaseModel):
+class JobView(ApiModel):
     """Compact job representation used by list endpoints."""
 
     id: SnowflakeId
@@ -55,7 +56,7 @@ class JobView(BaseModel):
     completed_tasks: int = 0
 
 
-class TaskView(BaseModel):
+class TaskView(ApiModel):
     """Compact task representation used by list endpoints and ``JobDetail``."""
 
     id: SnowflakeId
@@ -89,7 +90,7 @@ class TaskDetail(TaskView):
     runs: int = 0
 
 
-class TaskAttemptView(BaseModel):
+class TaskAttemptView(ApiModel):
     """One run of a task, from ``task_runs``."""
 
     attempt: int
@@ -98,7 +99,7 @@ class TaskAttemptView(BaseModel):
     completed_at: datetime | None = None
 
 
-class TaskLogsView(BaseModel):
+class TaskLogsView(ApiModel):
     """Captured log lines for one attempt of a task, served by
     ``GET /tasks/{id}/logs``. ``attempts`` lists every run so the UI can offer
     a selector without a second request; ``attempt`` is the one ``lines``
@@ -122,7 +123,7 @@ GRAPH_NODE_GROUP = "group"
 GraphNodeKind = Literal["task", "group"]
 
 
-class GraphNodeView(BaseModel):
+class GraphNodeView(ApiModel):
     """A node in the job graph: a task, or a group container drawn around its
     member tasks. A group's ``status`` and timing are rolled up from every task
     beneath it; its ``entrypoint`` is empty and ``attempt`` is ``0``."""
@@ -145,7 +146,7 @@ GRAPH_EDGE_BUILD = "build"
 GraphEdgeKind = Literal["dependency", "build"]
 
 
-class GraphEdgeView(BaseModel):
+class GraphEdgeView(ApiModel):
     """An edge to draw: one per dependency, so either endpoint may be a group
     node — ``A >> G`` is a single edge into G's container.
 
@@ -162,7 +163,7 @@ class GraphEdgeView(BaseModel):
     attaches_build: bool = False
 
 
-class LayoutEdgeView(BaseModel):
+class LayoutEdgeView(ApiModel):
     """A task-to-task edge for positioning only. The layout engine cannot
     attach an edge to a container, so a group edge is expanded onto the
     group's direct member tasks here."""
@@ -171,7 +172,7 @@ class LayoutEdgeView(BaseModel):
     target_id: SnowflakeId
 
 
-class JobGraphView(BaseModel):
+class JobGraphView(ApiModel):
     """Job dependency graph served by ``GET /jobs/{ref}/graph``."""
 
     job_id: SnowflakeId
@@ -181,7 +182,7 @@ class JobGraphView(BaseModel):
     dropped_cycle_edges: int = 0
 
 
-class TaskTimingView(BaseModel):
+class TaskTimingView(ApiModel):
     """One task's timeline: when it became ready and each attempt's span."""
 
     id: SnowflakeId
@@ -193,14 +194,14 @@ class TaskTimingView(BaseModel):
     attempts: list[TaskAttemptView] = Field(default_factory=list)
 
 
-class JobTimingsView(BaseModel):
+class JobTimingsView(ApiModel):
     """Per-task timelines served by ``GET /jobs/{ref}/timings``."""
 
     job_id: SnowflakeId
     tasks: list[TaskTimingView] = Field(default_factory=list)
 
 
-class ClearTaskView(BaseModel):
+class ClearTaskView(ApiModel):
     """Result of ``POST /tasks/{id}/clear`` — the reactivated job plus the
     full set of tasks that were reset to ``PENDING`` (target + downstream)."""
 
@@ -208,7 +209,7 @@ class ClearTaskView(BaseModel):
     cleared_task_ids: list[SnowflakeId] = Field(default_factory=list)
 
 
-class TaskStatsView(BaseModel):
+class TaskStatsView(ApiModel):
     """Per-task execution stats exposed inside ``JobStatsView``."""
 
     id: SnowflakeId
@@ -219,7 +220,7 @@ class TaskStatsView(BaseModel):
     error: str | None = None
 
 
-class JobStatsView(BaseModel):
+class JobStatsView(ApiModel):
     """Execution stats for a job and all its tasks."""
 
     job_id: SnowflakeId
@@ -232,7 +233,7 @@ class JobStatsView(BaseModel):
     tasks: list[TaskStatsView] = Field(default_factory=list)
 
 
-class ExecutionWorkerView(BaseModel):
+class ExecutionWorkerView(ApiModel):
     """ExecutionWorker representation used by ``GET /execution-workers``."""
 
     id: SnowflakeId
@@ -245,7 +246,7 @@ class ExecutionWorkerView(BaseModel):
     tasks_failed: int
 
 
-class RegisteredJobView(BaseModel):
+class RegisteredJobView(ApiModel):
     """Registered job representation used by ``GET /registered-jobs``."""
 
     id: SnowflakeId
@@ -266,7 +267,7 @@ class RegisteredJobView(BaseModel):
     updated_at: datetime
 
 
-class SandboxFileView(BaseModel):
+class SandboxFileView(ApiModel):
     """A sandbox submission as listed by ``GET /sandbox``."""
 
     id: SnowflakeId
