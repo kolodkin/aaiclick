@@ -34,20 +34,13 @@ describe("viewer routes", () => {
 });
 
 describe("suggestCommands", () => {
-  test("@ lists every bare @-command", () => {
-    expect(suggestCommands("@")).toEqual([
-      "@jobs",
-      "@registered",
-      "@data",
-      "@query",
-      "@dashboard",
-      "@account",
-      "@tokens",
-    ]);
-  });
+  const commands = ["help", "@jobs", "@job", "run"];
 
-  test("falls back to all commands when nothing matches", () => {
-    expect(suggestCommands("bogus")).toContain("@registered");
-    expect(suggestCommands("bogus")).toContain("help");
+  test.each([
+    ["@", ["@jobs", "@job"]],
+    ["@jobs", ["@jobs"]],
+    ["bogus", commands],
+  ])("%s", (raw, expected) => {
+    expect(suggestCommands(raw, commands)).toEqual(expected);
   });
 });

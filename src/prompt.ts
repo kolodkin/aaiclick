@@ -74,29 +74,10 @@ export function parsePrompt(raw: string): Route {
   return { kind: "unknown", raw: p };
 }
 
-// Argument-free commands offered as prompt autocomplete and on the unknown-command page.
-export const BARE_COMMANDS = [
-  "help",
-  "@jobs",
-  "@registered",
-  "@data",
-  "@query",
-  "@dashboard",
-  "register",
-  "@account",
-  "@tokens",
-];
-
-// Autocomplete-only: the trailing space leaves the cursor ready for the argument.
-export const ARG_COMMANDS = ["@job ", "@task ", "run ", "cancel "];
-export const ADMIN_COMMANDS = ["@users", "@invite", "@audit"];
-// Need user accounts, so they do nothing in local mode (auth disabled).
-export const DIST_ONLY_COMMANDS: ReadonlySet<string> = new Set(["@account", "@tokens", ...ADMIN_COMMANDS]);
-
 // Commands completing what was typed, or all of them when nothing matches.
-export function suggestCommands(raw: string): string[] {
-  const hits = BARE_COMMANDS.filter((c) => c.startsWith(raw));
-  return hits.length ? hits : BARE_COMMANDS;
+export function suggestCommands(raw: string, commands: string[]): string[] {
+  const hits = commands.filter((c) => c.startsWith(raw));
+  return hits.length ? hits : commands;
 }
 
 // Routes that render without a session — a reset link is followed by someone

@@ -4,6 +4,7 @@ import { LiveUpdates } from "./api/events";
 import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
 import { Chips } from "./components/Chips";
+import { useCompletions } from "./components/commands";
 import { parsePrompt, promptFromUrl, PUBLIC_ROUTES, pushPromptToUrl, suggestCommands, type Route } from "./prompt";
 import {
   Account,
@@ -28,6 +29,20 @@ import {
 } from "./views";
 import { Login } from "./views/Login";
 import { ResetPassword } from "./views/ResetPassword";
+
+function UnknownCommand({ raw, onPrompt }: { raw: string; onPrompt: (v: string) => void }) {
+  // Argument commands (trailing space) would just land back here, so offer only complete ones.
+  const commands = useCompletions()
+    .filter((c) => !c.disabled && !c.text.endsWith(" "))
+    .map((c) => c.text);
+  return (
+    <>
+      <h2>Unknown command</h2>
+      <p className="sub mono">{raw}</p>
+      <Chips chips={suggestCommands(raw, commands).map((c) => ({ label: c, cmd: c }))} onPrompt={onPrompt} />
+    </>
+  );
+}
 
 function renderRoute(route: Route, onPrompt: (v: string) => void) {
   switch (route.kind) {
@@ -72,16 +87,7 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
     case "sandbox-file":
       return <SandboxFile id={route.id} onPrompt={onPrompt} />;
     case "unknown":
-      return (
-        <>
-          <h2>Unknown command</h2>
-          <p className="sub mono">{route.raw}</p>
-          <Chips
-            chips={suggestCommands(route.raw).map((c) => ({ label: c, cmd: c === "help" ? "" : c }))}
-            onPrompt={onPrompt}
-          />
-        </>
-      );
+      return <UnknownCommand raw={route.raw} onPrompt={onPrompt} />;
   }
 }
 
