@@ -74,6 +74,12 @@ export function parsePrompt(raw: string): Route {
   return { kind: "unknown", raw: p };
 }
 
+// Commands completing what was typed, or all of them when nothing matches.
+export function suggestCommands(raw: string, commands: string[]): string[] {
+  const hits = commands.filter((c) => c.startsWith(raw));
+  return hits.length ? hits : commands;
+}
+
 // Routes that render without a session — a reset link is followed by someone
 // who by definition cannot sign in yet.
 export const PUBLIC_ROUTES: ReadonlySet<Route["kind"]> = new Set(["reset"]);

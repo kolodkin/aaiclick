@@ -54,6 +54,8 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 Displays a help/command reference showing available commands and their descriptions.
 In local mode (auth disabled) the Account and Administration groups are greyed out and marked "(Distributed mode only)".
 
+One registry, `src/components/commands.ts`, feeds Home, prompt autocomplete and the "Unknown command" chips. Autocomplete labels distributed-only commands instead of greying them — a native `<datalist>` can't.
+
 ## Jobs List (`@jobs`)
 
 **Implementation**: `src/views/Jobs.tsx`
