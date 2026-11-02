@@ -1,3 +1,4 @@
+import { BARE_COMMANDS } from "../prompt";
 import { useAuth } from "./Auth";
 
 interface HeaderProps {
@@ -20,7 +21,13 @@ export function Header({ prompt, onPrompt }: HeaderProps) {
           placeholder="Type a command…  try @jobs, run <registered job>, or help"
           autoComplete="off"
           spellCheck={false}
+          list="prompt-commands"
         />
+        <datalist id="prompt-commands">
+          {BARE_COMMANDS.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
       </div>
       {me?.username ? (
         <div className="hint user-menu">

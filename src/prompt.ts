@@ -74,9 +74,9 @@ export function parsePrompt(raw: string): Route {
   return { kind: "unknown", raw: p };
 }
 
-// Argument-free commands offered on the unknown-command page. Role- and
+// Argument-free commands offered as prompt autocomplete and on the unknown-command page. Role- and
 // config-gated ones (@users, @audit, @invite, @sandbox) stay on Home only.
-const BARE_COMMANDS = [
+export const BARE_COMMANDS = [
   "help",
   "@jobs",
   "@registered",
