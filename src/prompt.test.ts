@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parsePrompt } from "./prompt";
+import { parsePrompt, suggestCommands } from "./prompt";
 
 describe("viewer routes", () => {
   test.each([
@@ -30,5 +30,17 @@ describe("viewer routes", () => {
     expect(parsePrompt("@job x graph")).toEqual({ kind: "job", name: "x", view: "graph" });
     expect(parsePrompt("@job x timings")).toEqual({ kind: "job", name: "x", view: "timings" });
     expect(parsePrompt("@job x duration")).toEqual({ kind: "job", name: "x", view: "duration" });
+  });
+});
+
+describe("suggestCommands", () => {
+  const commands = ["help", "@jobs", "@job", "run"];
+
+  test.each([
+    ["@", ["@jobs", "@job"]],
+    ["@jobs", ["@jobs"]],
+    ["bogus", commands],
+  ])("%s", (raw, expected) => {
+    expect(suggestCommands(raw, commands)).toEqual(expected);
   });
 });
