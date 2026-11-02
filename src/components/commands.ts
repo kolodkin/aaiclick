@@ -134,6 +134,8 @@ export function useCompletions(): Completion[] {
   return [
     { text: "help", disabled: false },
     ...[...g.navigate, ...g.actions].flatMap(entry(false)),
+    // Off Home (tasks are reached through a job) but still typeable.
+    { text: "@task ", disabled: false },
     ...[...g.account, ...g.admin].flatMap(entry(g.local)),
   ];
 }

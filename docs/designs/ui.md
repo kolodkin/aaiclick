@@ -42,7 +42,7 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 @jobs  ──click job row──▶  @job <name>  ──click task row──▶  @task <id>
 ```
 
-Tasks are reached only through a job — Home lists no `@task` command.
+Home lists no `@task` command — tasks are reached through a job, or by typing `@task <id>` (autocomplete offers it).
 
 # Modes
 
