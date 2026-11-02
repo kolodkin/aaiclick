@@ -74,8 +74,7 @@ export function parsePrompt(raw: string): Route {
   return { kind: "unknown", raw: p };
 }
 
-// Argument-free commands offered as prompt autocomplete and on the unknown-command page. Role- and
-// config-gated ones (@users, @audit, @invite, @sandbox) stay on Home only.
+// Argument-free commands offered as prompt autocomplete and on the unknown-command page.
 export const BARE_COMMANDS = [
   "help",
   "@jobs",
@@ -87,6 +86,12 @@ export const BARE_COMMANDS = [
   "@account",
   "@tokens",
 ];
+
+// Autocomplete-only: the trailing space leaves the cursor ready for the argument.
+export const ARG_COMMANDS = ["@job ", "@task ", "run ", "cancel "];
+export const ADMIN_COMMANDS = ["@users", "@invite", "@audit"];
+// Need user accounts, so they do nothing in local mode (auth disabled).
+export const DIST_ONLY_COMMANDS: ReadonlySet<string> = new Set(["@account", "@tokens", ...ADMIN_COMMANDS]);
 
 // Commands completing what was typed, or all of them when nothing matches.
 export function suggestCommands(raw: string): string[] {
