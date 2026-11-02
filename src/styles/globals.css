@@ -241,13 +241,14 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .objects-menu summary::-webkit-details-marker { display: none; }
 .objects-menu ul {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; margin: 0; padding: 6px;
-  list-style: none; min-width: 200px; max-width: calc(100vw - 32px); max-height: 60vh; overflow: auto;
+  list-style: none; min-width: 160px; max-width: calc(100vw - 32px); max-height: 60vh; overflow: auto;
   background: #0c1018; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
 .objects-menu li { display: flex; align-items: center; }
-.objects-menu li a { padding: 8px 10px; border-radius: 8px; color: var(--text); text-decoration: none; }
+.objects-menu li a { padding: 6px 8px; border-radius: 6px; font-size: 12px; color: var(--text); text-decoration: none; }
 .objects-menu li a:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .objects-menu li a:hover, .objects-menu li a:focus-visible { background: var(--accent-soft); }
-.objects-menu .new-tab { color: var(--muted); }
+.objects-menu li a.new-tab { padding: 2px 6px; font-size: 11px; line-height: 1; color: var(--muted); opacity: .6; }
+.objects-menu li a.new-tab:hover { opacity: 1; color: var(--accent); }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
 /* Content-sized items share a row, wrapping only when out of width, so the
    header stays short. */
