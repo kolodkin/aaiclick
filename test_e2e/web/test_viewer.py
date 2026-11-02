@@ -63,7 +63,6 @@ def test_dashboard_renders_saved_dashboard(page, base_url: str) -> None:
     playwright_api.expect(title).to_have_text("rows:3", timeout=15000)
 
 
-
 @_spa_built
 @_local_only
 def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
