@@ -1835,6 +1835,11 @@ export interface components {
             name: string;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
+            /**
+             * Replace
+             * @default false
+             */
+            replace: boolean;
             /** Resources */
             resources?: {
                 [key: string]: unknown;
