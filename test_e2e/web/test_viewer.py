@@ -71,10 +71,13 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     menu.locator("summary").click()
     items = menu.get_by_role("menuitem")
     assert items.all_inner_texts() == ["daily_totals", "raw_sales"]
-    new_tab = menu.get_by_label("Open raw_sales in a new tab")
-    assert new_tab.get_attribute("target") == "_blank"
-    assert "raw_sales" in (new_tab.get_attribute("href") or "")
+    # The toggle flips where a click opens the object; back off for the click below.
+    toggle = menu.get_by_test_id("objects-new-tab")
+    toggle.click()
+    assert items.get_by_text("raw_sales").get_attribute("target") == "_blank"
     shot("job-objects-menu")
+    toggle.click()
+    assert items.get_by_text("raw_sales").get_attribute("target") is None
     items.get_by_text("raw_sales").click()
     page.wait_for_url(lambda url: "raw_sales" in url)
     page.get_by_test_id("object-rows").wait_for(timeout=15000)
