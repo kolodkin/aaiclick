@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, NamedTuple, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+
+from ..api_model import ApiModel
 
 # ClickHouse column type literals
 ColumnType = Literal[
@@ -68,7 +70,7 @@ Fieldtype = Literal["s", "a", "d"]
 AAI_ID_COLUMN = "aai_id"
 
 
-class ColumnInfo(BaseModel):
+class ColumnInfo(ApiModel):
     """Column definition including base type, nullability, array wrapping, and cardinality.
 
     Attributes:
@@ -393,7 +395,7 @@ class QueryStats:
         )
 
 
-class Schema(BaseModel):
+class Schema(ApiModel):
     """
     Schema definition for Object tables. Also serves as Object metadata
     when table is set.

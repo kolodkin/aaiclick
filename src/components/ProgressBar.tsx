@@ -1,4 +1,4 @@
-export function ProgressBar({ done = 0, total = 0 }: { done?: number; total?: number }) {
+export function ProgressBar({ done, total }: { done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div className="progress">

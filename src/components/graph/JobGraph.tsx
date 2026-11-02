@@ -166,7 +166,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
       <p className="sub">
         <LiveStatus updatedAt={dataUpdatedAt} queryKey="job-graph" />
       </p>
-      {data && (data.dropped_cycle_edges ?? 0) > 0 && (
+      {data && data.dropped_cycle_edges > 0 && (
         <div className="err">
           {data.dropped_cycle_edges} circular dependency edge(s) hidden to keep the graph renderable.
         </div>

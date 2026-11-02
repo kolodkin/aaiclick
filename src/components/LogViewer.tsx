@@ -73,7 +73,7 @@ function AttemptPicker({
 }
 
 export function LogViewer({ task }: { task: LogTask }) {
-  const { status, runs = 0 } = task;
+  const { status, runs } = task;
   const started = isTaskStarted(status);
   // null follows the latest attempt (and keeps polling it); a number pins an
   // earlier one, whose logs no longer change.

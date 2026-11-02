@@ -4,35 +4,36 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from ..api_model import ApiModel
 from ..log_models import PageLimit, PageOffset, SnowflakeId, UtcDateTime
 from .models import ROLE_VIEWER, SCOPE_READ, Role, ScopeLevel
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(ApiModel):
     username: str
     password: str
     totp_code: str | None = None
     """Required once the account has MFA enabled (``401 code="mfa_required"`` otherwise)."""
 
 
-class RefreshRequest(BaseModel):
+class RefreshRequest(ApiModel):
     refresh_token: str
 
 
-class LogoutRequest(BaseModel):
+class LogoutRequest(ApiModel):
     refresh_token: str
 
 
-class TokenPair(BaseModel):
+class TokenPair(ApiModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
 
 
-class MeView(BaseModel):
+class MeView(ApiModel):
     """Current principal. ``id``/``username`` are ``None`` in local mode
     (auth disabled — the synthetic admin has no user row)."""
 
@@ -42,7 +43,7 @@ class MeView(BaseModel):
     mfa_enabled: bool = False
 
 
-class UserView(BaseModel):
+class UserView(ApiModel):
     id: SnowflakeId
     username: str
     role: Role
@@ -53,7 +54,7 @@ class UserView(BaseModel):
     created_at: datetime
 
 
-class CreateUserRequest(BaseModel):
+class CreateUserRequest(ApiModel):
     username: str = Field(min_length=1, max_length=100)
     password: str | None = None
     """``None`` creates a user who can only sign in after redeeming a reset link."""
@@ -61,19 +62,19 @@ class CreateUserRequest(BaseModel):
     email: str | None = None
 
 
-class SetEmailRequest(BaseModel):
+class SetEmailRequest(ApiModel):
     email: str | None
 
 
-class SetRoleRequest(BaseModel):
+class SetRoleRequest(ApiModel):
     role: Role
 
 
-class SetPasswordRequest(BaseModel):
+class SetPasswordRequest(ApiModel):
     password: str
 
 
-class ChangePasswordRequest(BaseModel):
+class ChangePasswordRequest(ApiModel):
     """Self-service password change. ``current_password`` is required so a
     stolen access token cannot take over the account on its own."""
 
@@ -81,13 +82,13 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
-class UserListFilter(BaseModel):
+class UserListFilter(ApiModel):
     limit: PageLimit = 50
     offset: PageOffset = 0
     cursor: str | None = None
 
 
-class ApiTokenView(BaseModel):
+class ApiTokenView(ApiModel):
     """A token as listed — never carries the secret."""
 
     id: SnowflakeId
@@ -106,13 +107,13 @@ class ApiTokenCreated(ApiTokenView):
     token: str
 
 
-class CreateApiTokenRequest(BaseModel):
+class CreateApiTokenRequest(ApiModel):
     name: str = Field(min_length=1, max_length=100)
     scope: ScopeLevel = SCOPE_READ
     expires_at: UtcDateTime | None = None
 
 
-class MfaSetupView(BaseModel):
+class MfaSetupView(ApiModel):
     """A pending TOTP secret; MFA turns on only after ``/auth/me/mfa/enable``
     proves the authenticator has it."""
 
@@ -120,18 +121,18 @@ class MfaSetupView(BaseModel):
     otpauth_uri: str
 
 
-class MfaEnableRequest(BaseModel):
+class MfaEnableRequest(ApiModel):
     code: str
 
 
-class MfaDisableRequest(BaseModel):
+class MfaDisableRequest(ApiModel):
     """Both factors are needed to turn MFA off."""
 
     password: str
     code: str
 
 
-class PasswordResetLinkView(BaseModel):
+class PasswordResetLinkView(ApiModel):
     """An admin-minted reset token. ``url`` is set when ``AAICLICK_PUBLIC_URL``
     is configured; either way the raw ``token`` appears here only."""
 
@@ -140,7 +141,7 @@ class PasswordResetLinkView(BaseModel):
     url: str | None
 
 
-class InviteUserRequest(BaseModel):
+class InviteUserRequest(ApiModel):
     """Create a user who sets their own password by redeeming the link."""
 
     username: str = Field(min_length=1, max_length=100)
@@ -148,13 +149,13 @@ class InviteUserRequest(BaseModel):
     email: str | None = None
 
 
-class InviteView(BaseModel):
+class InviteView(ApiModel):
     """The new user and the one-time link that lets them in."""
 
     user: UserView
     link: PasswordResetLinkView
 
 
-class PasswordResetRedeem(BaseModel):
+class PasswordResetRedeem(ApiModel):
     token: str
     new_password: str = Field(min_length=1)
