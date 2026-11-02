@@ -6,7 +6,6 @@ import { Header } from "./components/Header";
 import { parsePrompt, promptFromUrl, PUBLIC_ROUTES, pushPromptToUrl, type Route } from "./prompt";
 import {
   Account,
-  AllGallery,
   Audit,
   CancelConfirm,
   Dashboard,
@@ -33,8 +32,6 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
   switch (route.kind) {
     case "home":
       return <Home onPrompt={onPrompt} />;
-    case "all":
-      return <AllGallery onPrompt={onPrompt} />;
     case "jobs":
       return <Jobs onPrompt={onPrompt} />;
     case "registered":

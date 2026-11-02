@@ -7,7 +7,6 @@ export { RunConfirm } from "./RunConfirm";
 export { RunForm } from "./RunForm";
 export { RegisterForm } from "./RegisterForm";
 export { CancelConfirm } from "./CancelConfirm";
-export { AllGallery } from "./AllGallery";
 export { Tokens } from "./Tokens";
 export { Account } from "./Account";
 export { Invite } from "./Invite";
