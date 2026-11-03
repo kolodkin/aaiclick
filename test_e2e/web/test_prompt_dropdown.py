@@ -10,20 +10,26 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from helpers import login_if_needed, open_page, submit_job
+from helpers import login_if_needed, open_page, run_in_process
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 pytest.importorskip("playwright.sync_api")
 pytestmark = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 
-SIMPLE = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+from seed import DEFAULT_STATES, TaskState, seed_graph_job  # noqa: E402  (must follow the playwright guard)
+
 ROWS = "#prompt-dropdown [role=option]"
 
 
+# Already finished, so no worker picks them up: in distributed mode 50+ runnable
+# jobs would starve other tests' tasks on the single execution worker.
+_DONE = {name: TaskState("COMPLETED", None, 0, 1) for name in DEFAULT_STATES}
+
+
 @pytest.fixture(scope="module")
-def many_tasks() -> list[str]:
+def many_tasks() -> list[int]:
     """More tasks than one dropdown page (50), so scrolling has a second page to load."""
-    return [submit_job(f"dropdown_{i}", SIMPLE) for i in range(55)]
+    return [run_in_process(lambda i=i: seed_graph_job(f"dropdown_{i}", _DONE, "COMPLETED")) for i in range(7)]
 
 
 def test_typing_task_lists_tasks_without_switching_view(page, base_url: str, many_tasks, shot) -> None:

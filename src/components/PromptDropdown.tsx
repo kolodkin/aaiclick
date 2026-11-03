@@ -69,6 +69,11 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
     return () => io.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  // Arrowing onto the last loaded row asks for the next page; the sentinel may sit below the fold.
+  useEffect(() => {
+    if (active === items.length - 1 && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [active, items.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
   const activeRef = useRef<HTMLLIElement>(null);
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest" });
