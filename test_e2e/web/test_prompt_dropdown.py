@@ -141,3 +141,25 @@ def test_mousedown_on_the_list_keeps_it_open(page, base_url: str) -> None:
     empty.click()
 
     assert page.locator("#prompt-dropdown").is_visible()
+
+
+def test_recommitting_the_current_prompt_drops_the_draft(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@task half")
+
+    page.click("#header-home")
+
+    assert page.input_value("#prompt") == ""
+
+
+def test_open_list_does_not_poll_while_live_updates_are_down(page, base_url: str, many_tasks) -> None:
+    page.route("**/api/v0/events", lambda route: route.abort())
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@task ")
+    page.wait_for_selector(ROWS)
+    task_requests: list[str] = []
+    page.on("request", lambda r: task_requests.append(r.url) if "/api/v0/tasks?" in r.url else None)
+
+    page.wait_for_timeout(5000)
+
+    assert task_requests == []

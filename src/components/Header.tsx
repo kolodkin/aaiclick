@@ -8,10 +8,12 @@ import type { SourceItem } from "./promptSources";
 
 interface HeaderProps {
   prompt: string;
+  /** Commit counter; a change resets the draft even when `prompt` is unchanged. */
+  commits: number;
   onPrompt: (value: string) => void;
 }
 
-export function Header({ prompt, onPrompt }: HeaderProps) {
+export function Header({ prompt, commits, onPrompt }: HeaderProps) {
   const { me, signOut } = useAuth();
   const completions = useCompletions();
   const sandbox = useSandboxConfig().data?.enabled ?? false;
@@ -25,7 +27,7 @@ export function Header({ prompt, onPrompt }: HeaderProps) {
   useEffect(() => {
     setDraft(prompt);
     setOpen(false);
-  }, [prompt]);
+  }, [prompt, commits]);
 
   // A new draft is a new list; pages loading or refetching keep the highlight.
   useEffect(() => {

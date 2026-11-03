@@ -47,6 +47,8 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
     initialPageParam: 0,
     getNextPageParam: (last, pages) => (last.more ? pages.reduce((n, p) => n + p.items.length, 0) : undefined),
     enabled: source !== null,
+    // A picker, not a live view: the fallback poll would refetch every loaded page.
+    refetchInterval: false,
   });
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
 

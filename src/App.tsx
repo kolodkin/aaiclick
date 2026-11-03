@@ -97,11 +97,14 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
 export function App() {
   const { me, ready } = useAuth();
   const [prompt, setPrompt] = useState(promptFromUrl);
+  // Bumped on every commit, so the header drops its draft even when the prompt value is unchanged.
+  const [commits, setCommits] = useState(0);
 
   // Stable identity: Header calls this on every keystroke, and JobGraph's node
   // memo depends on it — a fresh function per render rebuilds every node object.
   const onPrompt = useCallback((value: string) => {
     setPrompt(value);
+    setCommits((n) => n + 1);
     pushPromptToUrl(value);
   }, []);
 
@@ -121,7 +124,7 @@ export function App() {
   return (
     <>
       <LiveUpdates />
-      <Header prompt={prompt} onPrompt={onPrompt} />
+      <Header prompt={prompt} commits={commits} onPrompt={onPrompt} />
       <main>
         <div className="content" id="content">
           {renderRoute(route, onPrompt)}

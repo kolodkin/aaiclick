@@ -63,6 +63,14 @@ describe("fetchPage", () => {
     expect(short.items[0].insert).toBe("@task 7");
   });
 
+  test("a full last page has no more when the total says so", async () => {
+    const task = { id: "7", name: "t", job_id: "1", status: "PENDING", created_at: "2026-01-01T00:00:00Z" };
+    fetchMock.mockResolvedValue({ items: Array(PAGE).fill(task), total: PAGE * 2 });
+    const m = matchSource("@task ", { sandbox: false })!;
+    expect((await m.fetchPage(0)).more).toBe(true);
+    expect((await m.fetchPage(PAGE)).more).toBe(false);
+  });
+
   test("cancel inserts the job id, @job the name", async () => {
     const job = { id: "9", name: "etl", status: "RUNNING", created_at: "2026-01-01T00:00:00Z" };
     fetchMock.mockResolvedValue({ items: [job] });

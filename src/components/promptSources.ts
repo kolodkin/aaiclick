@@ -47,11 +47,12 @@ function query(params: Record<string, string | number | undefined>): string {
   return `?${q}`;
 }
 
-// Offset-paged list endpoint; a full page means there may be more.
+// Offset-paged list endpoint; `total` says whether more remain (a full page is the fallback guess).
 function paged<T>(path: string, params: Record<string, string | undefined>, toItem: (t: T) => SourceItem) {
   return async (offset: number): Promise<SourcePage> => {
     const page = await fetchJSON<Page<T>>(`${path}${query({ limit: PAGE, offset, ...params })}`);
-    return { items: page.items.map(toItem), more: page.items.length === PAGE };
+    const more = page.total != null ? offset + page.items.length < page.total : page.items.length === PAGE;
+    return { items: page.items.map(toItem), more };
   };
 }
 
