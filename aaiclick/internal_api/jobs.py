@@ -75,6 +75,15 @@ async def resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job:
     return job
 
 
+async def job_names(ids: set[int]) -> dict[int, str]:
+    """Map job ids to names; ids with no job row are left out."""
+    if not ids:
+        return {}
+    async with get_sql_session() as session:
+        rows = await session.execute(select(Job.id, Job.name).where(col(Job.id).in_(ids)))
+    return {row.id: row.name for row in rows.all()}
+
+
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """Return a page of jobs ordered by ``created_at`` descending.
 

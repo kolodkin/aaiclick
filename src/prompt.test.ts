@@ -3,13 +3,15 @@ import { parsePrompt, suggestCommands } from "./prompt";
 
 describe("viewer routes", () => {
   test.each([
-    ["@data", { kind: "data", job: null, object: null }],
-    ["@data job nightly_etl", { kind: "data", job: "nightly_etl", object: null }],
-    ["@data job 123 orders", { kind: "data", job: "123", object: "orders" }],
-    ["@data orders", { kind: "data", job: null, object: "orders" }],
-    ["@query", { kind: "query", job: null, object: null }],
-    ["@query orders", { kind: "query", job: null, object: "orders" }],
-    ["@query job etl orders", { kind: "query", job: "etl", object: "orders" }],
+    ["@data", { kind: "data", scope: "all", object: null }],
+    ["@data persistent", { kind: "data", scope: "persistent", object: null }],
+    ["@data persistent orders", { kind: "data", scope: "persistent", object: "orders" }],
+    ["@data job nightly_etl", { kind: "data", scope: "job:nightly_etl", object: null }],
+    ["@data job 123 orders", { kind: "data", scope: "job:123", object: "orders" }],
+    ["@data orders", { kind: "data", scope: "persistent", object: "orders" }],
+    ["@query", { kind: "query", scope: "all", object: null }],
+    ["@query orders", { kind: "query", scope: "persistent", object: "orders" }],
+    ["@query job etl orders", { kind: "query", scope: "job:etl", object: "orders" }],
     ["@dashboard", { kind: "dashboard", name: null }],
     ["@dashboard sales", { kind: "dashboard", name: "sales" }],
   ])("%s", (prompt, route) => {

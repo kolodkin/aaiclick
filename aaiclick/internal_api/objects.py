@@ -7,8 +7,8 @@ the ClickHouse client via the contextvar getter. Registry-backed paths
 (``get_object`` -> ``open_object``) additionally need the SQL session that
 only orch provides. Returns pydantic view models.
 
-``list_objects`` covers the ``global`` tier (``p_*`` tables) and, given
-``ObjectFilter.job``, one job's ``j_<id>_*`` tables. The other operations
+``list_objects`` covers the ``global`` tier (``p_*`` tables), one job's
+``j_<id>_*`` tables (``ObjectFilter.job``), or both tiers (``scope="all"``). The other operations
 target the ``global`` tier only.
 """
 
@@ -28,7 +28,7 @@ from aaiclick.data.object_context import (
     list_persistent_tables,
     open_object,
 )
-from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB, ObjectScope, name_from_table
+from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB, ObjectScope, name_from_table, scope_of
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
@@ -65,26 +65,36 @@ async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
     return {row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]} for row in result.result_rows}
 
 
+def _job_id_of(table: str) -> int:
+    """The job id inside a ``j_<id>_<name>`` table name."""
+    return int(table.split("_", 2)[1])
+
+
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     """Return a page of persistent objects ordered by name.
 
     ``filter.job`` (id, or name → latest run) lists that job's ``j_<id>_*``
-    tables; otherwise ``scope=None`` / ``"global"`` lists the ``p_*``
-    tables. Any other scope raises ``Invalid``.
+    tables; ``scope="all"`` lists the ``p_*`` tables plus every job's;
+    otherwise ``scope=None`` / ``"global"`` lists the ``p_*`` tables. Any
+    other scope raises ``Invalid``. Job-scoped items carry ``job_id`` /
+    ``job_name``.
     """
     filter = filter or ObjectFilter()
-    scope: ObjectScope
+    names: dict[int, str] = {}
     if filter.job is not None:
         job = await jobs_api.resolve_job(filter.job)
         tables = await list_job_tables(job.id)
-        scope = SCOPE_JOB
+        names = {job.id: job.name}
     elif filter.scope == SCOPE_JOB:
         raise Invalid("scope='job' requires job (id or name)")
+    elif filter.scope == "all":
+        job_tables = await list_job_tables()
+        tables = await list_persistent_tables() + job_tables
+        names = await jobs_api.job_names({_job_id_of(t) for t in job_tables})
     elif filter.scope in (None, SCOPE_GLOBAL):
         tables = await list_persistent_tables()
-        scope = SCOPE_GLOBAL
     else:
-        raise Invalid(f"scope={filter.scope!r} not supported (global or job)")
+        raise Invalid(f"scope={filter.scope!r} not supported (global, job or all)")
 
     pairs = sorted((name_from_table(t), t) for t in tables)
     if filter.prefix:
@@ -94,16 +104,21 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     paged = pairs[: filter.limit]
     metadata = await _fetch_table_metadata([t for _, t in paged])
 
-    items = [
-        ObjectView(
-            name=name,
-            table=table,
-            scope=scope,
-            persistent=True,
-            **metadata.get(table, {}),
+    items = []
+    for name, table in paged:
+        scope: ObjectScope = scope_of(table)
+        job_id = _job_id_of(table) if scope == SCOPE_JOB else None
+        items.append(
+            ObjectView(
+                name=name,
+                table=table,
+                scope=scope,
+                persistent=True,
+                job_id=job_id,
+                job_name=names.get(job_id) if job_id is not None else None,
+                **metadata.get(table, {}),
+            )
         )
-        for name, table in paged
-    ]
     return Page[ObjectView](items=items, total=total)
 
 

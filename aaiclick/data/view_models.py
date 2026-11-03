@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ..api_model import ApiModel
+from ..log_models import SnowflakeId
 from .models import Schema
 from .scope import ObjectScope
 
@@ -30,6 +31,8 @@ class ObjectView(ApiModel):
     table: str
     scope: ObjectScope
     persistent: bool
+    job_id: SnowflakeId | None = None
+    job_name: str | None = None
     row_count: int | None = None
     size_bytes: int | None = None
     created_at: datetime | None = None

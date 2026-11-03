@@ -198,7 +198,7 @@ class ObjectFilter(ApiModel):
     """Filter parameters for ``internal_api.list_objects``."""
 
     prefix: str | None = None
-    scope: ObjectScope | None = None
+    scope: ObjectScope | Literal["all"] | None = None  # "all": global plus every job's objects
     job: RefId | None = None  # list one job's objects: id, or name → latest run
     limit: PageLimit = 50
     cursor: str | None = None

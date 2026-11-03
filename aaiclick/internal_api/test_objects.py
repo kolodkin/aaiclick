@@ -130,7 +130,15 @@ async def test_list_objects_job_scope_by_ref():
     await create_object_from_value([3], name="persist", scope="global")
 
     page = await objects.list_objects(ObjectFilter(scope="job", job=job.id))
-    assert [(o.name, o.scope, o.table) for o in page.items] == [("result", "job", f"j_{job.id}_result")]
+    assert [(o.name, o.scope, o.table, o.job_id, o.job_name) for o in page.items] == [
+        ("result", "job", f"j_{job.id}_result", job.id, "objs_job")
+    ]
+
+    everything = await objects.list_objects(ObjectFilter(scope="all"))
+    assert [(o.name, o.scope, o.job_name) for o in everything.items] == [
+        ("persist", "global", None),
+        ("result", "job", "objs_job"),
+    ]
 
     by_name = await objects.list_objects(ObjectFilter(job="objs_job"))
     assert [o.name for o in by_name.items] == ["result"]

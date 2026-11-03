@@ -28,13 +28,25 @@ _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs th
 @_local_only
 def test_data_lists_and_previews_object(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@data")
-    row = page.get_by_test_id("objects-table").get_by_text("orders")
+    row = page.get_by_test_id("objects-table").get_by_text("orders", exact=True)
     row.wait_for(timeout=15000)
     row.click()
     page.wait_for_url(lambda url: "orders" in url)
     rows = page.get_by_test_id("object-rows")
     rows.wait_for(timeout=15000)
     assert rows.locator("tbody tr").count() == 3
+
+
+@_spa_built
+@_local_only
+def test_data_all_scopes_labels_and_opens_job_object(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@data")
+    # Earlier seed runs may leave rows of the same name; any one will do.
+    row = page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales").first
+    playwright_api.expect(row).to_contain_text(f"job - {OBJECTS_JOB}")
+    row.click()
+    page.wait_for_url(lambda url: "job" in url and "raw_sales" in url)
+    page.get_by_test_id("object-rows").wait_for(timeout=15000)
 
 
 @_spa_built
