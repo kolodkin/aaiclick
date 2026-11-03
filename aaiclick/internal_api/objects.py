@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 from sqlmodel import col, select
 
 from aaiclick.data.object import Object
@@ -29,7 +29,7 @@ from aaiclick.data.object_context import (
     get_ch_client,
     open_object,
 )
-from aaiclick.data.scope import GLOBAL_PREFIX, JOB_PREFIX, SCOPE_GLOBAL, SCOPE_JOB, name_from_table, scope_of
+from aaiclick.data.scope import GLOBAL_PREFIX, JOB_PREFIX, SCOPE_GLOBAL, SCOPE_JOB, scope_of
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
@@ -70,17 +70,6 @@ async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
     return {row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]} for row in result.result_rows}
 
 
-async def _registered(clause: ColumnElement[bool]) -> list[tuple[str, int | None, str | None]]:
-    """``(table_name, job_id, job_name)`` of the registry rows matching ``clause``."""
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(TableRegistry.table_name, TableRegistry.job_id, Job.name)
-            .outerjoin(Job, col(Job.id) == TableRegistry.job_id)
-            .where(clause)
-        )
-    return [(row[0], row[1], row[2]) for row in result.all()]
-
-
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     """Return a page of persistent objects ordered by name.
 
@@ -88,31 +77,47 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     tables; ``scope="all"`` lists the ``p_*`` tables plus every job's;
     otherwise ``scope=None`` / ``"global"`` lists the ``p_*`` tables. Any
     other scope raises ``Invalid``. Job-scoped items carry ``job_id`` /
-    ``job_name``.
+    ``job_name``. Prefix filter, order and limit run in SQL.
     """
     filter = filter or ObjectFilter()
-    is_global = col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True)
-    is_job = col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)
+    table_col = col(TableRegistry.table_name)
+    job_id_col = col(TableRegistry.job_id)
+    is_global = table_col.startswith(GLOBAL_PREFIX, autoescape=True)
+    is_job = and_(table_col.startswith(JOB_PREFIX, autoescape=True), job_id_col.is_not(None))
     if filter.job is not None:
         job = await jobs_api.resolve_job(filter.job)
-        rows = await _registered(and_(is_job, col(TableRegistry.job_id) == job.id))
+        clause = and_(is_job, job_id_col == job.id)
     elif filter.scope == SCOPE_JOB:
         raise Invalid("scope='job' requires job (id or name)")
     elif filter.scope == SCOPE_ALL:
-        rows = await _registered(or_(is_global, is_job))
+        clause = or_(is_global, is_job)
     elif filter.scope in (None, SCOPE_GLOBAL):
-        rows = await _registered(is_global)
+        clause = is_global
     else:
         raise Invalid(f"scope={filter.scope!r} not supported (global, job or all)")
 
-    # shortcut: loads every matching registry row, then sorts and pages in Python;
-    # move prefix/ORDER BY/LIMIT into SQL once the registry holds thousands of rows.
-    entries = sorted((name_from_table(row[0]), *row) for row in rows)
+    # The object name, as name_from_table derives it: strip "p_" or "j_<job_id>_".
+    name_col = case(
+        (
+            table_col.startswith(JOB_PREFIX, autoescape=True),
+            func.substr(table_col, func.length(cast(job_id_col, String)) + len(JOB_PREFIX) + 2),
+        ),
+        else_=func.substr(table_col, len(GLOBAL_PREFIX) + 1),
+    )
     if filter.prefix:
-        entries = [e for e in entries if e[0].startswith(filter.prefix)]
+        clause = and_(clause, name_col.startswith(filter.prefix, autoescape=True))
 
-    total = len(entries)
-    paged = entries[: filter.limit]
+    async with get_sql_session() as session:
+        total = (await session.execute(select(func.count()).select_from(TableRegistry).where(clause))).scalar_one()
+        result = await session.execute(
+            select(name_col, table_col, job_id_col, Job.name)
+            .outerjoin(Job, col(Job.id) == job_id_col)
+            .where(clause)
+            .order_by(name_col, table_col)
+            .limit(filter.limit)
+        )
+    paged = [(row[0], row[1], row[2], row[3]) for row in result.all()]
+
     metadata = await _fetch_table_metadata([table for _, table, _, _ in paged])
 
     items = []
