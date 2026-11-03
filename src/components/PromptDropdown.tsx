@@ -50,7 +50,7 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
     // A picker, not a live view: the fallback poll would refetch every loaded page.
     refetchInterval: false,
   });
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  const { hasNextPage, isFetching, isFetchingNextPage, fetchNextPage } = query;
 
   const items = useMemo(
     () => (source ? (query.data?.pages.flatMap((p) => p.items) ?? []) : commandItems(draft, completions)),
@@ -73,8 +73,9 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
 
   // Arrowing onto the last loaded row asks for the next page; the sentinel may sit below the fold.
   useEffect(() => {
-    if (active === items.length - 1 && hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [active, items.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+    // Waits out any refetch (live-update invalidation) and re-runs once it settles.
+    if (active === items.length - 1 && hasNextPage && !isFetching) void fetchNextPage();
+  }, [active, items.length, hasNextPage, isFetching, fetchNextPage]);
 
   const activeRef = useRef<HTMLLIElement>(null);
   useEffect(() => {

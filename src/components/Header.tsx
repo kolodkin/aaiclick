@@ -23,11 +23,14 @@ export function Header({ prompt, commits, onPrompt }: HeaderProps) {
   const [items, setItems] = useState<SourceItem[]>([]);
   const [active, setActive] = useState(-1);
 
-  // A commit from elsewhere (a click in a view, Back) replaces the draft.
-  useEffect(() => {
+  // A commit from elsewhere (a click in a view, Back) replaces the draft — during
+  // render, not in an effect, so the input never shows the old draft for a frame.
+  const [seen, setSeen] = useState({ prompt, commits });
+  if (seen.prompt !== prompt || seen.commits !== commits) {
+    setSeen({ prompt, commits });
     setDraft(prompt);
     setOpen(false);
-  }, [prompt, commits]);
+  }
 
   // A new draft is a new list; pages loading or refetching keep the highlight.
   useEffect(() => {
