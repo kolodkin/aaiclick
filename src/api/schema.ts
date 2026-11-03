@@ -578,6 +578,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tasks */
+        get: operations["list_tasks_api_v0_tasks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -1729,6 +1746,15 @@ export interface components {
         Page_SavedQuery_: {
             /** Items */
             items: components["schemas"]["SavedQuery"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Total */
+            total: number | null;
+        };
+        /** Page[TaskView] */
+        Page_TaskView_: {
+            /** Items */
+            items: components["schemas"]["TaskView"][];
             /** Next Cursor */
             next_cursor: string | null;
             /** Total */
@@ -3970,6 +3996,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_tasks_api_v0_tasks_get: {
+        parameters: {
+            query?: {
+                name?: string | null;
+                job?: number | string | null;
+                status?: ("PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TaskView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

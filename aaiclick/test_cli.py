@@ -453,3 +453,13 @@ async def test_background_start_does_not_validate_worker_runner(monkeypatch, cap
     err = capsys.readouterr().err
     assert "AAICLICK_RUNNER" not in err
     assert "distributed backends" in err
+
+
+async def test_task_list_prints_the_jobs_task(orch_ctx, capsys):
+    job = await run_job("cli_task_list", _VALID_ENTRYPOINT)
+
+    await run_cli("task", "list", "--job", "cli_task_list")
+
+    out = capsys.readouterr().out
+    assert str(job.id) in out
+    assert "Showing 1-1 of 1" in out

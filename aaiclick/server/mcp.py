@@ -57,6 +57,7 @@ from aaiclick.orchestration.view_models import (
     JobView,
     RegisteredJobView,
     TaskDetail,
+    TaskView,
 )
 from aaiclick.view_models import (
     Deleted,
@@ -74,6 +75,7 @@ from aaiclick.view_models import (
     RunJobRequest,
     SetupResult,
     StartExecutionWorkerRequest,
+    TaskListFilter,
 )
 from aaiclick.viewer.view_models import (
     Dashboard,
@@ -192,6 +194,13 @@ async def disable_job(name: str) -> RegisteredJobView:
 
 
 # --- tasks ------------------------------------------------------------
+
+
+@mcp.tool(tags={TAG_READ})
+async def list_tasks(filter: TaskListFilter | None = None) -> Page[TaskView]:
+    """Return a page of tasks across all jobs, newest first."""
+    async with orch_context():
+        return await tasks_api.list_tasks(filter)
 
 
 @mcp.tool(tags={TAG_READ})

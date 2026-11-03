@@ -4,13 +4,19 @@ from fastapi import APIRouter, Depends, Query
 
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.log_models import MAX_TASK_LOG_LINES
-from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
+from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView, TaskView
+from aaiclick.view_models import Page, TaskListFilter
 
 from ..auth import require_admin
 from ..deps import orch_scope
 from ..errors import problem_responses
 
 router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(orch_scope)])
+
+
+@router.get("", response_model=Page[TaskView])
+async def list_tasks(filter: TaskListFilter = Depends()) -> Page[TaskView]:
+    return await tasks_api.list_tasks(filter)
 
 
 @router.get(
