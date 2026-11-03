@@ -184,3 +184,17 @@ def test_open_list_does_not_poll_while_live_updates_are_down(page, base_url: str
     page.wait_for_timeout(5000)
 
     assert task_requests == []
+
+
+def test_phone_tap_picks_a_task(page, base_url: str, many_tasks, shot) -> None:
+    page.set_viewport_size({"width": 390, "height": 844})
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.fill("#prompt", "@task ")
+    first = page.locator(ROWS).first
+    first.wait_for()
+    shot("dropdown-phone")
+
+    first.click()
+
+    page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
+    shot("dropdown-phone-picked")
