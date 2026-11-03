@@ -127,6 +127,14 @@ def test_highlight_survives_the_next_page(page, base_url: str, many_tasks) -> No
     open_page(page, f"{base_url}/")
     page.fill("#prompt", "@task ")
     page.wait_for_selector(ROWS)
+    # A resting pointer over the list (where the login button was, in distributed
+    # mode) must not steal the highlight as keyboard scrolling slides rows under it.
+    box = page.locator("#prompt-dropdown").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 + 1)
+    page.keyboard.press("Escape")
+    page.fill("#prompt", "@task ")
+    page.wait_for_selector(ROWS)
 
     for _ in range(50):
         page.press("#prompt", "ArrowDown")

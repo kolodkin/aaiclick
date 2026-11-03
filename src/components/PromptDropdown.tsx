@@ -93,7 +93,8 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
           role="option"
           aria-selected={i === active}
           className={i === active ? "active" : undefined}
-          onMouseEnter={() => onActive(i)}
+          // mousemove, not mouseenter: keyboard scrolling slides rows under a resting pointer
+          onMouseMove={() => i !== active && onActive(i)}
           onClick={() => onPick(it)}
         >
           <span className="mono">{it.label}</span>
