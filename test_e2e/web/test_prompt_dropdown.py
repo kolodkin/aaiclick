@@ -14,6 +14,9 @@ from helpers import login_if_needed, open_page, run_in_process
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 pytest.importorskip("playwright.sync_api")
+
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError  # noqa: E402  (must follow the playwright guard)
+
 pytestmark = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 
 from seed import DEFAULT_STATES, TaskState, seed_graph_job  # noqa: E402  (must follow the playwright guard)
@@ -127,7 +130,14 @@ def test_highlight_survives_the_next_page(page, base_url: str, many_tasks) -> No
 
     for _ in range(50):
         page.press("#prompt", "ArrowDown")
-    page.wait_for_function(f"() => document.querySelectorAll('{ROWS}').length > 50")
+    state = (
+        f"() => {{ const r = [...document.querySelectorAll('{ROWS}')]; "
+        "return {selected: r.findIndex((e) => e.getAttribute('aria-selected') === 'true'), rows: r.length}; }"
+    )
+    try:
+        page.wait_for_function(f"() => document.querySelectorAll('{ROWS}').length > 50", timeout=15000)
+    except PlaywrightTimeoutError as e:
+        raise AssertionError(f"next page never loaded: {page.evaluate(state)}") from e
 
     assert page.locator(ROWS).nth(49).get_attribute("aria-selected") == "true"
 
