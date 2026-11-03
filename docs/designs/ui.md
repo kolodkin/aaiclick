@@ -158,10 +158,7 @@ tick every second while the job is active, so running bars grow.
 
 **Implementation**: `src/views/Data.tsx`
 
-**Prompt**: `@data`, `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>`
-
-Bare `@data` lists all scopes; `@data persistent` only the global tier;
-`@data <object>` opens a persistent object.
+**Prompt**: `@data` (all scopes), `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>` (no `job`: persistent)
 
 Left: a scope tree — All, Persistent, then the jobs (newest first, name
 filter). Right: the objects of the selected scope (name, scope —
@@ -174,7 +171,7 @@ views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 
 **Implementation**: `src/views/Query.tsx`
 
-**Prompt**: `@query`, `@query persistent`, `@query job <ref>`, `@query [job <ref>] <object>`
+**Prompt**: same forms as `@data`
 
 The scope tree plus an object picker (entries read `<name> (<scope>)`); with an object chosen, the query
 panel: a `where` expression, limit / offset paging, the kernel's field and

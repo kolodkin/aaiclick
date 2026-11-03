@@ -51,6 +51,18 @@ def test_data_all_scopes_labels_and_opens_job_object(page, base_url: str) -> Non
 
 @_spa_built
 @_local_only
+def test_query_all_scopes_picker_opens_job_object(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@query")
+    picker = page.get_by_test_id("query-object")
+    option = picker.locator("option", has_text=f"raw_sales (job - {OBJECTS_JOB})").first
+    option.wait_for(state="attached", timeout=15000)
+    picker.select_option(option.get_attribute("value"))
+    page.wait_for_url(lambda url: "job" in url and "raw_sales" in url)
+    page.get_by_test_id("query-panel").wait_for(timeout=15000)
+
+
+@_spa_built
+@_local_only
 def test_query_runs_and_pages(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@query orders")
     page.get_by_test_id("query-panel").wait_for(timeout=15000)

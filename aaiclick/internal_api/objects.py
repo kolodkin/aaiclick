@@ -105,6 +105,8 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     else:
         raise Invalid(f"scope={filter.scope!r} not supported (global, job or all)")
 
+    # shortcut: loads every matching registry row, then sorts and pages in Python;
+    # move prefix/ORDER BY/LIMIT into SQL once the registry holds thousands of rows.
     entries = sorted((name_from_table(row[0]), *row) for row in rows)
     if filter.prefix:
         entries = [e for e in entries if e[0].startswith(filter.prefix)]
