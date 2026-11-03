@@ -63,7 +63,8 @@ const ACTIONS: Cmd[] = [
     cmd: "register",
     complete: "register",
   },
-  { code: "enable / disable <name>", desc: "Toggle a registered job on/off via @registered.", cmd: "@registered" },
+  { code: "enable <name>", desc: "Turn a registered job's schedule on.", cmd: "@registered", complete: "enable " },
+  { code: "disable <name>", desc: "Turn a registered job's schedule off.", cmd: "@registered", complete: "disable " },
 ];
 
 const ACCOUNT: Cmd[] = [

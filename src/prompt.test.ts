@@ -21,6 +21,11 @@ describe("viewer routes", () => {
     expect(parsePrompt("@sandbox 42")).toEqual({ kind: "sandbox-file", id: "42" });
   });
 
+  test("enable / disable confirm a registered-job toggle", () => {
+    expect(parsePrompt("enable etl")).toEqual({ kind: "toggle-confirm", name: "etl", enabled: true });
+    expect(parsePrompt("disable etl")).toEqual({ kind: "toggle-confirm", name: "etl", enabled: false });
+  });
+
   test("help shows the home command reference", () => {
     expect(parsePrompt("help")).toEqual({ kind: "home" });
   });

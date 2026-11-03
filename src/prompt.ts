@@ -13,6 +13,7 @@ export type Route =
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
   | { kind: "cancel-confirm"; ref: string }
+  | { kind: "toggle-confirm"; name: string; enabled: boolean }
   | { kind: "tokens" }
   | { kind: "account" }
   | { kind: "users" }
@@ -71,6 +72,8 @@ export function parsePrompt(raw: string): Route {
     return { kind: "run-confirm", name: rest };
   }
   if (p.startsWith("cancel ")) return { kind: "cancel-confirm", ref: p.slice(7).trim() };
+  if (p.startsWith("enable ")) return { kind: "toggle-confirm", name: p.slice(7).trim(), enabled: true };
+  if (p.startsWith("disable ")) return { kind: "toggle-confirm", name: p.slice(8).trim(), enabled: false };
   return { kind: "unknown", raw: p };
 }
 

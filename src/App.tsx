@@ -23,6 +23,7 @@ import {
   Sandbox,
   SandboxFile,
   TaskDetail,
+  ToggleConfirm,
   Tokens,
   Invite,
   Users,
@@ -64,6 +65,8 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
       return <RunForm name={route.name} onPrompt={onPrompt} />;
     case "cancel-confirm":
       return <CancelConfirm refId={route.ref} onPrompt={onPrompt} />;
+    case "toggle-confirm":
+      return <ToggleConfirm name={route.name} enabled={route.enabled} onPrompt={onPrompt} />;
     case "tokens":
       return <Tokens onPrompt={onPrompt} />;
     case "account":
