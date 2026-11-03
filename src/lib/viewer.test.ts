@@ -21,8 +21,7 @@ describe("scope keys", () => {
   test.each([
     ["all", undefined, "@data"],
     ["persistent", undefined, "@data persistent"],
-    ["persistent", "orders", "@data orders"],
-    ["persistent", "persistent", "@data persistent persistent"],
+    ["persistent", "orders", "@data persistent orders"],
     ["job:7", "sales", "@data job 7 sales"],
   ])("dataPrompt(%s, %s) round-trips as %s", (scope, object, prompt) => {
     expect(dataPrompt(scope, object)).toBe(prompt);

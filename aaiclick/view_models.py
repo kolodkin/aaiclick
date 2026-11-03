@@ -194,16 +194,14 @@ class StartExecutionWorkerRequest(ApiModel):
     max_tasks: int | None = None
 
 
-SCOPE_ALL = "all"
-ListScope = Literal["all"]
-"""Listing-only scope: global plus every job's objects."""
+SCOPE_ALL = "all"  # listing-only scope: global plus every job's objects
 
 
 class ObjectFilter(ApiModel):
     """Filter parameters for ``internal_api.list_objects``."""
 
     prefix: str | None = None
-    scope: ObjectScope | ListScope | None = None
+    scope: ObjectScope | Literal["all"] | None = None
     job: RefId | None = None  # list one job's objects: id, or name → latest run
     limit: PageLimit = 50
     cursor: str | None = None

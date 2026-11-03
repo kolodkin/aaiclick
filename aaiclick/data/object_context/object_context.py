@@ -824,15 +824,14 @@ async def list_persistent_tables(
     return await _registered_tables(*predicates)
 
 
-async def list_job_tables(job_id: int | None = None) -> list[str]:
-    """List job-scoped CH table names registered under ``job_id`` (every job's when ``None``)."""
+async def list_job_tables(job_id: int) -> list[str]:
+    """List CH table names registered under ``job_id``."""
     # Circular dep: see _registered_tables.
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
 
-    predicates = [col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)]
-    if job_id is not None:
-        predicates.append(TableRegistry.job_id == job_id)
-    return await _registered_tables(*predicates)
+    return await _registered_tables(
+        TableRegistry.job_id == job_id, col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)
+    )
 
 
 async def list_persistent_objects() -> list[str]:

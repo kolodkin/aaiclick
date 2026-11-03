@@ -16,6 +16,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import ColumnElement, and_, or_
+from sqlmodel import col, select
+
 from aaiclick.data.object import Object
 from aaiclick.data.object.adapters import object_to_detail
 from aaiclick.data.object_context import (
@@ -24,15 +27,16 @@ from aaiclick.data.object_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_ch_client,
-    list_job_tables,
-    list_persistent_tables,
     open_object,
 )
-from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB, name_from_table, scope_of
+from aaiclick.data.scope import GLOBAL_PREFIX, JOB_PREFIX, SCOPE_GLOBAL, SCOPE_JOB, name_from_table, scope_of
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
 )
+from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+from aaiclick.orchestration.models import Job
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.view_models import (
     SCOPE_ALL,
     Deleted,
@@ -66,9 +70,15 @@ async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
     return {row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]} for row in result.result_rows}
 
 
-def _job_id_of(table: str) -> int:
-    """The job id inside a ``j_<id>_<name>`` table name."""
-    return int(table.split("_", 2)[1])
+async def _registered(clause: ColumnElement[bool]) -> list[tuple[str, int | None, str | None]]:
+    """``(table_name, job_id, job_name)`` of the registry rows matching ``clause``."""
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(TableRegistry.table_name, TableRegistry.job_id, Job.name)
+            .outerjoin(Job, col(Job.id) == TableRegistry.job_id)
+            .where(clause)
+        )
+    return [(row[0], row[1], row[2]) for row in result.all()]
 
 
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
@@ -81,39 +91,41 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     ``job_name``.
     """
     filter = filter or ObjectFilter()
+    is_global = col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True)
+    is_job = col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)
     if filter.job is not None:
         job = await jobs_api.resolve_job(filter.job)
-        tables = await list_job_tables(job.id)
+        rows = await _registered(and_(is_job, col(TableRegistry.job_id) == job.id))
     elif filter.scope == SCOPE_JOB:
         raise Invalid("scope='job' requires job (id or name)")
     elif filter.scope == SCOPE_ALL:
-        tables = await list_persistent_tables() + await list_job_tables()
+        rows = await _registered(or_(is_global, is_job))
     elif filter.scope in (None, SCOPE_GLOBAL):
-        tables = await list_persistent_tables()
+        rows = await _registered(is_global)
     else:
         raise Invalid(f"scope={filter.scope!r} not supported (global, job or all)")
 
-    pairs = sorted((name_from_table(t), t) for t in tables)
+    entries = sorted((name_from_table(row[0]), *row) for row in rows)
     if filter.prefix:
-        pairs = [(n, t) for n, t in pairs if n.startswith(filter.prefix)]
+        entries = [e for e in entries if e[0].startswith(filter.prefix)]
 
-    total = len(pairs)
-    paged = pairs[: filter.limit]
-    metadata = await _fetch_table_metadata([t for _, t in paged])
-    names = await jobs_api.job_names({_job_id_of(t) for _, t in paged if scope_of(t) == SCOPE_JOB})
+    total = len(entries)
+    paged = entries[: filter.limit]
+    metadata = await _fetch_table_metadata([table for _, table, _, _ in paged])
 
     items = []
-    for name, table in paged:
+    for name, table, job_id, job_name in paged:
         scope = scope_of(table)
-        job_id = _job_id_of(table) if scope == SCOPE_JOB else None
+        # A p_* table created inside a job still has a job_id; only j_* belong to one.
+        owned = scope == SCOPE_JOB
         items.append(
             ObjectView(
                 name=name,
                 table=table,
                 scope=scope,
                 persistent=True,
-                job_id=job_id,
-                job_name=names.get(job_id) if job_id is not None else None,
+                job_id=job_id if owned else None,
+                job_name=job_name if owned else None,
                 **metadata.get(table, {}),
             )
         )

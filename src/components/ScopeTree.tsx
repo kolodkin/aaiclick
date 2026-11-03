@@ -10,20 +10,21 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
   const jobs = (data?.items ?? []).filter((j) => j.name.includes(filter));
   return (
     <nav className="scope-tree" data-testid="scope-tree">
-      <div
-        className={`scope-node${scope === ALL ? " is-active" : ""}`}
-        data-testid="scope-all"
-        onClick={() => onScope(ALL)}
-      >
-        All
-      </div>
-      <div
-        className={`scope-node${scope === PERSISTENT ? " is-active" : ""}`}
-        data-testid="scope-persistent"
-        onClick={() => onScope(PERSISTENT)}
-      >
-        Persistent
-      </div>
+      {(
+        [
+          [ALL, "All", "scope-all"],
+          [PERSISTENT, "Persistent", "scope-persistent"],
+        ] as const
+      ).map(([key, label, testid]) => (
+        <div
+          key={key}
+          className={`scope-node${scope === key ? " is-active" : ""}`}
+          data-testid={testid}
+          onClick={() => onScope(key)}
+        >
+          {label}
+        </div>
+      ))}
       <div className="scope-group">Jobs</div>
       <input
         className="scope-filter mono"

@@ -33,11 +33,10 @@ export function objectScopeLabel(o: ObjectView): string {
 }
 
 // `<verb> [persistent | job <ref>] [<object>]` — the `@data` / `@query`
-// prompt for a scope. Bare `<verb>` is all scopes; `<verb> <object>` is persistent.
+// prompt for a scope; bare `<verb>` is all scopes.
 function scopedPrompt(verb: "@data" | "@query", scope: string, object?: string): string {
   const job = jobOfScope(scope);
-  // An object literally named "persistent" would otherwise parse as the bare scope.
-  const prefix = job ? `job ${job}` : scope === PERSISTENT && (!object || object === PERSISTENT) ? PERSISTENT : "";
+  const prefix = job ? `job ${job}` : scope === PERSISTENT ? PERSISTENT : "";
   return [verb, prefix, object ?? ""].filter(Boolean).join(" ");
 }
 
