@@ -140,3 +140,9 @@ export function useCompletions(): Completion[] {
     ...[...g.account, ...g.admin].flatMap(entry(g.local)),
   ];
 }
+
+// A draft that is a whole argument-less command routes as you type; anything
+// else waits for a pick or Enter so the view doesn't chase keystrokes.
+export function isCommitOnType(draft: string, completions: Completion[]): boolean {
+  return completions.some((c) => c.text === draft && !c.text.endsWith(" "));
+}

@@ -82,7 +82,7 @@ aaiclick/
     jobs.py                        list_jobs, get_job, job_stats, cancel_job, run_job
     registered_jobs.py             list_registered_jobs, register_job,
                                    enable_job, disable_job
-    tasks.py                       get_task
+    tasks.py                       list_tasks, get_task
     execution_workers.py                     list_execution_workers, start_execution_worker, stop_execution_worker
     objects.py                     list_objects, get_object, delete_object, purge_objects
     setup.py                       setup, migrate
@@ -275,6 +275,7 @@ All REST paths share a common `/api/v0` prefix — see
 | `view dashboards save`     | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`    | `save_dashboard`          |
 | `view dashboards delete`   | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}` | `delete_dashboard`        |
 | `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
+| `task list`                | `list_tasks(filter)`               | `GET /tasks`                       | `list_tasks`              |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
 
 `job wait <ref>` and `run-job --progress` have no row: they are CLI-only

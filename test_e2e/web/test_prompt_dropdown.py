@@ -1,0 +1,99 @@
+"""Prompt dropdown: argument values listed under the prompt, view waits for a pick.
+
+Run with::
+
+    pytest test_e2e/web/test_prompt_dropdown.py -v -p no:cov
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from helpers import login_if_needed, open_page, submit_job
+
+STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
+pytest.importorskip("playwright.sync_api")
+pytestmark = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+
+SIMPLE = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+ROWS = "#prompt-dropdown [role=option]"
+
+
+@pytest.fixture(scope="module")
+def many_tasks() -> list[str]:
+    """More tasks than one dropdown page (50), so scrolling has a second page to load."""
+    return [submit_job(f"dropdown_{i}", SIMPLE) for i in range(55)]
+
+
+def test_typing_task_lists_tasks_without_switching_view(page, base_url: str, many_tasks, shot) -> None:
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.wait_for_selector("text=Jobs")
+
+    page.fill("#prompt", "@task ")
+
+    page.wait_for_selector(ROWS)
+    assert "p=%40jobs" in page.url or "p=@jobs" in page.url
+    assert page.locator("h2", has_text="Jobs").is_visible()
+    shot("dropdown-tasks")
+
+
+def test_scrolling_loads_the_next_page(page, base_url: str, many_tasks) -> None:
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@task ")
+    page.wait_for_selector(ROWS)
+    assert page.locator(ROWS).count() == 50
+
+    page.locator(ROWS).last.scroll_into_view_if_needed()
+
+    page.wait_for_function(f"() => document.querySelectorAll('{ROWS}').length > 50")
+
+
+def test_picking_a_row_commits_and_routes(page, base_url: str, many_tasks) -> None:
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@task ")
+    first = page.locator(ROWS).first
+    first.wait_for()
+
+    first.click()
+
+    page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
+    assert page.input_value("#prompt").startswith("@task ")
+    assert page.locator("#prompt-dropdown").count() == 0
+
+
+def test_no_matches(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@task zz_no_such_task_zz")
+    page.wait_for_selector("#prompt-dropdown >> text=no matches")
+
+
+def test_escape_resets_the_draft(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.fill("#prompt", "@task ")
+
+    page.press("#prompt", "Escape")
+
+    assert page.input_value("#prompt") == "@jobs"
+    assert page.locator("#prompt-dropdown").count() == 0
+
+
+def test_enter_commits_an_unknown_command(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@foo")
+
+    page.press("#prompt", "Enter")
+
+    page.wait_for_selector("text=Unknown command")
+
+
+def test_back_restores_prompt_and_view(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.fill("#prompt", "@registered")
+    page.wait_for_url(lambda url: "registered" in url)
+
+    page.go_back()
+
+    page.wait_for_url(lambda url: "jobs" in url)
+    login_if_needed(page)
+    assert page.input_value("#prompt") == "@jobs"
