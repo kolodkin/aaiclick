@@ -97,3 +97,41 @@ def test_back_restores_prompt_and_view(page, base_url: str) -> None:
     page.wait_for_url(lambda url: "jobs" in url)
     login_if_needed(page)
     assert page.input_value("#prompt") == "@jobs"
+
+
+def test_arrow_keys_highlight_and_enter_picks(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.fill("#prompt", "@re")
+    page.wait_for_selector(ROWS)
+
+    page.press("#prompt", "ArrowDown")
+
+    selected = page.locator("#prompt-dropdown [aria-selected=true]")
+    selected.wait_for()
+    page.wait_for_timeout(300)
+    assert selected.count() == 1
+    page.press("#prompt", "Enter")
+    page.wait_for_url(lambda url: "registered" in url)
+
+
+def test_highlight_survives_the_next_page(page, base_url: str, many_tasks) -> None:
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@task ")
+    page.wait_for_selector(ROWS)
+
+    for _ in range(50):
+        page.press("#prompt", "ArrowDown")
+    page.wait_for_function(f"() => document.querySelectorAll('{ROWS}').length > 50")
+
+    assert page.locator(ROWS).nth(49).get_attribute("aria-selected") == "true"
+
+
+def test_mousedown_on_the_list_keeps_it_open(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/")
+    page.fill("#prompt", "@task zz_no_such_task_zz")
+    empty = page.locator("#prompt-dropdown >> text=no matches")
+    empty.wait_for()
+
+    empty.click()
+
+    assert page.locator("#prompt-dropdown").is_visible()

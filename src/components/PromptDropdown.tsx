@@ -54,7 +54,9 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
     () => (source ? (query.data?.pages.flatMap((p) => p.items) ?? []) : commandItems(draft, completions)),
     [source, query.data, draft, completions],
   );
-  useEffect(() => onItems(items), [items, onItems]);
+  useEffect(() => {
+    onItems(items);
+  }, [items, onItems]);
 
   const sentinel = useRef<HTMLLIElement>(null);
   useEffect(() => {
@@ -68,11 +70,14 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const activeRef = useRef<HTMLLIElement>(null);
-  useEffect(() => activeRef.current?.scrollIntoView({ block: "nearest" }), [active]);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [active]);
 
   if (!source && items.length === 0) return null;
   return (
-    <ul className="prompt-dropdown" role="listbox" id="prompt-dropdown">
+    // mousedown anywhere in the list (rows, scrollbar, status rows) must not blur the prompt and close it
+    <ul className="prompt-dropdown" role="listbox" id="prompt-dropdown" onMouseDown={(e) => e.preventDefault()}>
       {items.map((it, i) => (
         <li
           key={`${it.id}-${i}`}
@@ -81,11 +86,7 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
           aria-selected={i === active}
           className={i === active ? "active" : undefined}
           onMouseEnter={() => onActive(i)}
-          // mousedown, not click: keeps focus in the prompt so blur doesn't close the list first
-          onMouseDown={(e) => {
-            e.preventDefault();
-            onPick(it);
-          }}
+          onClick={() => onPick(it)}
         >
           <span className="mono">{it.label}</span>
           {it.detail && <span className="sub-inline">{it.detail}</span>}

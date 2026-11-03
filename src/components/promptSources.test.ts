@@ -9,15 +9,15 @@ describe("matchSource", () => {
   test.each([
     ["@task ", "tasks", ""],
     ["@task load", "tasks", "load"],
-    ["@job etl", "jobs", "etl"],
-    ["cancel ", "jobs", ""],
-    ["run nightly", "registered", "nightly"],
-    ["enable ", "registered", ""],
-    ["disable x", "registered", "x"],
+    ["@job etl", "jobs:@job", "etl"],
+    ["cancel ", "jobs:cancel", ""],
+    ["run nightly", "registered:run", "nightly"],
+    ["enable ", "registered:enable", ""],
+    ["disable x", "registered:disable", "x"],
     ["@data ", "objects", ""],
     ["@query ord", "objects", "ord"],
-    ["@data job ", "jobs", ""],
-    ["@query job et", "jobs", "et"],
+    ["@data job ", "jobs:@data job", ""],
+    ["@query job et", "jobs:@query job", "et"],
     ["@data job etl ", "objects:etl", ""],
     ["@data job etl ord", "objects:etl", "ord"],
     ["@dashboard sa", "dashboards", "sa"],
@@ -35,6 +35,13 @@ describe("matchSource", () => {
   test("@sandbox needs sandbox enabled", () => {
     expect(matchSource("@sandbox ", { sandbox: false })).toBeNull();
   });
+});
+
+test("commands sharing an endpoint never share cached rows", () => {
+  const keys = ["run ", "enable ", "disable ", "@job ", "cancel ", "@data job ", "@query job "].map(
+    (d) => matchSource(d, { sandbox: false })!.key,
+  );
+  expect(new Set(keys).size).toBe(keys.length);
 });
 
 describe("fetchPage", () => {

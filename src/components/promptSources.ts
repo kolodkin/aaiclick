@@ -72,9 +72,10 @@ function tasks(text: string): SourceMatch {
   };
 }
 
-function jobs(text: string, insert: (j: JobView) => string): SourceMatch {
+// `cmd` is in the key: cached rows carry a finished `insert`, so commands sharing an endpoint must not share a cache.
+function jobs(cmd: string, text: string, insert: (j: JobView) => string): SourceMatch {
   return {
-    key: "jobs",
+    key: `jobs:${cmd}`,
     text,
     fetchPage: paged<JobView>("/jobs", { name: like(text) }, (j) => ({
       id: j.id,
@@ -89,7 +90,7 @@ function jobs(text: string, insert: (j: JobView) => string): SourceMatch {
 
 function registered(cmd: string, text: string): SourceMatch {
   return {
-    key: "registered",
+    key: `registered:${cmd}`,
     text,
     fetchPage: paged<RegisteredJobView>("/registered-jobs", { name: like(text) }, (r) => ({
       id: r.id,
@@ -109,7 +110,10 @@ function objects(cmd: string, job: string | null, text: string): SourceMatch {
       const page = await fetchJSON<Page<ObjectView>>(
         `/objects${query({ limit: WHOLE, prefix: text, job: job ?? undefined })}`,
       );
-      return { items: page.items.map((o) => ({ id: o.name, label: o.name, insert: `${scope} ${o.name}` })), more: false };
+      return {
+        items: page.items.map((o) => ({ id: o.name, label: o.name, insert: `${scope} ${o.name}` })),
+        more: false,
+      };
     },
   };
 }
@@ -149,7 +153,7 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
   m = /^(@data|@query) job (\S*)$/.exec(draft);
   if (m) {
     const cmd = m[1];
-    return jobs(m[2], (j) => `${cmd} job ${j.name}`);
+    return jobs(`${cmd} job`, m[2], (j) => `${cmd} job ${j.name}`);
   }
   m = /^(\S+) (.*)$/.exec(draft);
   if (!m) return null;
@@ -158,9 +162,9 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
     case "@task":
       return tasks(text);
     case "@job":
-      return jobs(text, (j) => `@job ${j.name}`);
+      return jobs(cmd, text, (j) => `@job ${j.name}`);
     case "cancel":
-      return jobs(text, (j) => `cancel ${j.id}`);
+      return jobs(cmd, text, (j) => `cancel ${j.id}`);
     case "run":
     case "enable":
     case "disable":

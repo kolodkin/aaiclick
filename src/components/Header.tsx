@@ -1,5 +1,5 @@
 // See docs/designs/ui.md — "Prompt dropdown".
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useSandboxConfig } from "../api/hooks";
 import { useAuth } from "./Auth";
 import { isCommitOnType, useCompletions } from "./commands";
@@ -27,10 +27,10 @@ export function Header({ prompt, onPrompt }: HeaderProps) {
     setOpen(false);
   }, [prompt]);
 
-  const onItems = useCallback((next: SourceItem[]) => {
-    setItems(next);
+  // A new draft is a new list; pages loading or refetching keep the highlight.
+  useEffect(() => {
     setActive(-1);
-  }, []);
+  }, [draft]);
 
   const commit = (value: string) => {
     setDraft(value);
@@ -93,7 +93,7 @@ export function Header({ prompt, onPrompt }: HeaderProps) {
             active={active}
             onActive={setActive}
             onPick={pick}
-            onItems={onItems}
+            onItems={setItems}
           />
         )}
       </div>
