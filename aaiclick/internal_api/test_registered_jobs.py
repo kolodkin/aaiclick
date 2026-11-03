@@ -31,6 +31,15 @@ async def test_list_registered_jobs_returns_page_with_total(orch_ctx):
     assert "rj_a" in names and "rj_b" in names
 
 
+async def test_list_registered_jobs_name_underscore_is_literal(orch_ctx):
+    await _register_job_impl(name="rj_x", entrypoint="myapp.rj_x")
+    await _register_job_impl(name="rjzx", entrypoint="myapp.rjzx")
+
+    page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="rj_%"))
+
+    assert [rj.name for rj in page.items] == ["rj_x"]
+
+
 async def test_list_registered_jobs_filter_by_enabled(orch_ctx):
     await _register_job_impl(name="rj_on", entrypoint="myapp.on", enabled=True)
     await _register_job_impl(name="rj_off", entrypoint="myapp.off", enabled=False)

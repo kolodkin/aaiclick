@@ -13,11 +13,19 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from sqlalchemy.sql.elements import ColumnElement
-from sqlmodel import func, select
+from sqlmodel import col, func, select
 
 from aaiclick.orchestration.orch_context import get_sql_session
 
 T = TypeVar("T")
+
+_LIKE_ESCAPE = "\\"
+
+
+def name_like(column: str, pattern: str) -> ColumnElement[bool]:
+    """``column LIKE pattern`` where only ``%`` is a wildcard; ``_`` matches itself."""
+    escaped = pattern.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("_", _LIKE_ESCAPE + "_")
+    return col(column).like(escaped, escape=_LIKE_ESCAPE)
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,7 +30,7 @@ from aaiclick.view_models import Page, TaskListFilter
 
 from .errors import NotFound
 from .jobs import resolve_job
-from .pagination import paginate
+from .pagination import name_like, paginate
 
 
 async def _require_visible_task(task_id: int) -> Task:
@@ -51,7 +51,7 @@ async def list_tasks(filter: TaskListFilter | None = None) -> Page[TaskView]:
     filter = filter or TaskListFilter()
     predicates = []
     if filter.name is not None:
-        predicates.append(col(Task.name).contains(filter.name, autoescape=True))
+        predicates.append(name_like(Task.name, f"%{filter.name}%"))
     if filter.job is not None:
         job = await resolve_job(filter.job)
         predicates.append(col(Task.job_id) == job.id)

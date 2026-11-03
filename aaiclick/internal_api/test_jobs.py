@@ -52,6 +52,15 @@ async def test_list_jobs_name_like_and_pagination(orch_ctx):
     assert {j.id for j in first.items}.isdisjoint({j.id for j in second.items})
 
 
+async def test_list_jobs_name_underscore_is_literal(orch_ctx):
+    await create_job("etl_v2", _SAMPLE_TASK)
+    await create_job("etlxv2", _SAMPLE_TASK)
+
+    page = await jobs.list_jobs(JobListFilter(name="%etl_v%"))
+
+    assert [j.name for j in page.items] == ["etl_v2"]
+
+
 async def test_get_job_by_int_id(orch_ctx):
     created = await create_job("by_int", _SAMPLE_TASK)
 

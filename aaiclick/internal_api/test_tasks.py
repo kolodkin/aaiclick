@@ -87,12 +87,20 @@ async def test_list_tasks_filters(orch_ctx, filter_kwargs):
     assert [t.id for t in page.items] == [simple_id]
 
 
-async def test_list_tasks_name_is_literal(orch_ctx):
-    await _two_jobs()
+@pytest.mark.parametrize(
+    ("name", "matches_simple"),
+    [
+        pytest.param("simple%task", True, id="percent-is-wildcard"),
+        pytest.param("simple_task", True, id="underscore-matches-itself"),
+        pytest.param("simple_tas_", False, id="underscore-is-not-a-wildcard"),
+    ],
+)
+async def test_list_tasks_name_wildcards(orch_ctx, name, matches_simple):
+    _, simple_id = await _two_jobs()
 
-    page = await tasks.list_tasks(TaskListFilter(name="s%k"))
+    page = await tasks.list_tasks(TaskListFilter(name=name))
 
-    assert page.items == []
+    assert [t.id for t in page.items] == ([simple_id] if matches_simple else [])
 
 
 async def test_list_tasks_paging(orch_ctx):
