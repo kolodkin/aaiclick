@@ -36,7 +36,7 @@ from .registered_jobs import (
     list_registered_jobs,
     register_job,
 )
-from .tasks import get_task
+from .tasks import get_task, list_tasks
 from .viewer import (
     delete_dashboard,
     delete_saved_query,
