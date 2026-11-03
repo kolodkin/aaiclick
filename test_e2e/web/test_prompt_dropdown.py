@@ -58,7 +58,7 @@ def test_scrolling_loads_the_next_page(page, base_url: str, many_tasks) -> None:
     page.wait_for_function(f"() => document.querySelectorAll('{ROWS}').length > 50")
 
 
-def test_picking_a_row_commits_and_routes(page, base_url: str, many_tasks) -> None:
+def test_picking_a_row_commits_and_routes(page, base_url: str, many_tasks, shot) -> None:
     open_page(page, f"{base_url}/")
     page.fill("#prompt", "@task ")
     first = page.locator(ROWS).first
@@ -69,12 +69,14 @@ def test_picking_a_row_commits_and_routes(page, base_url: str, many_tasks) -> No
     page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
     assert page.input_value("#prompt").startswith("@task ")
     assert page.locator("#prompt-dropdown").count() == 0
+    shot("dropdown-picked-task")
 
 
-def test_no_matches(page, base_url: str) -> None:
+def test_no_matches(page, base_url: str, shot) -> None:
     open_page(page, f"{base_url}/")
     page.fill("#prompt", "@task zz_no_such_task_zz")
     page.wait_for_selector("#prompt-dropdown >> text=no matches")
+    shot("dropdown-no-matches")
 
 
 def test_escape_resets_the_draft(page, base_url: str) -> None:
@@ -108,7 +110,7 @@ def test_back_restores_prompt_and_view(page, base_url: str) -> None:
     assert page.input_value("#prompt") == "@jobs"
 
 
-def test_arrow_keys_highlight_and_enter_picks(page, base_url: str) -> None:
+def test_arrow_keys_highlight_and_enter_picks(page, base_url: str, shot) -> None:
     open_page(page, f"{base_url}/?p=@jobs")
     page.fill("#prompt", "@re")
     page.wait_for_selector(ROWS)
@@ -119,6 +121,7 @@ def test_arrow_keys_highlight_and_enter_picks(page, base_url: str) -> None:
     selected.wait_for()
     page.wait_for_timeout(300)
     assert selected.count() == 1
+    shot("dropdown-commands-highlighted")
     page.press("#prompt", "Enter")
     page.wait_for_url(lambda url: "registered" in url)
 
