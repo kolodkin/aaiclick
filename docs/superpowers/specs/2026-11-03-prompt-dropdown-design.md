@@ -61,7 +61,7 @@ Row content and the value inserted on pick:
 ## Backend: task list
 
 - `TaskListFilter(ApiModel)` in `aaiclick/orchestration/view_models.py` (next to `TaskView`): `name: str | None` (substring, matched with `LIKE %name%`), `job: RefId | None`, `status: TaskStatus | None`, `limit: PageLimit = 50`, `offset: PageOffset = 0`.
-- `internal_api.tasks.list_tasks(filter) -> Page[TaskView]`, ordered by `created_at` desc, via `paginate`.
+- `internal_api.tasks.list_tasks(filter) -> Page[TaskView]`, newest first by snowflake `id` desc (PK-indexed; `created_at` is not), via `paginate`.
 - REST: `GET /tasks` on the existing tasks router, `filter: TaskListFilter = Depends()`.
 - MCP: `list_tasks` tool beside `list_jobs` in `aaiclick/server/mcp.py`.
 - CLI: `aaiclick task list [--like] [--job] [--status] [--limit] [--offset] [--json]`, rendered like `job list`.
