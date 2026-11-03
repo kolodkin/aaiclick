@@ -28,12 +28,13 @@ from aaiclick.data.object_context import (
     list_persistent_tables,
     open_object,
 )
-from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB, ObjectScope, name_from_table, scope_of
+from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB, name_from_table, scope_of
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
 )
 from aaiclick.view_models import (
+    SCOPE_ALL,
     Deleted,
     ObjectFilter,
     Page,
@@ -80,17 +81,13 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     ``job_name``.
     """
     filter = filter or ObjectFilter()
-    names: dict[int, str] = {}
     if filter.job is not None:
         job = await jobs_api.resolve_job(filter.job)
         tables = await list_job_tables(job.id)
-        names = {job.id: job.name}
     elif filter.scope == SCOPE_JOB:
         raise Invalid("scope='job' requires job (id or name)")
-    elif filter.scope == "all":
-        job_tables = await list_job_tables()
-        tables = await list_persistent_tables() + job_tables
-        names = await jobs_api.job_names({_job_id_of(t) for t in job_tables})
+    elif filter.scope == SCOPE_ALL:
+        tables = await list_persistent_tables() + await list_job_tables()
     elif filter.scope in (None, SCOPE_GLOBAL):
         tables = await list_persistent_tables()
     else:
@@ -103,10 +100,11 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     total = len(pairs)
     paged = pairs[: filter.limit]
     metadata = await _fetch_table_metadata([t for _, t in paged])
+    names = await jobs_api.job_names({_job_id_of(t) for _, t in paged if scope_of(t) == SCOPE_JOB})
 
     items = []
     for name, table in paged:
-        scope: ObjectScope = scope_of(table)
+        scope = scope_of(table)
         job_id = _job_id_of(table) if scope == SCOPE_JOB else None
         items.append(
             ObjectView(

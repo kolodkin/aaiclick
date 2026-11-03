@@ -170,11 +170,11 @@ with an object named, its header and first page of rows.
 Rows render through the QueryView kernel's `ResultsTable` and default cell
 views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 
-## Query (`@query [job <ref>] [<object>]`)
+## Query (`@query [persistent | job <ref>] [<object>]`)
 
 **Implementation**: `src/views/Query.tsx`
 
-**Prompt**: `@query`, `@query job <ref>`, `@query [job <ref>] <object>`
+**Prompt**: `@query`, `@query persistent`, `@query job <ref>`, `@query [job <ref>] <object>`
 
 The scope tree plus an object picker (entries read `<name> (<scope>)`); with an object chosen, the query
 panel: a `where` expression, limit / offset paging, the kernel's field and
