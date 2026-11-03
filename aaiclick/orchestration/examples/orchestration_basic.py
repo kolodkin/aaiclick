@@ -44,7 +44,7 @@ async def create_sales() -> Object:
             "quantity": [10, 5, 8],
         },
         name="sales",
-        scope="job",  # j_<job_id>_sales: kept after the job, listed in the UI
+        scope="job",
     )
 
 
