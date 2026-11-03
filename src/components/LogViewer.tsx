@@ -4,6 +4,7 @@ import { useTaskLogs, type LogTask } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
 import { attemptTitle, parseUtc } from "../lib/format";
 import { logTone } from "../lib/logTone";
+import { useStoredFlag } from "../lib/storedFlag";
 import { isTaskStarted, isTerminalTask, statusClass } from "../lib/status";
 
 const SHOW_TS_KEY = "aaiclick.logs.showTimestamps";
@@ -83,11 +84,7 @@ export function LogViewer({ task }: { task: LogTask }) {
   // Unpinned, both calls share one query key and so one request.
   const latestRun = useTaskLogs(task, null);
   const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(task, picked);
-  const [showTimestamps, setShowTimestamps] = useState(() => localStorage.getItem(SHOW_TS_KEY) === "1");
-  const toggleTimestamps = (on: boolean) => {
-    localStorage.setItem(SHOW_TS_KEY, on ? "1" : "0");
-    setShowTimestamps(on);
-  };
+  const [showTimestamps, setShowTimestamps] = useStoredFlag(SHOW_TS_KEY);
 
   if (isLoading) return <div className="logs">loading logs…</div>;
   if (isError) return <div className="logs">failed to load logs</div>;
@@ -109,7 +106,7 @@ export function LogViewer({ task }: { task: LogTask }) {
     <div className="logs">
       <div className="logs-toolbar">
         <label>
-          <input type="checkbox" checked={showTimestamps} onChange={(e) => toggleTimestamps(e.target.checked)} />
+          <input type="checkbox" checked={showTimestamps} onChange={(e) => setShowTimestamps(e.target.checked)} />
           Show timestamps
         </label>
         {latest > 1 && (
