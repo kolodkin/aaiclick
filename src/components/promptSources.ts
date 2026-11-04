@@ -102,10 +102,10 @@ function registered(cmd: string, text: string): SourceMatch {
   };
 }
 
-function objects(cmd: string, job: string | null, text: string): SourceMatch {
-  const scope = job ? `${cmd} job ${job}` : cmd;
+// `scope` is the prompt up to the object (`@data`, `@query persistent`, `@data job etl`).
+function objects(scope: string, job: string | null, text: string): SourceMatch {
   return {
-    key: job ? `objects:${job}` : "objects",
+    key: `objects:${scope}`,
     text,
     fetchPage: async () => {
       const page = await fetchJSON<Page<ObjectView>>(
@@ -133,10 +133,11 @@ function dashboards(text: string): SourceMatch {
   };
 }
 
-function sandboxFiles(text: string): SourceMatch {
+// The sandbox list has no name filter, so typed text is not part of the key.
+function sandboxFiles(): SourceMatch {
   return {
     key: "sandbox",
-    text,
+    text: "",
     fetchPage: paged<SandboxFileView>("/sandbox", {}, (f) => ({
       id: f.id,
       label: f.name,
@@ -150,12 +151,14 @@ function sandboxFiles(text: string): SourceMatch {
 // `<command> ` (the dropdown then lists commands instead).
 export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMatch | null {
   let m = /^(@data|@query) job (\S+) (.*)$/.exec(draft);
-  if (m) return objects(m[1], m[2], m[3]);
+  if (m) return objects(`${m[1]} job ${m[2]}`, m[2], m[3]);
   m = /^(@data|@query) job (\S*)$/.exec(draft);
   if (m) {
     const cmd = m[1];
-    return jobs(`${cmd} job`, m[2], (j) => `${cmd} job ${j.name}`);
+    return jobs(`${cmd} job`, m[2], (j) => `${cmd} job ${j.id}`);
   }
+  m = /^(@data|@query) persistent (.*)$/.exec(draft);
+  if (m) return objects(`${m[1]} persistent`, null, m[2]);
   m = /^(\S+) (.*)$/.exec(draft);
   if (!m) return null;
   const [, cmd, text] = m;
@@ -163,7 +166,8 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
     case "@task":
       return tasks(text);
     case "@job":
-      return jobs(cmd, text, (j) => `@job ${j.name}`);
+      // A trailing view (`@job etl graph`) is not part of the name.
+      return jobs(cmd, text.replace(/\s+(graph|timings|duration)$/, ""), (j) => `@job ${j.id}`);
     case "cancel":
       return jobs(cmd, text, (j) => `cancel ${j.id}`);
     case "run":
@@ -176,7 +180,7 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
     case "@dashboard":
       return dashboards(text);
     case "@sandbox":
-      return opts.sandbox ? sandboxFiles(text) : null;
+      return opts.sandbox ? sandboxFiles() : null;
     default:
       return null;
   }

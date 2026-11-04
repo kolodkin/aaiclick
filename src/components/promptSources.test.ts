@@ -14,14 +14,18 @@ describe("matchSource", () => {
     ["run nightly", "registered:run", "nightly"],
     ["enable ", "registered:enable", ""],
     ["disable x", "registered:disable", "x"],
-    ["@data ", "objects", ""],
-    ["@query ord", "objects", "ord"],
+    ["@data ", "objects:@data", ""],
+    ["@query ord", "objects:@query", "ord"],
+    ["@data persistent fo", "objects:@data persistent", "fo"],
+    ["@job etl graph", "jobs:@job", "etl"],
+    ["@job etl timings", "jobs:@job", "etl"],
     ["@data job ", "jobs:@data job", ""],
     ["@query job et", "jobs:@query job", "et"],
-    ["@data job etl ", "objects:etl", ""],
-    ["@data job etl ord", "objects:etl", "ord"],
+    ["@data job etl ", "objects:@data job etl", ""],
+    ["@data job etl ord", "objects:@data job etl", "ord"],
     ["@dashboard sa", "dashboards", "sa"],
     ["@sandbox ", "sandbox", ""],
+    ["@sandbox report", "sandbox", ""],
   ])("%s → %s / %s", (draft, key, text) => {
     const m = matchSource(draft, { sandbox: true });
     expect(m?.key).toBe(key);
@@ -38,9 +42,20 @@ describe("matchSource", () => {
 });
 
 test("commands sharing an endpoint never share cached rows", () => {
-  const keys = ["run ", "enable ", "disable ", "@job ", "cancel ", "@data job ", "@query job "].map(
-    (d) => matchSource(d, { sandbox: false })!.key,
-  );
+  const keys = [
+    "run ",
+    "enable ",
+    "disable ",
+    "@job ",
+    "cancel ",
+    "@data job ",
+    "@query job ",
+    "@data ",
+    "@query ",
+    "@data persistent ",
+    "@data job etl ",
+    "@query job etl ",
+  ].map((d) => matchSource(d, { sandbox: false })!.key);
   expect(new Set(keys).size).toBe(keys.length);
 });
 
@@ -71,11 +86,22 @@ describe("fetchPage", () => {
     expect((await m.fetchPage(PAGE)).more).toBe(false);
   });
 
-  test("cancel inserts the job id, @job the name", async () => {
+  // A name resolves to the latest run, so picking an older run's row must insert its id.
+  test.each([
+    ["cancel ", "cancel 9"],
+    ["@job ", "@job 9"],
+    ["@data job ", "@data job 9"],
+  ])("%s inserts the picked run's id", async (draft, insert) => {
     const job = { id: "9", name: "etl", status: "RUNNING", created_at: "2026-01-01T00:00:00Z" };
     fetchMock.mockResolvedValue({ items: [job] });
-    expect((await matchSource("cancel ", { sandbox: false })!.fetchPage(0)).items[0].insert).toBe("cancel 9");
-    expect((await matchSource("@job ", { sandbox: false })!.fetchPage(0)).items[0].insert).toBe("@job etl");
+    expect((await matchSource(draft, { sandbox: false })!.fetchPage(0)).items[0].insert).toBe(insert);
+  });
+
+  test("@data persistent narrows by the object prefix and keeps the keyword", async () => {
+    fetchMock.mockResolvedValue({ items: [{ name: "orders" }] });
+    const page = await matchSource("@data persistent or", { sandbox: false })!.fetchPage(0);
+    expect(fetchMock).toHaveBeenCalledWith("/objects?limit=1000&prefix=or");
+    expect(page.items[0].insert).toBe("@data persistent orders");
   });
 
   test("dashboards filter client-side in one page", async () => {
