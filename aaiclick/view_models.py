@@ -166,7 +166,7 @@ class JobListFilter(ApiModel):
 
 
 class TaskListFilter(ApiModel):
-    """Filter parameters for ``internal_api.list_tasks``; ``name`` is a substring where only ``%`` is a wildcard."""
+    """Filter parameters for ``internal_api.list_tasks``; ``name`` is a ``LIKE`` pattern where only ``%`` is a wildcard."""
 
     name: str | None = None
     job: RefId | None = None

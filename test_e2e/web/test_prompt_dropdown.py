@@ -32,7 +32,11 @@ _DONE = {name: TaskState("COMPLETED", None, 0, 1) for name in DEFAULT_STATES}
 @pytest.fixture(scope="module")
 def many_tasks() -> list[int]:
     """More tasks than one dropdown page (50), so scrolling has a second page to load."""
-    return [run_in_process(lambda i=i: seed_graph_job(f"dropdown_{i}", _DONE, "COMPLETED")) for i in range(7)]
+
+    async def seed() -> list[int]:
+        return [await seed_graph_job(f"dropdown_{i}", _DONE, "COMPLETED") for i in range(7)]
+
+    return run_in_process(seed)
 
 
 def test_typing_task_lists_tasks_without_switching_view(page, base_url: str, many_tasks, shot) -> None:
@@ -119,7 +123,6 @@ def test_arrow_keys_highlight_and_enter_picks(page, base_url: str, shot) -> None
 
     selected = page.locator("#prompt-dropdown [aria-selected=true]")
     selected.wait_for()
-    page.wait_for_timeout(300)
     assert selected.count() == 1
     shot("dropdown-commands-highlighted")
     page.press("#prompt", "Enter")
@@ -140,7 +143,7 @@ def test_highlight_survives_the_next_page(page, base_url: str, many_tasks) -> No
     page.wait_for_selector(ROWS)
 
     for _ in range(50):
-        page.press("#prompt", "ArrowDown")
+        page.keyboard.press("ArrowDown")
     state = (
         f"() => {{ const r = [...document.querySelectorAll('{ROWS}')]; "
         "return {selected: r.findIndex((e) => e.getAttribute('aria-selected') === 'true'), rows: r.length}; }"
@@ -181,7 +184,8 @@ def test_open_list_does_not_poll_while_live_updates_are_down(page, base_url: str
     task_requests: list[str] = []
     page.on("request", lambda r: task_requests.append(r.url) if "/api/v0/tasks?" in r.url else None)
 
-    page.wait_for_timeout(5000)
+    # Longer than one 2 s fallback poll period.
+    page.wait_for_timeout(2500)
 
     assert task_requests == []
 

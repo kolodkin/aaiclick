@@ -4,6 +4,8 @@ import { ALL, PERSISTENT, scopeKey } from "./lib/viewer";
 // Named JobViewMode, not JobView — `src/api/types.ts` already exports JobView
 // as the server model.
 export type JobViewMode = "table" | "graph" | "timings" | "duration";
+// A trailing view word after `@job <name>`; shared with the prompt dropdown.
+export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration)$/;
 
 export type Route =
   | { kind: "home" }
@@ -60,8 +62,8 @@ export function parsePrompt(raw: string): Route {
   if (p.startsWith("@dashboard ")) return { kind: "dashboard", name: p.slice(11).trim() || null };
   if (p.startsWith("@job ")) {
     const rest = p.slice(5).trim();
-    const m = /^(.*\S)\s+(graph|timings|duration)$/.exec(rest);
-    if (m) return { kind: "job", name: m[1], view: m[2] as JobViewMode };
+    const m = JOB_VIEW_SUFFIX.exec(rest);
+    if (m && m.index > 0) return { kind: "job", name: rest.slice(0, m.index), view: m[1] as JobViewMode };
     return { kind: "job", name: rest, view: "table" };
   }
   // Ids are 64-bit snowflakes — keep them as opaque strings (parseInt would

@@ -2,6 +2,7 @@
 // Maps a prompt draft to the values its command takes: which endpoint lists
 // them, how the typed text narrows them, and what a picked row inserts.
 import { fetchJSON } from "../api/client";
+import { JOB_VIEW_SUFFIX } from "../prompt";
 import type {
   DashboardSummary,
   JobStatus,
@@ -38,6 +39,8 @@ export interface SourceMatch {
   /** Query-key root; the narrowing text is added by the caller. */
   key: string;
   text: string;
+  /** Narrows rows in the browser, for sources the server cannot filter (kept out of the cache key). */
+  local?: string;
   fetchPage(offset: number): Promise<SourcePage>;
 }
 
@@ -62,7 +65,7 @@ function tasks(text: string): SourceMatch {
   return {
     key: "tasks",
     text,
-    fetchPage: paged<TaskView>("/tasks", { name: text || undefined }, (t) => ({
+    fetchPage: paged<TaskView>("/tasks", { name: like(text) }, (t) => ({
       id: t.id,
       label: t.name,
       detail: `job ${t.job_id}`,
@@ -74,7 +77,7 @@ function tasks(text: string): SourceMatch {
 }
 
 // `cmd` is in the key: cached rows carry a finished `insert`, so commands sharing an endpoint must not share a cache.
-function jobs(cmd: string, text: string, insert: (j: JobView) => string): SourceMatch {
+function jobs(cmd: string, text: string): SourceMatch {
   return {
     key: `jobs:${cmd}`,
     text,
@@ -84,7 +87,7 @@ function jobs(cmd: string, text: string, insert: (j: JobView) => string): Source
       detail: j.id,
       status: j.status,
       at: j.created_at,
-      insert: insert(j),
+      insert: `${cmd} ${j.id}`,
     })),
   };
 }
@@ -122,13 +125,14 @@ function objects(scope: string, job: string | null, text: string): SourceMatch {
 function dashboards(text: string): SourceMatch {
   return {
     key: "dashboards",
-    text,
+    text: "",
+    local: text,
     fetchPage: async () => {
       const page = await fetchJSON<Page<DashboardSummary>>("/viewer/dashboards");
-      const items = page.items
-        .filter((d) => d.name.includes(text))
-        .map((d) => ({ id: d.name, label: d.name, insert: `@dashboard ${d.name}` }));
-      return { items, more: false };
+      return {
+        items: page.items.map((d) => ({ id: d.name, label: d.name, insert: `@dashboard ${d.name}` })),
+        more: false,
+      };
     },
   };
 }
@@ -153,10 +157,7 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
   let m = /^(@data|@query) job (\S+) (.*)$/.exec(draft);
   if (m) return objects(`${m[1]} job ${m[2]}`, m[2], m[3]);
   m = /^(@data|@query) job (\S*)$/.exec(draft);
-  if (m) {
-    const cmd = m[1];
-    return jobs(`${cmd} job`, m[2], (j) => `${cmd} job ${j.id}`);
-  }
+  if (m) return jobs(`${m[1]} job`, m[2]);
   m = /^(@data|@query) persistent (.*)$/.exec(draft);
   if (m) return objects(`${m[1]} persistent`, null, m[2]);
   m = /^(\S+) (.*)$/.exec(draft);
@@ -167,9 +168,9 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
       return tasks(text);
     case "@job":
       // A trailing view (`@job etl graph`) is not part of the name.
-      return jobs(cmd, text.replace(/\s+(graph|timings|duration)$/, ""), (j) => `@job ${j.id}`);
+      return jobs(cmd, text.replace(JOB_VIEW_SUFFIX, ""));
     case "cancel":
-      return jobs(cmd, text, (j) => `cancel ${j.id}`);
+      return jobs(cmd, text);
     case "run":
     case "enable":
     case "disable":

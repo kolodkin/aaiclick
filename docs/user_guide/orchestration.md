@@ -529,7 +529,7 @@ filled. See [Examples: Orchestration Operators](../examples/orchestration_operat
     python -m aaiclick job list [--status RUNNING] [--like "%crawl%"] [--limit 20 --offset 40]
     python -m aaiclick job get <id>
     python -m aaiclick job stats <id>
-    python -m aaiclick task list [--job <ref>] [--like load] [--status FAILED] [--limit 20 --offset 40]
+    python -m aaiclick task list [--job <ref>] [--like "%load%"] [--status FAILED] [--limit 20 --offset 40]
     ```
 
 === "REST"
@@ -538,7 +538,7 @@ filled. See [Examples: Orchestration Operators](../examples/orchestration_operat
     curl "http://127.0.0.1:5255/api/v0/jobs?status=RUNNING&limit=20"
     curl http://127.0.0.1:5255/api/v0/jobs/<id>
     curl http://127.0.0.1:5255/api/v0/jobs/<id>/stats
-    curl "http://127.0.0.1:5255/api/v0/tasks?job=<ref>&name=load"
+    curl "http://127.0.0.1:5255/api/v0/tasks?job=<ref>&name=%25load%25"
     ```
 
 ## Cancel a job

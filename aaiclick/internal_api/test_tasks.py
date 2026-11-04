@@ -71,7 +71,7 @@ async def test_list_tasks_newest_first(orch_ctx):
 @pytest.mark.parametrize(
     "filter_kwargs",
     [
-        pytest.param({"name": "simple"}, id="name-substring"),
+        pytest.param({"name": "%simple%"}, id="name-pattern"),
         pytest.param({"job": "list_tasks_a"}, id="job-by-name"),
         pytest.param({"status": "COMPLETED"}, id="status"),
     ],
@@ -90,9 +90,9 @@ async def test_list_tasks_filters(orch_ctx, filter_kwargs):
 @pytest.mark.parametrize(
     ("name", "matches_simple"),
     [
-        pytest.param("simple%task", True, id="percent-is-wildcard"),
-        pytest.param("simple_task", True, id="underscore-matches-itself"),
-        pytest.param("simple_tas_", False, id="underscore-is-not-a-wildcard"),
+        pytest.param("%simple%task%", True, id="percent-is-wildcard"),
+        pytest.param("%simple_task%", True, id="underscore-matches-itself"),
+        pytest.param("%simple_tas_", False, id="underscore-is-not-a-wildcard"),
     ],
 )
 async def test_list_tasks_name_wildcards(orch_ctx, name, matches_simple):

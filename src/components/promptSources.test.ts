@@ -23,7 +23,7 @@ describe("matchSource", () => {
     ["@query job et", "jobs:@query job", "et"],
     ["@data job etl ", "objects:@data job etl", ""],
     ["@data job etl ord", "objects:@data job etl", "ord"],
-    ["@dashboard sa", "dashboards", "sa"],
+    ["@dashboard sa", "dashboards", ""],
     ["@sandbox ", "sandbox", ""],
     ["@sandbox report", "sandbox", ""],
   ])("%s → %s / %s", (draft, key, text) => {
@@ -65,7 +65,7 @@ describe("fetchPage", () => {
   test("tasks narrow by name and page by offset", async () => {
     fetchMock.mockResolvedValue({ items: [] });
     await matchSource("@task load", { sandbox: false })!.fetchPage(PAGE);
-    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&name=load`);
+    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&name=%25load%25`);
   });
 
   test("a full page has more, a short one does not", async () => {
@@ -104,10 +104,12 @@ describe("fetchPage", () => {
     expect(page.items[0].insert).toBe("@data persistent orders");
   });
 
-  test("dashboards filter client-side in one page", async () => {
+  test("dashboards come in one page and narrow in the browser, not per keystroke", async () => {
     fetchMock.mockResolvedValue({ items: [{ name: "sales" }, { name: "ops" }] });
-    const page = await matchSource("@dashboard sa", { sandbox: false })!.fetchPage(0);
-    expect(page.items.map((i) => i.insert)).toEqual(["@dashboard sales"]);
+    const m = matchSource("@dashboard sa", { sandbox: false })!;
+    const page = await m.fetchPage(0);
+    expect(m.local).toBe("sa");
+    expect(page.items.map((i) => i.insert)).toEqual(["@dashboard sales", "@dashboard ops"]);
     expect(page.more).toBe(false);
   });
 

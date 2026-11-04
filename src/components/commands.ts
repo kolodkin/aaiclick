@@ -117,7 +117,7 @@ export function useCommandGroups(): CommandGroups {
   const sandbox = !!useSandboxConfig().data?.enabled;
   const admin = me?.role === "admin";
   const local = me !== null && me.id === null;
-  // Stable identity: the prompt dropdown re-reports its rows whenever this changes.
+  // Stable identity: the prompt dropdown recomputes its rows whenever this changes.
   return useMemo(
     () => ({
       navigate: sandbox ? [...NAVIGATE, SANDBOX] : NAVIGATE,

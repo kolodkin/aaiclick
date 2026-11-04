@@ -51,7 +51,7 @@ async def list_tasks(filter: TaskListFilter | None = None) -> Page[TaskView]:
     filter = filter or TaskListFilter()
     predicates = []
     if filter.name is not None:
-        predicates.append(name_like(Task.name, f"%{filter.name}%"))
+        predicates.append(name_like(Task.name, filter.name))
     if filter.job is not None:
         job = await resolve_job(filter.job)
         predicates.append(col(Task.job_id) == job.id)

@@ -7,6 +7,8 @@ import { matchSource, type SourceItem } from "./promptSources";
 import { StatusBadge } from "./StatusBadge";
 
 const DEBOUNCE_MS = 200;
+// Rows of a picker may be this old; reopening the list reuses them instead of refetching every page.
+const STALE_MS = 30_000;
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -27,18 +29,8 @@ function commandItems(draft: string, completions: Completion[]): SourceItem[] {
   }));
 }
 
-interface Props {
-  draft: string;
-  sandbox: boolean;
-  completions: Completion[];
-  active: number;
-  onActive: (i: number) => void;
-  onPick: (item: SourceItem) => void;
-  /** Reports the rows shown, so the prompt's ↑/↓/Enter can act on them. */
-  onItems: (items: SourceItem[]) => void;
-}
-
-export function PromptDropdown({ draft, sandbox, completions, active, onActive, onPick, onItems }: Props) {
+// The rows for `draft`: the command's values once a source matches, else the matching commands.
+export function usePromptItems(draft: string, open: boolean, sandbox: boolean, completions: Completion[]) {
   const debounced = useDebounced(draft, DEBOUNCE_MS);
   const source = useMemo(() => matchSource(debounced, { sandbox }), [debounced, sandbox]);
   const query = useInfiniteQuery({
@@ -46,19 +38,31 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
     queryFn: ({ pageParam }) => source!.fetchPage(pageParam),
     initialPageParam: 0,
     getNextPageParam: (last, pages) => (last.more ? pages.reduce((n, p) => n + p.items.length, 0) : undefined),
-    enabled: source !== null,
+    enabled: open && source !== null,
+    staleTime: STALE_MS,
     // A picker, not a live view: the fallback poll would refetch every loaded page.
     refetchInterval: false,
   });
-  const { hasNextPage, isFetching, isFetchingNextPage, fetchNextPage } = query;
+  const items = useMemo(() => {
+    if (!source) return commandItems(draft, completions);
+    const rows = query.data?.pages.flatMap((p) => p.items) ?? [];
+    const local = source.local;
+    return local ? rows.filter((r) => r.label.includes(local)) : rows;
+  }, [source, query.data, draft, completions]);
+  return { source, items, query };
+}
 
-  const items = useMemo(
-    () => (source ? (query.data?.pages.flatMap((p) => p.items) ?? []) : commandItems(draft, completions)),
-    [source, query.data, draft, completions],
-  );
-  useEffect(() => {
-    onItems(items);
-  }, [items, onItems]);
+type PromptItems = ReturnType<typeof usePromptItems>;
+
+interface Props {
+  list: PromptItems;
+  active: number;
+  onActive: (i: number) => void;
+  onPick: (item: SourceItem) => void;
+}
+
+export function PromptDropdown({ list: { source, items, query }, active, onActive, onPick }: Props) {
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
 
   const sentinel = useRef<HTMLLIElement>(null);
   useEffect(() => {
@@ -70,12 +74,6 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
     io.observe(el);
     return () => io.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  // Arrowing onto the last loaded row asks for the next page; the sentinel may sit below the fold.
-  useEffect(() => {
-    // Waits out any refetch (live-update invalidation) and re-runs once it settles.
-    if (active === items.length - 1 && hasNextPage && !isFetching) void fetchNextPage();
-  }, [active, items.length, hasNextPage, isFetching, fetchNextPage]);
 
   const activeRef = useRef<HTMLLIElement>(null);
   useEffect(() => {
@@ -103,8 +101,8 @@ export function PromptDropdown({ draft, sandbox, completions, active, onActive, 
           {it.at && <span className="sub-inline">{relativeTime(it.at)}</span>}
         </li>
       ))}
-      {source && query.isLoading && <li className="empty">loading…</li>}
-      {source && query.isError && <li className="empty err">failed to load</li>}
+      {query.isLoading && <li className="empty">loading…</li>}
+      {query.isError && <li className="empty err">failed to load</li>}
       {source && query.isSuccess && items.length === 0 && <li className="empty">no matches</li>}
       {hasNextPage && (
         <li ref={sentinel} className="empty">
