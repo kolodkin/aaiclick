@@ -43,7 +43,8 @@ def test_data_all_scopes_labels_and_opens_job_object(page, shot, base_url: str) 
     open_page(page, f"{base_url}/?p=@data")
     # Earlier seed runs may leave rows of the same name; any one will do.
     row = page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales").first
-    playwright_api.expect(row).to_contain_text(f"job - {OBJECTS_JOB}")
+    playwright_api.expect(row.locator("td").nth(1)).to_have_text("job")
+    playwright_api.expect(row.locator("td").nth(2)).to_have_text(OBJECTS_JOB)
     shot("data-all-scopes")
     row.click()
     page.wait_for_url(lambda url: "job" in url and "raw_sales" in url)

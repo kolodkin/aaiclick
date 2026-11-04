@@ -1,6 +1,6 @@
 import type { ObjectView } from "../api/types";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, objectScope, objectScopeLabel, queryPrompt } from "../lib/viewer";
+import { dataPrompt, formatBytes, objectScope, queryPrompt } from "../lib/viewer";
 
 export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onPrompt: (v: string) => void }) {
   if (objects.length === 0) return <p className="sub">No objects in this scope</p>;
@@ -10,6 +10,7 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
         <tr>
           <th>Name</th>
           <th>Scope</th>
+          <th>Job</th>
           <th>Rows</th>
           <th>Size</th>
           <th>Created</th>
@@ -22,8 +23,9 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
             <td>
               <span className="name-link mono">{o.name}</span>
             </td>
+            <td>{o.job_id != null ? "job" : "persistent"}</td>
             <td className="mono" title={o.job_id != null ? `#${o.job_id}` : undefined}>
-              {objectScopeLabel(o)}
+              {o.job_id != null ? (o.job_name ?? `#${o.job_id}`) : "—"}
             </td>
             <td className="mono">{o.row_count ?? "—"}</td>
             <td className="mono">{formatBytes(o.size_bytes)}</td>
