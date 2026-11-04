@@ -1,4 +1,6 @@
 // See docs/designs/ui.md.
+import { ALL, PERSISTENT, scopeKey } from "./lib/viewer";
+
 // Named JobViewMode, not JobView — `src/api/types.ts` already exports JobView
 // as the server model.
 export type JobViewMode = "table" | "graph" | "timings" | "duration";
@@ -20,22 +22,21 @@ export type Route =
   | { kind: "invite" }
   | { kind: "audit" }
   | { kind: "reset"; token: string }
-  | { kind: "data"; job: string | null; object: string | null }
-  | { kind: "query"; job: string | null; object: string | null }
+  | { kind: "data"; scope: string; object: string | null }
+  | { kind: "query"; scope: string; object: string | null }
   | { kind: "dashboard"; name: string | null }
   | { kind: "sandbox" }
   | { kind: "sandbox-file"; id: string }
   | { kind: "unknown"; raw: string };
 
-// `[job <ref>] [<object>]` after `@data` / `@query`.
-function parseScoped(rest: string): { job: string | null; object: string | null } {
+// `[persistent | job <ref>] [<object>]` after `@data` / `@query`. Nothing
+// means all scopes; a bare object is a persistent one.
+function parseScoped(rest: string): { scope: string; object: string | null } {
   const words = rest.split(/\s+/).filter(Boolean);
-  let job: string | null = null;
-  if (words[0] === "job" && words[1]) {
-    job = words[1];
-    words.splice(0, 2);
-  }
-  return { job, object: words[0] ?? null };
+  if (words[0] === "job" && words[1]) return { scope: scopeKey(words[1]), object: words[2] ?? null };
+  if (words[0] === PERSISTENT) words.shift();
+  else if (words.length === 0) return { scope: ALL, object: null };
+  return { scope: PERSISTENT, object: words[0] ?? null };
 }
 
 export function parsePrompt(raw: string): Route {

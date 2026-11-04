@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useJobs } from "../api/hooks";
-import { PERSISTENT, scopeKey } from "../lib/viewer";
+import { ALL, PERSISTENT, scopeKey } from "../lib/viewer";
 
-// Left-hand scope selector: Persistent, then the jobs (newest first) with a
+// Left-hand scope selector: All, Persistent, then the jobs (newest first) with a
 // name filter. Job nodes reuse the jobs list; a click sets the scope key.
 export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: string) => void }) {
   const { data } = useJobs({ poll: false });
@@ -10,13 +10,21 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
   const jobs = (data?.items ?? []).filter((j) => j.name.includes(filter));
   return (
     <nav className="scope-tree" data-testid="scope-tree">
-      <div
-        className={`scope-node${scope === PERSISTENT ? " is-active" : ""}`}
-        data-testid="scope-persistent"
-        onClick={() => onScope(PERSISTENT)}
-      >
-        Persistent
-      </div>
+      {(
+        [
+          [ALL, "All", "scope-all"],
+          [PERSISTENT, "Persistent", "scope-persistent"],
+        ] as const
+      ).map(([key, label, testid]) => (
+        <div
+          key={key}
+          className={`scope-node${scope === key ? " is-active" : ""}`}
+          data-testid={testid}
+          onClick={() => onScope(key)}
+        >
+          {label}
+        </div>
+      ))}
       <div className="scope-group">Jobs</div>
       <input
         className="scope-filter mono"

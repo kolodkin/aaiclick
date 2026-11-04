@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useObjects } from "../api/hooks";
+import { useStoredFlag } from "../lib/storedFlag";
 import { dataPrompt, scopeKey } from "../lib/viewer";
 import { promptHref } from "../prompt";
 
@@ -31,13 +32,10 @@ export function ObjectsMenu({
     void qc.invalidateQueries({ queryKey: ["objects", scope] });
   }, [qc, scope, refreshKey]);
   const ref = useRef<HTMLDetailsElement>(null);
-  const [newTab, setNewTab] = useState(() => localStorage.getItem(NEW_TAB_KEY) === "1");
+  const [newTab, setNewTab] = useStoredFlag(NEW_TAB_KEY);
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState(false);
-  const toggleNewTab = () => {
-    localStorage.setItem(NEW_TAB_KEY, newTab ? "0" : "1");
-    setNewTab(!newTab);
-  };
+  const toggleNewTab = () => setNewTab(!newTab);
 
   const close = () => {
     if (ref.current) ref.current.open = false;

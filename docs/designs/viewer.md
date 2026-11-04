@@ -49,13 +49,16 @@ URL, saved queries, and CLI flags:
 
 | Scope            | Tables listed                                    |
 |------------------|--------------------------------------------------|
+| `all`            | `persistent` plus every job's `j_*` rows         |
 | `persistent`     | `p_*` rows in `table_registry`                   |
 | `job:<id\|name>` | `table_registry` rows with the resolved `job_id` |
 
 A job scope resolves through `resolve_job` like `get_job` does: an id names
 one run, a name the latest run with that name. Saved queries and dashboards
 store the key as given, so `job:nightly_etl` follows each new run while
-`job:123` stays pinned. Temp and oplog tables never appear.
+`job:123` stays pinned. Temp and oplog tables never appear. `all` is a
+listing scope only (`GET /objects?scope=all`); each item carries its own
+`job_id` / `job_name`, and opening one switches to that item's scope.
 
 Every surface identifies an object as `(scope, name)`; `make_scoped_table_name`
 maps the pair to `p_<name>` or `j_<job_id>_<name>`.
