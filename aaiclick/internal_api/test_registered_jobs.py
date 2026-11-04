@@ -172,3 +172,14 @@ async def test_register_job_build_skips_host_entrypoint_validation(orch_ctx):
     )
     view = await registered_jobs.register_job(request)
     assert view.name == "built_reg"
+
+
+@pytest.mark.parametrize("name", ["my job", "etl-v2", "etl.v2", "9lives", "a%b"])
+async def test_register_job_rejects_a_name_objects_would_reject(orch_ctx, name):
+    with pytest.raises(errors.Invalid):
+        await registered_jobs.register_job(RegisterJobRequest(name=name, entrypoint=_VALID_ENTRYPOINT))
+
+
+async def test_register_job_rejects_an_over_long_name(orch_ctx):
+    with pytest.raises(errors.Invalid):
+        await registered_jobs.register_job(RegisterJobRequest(name="a" * 129, entrypoint=_VALID_ENTRYPOINT))

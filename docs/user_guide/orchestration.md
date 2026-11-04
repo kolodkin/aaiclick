@@ -303,6 +303,10 @@ modify it, `--git-sha` per run). Python and REST use `image` / `build`.
 Container vs Pod is the worker's `AAICLICK_RUNNER` — see
 [Deployment](deployment.md).
 
+Job names follow the object name rule: letters, digits and `_`, not starting
+with a digit, at most 128 characters. Others fail with HTTP 422; names
+registered before the rule keep running.
+
 Registering an existing name fails (HTTP 409). Pass `--replace` (Python
 `replace=True`, REST/MCP `"replace": true`) to overwrite it — e.g. after a
 signature change leaves stale `default_kwargs`. Every field is replaced: omitting `--schedule`

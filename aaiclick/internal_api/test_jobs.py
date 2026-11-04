@@ -6,10 +6,11 @@ import pytest
 from sqlmodel import select
 
 from aaiclick.orchestration.factories import create_job
-from aaiclick.orchestration.models import JOB_CANCELLED, JOB_COMPLETED, JOB_PENDING, Task
+from aaiclick.orchestration.models import JOB_CANCELLED, JOB_COMPLETED, JOB_PENDING, RegisteredJob, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
+from aaiclick.snowflake import get_snowflake_id
 from aaiclick.view_models import JobListFilter, Page, RunJobRequest
 
 from . import errors, jobs
@@ -181,3 +182,19 @@ async def test_resolve_job_by_id_and_name_and_missing(orch_ctx):
     assert (await jobs.resolve_job("rj")).id == job.id
     with pytest.raises(errors.NotFound):
         await jobs.resolve_job("no_such_job")
+
+
+async def test_run_job_rejects_an_unregistered_name_objects_would_reject(orch_ctx):
+    with pytest.raises(errors.Invalid):
+        await jobs.run_job(RunJobRequest(name="my-job", entry_type="shell", command=["true"]))
+
+
+async def test_run_job_still_runs_a_registered_name_from_before_the_rule(orch_ctx):
+    # Registered before names were checked: written straight to the catalog.
+    async with get_sql_session() as session:
+        session.add(RegisteredJob(id=get_snowflake_id(), name="legacy-job", entrypoint=_SAMPLE_TASK))
+        await session.commit()
+
+    view = await jobs.run_job(RunJobRequest(name="legacy-job"))
+
+    assert view.name == "legacy-job"

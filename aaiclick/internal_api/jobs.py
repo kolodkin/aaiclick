@@ -14,6 +14,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from aaiclick.names import name_error
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.graph import DependencyRow, upstream_task_ids
 from aaiclick.orchestration.models import TASK_COMPLETED, Dependency, Group, Job, Task, TaskRun
@@ -258,6 +259,7 @@ async def run_job(request: RunJobRequest) -> JobView:
     (``resources``, ``jvm``) but none resolves, and ``NotFound`` for a bare
     ``"module"`` name with no registered job.
     """
+    registered = None
     if "." in request.name:
         entrypoint = request.name
         name = request.name.rsplit(".", 1)[-1]
@@ -268,6 +270,11 @@ async def run_job(request: RunJobRequest) -> JobView:
             # A bare module name is not a callable; the task would only fail on the worker.
             raise NotFound(f"No registered job named '{name}'; register it or pass a dotted entrypoint")
         entrypoint = registered.entrypoint if registered is not None else request.name
+    # Registered names were checked at registration (or predate the rule), so only new names are.
+    if registered is None:
+        error = name_error("job", name)
+        if error:
+            raise Invalid(error)
 
     try:
         job = await _run_job_impl(
