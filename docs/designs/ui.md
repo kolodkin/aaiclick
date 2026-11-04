@@ -46,7 +46,7 @@ Home lists no `@task` command — tasks are reached through a job, or by typing 
 
 ## Prompt dropdown
 
-**Implementation**: `src/components/Header.tsx`, `PromptDropdown.tsx`, `promptSources.ts`
+**Implementation**: `src/components/Header.tsx`
 
 The input edits a draft; the view follows only the committed prompt.
 
@@ -55,19 +55,18 @@ The input edits a draft; the view follows only the committed prompt.
 - **No command yet**: the dropdown lists matching commands.
 - **After `<command> `**: it lists that command's values; the rest of the draft narrows them.
 
-| Prefix                         | Lists                     | Narrowing        | Picked row inserts         |
-|--------------------------------|---------------------------|------------------|----------------------------|
-| `@task`                        | tasks, newest first       | name contains    | `@task <id>`               |
-| `@job`, `@data job`, `@query job` | jobs, newest first     | name contains    | `@job <id>` / scope        |
-| `cancel`                       | jobs, newest first        | name contains    | `cancel <id>`              |
-| `run`, `enable`, `disable`     | registered jobs           | name contains    | `<cmd> <name>`             |
-| `@data`, `@query` (+ `persistent` / `job <ref>`) | objects of the scope | name prefix | `<cmd> … <name>` |
-| `@dashboard`                   | dashboards                | name contains    | `@dashboard <name>`        |
-| `@sandbox`                     | sandbox files             | —                | `@sandbox <id>`            |
+| Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
+|-------------------------------------------------|----------------------|---------------|---------------------|
+| `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
+| `@job`, `cancel`, `@data job`, `@query job`     | jobs, newest first   | name contains | `<cmd> <id>`        |
+| `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
+| `@data`, `@query` (+ `persistent`, `job <ref>`) | objects of the scope | name prefix   | `<cmd> … <name>`    |
+| `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
+| `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
-Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page. Jobs insert their id, since a name opens the latest run.
-
-`enable <name>` / `disable <name>` open a confirm view (`src/views/ToggleConfirm.tsx`), like `cancel`, then return to `@registered`.
+- Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
+- Jobs insert their id: a name opens the latest run.
+- `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
 # Modes
 
