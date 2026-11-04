@@ -4,6 +4,8 @@ import { ALL, PERSISTENT, scopeKey } from "./lib/viewer";
 // Named JobViewMode, not JobView — `src/api/types.ts` already exports JobView
 // as the server model.
 export type JobViewMode = "table" | "graph" | "timings" | "duration";
+// A trailing view word after `@job <name>`; shared with the prompt dropdown.
+export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration)$/;
 
 export type Route =
   | { kind: "home" }
@@ -15,6 +17,7 @@ export type Route =
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
   | { kind: "cancel-confirm"; ref: string }
+  | { kind: "toggle-confirm"; name: string; enabled: boolean }
   | { kind: "tokens" }
   | { kind: "account" }
   | { kind: "users" }
@@ -59,8 +62,8 @@ export function parsePrompt(raw: string): Route {
   if (p.startsWith("@dashboard ")) return { kind: "dashboard", name: p.slice(11).trim() || null };
   if (p.startsWith("@job ")) {
     const rest = p.slice(5).trim();
-    const m = /^(.*\S)\s+(graph|timings|duration)$/.exec(rest);
-    if (m) return { kind: "job", name: m[1], view: m[2] as JobViewMode };
+    const m = JOB_VIEW_SUFFIX.exec(rest);
+    if (m && m.index > 0) return { kind: "job", name: rest.slice(0, m.index), view: m[1] as JobViewMode };
     return { kind: "job", name: rest, view: "table" };
   }
   // Ids are 64-bit snowflakes — keep them as opaque strings (parseInt would
@@ -72,6 +75,8 @@ export function parsePrompt(raw: string): Route {
     return { kind: "run-confirm", name: rest };
   }
   if (p.startsWith("cancel ")) return { kind: "cancel-confirm", ref: p.slice(7).trim() };
+  if (p.startsWith("enable ")) return { kind: "toggle-confirm", name: p.slice(7).trim(), enabled: true };
+  if (p.startsWith("disable ")) return { kind: "toggle-confirm", name: p.slice(8).trim(), enabled: false };
   return { kind: "unknown", raw: p };
 }
 

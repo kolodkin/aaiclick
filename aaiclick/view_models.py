@@ -32,7 +32,7 @@ from .log_models import (
     SnowflakeId,
     UtcDateTime,
 )
-from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode
+from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, TaskStatus
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -163,6 +163,16 @@ class JobListFilter(ApiModel):
     limit: PageLimit = 50
     offset: PageOffset = 0
     cursor: str | None = None
+
+
+class TaskListFilter(ApiModel):
+    """Filter parameters for ``internal_api.list_tasks``; ``name`` is a ``LIKE`` pattern where only ``%`` is a wildcard."""
+
+    name: str | None = None
+    job: RefId | None = None
+    status: TaskStatus | None = None
+    limit: PageLimit = 50
+    offset: PageOffset = 0
 
 
 class RegisteredJobFilter(ApiModel):

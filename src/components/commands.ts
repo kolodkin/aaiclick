@@ -1,5 +1,6 @@
 // See docs/designs/ui.md — "Home (empty prompt)".
 // Single command registry for Home, prompt autocomplete and unknown-command chips.
+import { useMemo } from "react";
 import { useSandboxConfig } from "../api/hooks";
 import { useAuth } from "./Auth";
 
@@ -22,7 +23,6 @@ const NAVIGATE: Cmd[] = [
     complete: "@registered",
   },
   { code: "@job <name>", desc: "Job detail — header + tasks table.", cmd: "@jobs", complete: "@job " },
-  { code: "@task <id>", desc: "Task detail — status bar + live logs.", cmd: "@task 1", complete: "@task " },
   {
     code: "@data [persistent | job <ref>] [<object>]",
     desc: "Objects of every scope, persistent, or one job — and their rows.",
@@ -64,7 +64,8 @@ const ACTIONS: Cmd[] = [
     cmd: "register",
     complete: "register",
   },
-  { code: "enable / disable <name>", desc: "Toggle a registered job on/off via @registered.", cmd: "@registered" },
+  { code: "enable <name>", desc: "Turn a registered job's schedule on.", cmd: "@registered", complete: "enable " },
+  { code: "disable <name>", desc: "Turn a registered job's schedule off.", cmd: "@registered", complete: "disable " },
 ];
 
 const ACCOUNT: Cmd[] = [
@@ -113,14 +114,20 @@ export interface CommandGroups {
 
 export function useCommandGroups(): CommandGroups {
   const { me } = useAuth();
-  const sandbox = useSandboxConfig();
-  return {
-    navigate: sandbox.data?.enabled ? [...NAVIGATE, SANDBOX] : NAVIGATE,
-    actions: ACTIONS,
-    account: ACCOUNT,
-    admin: me?.role === "admin" ? ADMIN : [],
-    local: me !== null && me.id === null,
-  };
+  const sandbox = !!useSandboxConfig().data?.enabled;
+  const admin = me?.role === "admin";
+  const local = me !== null && me.id === null;
+  // Stable identity: the prompt dropdown recomputes its rows whenever this changes.
+  return useMemo(
+    () => ({
+      navigate: sandbox ? [...NAVIGATE, SANDBOX] : NAVIGATE,
+      actions: ACTIONS,
+      account: ACCOUNT,
+      admin: admin ? ADMIN : [],
+      local,
+    }),
+    [sandbox, admin, local],
+  );
 }
 
 export interface Completion {
@@ -131,10 +138,20 @@ export interface Completion {
 // Autocomplete entries, `help` first; disabled ones only work in distributed mode.
 export function useCompletions(): Completion[] {
   const g = useCommandGroups();
-  const entry = (disabled: boolean) => (c: Cmd) => (c.complete ? [{ text: c.complete, disabled }] : []);
-  return [
-    { text: "help", disabled: false },
-    ...[...g.navigate, ...g.actions].flatMap(entry(false)),
-    ...[...g.account, ...g.admin].flatMap(entry(g.local)),
-  ];
+  return useMemo(() => {
+    const entry = (disabled: boolean) => (c: Cmd) => (c.complete ? [{ text: c.complete, disabled }] : []);
+    return [
+      { text: "help", disabled: false },
+      ...[...g.navigate, ...g.actions].flatMap(entry(false)),
+      // Off Home (tasks are reached through a job) but still typeable.
+      { text: "@task ", disabled: false },
+      ...[...g.account, ...g.admin].flatMap(entry(g.local)),
+    ];
+  }, [g]);
+}
+
+// A draft that is a whole argument-less command routes as you type; anything
+// else waits for a pick or Enter so the view doesn't chase keystrokes.
+export function isCommitOnType(draft: string, completions: Completion[]): boolean {
+  return completions.some((c) => c.text === draft && !c.text.endsWith(" "));
 }

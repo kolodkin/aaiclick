@@ -30,7 +30,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
 from .errors import Conflict, Invalid, NotFound
-from .pagination import paginate
+from .pagination import name_like, paginate
 
 
 def _validate_entrypoint(entrypoint: str) -> None:
@@ -56,7 +56,7 @@ def _validate_entrypoint(entrypoint: str) -> None:
 async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Page[RegisteredJobView]:
     """Return a page of registered jobs ordered by ``name``.
 
-    ``filter.name`` is matched with SQL ``LIKE`` (caller supplies wildcards).
+    ``filter.name`` is a ``LIKE`` pattern where only ``%`` is a wildcard (caller supplies it).
     ``filter.enabled`` restricts to enabled / disabled entries when set.
     Pagination uses ``filter.limit`` / ``filter.offset``; ``filter.cursor``
     is reserved for a future cursor-based REST/MCP surface and is currently
@@ -68,7 +68,7 @@ async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Pag
     if filter.enabled is not None:
         predicates.append(RegisteredJob.enabled == filter.enabled)
     if filter.name is not None:
-        predicates.append(col(RegisteredJob.name).like(filter.name))
+        predicates.append(name_like(RegisteredJob.name, filter.name))
 
     page = await paginate(
         RegisteredJob,

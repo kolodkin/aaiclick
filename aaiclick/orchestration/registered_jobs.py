@@ -13,6 +13,7 @@ from sqlmodel import select
 
 from ..backend import is_local
 from ..datetime_utils import utc_now
+from ..names import name_error
 from ..snowflake import get_snowflake_id
 from .docker_config import requested_image_kind, resolve_image_source
 from .factories import create_container_job, create_job, create_task
@@ -164,12 +165,15 @@ async def register_job(
         The created or replaced RegisteredJob
 
     Raises:
-        ValueError: If ``image`` is combined with the build side, a build
-            modifier is set without ``build``, or ``resources`` is set on a
-            subprocess registration.
+        ValueError: If ``name`` breaks the object name rule, ``image`` is
+            combined with the build side, a build modifier is set without
+            ``build``, or ``resources`` is set on a subprocess registration.
         RegisteredJobAlreadyExists: If a job with this name already exists
             and ``replace`` is false.
     """
+    error = name_error("job", name)
+    if error:
+        raise ValueError(error)
     _validate_registration_fields(
         image=image, build=build, git_remote=git_remote, dockerfile=dockerfile, resources=resources
     )

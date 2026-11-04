@@ -91,6 +91,28 @@ header {
   outline: none;
 }
 #prompt::placeholder { color: var(--muted); }
+.prompt-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+  max-height: min(60vh, 420px); overflow-y: auto; margin: 0; padding: 4px; list-style: none;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+.prompt-dropdown li {
+  display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 10px;
+  border-radius: 8px; cursor: pointer;
+}
+.prompt-dropdown li .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.prompt-dropdown li.active { background: var(--panel-strong); }
+.prompt-dropdown li.empty { color: var(--muted); cursor: default; min-height: 32px; }
+.prompt-dropdown .sub-inline { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Phones: the prompt box is narrow, so the list spans the header and row details wrap under the name. */
+@media (max-width: 640px) {
+  header { position: relative; }
+  .prompt-wrap { position: static; }
+  .prompt-dropdown { left: 8px; right: 8px; }
+  .prompt-dropdown li { flex-wrap: wrap; row-gap: 2px; }
+  .prompt-dropdown li .mono { flex-basis: 100%; }
+}
 #prompt:focus { border-color: var(--accent); background: rgba(255,255,255,.10); box-shadow: 0 0 0 3px var(--accent-soft); }
 .hint { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .user-menu { display: flex; align-items: center; gap: 10px; }

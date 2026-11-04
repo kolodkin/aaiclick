@@ -14,6 +14,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from aaiclick.names import name_error
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.graph import DependencyRow, upstream_task_ids
 from aaiclick.orchestration.models import TASK_COMPLETED, Dependency, Group, Job, Task, TaskRun
@@ -35,7 +36,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, Invalid, NotFound
-from .pagination import paginate
+from .pagination import name_like, paginate
 
 
 @asynccontextmanager
@@ -78,7 +79,7 @@ async def resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job:
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """Return a page of jobs ordered by ``created_at`` descending.
 
-    ``filter.name`` is matched with SQL ``LIKE`` (caller supplies wildcards).
+    ``filter.name`` is a ``LIKE`` pattern where only ``%`` is a wildcard (caller supplies it).
     ``filter.since`` filters on ``created_at >= since``. Pagination uses
     ``filter.limit`` / ``filter.offset``; ``filter.cursor`` is reserved for a
     future cursor-based REST/MCP surface and is currently ignored.
@@ -89,7 +90,7 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     if filter.status is not None:
         predicates.append(Job.status == filter.status)
     if filter.name is not None:
-        predicates.append(col(Job.name).like(filter.name))
+        predicates.append(name_like(Job.name, filter.name))
     if filter.since is not None:
         predicates.append(Job.created_at >= filter.since)
 
@@ -258,6 +259,7 @@ async def run_job(request: RunJobRequest) -> JobView:
     (``resources``, ``jvm``) but none resolves, and ``NotFound`` for a bare
     ``"module"`` name with no registered job.
     """
+    registered = None
     if "." in request.name:
         entrypoint = request.name
         name = request.name.rsplit(".", 1)[-1]
@@ -268,6 +270,11 @@ async def run_job(request: RunJobRequest) -> JobView:
             # A bare module name is not a callable; the task would only fail on the worker.
             raise NotFound(f"No registered job named '{name}'; register it or pass a dotted entrypoint")
         entrypoint = registered.entrypoint if registered is not None else request.name
+    # Registered names were checked at registration (or predate the rule), so only new names are.
+    if registered is None:
+        error = name_error("job", name)
+        if error:
+            raise Invalid(error)
 
     try:
         job = await _run_job_impl(

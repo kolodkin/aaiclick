@@ -33,7 +33,6 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 (empty prompt)  ──────▶  Help / command reference
 @jobs           ──────▶  Jobs list
 @job <name>     ──────▶  Job detail (tasks table)
-@task <id>      ──────▶  Task detail (status + logs)
 @data …         ──────▶  Objects of a scope and their rows
 @query …        ──────▶  Query panel over one object
 @dashboard …    ──────▶  Saved dashboard in a sandbox
@@ -42,6 +41,32 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 ```
 @jobs  ──click job row──▶  @job <name>  ──click task row──▶  @task <id>
 ```
+
+Home lists no `@task` command — tasks are reached through a job, or by typing `@task <id>`.
+
+## Prompt dropdown
+
+**Implementation**: `src/components/Header.tsx`
+
+The input edits a draft; the view follows only the committed prompt.
+
+- **Commit**: picking a row, Enter, or typing a whole argument-less command (`@jobs`, `@data`, `help`). Clicks inside views commit directly.
+- **Esc**: drops the draft back to the committed prompt.
+- **No command yet**: the dropdown lists matching commands.
+- **After `<command> `**: it lists that command's values; the rest of the draft narrows them.
+
+| Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
+|-------------------------------------------------|----------------------|---------------|---------------------|
+| `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
+| `@job`, `cancel`, `@data job`, `@query job`     | jobs, newest first   | name contains | `<cmd> <id>`        |
+| `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
+| `@data`, `@query` (+ `persistent`, `job <ref>`) | objects of the scope | name prefix   | `<cmd> … <name>`    |
+| `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
+| `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
+
+- Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
+- Jobs insert their id: a name opens the latest run.
+- `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
 # Modes
 
@@ -54,7 +79,7 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 Displays a help/command reference showing available commands and their descriptions.
 In local mode (auth disabled) the Account and Administration groups are greyed out and marked "(Distributed mode only)".
 
-One registry, `src/components/commands.ts`, feeds Home, prompt autocomplete and the "Unknown command" chips. Autocomplete labels distributed-only commands instead of greying them — a native `<datalist>` can't.
+One registry, `src/components/commands.ts`, feeds Home, the prompt dropdown and the "Unknown command" chips. The dropdown labels distributed-only commands "Distributed mode only".
 
 ## Jobs List (`@jobs`)
 

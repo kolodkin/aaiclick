@@ -24,7 +24,14 @@ from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.orch_context import task_scope
-from aaiclick.orchestration.view_models import ClearTaskView, ExecutionWorkerView, JobDetail, JobView, TaskDetail
+from aaiclick.orchestration.view_models import (
+    ClearTaskView,
+    ExecutionWorkerView,
+    JobDetail,
+    JobView,
+    TaskDetail,
+    TaskView,
+)
 from aaiclick.view_models import Page
 from aaiclick.viewer.view_models import ObjectQueryResult
 
@@ -46,6 +53,7 @@ EXPECTED_TOOLS = {
     "enable_job",
     "disable_job",
     "get_task",
+    "list_tasks",
     "clear_task",
     "list_execution_workers",
     "start_execution_worker",
@@ -107,6 +115,15 @@ async def test_list_jobs_returns_page_view(orch_ctx, mcp_client):
     page = Page[JobView].model_validate(result.structured_content)
     assert page.total is not None and page.total >= 1
     assert any(j.name == "mcp_list_a" for j in page.items)
+
+
+async def test_list_tasks_returns_page_view(orch_ctx, mcp_client):
+    await create_job("mcp_list_tasks", simple_task)
+
+    result = await mcp_client.call_tool("list_tasks", {"filter": {"job": "mcp_list_tasks"}})
+
+    page = Page[TaskView].model_validate(result.structured_content)
+    assert [t.name for t in page.items] == ["simple_task"]
 
 
 async def test_get_job_returns_detail(orch_ctx, mcp_client):

@@ -8,9 +8,9 @@ from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import flush_task_logs
-from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
+from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView, TaskView
 from aaiclick.testing import set_task_runs
-from aaiclick.view_models import STDOUT_STREAM, LogLine, Problem, ProblemCode
+from aaiclick.view_models import STDOUT_STREAM, LogLine, Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -133,3 +133,13 @@ async def test_unknown_task_returns_404(orch_ctx, app_client, method, path):
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())
     assert problem.code is ProblemCode.NOT_FOUND
+
+
+async def test_list_tasks(orch_ctx, app_client):
+    job = await create_job("http_list_tasks", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    response = await app_client.get(f"{API_PREFIX}/tasks", params={"job": "http_list_tasks"})
+
+    assert response.status_code == 200
+    assert [t.id for t in Page[TaskView].model_validate(response.json()).items] == [task.id]
