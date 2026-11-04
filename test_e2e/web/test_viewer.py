@@ -28,13 +28,41 @@ _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs th
 @_local_only
 def test_data_lists_and_previews_object(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@data")
-    row = page.get_by_test_id("objects-table").get_by_text("orders")
+    row = page.get_by_test_id("objects-table").get_by_text("orders", exact=True)
     row.wait_for(timeout=15000)
     row.click()
     page.wait_for_url(lambda url: "orders" in url)
     rows = page.get_by_test_id("object-rows")
     rows.wait_for(timeout=15000)
     assert rows.locator("tbody tr").count() == 3
+
+
+@_spa_built
+@_local_only
+def test_data_all_scopes_labels_and_opens_job_object(page, shot, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@data")
+    # Earlier seed runs may leave rows of the same name; any one will do.
+    row = page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales").first
+    playwright_api.expect(row.locator("td").nth(1)).to_have_text("job")
+    playwright_api.expect(row.locator("td").nth(2)).to_have_text(OBJECTS_JOB)
+    shot("data-all-scopes")
+    row.click()
+    page.wait_for_url(lambda url: "job" in url and "raw_sales" in url)
+    page.get_by_test_id("object-rows").wait_for(timeout=15000)
+    shot("data-job-object")
+
+
+@_spa_built
+@_local_only
+def test_query_all_scopes_picker_opens_job_object(page, shot, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@query")
+    picker = page.get_by_test_id("query-object")
+    option = picker.locator("option", has_text=f"raw_sales (job - {OBJECTS_JOB})").first
+    option.wait_for(state="attached", timeout=15000)
+    picker.select_option(option.get_attribute("value"))
+    page.wait_for_url(lambda url: "job" in url and "raw_sales" in url)
+    page.get_by_test_id("query-panel").wait_for(timeout=15000)
+    shot("query-job-object")
 
 
 @_spa_built

@@ -1547,6 +1547,10 @@ export interface components {
         ObjectDetail: {
             /** Created At */
             created_at: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Job Name */
+            job_name: string | null;
             /** Lineage Summary */
             lineage_summary: string | null;
             /** Name */
@@ -1633,6 +1637,10 @@ export interface components {
         ObjectView: {
             /** Created At */
             created_at: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Job Name */
+            job_name: string | null;
             /** Name */
             name: string;
             /** Persistent */
@@ -3465,7 +3473,7 @@ export interface operations {
         parameters: {
             query?: {
                 prefix?: string | null;
-                scope?: ("temp" | "temp_named" | "job" | "global") | null;
+                scope?: ("temp" | "temp_named" | "job" | "global") | "all" | null;
                 job?: number | string | null;
                 limit?: number;
                 cursor?: string | null;

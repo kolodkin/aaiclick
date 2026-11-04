@@ -1,4 +1,4 @@
-// See docs/designs/ui.md — "Data (`@data [job <ref>] [<object>]`)".
+// See docs/designs/ui.md — "Data (`@data [persistent | job <ref>] [<object>]`)".
 import { columnNames, columnTypes, renderCell, ResultsTable } from "@qv/core";
 import { useObjectRows, useObjects } from "../api/hooks";
 import type { ObjectView } from "../api/types";
@@ -8,18 +8,17 @@ import { MetaGrid } from "../components/MetaGrid";
 import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, queryPrompt, scopeKey, scopeLabel } from "../lib/viewer";
+import { dataPrompt, formatBytes, queryPrompt, scopeLabel } from "../lib/viewer";
 
 export function Data({
-  job,
+  scope,
   object,
   onPrompt,
 }: {
-  job: string | null;
+  scope: string;
   object: string | null;
   onPrompt: (v: string) => void;
 }) {
-  const scope = scopeKey(job);
   const objects = useObjects(scope);
   const selected = object ? objects.data?.items.find((o) => o.name === object) : undefined;
 
@@ -46,7 +45,7 @@ export function Data({
           {object ? (
             <ObjectPreview scope={scope} name={object} view={selected} onPrompt={onPrompt} />
           ) : (
-            objects.data && <ObjectsTable objects={objects.data.items} scope={scope} onPrompt={onPrompt} />
+            objects.data && <ObjectsTable objects={objects.data.items} onPrompt={onPrompt} />
           )}
         </div>
       </div>

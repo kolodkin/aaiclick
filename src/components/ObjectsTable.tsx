@@ -1,22 +1,16 @@
 import type { ObjectView } from "../api/types";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, queryPrompt } from "../lib/viewer";
+import { dataPrompt, formatBytes, objectScope, queryPrompt } from "../lib/viewer";
 
-export function ObjectsTable({
-  objects,
-  scope,
-  onPrompt,
-}: {
-  objects: ObjectView[];
-  scope: string;
-  onPrompt: (v: string) => void;
-}) {
+export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onPrompt: (v: string) => void }) {
   if (objects.length === 0) return <p className="sub">No objects in this scope</p>;
   return (
     <table data-testid="objects-table">
       <thead>
         <tr>
           <th>Name</th>
+          <th>Scope</th>
+          <th>Job</th>
           <th>Rows</th>
           <th>Size</th>
           <th>Created</th>
@@ -25,9 +19,13 @@ export function ObjectsTable({
       </thead>
       <tbody>
         {objects.map((o) => (
-          <tr key={o.table} className="clickable" onClick={() => onPrompt(dataPrompt(scope, o.name))}>
+          <tr key={o.table} className="clickable" onClick={() => onPrompt(dataPrompt(objectScope(o), o.name))}>
             <td>
               <span className="name-link mono">{o.name}</span>
+            </td>
+            <td>{o.job_id != null ? "job" : "persistent"}</td>
+            <td className="mono" title={o.job_id != null ? `#${o.job_id}` : undefined}>
+              {o.job_id != null ? (o.job_name ?? `#${o.job_id}`) : "—"}
             </td>
             <td className="mono">{o.row_count ?? "—"}</td>
             <td className="mono">{formatBytes(o.size_bytes)}</td>
@@ -39,7 +37,7 @@ export function ObjectsTable({
                 data-testid="object-query"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onPrompt(queryPrompt(scope, o.name));
+                  onPrompt(queryPrompt(objectScope(o), o.name));
                 }}
               >
                 Query

@@ -7,7 +7,8 @@ Demonstrates @task and @job decorators:
 3. Passing one task's result into another (automatic dependency)
 4. An independent task running alongside that chain
 5. A report task joining both flows, returned as the job's final task
-6. Running the job inline with ajob_test()
+6. Naming results with scope="job" so they outlive the job
+7. Running the job inline with ajob_test()
 """
 
 import asyncio
@@ -41,7 +42,9 @@ async def create_sales() -> Object:
             "product": ["Widget", "Gadget", "Gizmo"],
             "category": ["Tools", "Toys", "Tools"],
             "quantity": [10, 5, 8],
-        }
+        },
+        name="sales",
+        scope="job",
     )
 
 
@@ -49,7 +52,11 @@ async def create_sales() -> Object:
 async def report(min_quantity: int, sales: Object) -> Object:
     """Joins both flows: categories whose total quantity reaches ``min_quantity``."""
     # having() takes raw SQL; int() keeps a non-int job kwarg out of the query
-    top = await sales.group_by("category").having(f"sum(quantity) >= {int(min_quantity)}").sum("quantity")
+    top = (
+        await sales.group_by("category")
+        .having(f"sum(quantity) >= {int(min_quantity)}")
+        .sum("quantity", name="top_categories", scope="job")
+    )
     print(f"Top categories: {await top.data()}")  # → {'category': ['Tools'], 'quantity': [18]}
     return top
     # --8<-- [end:tasks]

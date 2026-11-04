@@ -154,25 +154,26 @@ tick every second while the job is active, so running bars grow.
 
 **Main section**: log viewer filling the remaining screen with vertical scroll. Logs refresh on the same `changed` signal as every other view. Lines come from the ClickHouse `task_logs` stream for one run of the task, so they resolve regardless of which host ran the task. A retried task gets an Airflow-style "Task tries" row: one button per run, colored by how it ended; the latest is selected and polled. A failed run's log ends with its traceback on stderr (shell: `error: exit N`); the header shows only the latest error and clears on success. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by keyword (`src/lib/logTone.ts`), stderr lines carry a marker bar, and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
-## Data (`@data [job <ref>] [<object>]`)
+## Data (`@data [persistent | job <ref>] [<object>]`)
 
 **Implementation**: `src/views/Data.tsx`
 
-**Prompt**: `@data`, `@data job <ref>`, `@data [job <ref>] <object>`
+**Prompt**: `@data` (all scopes), `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>` (no `job`: persistent)
 
-Left: a scope tree — Persistent, then the jobs (newest first, name filter).
-Right: the objects of the selected scope (name, rows, size, created, a
-Query button), or, with an object named, its header and first page of rows.
+Left: a scope tree — All, Persistent, then the jobs (newest first, name
+filter). Right: the objects of the selected scope (name, scope —
+`persistent` or `job`, job name, rows, size, created, a Query button), or,
+with an object named, its header and first page of rows.
 Rows render through the QueryView kernel's `ResultsTable` and default cell
 views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 
-## Query (`@query [job <ref>] [<object>]`)
+## Query (`@query [persistent | job <ref>] [<object>]`)
 
 **Implementation**: `src/views/Query.tsx`
 
-**Prompt**: `@query`, `@query job <ref>`, `@query [job <ref>] <object>`
+**Prompt**: same forms as `@data`
 
-The scope tree plus an object picker; with an object chosen, the query
+The scope tree plus an object picker (entries read `<name> (<scope>)`); with an object chosen, the query
 panel: a `where` expression, limit / offset paging, the kernel's field and
 order-by pickers (fed from `GET /objects/{name}[?job=…]`), static `params:` dropdowns,
 the cell-view YAML modal, a saved-query dropdown (Save / Delete), and CSV

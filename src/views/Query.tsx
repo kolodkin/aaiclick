@@ -1,24 +1,24 @@
-// See docs/designs/ui.md — "Query (`@query [job <ref>] [<object>]`)".
+// See docs/designs/ui.md — "Query (`@query [persistent | job <ref>] [<object>]`)".
 import { useMemo } from "react";
 import { useObject, useObjects } from "../api/hooks";
 import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";
 import { QueryPanel } from "../components/QueryPanel";
 import { ScopeTree } from "../components/ScopeTree";
-import { dataPrompt, fieldsFromSchema, queryPrompt, scopeKey, scopeLabel } from "../lib/viewer";
+import { dataPrompt, fieldsFromSchema, objectScope, objectScopeLabel, queryPrompt, scopeLabel } from "../lib/viewer";
 
 export function Query({
-  job,
+  scope,
   object,
   onPrompt,
 }: {
-  job: string | null;
+  scope: string;
   object: string | null;
   onPrompt: (v: string) => void;
 }) {
-  const scope = scopeKey(job);
   const objects = useObjects(scope);
   const detail = useObject(scope, object ?? "");
+  const items = objects.data?.items ?? [];
   const fields = useMemo(() => (detail.data ? fieldsFromSchema(detail.data.table_schema.columns) : []), [detail.data]);
 
   return (
@@ -44,13 +44,17 @@ export function Query({
             <select
               id="query-object"
               data-testid="query-object"
-              value={object ?? ""}
-              onChange={(e) => onPrompt(queryPrompt(scope, e.target.value || undefined))}
+              value={items.find((o) => o.name === object)?.table ?? ""}
+              onChange={(e) => {
+                // Values are table names: unique across scopes, unlike object names.
+                const o = items.find((i) => i.table === e.target.value);
+                onPrompt(o ? queryPrompt(objectScope(o), o.name) : queryPrompt(scope));
+              }}
             >
               <option value="">Pick an object in {scopeLabel(scope)}…</option>
-              {objects.data?.items.map((o) => (
-                <option key={o.table} value={o.name}>
-                  {o.name}
+              {items.map((o) => (
+                <option key={o.table} value={o.table}>
+                  {o.name} ({objectScopeLabel(o)})
                 </option>
               ))}
             </select>
