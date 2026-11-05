@@ -92,7 +92,7 @@ export function Header({ prompt, commits, onPrompt }: HeaderProps) {
         />
         {open && <PromptDropdown list={list} active={active} onActive={setActive} onPick={pick} />}
       </div>
-      {me?.username ? (
+      {me?.username && (
         <div className="hint user-menu">
           <span className="name-link" id="header-username" onClick={() => onPrompt("@account")}>
             {me.username}
@@ -101,8 +101,6 @@ export function Header({ prompt, commits, onPrompt }: HeaderProps) {
             Sign out
           </button>
         </div>
-      ) : (
-        <div className="hint">prompt drives the view ↑</div>
       )}
     </header>
   );
