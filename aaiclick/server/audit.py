@@ -6,9 +6,9 @@ and, after the response is done, reads what the request left on its
 never raised: auditing must not turn a served request into an error.
 See ``docs/designs/auth.md`` — Audit Log.
 
-It also opens the request's SQL context: every ``orch_scope`` dependency,
-API-token lookup, and the audit insert itself nest inside it and share one
-engine instead of each building and disposing their own.
+The audit insert opens its own short ``orch_context``; the middleware does not
+wrap the downstream app in one (that leaked a ``ChClient`` into the ``/mcp``
+session — see the call site). Downstream handlers open their own context.
 """
 
 from __future__ import annotations
@@ -78,27 +78,31 @@ class AuditMiddleware:
                 status = message["status"]
             await send(message)
 
-        async with orch_context():
-            try:
-                await self.app(scope, receive, send_wrapper)
-            finally:
-                method, path = scope["method"], scope["path"]
-                if should_audit(config.audit_policy(), method, path, audit.action):
-                    client = scope.get("client")
-                    row = AuditLog(
-                        id=get_snowflake_id(),
-                        at=started_at,
-                        user_id=audit.principal.user_id if audit.principal else None,
-                        username=audit.username,
-                        auth_kind=audit.principal.kind if audit.principal else AUTH_KIND_NONE,
-                        method=method,
-                        path=path,
-                        action=audit.action,
-                        status=status,
-                        duration_ms=int((time.monotonic() - clock) * 1000),
-                        client_ip=client[0] if client else None,
-                    )
-                    try:
+        # Scope orch_context to the audit write only, not the downstream app:
+        # it would otherwise leak a ChClient into the streamable-HTTP /mcp
+        # session context, which captures it and reuses it — closed — for every
+        # later tool call. REST handlers open their own orch_context via deps.
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            method, path = scope["method"], scope["path"]
+            if should_audit(config.audit_policy(), method, path, audit.action):
+                client = scope.get("client")
+                row = AuditLog(
+                    id=get_snowflake_id(),
+                    at=started_at,
+                    user_id=audit.principal.user_id if audit.principal else None,
+                    username=audit.username,
+                    auth_kind=audit.principal.kind if audit.principal else AUTH_KIND_NONE,
+                    method=method,
+                    path=path,
+                    action=audit.action,
+                    status=status,
+                    duration_ms=int((time.monotonic() - clock) * 1000),
+                    client_ip=client[0] if client else None,
+                )
+                try:
+                    async with orch_context():
                         await store.insert(row)
-                    except Exception:  # noqa: BLE001 - auditing must never fail the request
-                        logger.exception("audit_log insert failed for %s %s", method, path)
+                except Exception:  # noqa: BLE001 - auditing must never fail the request
+                    logger.exception("audit_log insert failed for %s %s", method, path)
