@@ -47,6 +47,13 @@ password afterwards in the UI, not by editing the env var.
 - Both scaffolds set the worker's `AAICLICK_RUNNER` (`docker` in compose,
   `kubernetes` in the chart), which turns `--image` / `--build` jobs into
   containers or Pods. Without it a worker runs subprocess tasks only.
+- On Kubernetes one worker replica drives many Pods at once, bounded by what
+  the cluster schedules: it stops claiming while a job has
+  `AAICLICK_K8S_MAX_PENDING` (10) unscheduled Pods, or `AAICLICK_K8S_MAX_PENDING_TOTAL`
+  (4× that) in all, and `AAICLICK_K8S_MAX_PODS` optionally caps live Pods. A Pod
+  not started within `AAICLICK_K8S_PENDING_TIMEOUT` (900 s) fails with the
+  scheduler's reason and retries as any failure. Pods survive a worker restart;
+  the next worker adopts them.
 - `--build` jobs build on the scaffold's rootless `buildkitd`
   (`AAICLICK_BUILDKIT_ADDR`), never on the worker's Docker daemon. In compose
   its build steps can still reach host-published ports (Postgres,

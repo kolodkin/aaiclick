@@ -120,7 +120,8 @@ ServiceAccount, and a task claimed by a worker runs on whatever that worker has.
 | `kubernetes`      | Pods in the cluster                     | `kubectl` (+ buildkitd & registry for `build`) |
 
 Tasks without an image (`tasks.image_source IS NULL`) run as a host subprocess on
-every worker, whatever the variable says. There is no auto-detection:
+every worker, whatever the variable says. A `kubernetes` worker runs the
+concurrent reconciler of `kubernetes_runner.md` instead of the serial loop. There is no auto-detection:
 `aaiclick-kubectl` inherits the docker CLI, so an installed binary says nothing.
 `execution-worker start` validates the value and rejects `kubernetes` combined
 with `AAICLICK_LOCAL_BUILD` (the cluster cannot pull from the worker's daemon).

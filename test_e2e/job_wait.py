@@ -15,7 +15,9 @@ from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.env import job_wait_timeout
+from aaiclick.orchestration.execution.k8s_worker_loop import k8s_worker_main_loop
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
+from aaiclick.orchestration.execution.runner_env import RUNNER_KUBERNETES, get_worker_runner
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import TERMINAL_JOB_STATUSES, Job
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -54,13 +56,21 @@ async def run_worker_until_done(job_name: str) -> Job:
     return job
 
 
+def start_worker_loop(max_tasks: int = 10) -> asyncio.Task:
+    """The worker loop a real ``execution-worker start`` would run for this
+    runner: the concurrent reconciler on kubernetes, the mp loop otherwise."""
+    if get_worker_runner() == RUNNER_KUBERNETES:
+        coro = k8s_worker_main_loop(max_tasks=max_tasks, install_signal_handlers=False, max_empty_polls=10)
+    else:
+        coro = mp_worker_main_loop(max_tasks=max_tasks, install_signal_handlers=False, max_empty_polls=10)
+    return asyncio.create_task(coro)
+
+
 async def run_worker_until_all_done(*job_names: str, max_tasks: int = 10) -> list[Job]:
-    """Drive one mp worker loop until every named job is terminal. One loop
+    """Drive one worker loop until every named job is terminal. One loop
     for all: stopping after the first would strand the others' claimed tasks
     in ``RUNNING``. A worker crash surfaces at once, not at the job timeout."""
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(max_tasks=max_tasks, install_signal_handlers=False, max_empty_polls=10)
-    )
+    worker_task = start_worker_loop(max_tasks)
     waiter = asyncio.create_task(_wait_all(job_names))
     try:
         done, _ = await asyncio.wait({worker_task, waiter}, return_when=asyncio.FIRST_COMPLETED)
