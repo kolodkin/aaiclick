@@ -76,37 +76,77 @@ Kubernetes (rejected — gives the background worker cluster RBAC).
 
 # Design
 
+The worker becomes a reconciler: one Pod watch keeps a Pod-state map current, a
+dispatcher claims and launches against a capacity gate computed from that map,
+and each claimed task is a short coroutine that waits on its own Pod. Heartbeat
+and cancellation are one batched timer each, not one per task.
+
+```
++------------------------------------------------------+
+| ExecutionWorker  (AAICLICK_RUNNER=kubernetes)        |
+| +----------------+     +---------------------------+ |
+| | Pod watch      | --> | Pod-state map             | |
+| +----------------+     +---------------------------+ |
+|                          |                           |
+| +----------------+     +---------------------------+ |
+| | Dispatcher     | <-- | Gate: per job, total, max | |
+| +----------------+     +---------------------------+ |
+|   | claim + launch                                   |
+| +----------------+  +--------------+  +------------+ |
+| | Task coro  x N |  | Heartbeat    |  | Cancel     | |
+| +----------------+  +--------------+  +------------+ |
++------------------------------------------------------+
+```
+
 ## Mode selection
 
-Concurrent mode is on when `AAICLICK_RUNNER=kubernetes`. `execution-worker start`
-runs a concurrent loop instead of `_execution_worker_loop`. Helm keeps the
-worker Deployment, default `replicas: 1`.
+Concurrent mode is on when `AAICLICK_RUNNER=kubernetes`: `execution-worker start`
+runs the reconciler instead of `_execution_worker_loop`. Helm keeps the worker
+Deployment, default `replicas: 1`. Docker / local / mp keep the serial loop.
 
-## Shared machinery (one per worker)
+## Components
 
-- **Pod watch** — one long-lived
-  `kubectl get pods -w -n <ns> -l aaiclick/managed=true -o json` stream
-  (via `execution/cli.py` streaming), feeding an in-memory `pod name → state`
-  map. Each task's wait awaits an event for its own Pod instead of polling.
-  The watch restarts on stream end with a fresh `list` (resync).
-- **Batched heartbeat** — every `HEARTBEAT_INTERVAL`: worker heartbeat plus one
-  `UPDATE tasks SET claim_expires_at = … WHERE execution_worker_id = :me AND
-  (id, run_epoch) IN (in-flight)`. Rows that didn't match are runs this worker
-  no longer owns. Re-read their `run_epoch`: changed (cleared / reaped) → delete
-  the Pod as today; unchanged (adopted by another worker) → stop tracking, **never
-  delete**.
-- **Batched cancellation poll** — every `POLL_INTERVAL`: one query returning which
-  in-flight `(task_id, run_epoch)` are aborted (the `check_run_aborted` predicate
-  over a set). Each hit fires that task's cancel → `kubectl delete`.
+All run on one asyncio event loop — no locks, no threads.
 
-## Per-task work
+| Component      | Behaviour                                                                                   |
+|----------------|---------------------------------------------------------------------------------------------|
+| Pod watch      | One `kubectl get pods -w -n <ns> -l aaiclick/managed=true -o json` stream (`execution/cli.py` streaming). Updates the map, resolves per-Pod futures, sets the dispatcher wake event. On stream end: re-list (resync), then re-watch. |
+| Pod-state map  | `dict[pod name → state]`: `spec.nodeName`, phase, container waiting reason, `scheduled_at`, labels. Written only by the watch. |
+| Gate           | Pure function over the map (see Capacity gate): returns `blocked_jobs` and whether any claim is allowed. |
+| Dispatcher     | Loop: wait on wake event or 1 s tick → clear event → run gate → `claim_next_task(exclude_jobs=…)` until gate closes or no task → `create_task(task coro)` per claim. First pass is restart reclaim. |
+| Task coro      | Launch Secret + Pod → `await` its Pod future → read `remote_task_results` → `_handle_task_result` → delete Pod + Secret. Shell Pods also run their `kubectl logs -f` follower. |
+| Heartbeat      | Every `HEARTBEAT_INTERVAL`: worker heartbeat + one claim-renew `UPDATE … WHERE execution_worker_id = :me AND (id, run_epoch) IN (in-flight)`. |
+| Cancel         | Every `POLL_INTERVAL`: one query for aborted in-flight `(task_id, run_epoch)` (`check_run_aborted` predicate over a set); cancels those task coros. |
 
-Each claimed Pod task runs as an asyncio task: launch (Secret + Pod), await
-terminal state from the watch, read `remote_task_results`, `_handle_task_result`,
-cleanup. Cancellation override, result fencing, timeout and shell-Pod log
-following keep their current semantics. `drive_vehicle` is refactored so its
-heartbeat / cancel-watch / wait inputs can come from the shared machinery
-(kubernetes vehicle) or its own loops (docker, unchanged).
+## Wiring
+
+| From → to                 | Mechanism                                                                     |
+|---------------------------|-------------------------------------------------------------------------------|
+| Watch → map               | Direct `dict` mutation                                                        |
+| Watch → task coro         | `asyncio.Future` per Pod name, resolved on terminal phase or Pod gone; the coro registers it before `kubectl apply` so no event is missed |
+| Watch → dispatcher        | One shared `asyncio.Event`, set on any scheduled / terminal / gone change     |
+| Map → gate                | Function call                                                                 |
+| Dispatcher → task coro    | `asyncio.create_task`; worker keeps `in_flight: dict[task_id, InFlight]` (epoch, Pod name, asyncio task) used by heartbeat and cancel |
+| Cancel → task coro        | `task.cancel()`; the coro's `CancelledError` handler deletes the Pod and reports `"cancelled"` (cancelled-overrides-result, as today) |
+
+Not an `asyncio.Queue`: every task coro waits on its own Pod, so a future per Pod
+delivers each event to exactly one waiter.
+
+## Lost ownership
+
+A claim-renew row that didn't match is a run this worker no longer owns. Re-read
+its `run_epoch`:
+
+- **Changed** (cleared / reaped): cancel the coro, delete the Pod — as today.
+- **Unchanged** (adopted by another worker): drop it from `in_flight`, **never delete**.
+
+## Relation to `drive_vehicle`
+
+The Kubernetes runner stops using `drive_vehicle`: its value — per-task heartbeat,
+cancellation watch, polling `wait` — moved to the shared components above. The
+task coro reuses the vehicle's `launch` / `terminate` / `collect` / `cleanup`
+(`_KubernetesVehicle`, `_KubernetesShellVehicle`); `wait` is replaced by awaiting
+the Pod future. `drive_vehicle` stays as is for the Docker runner.
 
 ## Pod labels
 
@@ -209,7 +249,6 @@ shared cwd/env behaviour). While one runs, the claim query excludes
 
 # Left to the builder
 
-- Shape of the refactor between `drive_vehicle` and the shared machinery.
-- Watch resync / backoff details and in-memory map structure.
+- How the shell vehicle's `io` copy-in / copy-out fits the task coro.
+- Watch resync / backoff details and the map's exact fields.
 - Exact back-off after a quota rejection.
-- Whether the batched heartbeat replaces the loop's between-claims heartbeat.
