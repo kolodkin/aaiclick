@@ -34,7 +34,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from sqlmodel import select
+from sqlmodel import func, select
 
 from aaiclick import create_object_from_value
 from aaiclick.datetime_utils import utc_now
@@ -43,7 +43,9 @@ from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import viewer as viewer_api
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import (
+    JOB_CANCELLED,
     JOB_COMPLETED,
+    JOB_FAILED,
     JOB_RUNNING,
     TASK_CANCELLED,
     TASK_COMPLETED,
@@ -237,7 +239,56 @@ async def seed_viewer_objects() -> None:
             await create_object_from_value({"id": [1, 2], "amount": [5, 7]}, name=name, scope="job")
 
 
+#: Filler job names, cycled so lists look like a lived-in deployment, not a fresh one.
+FILLER_NAMES = ("nightly_etl", "hourly_ingest", "basic_orchestration", "nyc_taxi_pipeline", "weekly_report")
+FILLER_JOBS = 100
+#: Tasks in ``WIDE_JOB`` — one entry fanning out, for task-heavy pages.
+WIDE_JOB = "wide_pipeline"
+WIDE_TASKS = 100
+
+
+async def seed_filler_jobs() -> None:
+    """``FILLER_JOBS`` finished jobs plus one ``WIDE_TASKS``-task job, never run.
+
+    Terminal statuses only, so no worker ever picks them up. Seeded once per
+    database: reruns against a surviving local root skip it.
+    """
+    async with orch_context():
+        async with get_sql_session() as session:
+            if (await session.execute(select(func.count()).where(Job.name == WIDE_JOB))).scalar_one():
+                return
+        statuses = (JOB_COMPLETED, JOB_COMPLETED, JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)
+        task_status = {JOB_COMPLETED: TASK_COMPLETED, JOB_FAILED: TASK_FAILED, JOB_CANCELLED: TASK_CANCELLED}
+        jobs: list[tuple[int, JobStatus]] = []
+        for i in range(FILLER_JOBS):
+            job = await create_job(FILLER_NAMES[i % len(FILLER_NAMES)], create_task(ENTRYPOINT, name="main"))
+            jobs.append((job.id, statuses[i % len(statuses)]))
+
+        entry = create_task(ENTRYPOINT, name="fan_out")
+        wide = await create_job(WIDE_JOB, entry)
+        branches = [create_task(ENTRYPOINT, name=f"part_{i:03d}") for i in range(WIDE_TASKS - 1)]
+        for task in branches:
+            entry >> task
+        await commit_tasks(branches, job_id=wide.id)
+        jobs.append((wide.id, JOB_COMPLETED))
+
+        async with get_sql_session() as session:
+            for job_id, status in jobs:
+                job_row = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one()
+                job_row.status = status
+                job_row.started_at = _BASE
+                job_row.completed_at = _offset(30)
+                session.add(job_row)
+                for task in (await session.execute(select(Task).where(Task.job_id == job_id))).scalars():
+                    task.status = task_status[status]
+                    task.started_at = _BASE
+                    task.completed_at = _offset(30)
+                    session.add(task)
+            await session.commit()
+
+
 if __name__ == "__main__":
     # `python seed.py viewer`: create the local schema, seed, exit (releasing chdb).
     setup_api.setup()
+    asyncio.run(seed_filler_jobs())
     asyncio.run(seed_viewer_objects())
