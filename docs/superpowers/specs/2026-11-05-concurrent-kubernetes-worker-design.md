@@ -187,16 +187,17 @@ Parsed in `kubernetes_config.py` next to the existing `AAICLICK_K8S_*` fields.
 
 | Pod state                                                     | Action                                                                   |
 |---------------------------------------------------------------|--------------------------------------------------------------------------|
-| Unscheduled, `NotTriggerScaleUp` event (cluster-autoscaler)   | Fail the task with the event message                                     |
-| Unscheduled longer than `pending_timeout`                     | Fail the task with the scheduler's `Unschedulable` message               |
+| Not started (unscheduled, or container still waiting) longer than `pending_timeout` | Fail the task with the scheduler message or container waiting reason; normal retries |
 | `kubectl create` rejected: `exceeded quota`                   | Release the claim back to `PENDING` (no attempt consumed), back off claiming |
-| Scheduled, container waiting `ImagePullBackOff` / `ErrImagePull` / `CreateContainerConfigError` / `InvalidImageName` | Fail the task with the reason/message |
 | Pod gone mid-run (eviction, preemption, node loss)            | Existing "Pod disappeared" path → normal retry                           |
 | `Succeeded` / `Failed`                                        | Read `remote_task_results`, existing collect                             |
 
-`NotTriggerScaleUp` is read from Pod events (needs `events` `list/watch` in the
-Role). The task timeout (`parse_task_timeout`) starts when the Pod gets a
-`spec.nodeName`, not at launch.
+One rule covers "never fits" and stuck image pulls (`ImagePullBackOff`,
+`InvalidImageName`, `CreateContainerConfigError`, ...): no event parsing, no
+message classification, no extra RBAC. A doomed task costs
+`pending_timeout × (max_retries + 1)` before it fails for good; the error carries
+the reason so the user sees why. The task timeout (`parse_task_timeout`) starts
+when the container starts running, not at launch.
 
 ## Restart reclaim
 
@@ -240,10 +241,10 @@ shared cwd/env behaviour). While one runs, the claim query excludes
 
 - `docs/designs/kubernetes_runner.md`: replace the per-task `wait` polling
   description; add capacity gate, Pod-state table, restart reclaim, shutdown.
-- `docs/user_guide/deployment.md` / Helm values: new env vars, `events` RBAC.
+- `docs/user_guide/deployment.md` / Helm values: new env vars.
 - `docs/designs/future.md`: Pod-side claim renewal; node-pool targeting.
 - Unit tests in `test_kubernetes_worker.py` driving a fake watch stream: gate per
-  job, quota release, pending timeout, image-pull failure, adoption table rows.
+  job, quota release, pending timeout (unscheduled and image-pull), adoption table rows.
 - e2e (`test_e2e/kubernetes/`): N tasks in parallel on one worker; worker restart
   mid-run completes the job without retries.
 
