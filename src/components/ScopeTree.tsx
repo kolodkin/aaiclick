@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useJobs } from "../api/hooks";
-import { ALL, PERSISTENT, scopeKey } from "../lib/viewer";
+import { ALL, PERSISTENT, scopeKey, shortJobId } from "../lib/viewer";
+import { ExpandIcon } from "./Truncated";
 
 // Left-hand scope selector: All, Persistent, then the jobs (newest first) with a
 // name filter. Job nodes reuse the jobs list; a click sets the scope key.
@@ -9,7 +10,8 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState(false);
   const list = useRef<HTMLDivElement>(null);
-  // The list is capped, so bring the selected job into its scroll window.
+  // The list is capped, so center the selected job in it; scrollTop, not
+  // scrollIntoView, so the page itself never jumps.
   useEffect(() => {
     const box = list.current;
     const active = box?.querySelector<HTMLElement>(".is-active");
@@ -37,14 +39,13 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
         Jobs
         <button
           type="button"
-          className="scope-toggle"
+          className="icon-btn scope-toggle"
           data-testid="scope-jobs-toggle"
           aria-expanded={expanded}
           aria-label={expanded ? "Shrink job list" : "Expand job list"}
-          title={expanded ? "Shrink" : "Expand"}
           onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? "▴" : "▾"}
+          <ExpandIcon expanded={expanded} />
         </button>
       </div>
       <input
@@ -67,7 +68,7 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
               title={`#${id}`}
               onClick={() => onScope(key)}
             >
-              {j.name} <span className="sub-inline">#{id.slice(-6)}</span>
+              {j.name} <span className="sub-inline">#{shortJobId(id)}</span>
             </div>
           );
         })}

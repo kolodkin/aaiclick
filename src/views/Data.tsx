@@ -8,7 +8,7 @@ import { MetaGrid } from "../components/MetaGrid";
 import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, jobOfScope, queryPrompt, scopeLabel } from "../lib/viewer";
+import { dataPrompt, formatBytes, jobScopeLabel, queryPrompt } from "../lib/viewer";
 
 export function Data({
   scope,
@@ -68,6 +68,7 @@ function ObjectPreview({
   const rows = query.data ?? null;
   const columns = rows ? columnNames(rows) : [];
   const colTypes = rows ? columnTypes(rows) : {};
+  const scopeText = jobScopeLabel(scope, view?.job_name);
 
   return (
     <>
@@ -88,14 +89,14 @@ function ObjectPreview({
         </div>
         <MetaGrid
           items={[
-            { k: "Scope", v: jobLabel(scope, view) },
+            { k: "Scope", v: scopeText },
             { k: "Rows", v: view?.row_count ?? "—", mono: true },
             { k: "Size", v: formatBytes(view?.size_bytes) },
             { k: "Created", v: relativeTime(view?.created_at) },
           ]}
         />
       </div>
-      <Chips chips={[{ label: `← ${jobLabel(scope, view)}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
+      <Chips chips={[{ label: `← ${scopeText}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
       {query.isPending && <p className="sub">loading rows…</p>}
       {query.isError && <p className="err">{query.error.message}</p>}
       {rows && (
@@ -109,10 +110,4 @@ function ObjectPreview({
       )}
     </>
   );
-}
-
-// "<job name> #<last 6 id digits>", matching the scope tree; falls back to the scope label.
-function jobLabel(scope: string, view: ObjectView | undefined): string {
-  const id = jobOfScope(scope);
-  return id && view?.job_name ? `${view.job_name} #${id.slice(-6)}` : scopeLabel(scope);
 }

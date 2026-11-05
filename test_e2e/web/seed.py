@@ -30,6 +30,7 @@ exercised end to end.
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import NamedTuple
@@ -257,8 +258,9 @@ async def seed_filler_jobs() -> None:
         async with get_sql_session() as session:
             if (await session.execute(select(func.count()).where(Job.name == WIDE_JOB))).scalar_one():
                 return
-        by_status: dict[JobStatus, list[int]] = {JOB_COMPLETED: [], JOB_FAILED: [], JOB_CANCELLED: []}
-        cycle = (JOB_COMPLETED, JOB_COMPLETED, JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)
+        done = (JOB_COMPLETED, TASK_COMPLETED)
+        cycle = (done, done, done, (JOB_FAILED, TASK_FAILED), (JOB_CANCELLED, TASK_CANCELLED))
+        by_status: dict[tuple[JobStatus, TaskStatus], list[int]] = defaultdict(list)
         for i in range(FILLER_JOBS):
             job = await create_job(FILLER_NAMES[i % len(FILLER_NAMES)], create_task(ENTRYPOINT, name="main"))
             by_status[cycle[i % len(cycle)]].append(job.id)
@@ -269,21 +271,22 @@ async def seed_filler_jobs() -> None:
         for task in branches:
             entry >> task
         await commit_tasks(branches, job_id=wide.id)
-        by_status[JOB_COMPLETED].append(wide.id)
+        by_status[done].append(wide.id)
 
-        task_status = {JOB_COMPLETED: TASK_COMPLETED, JOB_FAILED: TASK_FAILED, JOB_CANCELLED: TASK_CANCELLED}
         times = {"started_at": _BASE, "completed_at": _offset(30)}
         async with get_sql_session() as session:
-            for status, ids in by_status.items():
-                await session.execute(update(Job).where(Job.id.in_(ids)).values(status=status, **times))
-                await session.execute(
-                    update(Task).where(Task.job_id.in_(ids)).values(status=task_status[status], **times)
-                )
+            for (job_status, task_status), ids in by_status.items():
+                await session.execute(update(Job).where(Job.id.in_(ids)).values(status=job_status, **times))
+                await session.execute(update(Task).where(Task.job_id.in_(ids)).values(status=task_status, **times))
             await session.commit()
 
 
 if __name__ == "__main__":
     # `python seed.py viewer`: create the local schema, seed, exit (releasing chdb).
     setup_api.setup()
-    asyncio.run(seed_filler_jobs())
-    asyncio.run(seed_viewer_objects())
+
+    async def _seed() -> None:
+        await seed_filler_jobs()
+        await seed_viewer_objects()
+
+    asyncio.run(_seed())
