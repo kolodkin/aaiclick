@@ -66,6 +66,73 @@ asyncio.run(main())
 !!! warning "Always `await` operation results"
     Forgetting `await` causes confusing errors downstream, not at the forgotten line.
 
+# Your First Pipeline
+
+Run a two-task job on a local server and watch it in the UI.
+
+## 1. Install
+
+```bash
+mkdir my_project && cd my_project
+pip install "aaiclick[server]"
+python -m aaiclick setup
+```
+
+## 2. Write a job
+
+Save as `my_pipeline.py`:
+
+```python
+from aaiclick.orchestration import job, task
+
+
+@task
+async def add(a: int, b: int) -> int:
+    return a + b
+
+
+@task
+async def double(x: int) -> int:
+    return x * 2
+
+
+@job("my_pipeline")
+def my_pipeline(a: int = 1, b: int = 2):
+    return double(x=add(a=a, b=b))  # double waits for add
+```
+
+## 3. Start the server
+
+In a second terminal, from the same directory so the worker can import `my_pipeline`:
+
+```bash
+python -m aaiclick local start
+```
+
+## 4. Register and run
+
+```bash
+python -m aaiclick register-job my_pipeline.my_pipeline
+python -m aaiclick run-job my_pipeline --set a=5 --progress
+```
+
+```text
+| Task        | Status    | Queue | Exec  |
+|-------------|-----------|-------|-------|
+| my_pipeline | COMPLETED | 445ms | 1.2s  |
+| add         | COMPLETED | 26ms  | 19ms  |
+| double      | COMPLETED | 58ms  | 23ms  |
+```
+
+Registering adds the job to the catalog so you can run it by name, set a
+`--schedule`, or launch it from the UI. To skip registration, pass the dotted
+path: `run-job my_pipeline.my_pipeline`.
+
+## 5. Open the UI
+
+Browse to <http://127.0.0.1:5255> to see the job, its task graph and logs.
+The REST API docs are at <http://127.0.0.1:5255/api/v0/docs>.
+
 # Environment Variables
 
 | Variable                | Default                                    | Description                                                              |
