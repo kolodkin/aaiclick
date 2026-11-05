@@ -15,6 +15,7 @@ passes ``test_e2e/kubernetes/`` with ``-m kubernetes_e2e``."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import subprocess
 
@@ -32,6 +33,7 @@ from runner_flow import (
 from sandbox_e2e import run_sandbox_submission
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
+from aaiclick.orchestration.execution.execution_worker import register_execution_worker, request_execution_worker_stop
 from aaiclick.orchestration.execution.kubernetes_worker import _pod_name
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.kubernetes_config import ENV_PENDING_TIMEOUT
@@ -106,7 +108,12 @@ async def _managed_pods() -> dict[str, str]:
     out, _ = await proc.communicate()
     if proc.returncode != 0:
         return {}
-    return {item["metadata"]["name"]: item["status"].get("phase", "") for item in json.loads(out)["items"]}
+    # A Pod being deleted keeps its phase until the grace period ends; it is not live.
+    return {
+        item["metadata"]["name"]: item["status"].get("phase", "")
+        for item in json.loads(out)["items"]
+        if "deletionTimestamp" not in item["metadata"]
+    }
 
 
 async def _peak_pod_count(stop: asyncio.Event) -> int:
@@ -180,18 +187,15 @@ async def test_worker_restart_adopts_pods(orch_ctx, kubernetes_e2e_user_repo, tm
     )
     submit_shell_job(shell_job, "sh -c 'echo before; sleep 45; echo after'", tmp_path)
 
-    first = start_worker_loop(max_tasks=10)
-    # Both task Pods running (the build task runs first on the host).
+    worker = await register_execution_worker()
+    first = start_worker_loop(max_tasks=10, execution_worker_id=worker.id)
+    # Both task Pods running (the build task runs first on the host), then
+    # stop the worker the way ``execution-worker stop`` does.
     try:
-        await _until(
-            lambda: _two_pods_running(),
-            timeout=600.0,
-            what="module and shell Pods running",
-        )
+        await _until(_two_pods_running, timeout=600.0, what="module and shell Pods running")
     finally:
-        first.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await first
+        await request_execution_worker_stop(worker.id)
+        await asyncio.wait_for(first, timeout=120.0)
     assert len([p for p in (await _managed_pods()).values() if p == "Running"]) == 2, "Pods must survive the worker"
 
     second = start_worker_loop(max_tasks=10)
@@ -200,7 +204,7 @@ async def test_worker_restart_adopts_pods(orch_ctx, kubernetes_e2e_user_repo, tm
         shell_done = await wait_for_job_by_name(shell_job)
     finally:
         second.cancel()
-        with pytest.raises(asyncio.CancelledError):
+        with contextlib.suppress(asyncio.CancelledError):
             await second
 
     assert (module_done.status, shell_done.status) == (JOB_COMPLETED, JOB_COMPLETED), (

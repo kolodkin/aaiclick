@@ -56,13 +56,16 @@ async def run_worker_until_done(job_name: str) -> Job:
     return job
 
 
-def start_worker_loop(max_tasks: int = 10) -> asyncio.Task:
+def start_worker_loop(max_tasks: int = 10, execution_worker_id: int | None = None) -> asyncio.Task:
     """The worker loop a real ``execution-worker start`` would run for this
-    runner: the concurrent reconciler on kubernetes, the mp loop otherwise."""
+    runner: the concurrent reconciler on kubernetes, the mp loop otherwise.
+    ``execution_worker_id`` lets a test stop the loop with
+    ``request_execution_worker_stop``, as ``execution-worker stop`` does."""
+    kwargs = {"max_tasks": max_tasks, "install_signal_handlers": False, "max_empty_polls": 10}
     if get_worker_runner() == RUNNER_KUBERNETES:
-        coro = k8s_worker_main_loop(max_tasks=max_tasks, install_signal_handlers=False, max_empty_polls=10)
+        coro = k8s_worker_main_loop(execution_worker_id, **kwargs)
     else:
-        coro = mp_worker_main_loop(max_tasks=max_tasks, install_signal_handlers=False, max_empty_polls=10)
+        coro = mp_worker_main_loop(execution_worker_id, **kwargs)
     return asyncio.create_task(coro)
 
 
