@@ -21,6 +21,7 @@ import asyncio
 import logging
 import signal
 import time
+from contextlib import suppress
 from datetime import timedelta
 from typing import Literal, NamedTuple
 
@@ -325,21 +326,39 @@ class _Reconciler:
             return True
         return False
 
+    def _note_silence(self, last_ok: float) -> None:
+        """Detach once the DB has been silent for DETACH_AFTER_INTERVALS heartbeats."""
+        silent = time.monotonic() - last_ok
+        if silent >= DETACH_AFTER_INTERVALS * ew.HEARTBEAT_INTERVAL and not self.detached:
+            logger.warning(
+                "ExecutionWorker %s lost the DB (%.0fs of silence); detaching from its Pods", self.worker_id, silent
+            )
+            self.detached = True
+            self._detach_all()
+
     async def _heartbeat_loop(self) -> None:
         last_ok = time.monotonic()
         interval = ew.HEARTBEAT_INTERVAL
+        # A heartbeat in flight is never cancelled: a cancel mid-UPDATE holds
+        # DB locks and a slow DB would read as an outage. A slow call is left
+        # to finish and checked again at the retry cadence.
+        pending: asyncio.Future | None = None
         while await self._pause(interval):
             retry = ew.HEARTBEAT_INTERVAL / 4
-            try:
-                status = await asyncio.wait_for(execution_worker_heartbeat(self.worker_id), timeout=retry)
-            except Exception:
-                silent = time.monotonic() - last_ok
-                logger.exception("ExecutionWorker %s heartbeat failed (%.0fs of silence)", self.worker_id, silent)
+            if pending is None:
+                pending = asyncio.ensure_future(execution_worker_heartbeat(self.worker_id))
+            done, _ = await asyncio.wait({pending}, timeout=retry)
+            if not done:
                 interval = retry
-                if silent >= DETACH_AFTER_INTERVALS * ew.HEARTBEAT_INTERVAL and not self.detached:
-                    logger.warning("ExecutionWorker %s lost the DB; detaching from its Pods", self.worker_id)
-                    self.detached = True
-                    self._detach_all()
+                self._note_silence(last_ok)
+                continue
+            finished, pending = pending, None
+            try:
+                status = finished.result()
+            except Exception:
+                logger.exception("ExecutionWorker %s heartbeat failed", self.worker_id)
+                interval = retry
+                self._note_silence(last_ok)
                 continue
             last_ok = time.monotonic()
             interval = ew.HEARTBEAT_INTERVAL
@@ -357,6 +376,9 @@ class _Reconciler:
                 await self._reconcile_pods(adopt=False)
             except Exception:
                 logger.exception("ExecutionWorker %s stale-Pod sweep failed", self.worker_id)
+        if pending is not None:
+            with suppress(Exception):
+                await pending
 
     async def _reattach(self) -> None:
         """The DB is back after an outage: re-list and take back our own Pods

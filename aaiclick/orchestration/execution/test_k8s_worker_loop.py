@@ -113,7 +113,7 @@ def cluster(monkeypatch):
     monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=kw.RunnerResult(True, native_ref(1), None)))
     monkeypatch.setattr(kw, "follow_vehicle_output", AsyncMock())
     monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=None))
-    monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.2)
+    monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.5)
 
     created: list[dict] = []
     deleted: list[str] = []
@@ -359,7 +359,7 @@ async def test_heartbeat_outage_detaches_all(orch_ctx, cluster, monkeypatch):
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
 
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", AsyncMock(side_effect=RuntimeError("db down")))
-    await asyncio.sleep(1.0)  # > 2 * HEARTBEAT_INTERVAL (0.2)
+    await asyncio.sleep(2.0)  # > 1.5 * HEARTBEAT_INTERVAL (0.5)
 
     assert cluster.deleted == []
     assert (await _task(task.id)).status == TASK_RUNNING
@@ -677,7 +677,7 @@ async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, cluster, m
 
     await _until(lambda: not _tracking(cluster, task), timeout=3.0)
 
-    assert time.monotonic() - started < 2 * ew.HEARTBEAT_INTERVAL + 0.3  # 0.2 s heartbeat → under ~0.7 s
+    assert time.monotonic() - started < 2 * ew.HEARTBEAT_INTERVAL + 0.3  # detach lands before ADOPT_AFTER
     assert cluster.deleted == []
     loop.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -709,3 +709,32 @@ async def test_shutdown_before_pod_created_releases_claim(orch_ctx, cluster, mon
     assert (after.status, after.run_epoch, after.attempt) == (TASK_PENDING, task.run_epoch + 1, task.attempt)
     # launch's own cleanup removes the half-created Pod; nothing else runs.
     assert cluster.pods() == []
+
+
+async def test_slow_heartbeat_is_not_cancelled(orch_ctx, cluster, monkeypatch):
+    """A heartbeat slower than the retry cadence (a loaded DB) is left to
+    finish — cancelling it mid-UPDATE would hold locks and read as an outage."""
+    outcomes = {"finished": 0, "cancelled": 0}
+    real = loop_mod.execution_worker_heartbeat
+
+    async def slow_heartbeat(worker_id: int):
+        try:
+            await asyncio.sleep(ew.HEARTBEAT_INTERVAL / 2)  # > retry cadence, < detach threshold
+        except asyncio.CancelledError:
+            outcomes["cancelled"] += 1
+            raise
+        outcomes["finished"] += 1
+        return await real(worker_id)
+
+    monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", slow_heartbeat)
+    (task,) = await _image_job("slow_hb")
+    loop = cluster.start(max_empty_polls=100)
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
+    await asyncio.sleep(4 * ew.HEARTBEAT_INTERVAL)
+
+    assert outcomes["cancelled"] == 0 and outcomes["finished"] >= 2
+    assert _tracking(cluster, task)  # never detached
+    loop.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await loop
