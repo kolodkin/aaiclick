@@ -16,7 +16,9 @@ from ...datetime_utils import utc_now
 from ..background.handler import cancelling_transition, roll_up_job
 from ..dependency_graph import successor_task_ids
 from ..models import (
+    ADOPT_AFTER,
     CANCELLING_TASK_STATUSES,
+    EXECUTION_WORKER_STOPPED,
     JOB_CANCELLED,
     JOB_RUNNING,
     TASK_CANCELLED,
@@ -26,15 +28,13 @@ from ..models import (
     TASK_RUNNING,
     TERMINAL_JOB_STATUSES,
     WORKER_TIMEOUT,
+    ExecutionWorker,
     Job,
     JobStatus,
     Task,
     TaskRun,
     TaskStatus,
     end_run,
-    ADOPT_AFTER,
-    EXECUTION_WORKER_STOPPED,
-    ExecutionWorker,
 )
 from ..orch_context import get_db_handler, get_sql_session
 from ..sql_utils import batched, in_clause

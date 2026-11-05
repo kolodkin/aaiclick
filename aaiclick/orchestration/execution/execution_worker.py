@@ -29,6 +29,7 @@ from ..models import (
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
+    HEARTBEAT_INTERVAL,
     SELF_STOP_AFTER,
     TASK_FAILED,
     TASK_PENDING_FAILURE_CLEANUP,
@@ -36,7 +37,6 @@ from ..models import (
     ExecutionWorkerStatus,
     Task,
     end_run,
-    HEARTBEAT_INTERVAL,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
