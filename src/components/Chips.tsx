@@ -15,6 +15,7 @@ export function Chips({ chips, onPrompt }: { chips: Chip[]; onPrompt?: (v: strin
           key={c.label}
           className={`chip${c.active ? " chip-active" : ""}`}
           data-testid={c.testId}
+          title={c.label}
           onClick={() => (c.onClick ? c.onClick() : c.cmd !== undefined && onPrompt?.(c.cmd))}
         >
           {c.label}

@@ -8,7 +8,7 @@ import { MetaGrid } from "../components/MetaGrid";
 import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, queryPrompt, scopeLabel } from "../lib/viewer";
+import { dataPrompt, formatBytes, jobOfScope, queryPrompt, scopeLabel } from "../lib/viewer";
 
 export function Data({
   scope,
@@ -95,7 +95,7 @@ function ObjectPreview({
           ]}
         />
       </div>
-      <Chips chips={[{ label: `← ${scopeLabel(scope)}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
+      <Chips chips={[{ label: `← ${backLabel(scope, view)}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
       {query.isPending && <p className="sub">loading rows…</p>}
       {query.isError && <p className="err">{query.error.message}</p>}
       {rows && (
@@ -109,4 +109,10 @@ function ObjectPreview({
       )}
     </>
   );
+}
+
+// "<job name> #<last 6 id digits>", matching the scope tree; falls back to the scope label.
+function backLabel(scope: string, view: ObjectView | undefined): string {
+  const id = jobOfScope(scope);
+  return id && view?.job_name ? `${view.job_name} #${id.slice(-6)}` : scopeLabel(scope);
 }
