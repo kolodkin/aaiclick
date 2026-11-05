@@ -197,8 +197,12 @@ class PodWatch:
             self._resolve(futures, state)
         return futures
 
-    def forget(self, name: str) -> None:
-        self._futures.pop(name, None)
+    def forget(self, name: str, futures: PodFutures) -> None:
+        """Drop ``futures`` — only if they are still the registration for
+        ``name``: a detached coroutine finishing late must not drop the futures
+        a re-adopting coroutine registered meanwhile."""
+        if self._futures.get(name) is futures:
+            del self._futures[name]
 
     def apply(self, obj: dict, deleted: bool) -> None:
         try:

@@ -512,7 +512,7 @@ async def run_module_pod(
             raise
         return RunnerResult(False, None, _cancel_reason(e))
     finally:
-        watch.forget(name)
+        watch.forget(name, futures)
         if not detach[0]:
             await shielded(_kubectl_delete(name, pod_config.namespace))
 
@@ -608,7 +608,7 @@ async def run_shell_pod(
             raise
         return RunnerResult(False, None, _cancel_reason(e))
     finally:
-        watch.forget(name)
+        watch.forget(name, futures)
         await shielded(stop_output_follower(follower, 0.0 if detach[0] else OUTPUT_FOLLOWER_DRAIN_TIMEOUT))
         if handle is not None:
             shutil.rmtree(handle.io_dir, ignore_errors=True)

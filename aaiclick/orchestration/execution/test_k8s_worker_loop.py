@@ -113,7 +113,9 @@ def cluster(monkeypatch):
     monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=kw.RunnerResult(True, native_ref(1), None)))
     monkeypatch.setattr(kw, "follow_vehicle_output", AsyncMock())
     monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=None))
-    monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.5)
+    # Sub-second heartbeats false-detach on contended SQLite under xdist; 1 s keeps
+    # detach (1.5 s) above a slow but live DB while the detach tests stay short.
+    monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 1.0)
 
     created: list[dict] = []
     deleted: list[str] = []
@@ -359,7 +361,7 @@ async def test_heartbeat_outage_detaches_all(orch_ctx, cluster, monkeypatch):
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
 
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", AsyncMock(side_effect=RuntimeError("db down")))
-    await asyncio.sleep(2.0)  # > 1.5 * HEARTBEAT_INTERVAL (0.5)
+    await asyncio.sleep(2 * ew.HEARTBEAT_INTERVAL)  # > 1.5 intervals of silence
 
     assert cluster.deleted == []
     assert (await _task(task.id)).status == TASK_RUNNING
@@ -564,9 +566,9 @@ async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeyp
 
     real = loop_mod.execution_worker_heartbeat
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", AsyncMock(side_effect=RuntimeError("db down")))
-    await _until(lambda: not _tracking(cluster, task), timeout=3.0)
+    await _until(lambda: not _tracking(cluster, task), timeout=5.0)
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", real)
-    await _until(lambda: _tracking(cluster, task), timeout=3.0)
+    await _until(lambda: _tracking(cluster, task), timeout=5.0)
 
     cluster.watch().apply(_pod_json(task, {"terminated": {"exitCode": 0}}), deleted=False)
     await _until(lambda: not _tracking(cluster, task))
@@ -653,7 +655,7 @@ async def test_heartbeat_tick_resyncs_watch(orch_ctx, cluster):
     _FakeWatch.resync = counting_resync
     loop = cluster.start(max_empty_polls=100)
     try:
-        await _until(lambda: resyncs["n"] >= 3, timeout=3.0)
+        await _until(lambda: resyncs["n"] >= 3, timeout=6.0)
     finally:
         _FakeWatch.resync = original
         loop.cancel()
@@ -675,7 +677,7 @@ async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, cluster, m
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", hanging_heartbeat)
     started = time.monotonic()
 
-    await _until(lambda: not _tracking(cluster, task), timeout=3.0)
+    await _until(lambda: not _tracking(cluster, task), timeout=5.0)
 
     assert time.monotonic() - started < 2 * ew.HEARTBEAT_INTERVAL + 0.3  # detach lands before ADOPT_AFTER
     assert cluster.deleted == []

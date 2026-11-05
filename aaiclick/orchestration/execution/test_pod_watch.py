@@ -131,8 +131,8 @@ def test_stream_decoder_splits_concatenated_json():
 
 async def test_forget_drops_futures_without_state():
     watch = PodWatch("ns", "kubectl")
-    watch.expect(NAME)
-    watch.forget(NAME)
+    futures = watch.expect(NAME)
+    watch.forget(NAME, futures)
     watch.apply(_pod(task={"terminated": {"exitCode": 0}}), deleted=False)
     assert watch.states[NAME].done
 
@@ -157,3 +157,14 @@ async def test_resync_keeps_future_of_pod_not_seen_yet(monkeypatch):
     await watch.resync()
 
     assert not futures.done.done()
+
+
+async def test_forget_ignores_a_newer_registration():
+    """A detached coroutine finishing late must not drop the futures a
+    re-adopting coroutine registered for the same Pod meanwhile."""
+    watch = PodWatch("ns", "kubectl")
+    old = watch.expect(NAME)
+    new = watch.expect(NAME)
+    watch.forget(NAME, old)
+    watch.apply(_pod(task={"terminated": {"exitCode": 0}}), deleted=False)
+    assert new.done.done() and not old.done.done()
