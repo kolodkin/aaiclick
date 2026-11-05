@@ -21,7 +21,7 @@
 - No Pod is ever deleted by a worker that lost ownership to adoption, nor on SIGTERM/`STOPPING`.
 - Not-started longer than `pending_timeout` → fail through normal retries with the scheduler message / container waiting reason; no event parsing, no extra RBAC.
 - RBAC stays as is: the worker never lists or reads Secrets. Each Secret is created **after** its Pod with an `ownerReferences` entry to the Pod's `uid` (no `blockOwnerDeletion`), so garbage collection removes it with the Pod.
-- Deadlines come from the DB only: not-started = `tasks.started_at + pending_timeout`; task = `task_runs.started_at + task timeout` (read once when the container starts; no row yet → fall back to `tasks.started_at`). No Kubernetes timestamps, no worker-local launch/adoption time.
+- Deadlines come from the DB only. Started = the attempt's `RUNNING` `task_runs` row exists. Not started: `tasks.started_at + pending_timeout`; started: `task_runs.started_at + task timeout`. Both checked by the shared 1 s `in_flight_status` query. No Kubernetes timestamps, no worker-local launch/adoption time.
 - All imports at module top; `ContextVar` not `global`; `Literal` over enums; `NamedTuple` over tuples (CLAUDE.md).
 
 ## Review Focus
@@ -105,7 +105,7 @@ async def test_claim_skips_host_tasks_when_disallowed(orch_ctx):
 - Produces:
   - `class RunKey(NamedTuple): task_id: int; run_epoch: int`
   - `renew_claims(execution_worker_id: int, runs: Collection[RunKey]) -> set[int]` — task ids renewed (owner + epoch match, one UPDATE).
-  - `aborted_runs(runs: Collection[RunKey]) -> set[int]` — `check_run_aborted` predicate over the set (one SELECT); missing task → not aborted.
+  - `class InFlightStatus(NamedTuple): task_id: int; aborted: bool; run_started_at: datetime | None` and `in_flight_status(runs: Collection[RunKey]) -> list[InFlightStatus]` — one SELECT: the `check_run_aborted` predicate per run plus the `started_at` of its `RUNNING` `task_runs` row (None when no row yet); missing task → not aborted.
   - `adopt_run(run: RunKey, execution_worker_id: int) -> bool` — one UPDATE moving `execution_worker_id` + renewing `claim_expires_at` where `status = RUNNING`, epoch matches, owner adoptable.
   - `release_claim(run: RunKey) -> bool` — back to `PENDING`, `run_epoch + 1`, clear `execution_worker_id` / `claim_expires_at` / `started_at`, close a `RUNNING` `task_runs` row as `CANCELLED`; no attempt consumed.
 
@@ -115,8 +115,10 @@ async def test_claim_skips_host_tasks_when_disallowed(orch_ctx):
 async def test_renew_claims_only_owned_epochs(orch_ctx): ...
     assert await renew_claims(w.id, [RunKey(t1.id, t1.run_epoch), RunKey(t2.id, t2.run_epoch + 1)]) == {t1.id}
 
-async def test_aborted_runs_cancelled_and_cleared(orch_ctx): ...
-    assert await aborted_runs([k_live, k_cancelled, k_cleared]) == {k_cancelled.task_id, k_cleared.task_id}
+async def test_in_flight_status_flags_cancelled_and_cleared(orch_ctx): ...
+    assert {s.task_id for s in statuses if s.aborted} == {k_cancelled.task_id, k_cleared.task_id}
+
+async def test_in_flight_status_reports_run_start(orch_ctx):   # register_run on one task -> its run_started_at set, others None
 
 async def test_adopt_run_from_stopped_worker(orch_ctx): ...
     assert await adopt_run(key, new.id) and (await get_task(key.task_id)).execution_worker_id == new.id
@@ -132,7 +134,7 @@ async def test_release_claim_returns_task_to_pending(orch_ctx): ...
 ```
 
 - [ ] **Step 2:** `pytest aaiclick/orchestration/execution/test_claim_batch.py -v` → FAIL.
-- [ ] **Step 3: Implement** the four functions; build `(id, run_epoch)` matching as `OR` of `and_` pairs (works on both backends); `renew_claims` uses `RETURNING id`.
+- [ ] **Step 3: Implement** the four functions (`in_flight_status` joins `task_runs` on `task_id` with `status = RUNNING`); build `(id, run_epoch)` matching as `OR` of `and_` pairs (works on both backends); `renew_claims` uses `RETURNING id`.
 - [ ] **Step 4:** same → PASS.
 - [ ] **Step 5: Commit** `feat(claim): batched renew/abort checks, adoption and release`.
 
@@ -211,17 +213,14 @@ def test_stream_decoder_splits_concatenated_json(): ...   # pretty-printed objec
 - Consumes: `PodWatch.expect/forget`, `PodFutures` (Task 5), `K8sLimits.pending_timeout` (Task 1), existing `_KubernetesVehicle.launch/terminate/cleanup`, `read_task_run_result`, `collect_remote_result`.
 - Produces:
   - `class QuotaExceeded(Exception)` — raised by launch when `kubectl apply`/`create` stderr contains `exceeded quota`.
-  - `async run_module_pod(task: Task, dispatch: JobDispatch, watch: PodWatch, limits: K8sLimits, *, adopted: bool = False) -> RunnerResult` — waits `started` up to `pending_timeout` (timeout → `RunnerResult(False, None, "Pod <name> not started after <n>s: <waiting_reason or message>")`), then `done` up to `parse_task_timeout()` (not-started deadline `task.started_at + pending_timeout`; on `started`, one query for the attempt's `task_runs.started_at` — fallback `task.started_at` — plus `parse_task_timeout()`; compared with `utc_now()`, so adoption keeps them), reads the result row; deletes Pod + Secret in `finally` **unless** cancelled with `detach=True` (see Task 8). With `adopted=True` it skips launch.
+  - `async run_module_pod(task: Task, dispatch: JobDispatch, watch: PodWatch, limits: K8sLimits, *, adopted: bool = False) -> RunnerResult` — awaits the Pod's `done` future; the reconciler (Task 8) enforces the deadlines by cancelling the coroutine with a reason, so this function owns no timers. Produces `RunnerResult(False, None, reason)` on a deadline cancel, where reason is `"Pod <name> not started after <n>s: <waiting_reason or message or 'the task never started'>"` or `"Task timed out after <n>s"`; reads the result row on normal completion; deletes Pod + Secret in `finally` **unless** cancelled with `detach=True` (see Task 8). With `adopted=True` it skips launch.
 
 - [ ] **Step 1: Write failing tests** (fake watch: a `PodWatch` driven via `apply`; `dispatch_with_fake_cli` for kubectl):
 
 ```python
 async def test_run_module_pod_success_reads_result_row(...): ...
-async def test_run_module_pod_pending_timeout_fails_with_reason(...):
-    assert "ImagePullBackOff" in result.error
-async def test_task_timeout_starts_at_container_start(...): ...
-async def test_adopted_pod_keeps_original_deadline(...):   # task_runs.started_at 10 s ago, timeout 15 s -> fails after ~5 s
-async def test_task_deadline_falls_back_to_claim_time(...):   # no task_runs row -> base is tasks.started_at
+async def test_deadline_cancel_reports_reason(...):
+    assert "ImagePullBackOff" in result.error   # waiting_reason taken from the watch at cancel time
 async def test_quota_rejection_raises(...):   # Review Focus 4 (release is Task 8)
     with pytest.raises(QuotaExceeded): ...
 async def test_pod_disappeared_reports_error(...): ...
@@ -248,8 +247,8 @@ async def test_pod_disappeared_reports_error(...): ...
 Behaviour (spec "Components" / "Wiring"):
 - Dispatcher: wait on `watch.changed` or 1 s tick → `gate(...)` → while open: `claim_next_task(id, exclude_job_ids=blocked, allow_host_tasks=no host task in flight)`; `image_source` set and entry type `module` → `run_module_pod`; anything else → `dispatch_execute` (host subprocess, shell/jvm Pods keep `drive_shell_vehicle` — my call: rare, keeps their io copy logic intact).
 - Per task: result → `_handle_task_result`; `QuotaExceeded` → `release_claim`, pause claiming 30 s.
-- Heartbeat timer: worker heartbeat (STOPPING/STOPPED → shutdown) + `renew_claims`; missing ids → `aborted_runs`: aborted → cancel (delete Pod); not aborted → set `detach`, cancel, never delete.
-- Cancel timer: `aborted_runs(in_flight)` → cancel those coroutines → result `"cancelled"` → `_handle_task_result` path as today (`release_cancelled_run`).
+- Heartbeat timer: worker heartbeat (STOPPING/STOPPED → shutdown) + `renew_claims`; missing ids → `in_flight_status`: aborted → cancel (delete Pod); not aborted → set `detach`, cancel, never delete.
+- Status timer (1 s): `in_flight_status(in_flight)` → aborted → cancel the coroutine → `"cancelled"` → `_handle_task_result` as today (`release_cancelled_run`). Deadlines from the same rows: `run_started_at is None and utc_now() > task.started_at + pending_timeout` → cancel with the not-started reason; `run_started_at is not None and utc_now() > run_started_at + task_timeout` → cancel with the timeout reason. Both delete the Pod and fail through `_handle_task_result` (normal retries).
 - Shutdown (SIGTERM / STOPPING): stop claiming, set `detach` on every module-Pod in-flight, cancel, `deregister_execution_worker`. Host/shell tasks: cancel as today.
 
 - [ ] **Step 1: Write failing tests** (fake watch + fake kubectl, `orch_ctx`, `max_empty_polls` to end):
@@ -259,6 +258,10 @@ async def test_runs_tasks_concurrently(...):          # 3 module tasks, all Pods
 async def test_gate_blocks_saturated_job_only(...):
 async def test_quota_backoff_pauses_claims(...):     # Review Focus 4
 async def test_cancel_pending_pod(...):              # Review Focus 5 -> Pod deleted, task cancelled
+async def test_pending_timeout_counts_from_claim(...):          # tasks.started_at 20 min ago, no run row -> failed with reason
+async def test_task_timeout_counts_from_run_start(...):         # run row 10 s ago, timeout 5 s -> failed "Task timed out"
+async def test_running_pod_without_run_row_hits_pending_timeout(...):   # container up, no register_run -> "the task never started"
+async def test_adopted_pod_keeps_original_deadline(...):        # adoption does not reset either deadline
 async def test_lost_ownership_by_adoption_keeps_pod(...):   # Review Focus 3 -> no kubectl delete
 async def test_shutdown_leaves_pods_running(...):
 async def test_one_host_task_at_a_time(...):

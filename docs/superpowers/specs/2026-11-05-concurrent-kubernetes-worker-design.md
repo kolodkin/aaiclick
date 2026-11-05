@@ -220,18 +220,25 @@ only in kubelet source; `NotTriggerScaleUp`
 ([CA FAQ](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md#what-events-are-emitted-by-ca))
 is autoscaler-specific and also fires on "max size reached"; OCI registry codes
 ([error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes))
-reach the Pod only as free text. The task timeout (`parse_task_timeout`) starts
-when the task begins executing, not at launch. Both deadlines come from the aaiclick DB only — no Kubernetes timestamps — so
-they survive a worker restart and match what the UI shows:
+reach the Pod only as free text. Both deadlines come from the aaiclick DB only — no Kubernetes timestamps, no
+worker-local launch or adoption time — so they survive a worker restart and
+match what the UI shows. A task counts as **started** once the attempt's
+`RUNNING` `task_runs` row exists (`register_run` inside the Pod), not when the
+container starts: Python start-up and `orch_context` boot sit between the two,
+and a Pod that hangs before `register_run` would otherwise have no deadline.
 
-| Deadline    | Base                                   | Read                                    |
-|-------------|----------------------------------------|-----------------------------------------|
-| Not started | `tasks.started_at` (claim time)        | Already on the claimed / adopted `Task` |
-| Task        | `task_runs.started_at` of the attempt (written by `register_run` inside the Pod) | Once, when the watch first reports the `task` container started |
+| Phase       | Deadline                                      | On expiry                                                                 |
+|-------------|-----------------------------------------------|---------------------------------------------------------------------------|
+| Not started | `tasks.started_at + pending_timeout`          | Fail with the scheduler message / image-pull reason from the watch, or "Pod running but the task never started"; normal retries |
+| Started     | `task_runs.started_at + task timeout`         | Delete the Pod, fail through normal retries (as today)                     |
 
-If no `task_runs` row exists yet at that moment (e.g. the Pod cannot reach the
-DB), the task deadline falls back to `tasks.started_at` — earlier, so never
-longer. Shell / jvm Pods keep their existing timeout path.
+The shared 1 s cancellation query (`aborted_runs`) also returns each in-flight
+task's running-run `started_at`, so both checks ride on the poll the worker
+already makes: no extra queries, no race with `register_run`. `tasks.started_at`
+is stamped by the worker, `task_runs.started_at` by the Pod; NTP-synced nodes
+keep the skew to seconds against minute-scale timeouts. Shell / jvm Pods keep
+their existing timeout path (their run row is registered on the host before
+launch).
 
 ## Restart reclaim
 
