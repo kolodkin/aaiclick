@@ -204,6 +204,25 @@ async def adopt_run(run: RunKey, previous_owner: int, execution_worker_id: int) 
         return result.rowcount == 1
 
 
+async def owner_adoptable(execution_worker_id: int | None) -> bool:
+    """Whether a run's owner has let go of it: no owner, ``STOPPED``, or silent
+    for ``ADOPT_AFTER`` (the predicate :func:`adopt_run` fences on)."""
+    if execution_worker_id is None:
+        return True
+    async with get_sql_session() as session:
+        row = (
+            await session.execute(
+                select(ExecutionWorker.status, ExecutionWorker.last_heartbeat).where(
+                    col(ExecutionWorker.id) == execution_worker_id
+                )
+            )
+        ).one_or_none()
+    if row is None:
+        return True
+    status, last_heartbeat = row
+    return status == EXECUTION_WORKER_STOPPED or last_heartbeat < utc_now() - ADOPT_AFTER
+
+
 async def release_claim(run: RunKey) -> bool:
     """Put a claimed-but-never-launched run back in the queue (``kubectl apply``
     refused by a ``ResourceQuota``): ``PENDING``, epoch bumped so late writes

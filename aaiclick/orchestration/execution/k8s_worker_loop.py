@@ -22,7 +22,9 @@ import logging
 import signal
 import time
 from datetime import timedelta
-from typing import NamedTuple
+from typing import Literal, NamedTuple
+
+from sqlmodel import col, select
 
 from aaiclick.backend import is_chdb
 from aaiclick.data.object_context.ch_client import ch_refused
@@ -30,13 +32,27 @@ from aaiclick.data.object_context.ch_client import ch_refused
 from ...datetime_utils import utc_now
 from ..kubernetes_config import K8sLimits, KubernetesConfig, resolve_k8s_limits, resolve_pod_config
 from ..models import (
+    CANCELLING_TASK_STATUSES,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
+    TASK_RUNNING,
     Task,
+    TaskRun,
 )
+from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE
 from . import execution_worker as ew
-from .claiming import RunKey, claim_next_task, in_flight_status, release_claim, renew_claims
+from . import kubernetes_worker as kw
+from .claiming import (
+    RunKey,
+    adopt_run,
+    claim_next_task,
+    in_flight_status,
+    owner_adoptable,
+    release_cancelled_run,
+    release_claim,
+    renew_claims,
+)
 from .dispatch import dispatch_execute, resolve_dispatch
 from .docker_build import resolve_launch_image
 from .execution_worker import (
@@ -91,11 +107,16 @@ class _Reconciler:
         self.watch = PodWatch(pod_config.namespace, _kubectl_bin())
         self.in_flight: dict[int, InFlight] = {}
         self.wake = asyncio.Event()
+        # Timers end on this event, never by cancellation: a cancel landing
+        # inside a DB write would leave the transaction open (SQLite locks).
+        self._stop = asyncio.Event()
         self.shutdown = False
         self.detached = False
         self.quota_pause_until = 0.0
         self.started = 0
         self.executed = 0
+        # Pods whose delete was already requested; forgotten once the watch drops them.
+        self._deleting: set[str] = set()
 
     # -- dispatch -----------------------------------------------------------
 
@@ -166,7 +187,7 @@ class _Reconciler:
                 success, result_ref, error = await self._run(task, detach, adopted=adopted)
             except QuotaExceeded as e:
                 logger.warning("ExecutionWorker %s task %s refused by quota; releasing: %s", self.worker_id, task.id, e)
-                await release_claim(RunKey(task.id, task.run_epoch))
+                await _uncancellable(release_claim(RunKey(task.id, task.run_epoch)))
                 self.quota_pause_until = time.monotonic() + QUOTA_BACKOFF
                 return
             except WorkerStopped:
@@ -181,10 +202,12 @@ class _Reconciler:
                 success, result_ref, error = False, None, f"{type(e).__name__}: {e}"
             if detach[0]:
                 return  # ownership gone: the result is not ours to write
-            if await _handle_task_result(task, self.worker_id, success, result_ref, error):
+            if await _uncancellable(_handle_task_result(task, self.worker_id, success, result_ref, error)):
                 self.executed += 1
         finally:
-            self.in_flight.pop(task.id, None)
+            item = self.in_flight.pop(task.id, None)
+            if item is not None and item.pod_name and not detach[0]:
+                self._deleting.add(item.pod_name)
             self.wake.set()
 
     async def _run(self, task: Task, detach: list[bool], *, adopted: bool) -> tuple[bool, dict | None, str | None]:
@@ -212,10 +235,50 @@ class _Reconciler:
                 command=dispatch.command,
                 command_env=dispatch.command_env,
                 resources=dispatch.resources,
-                run_id=None,
+                run_id=await _running_run_id(task.id) if adopted else None,
                 detach=detach,
             )
         return result.success, result.result_ref, result.error
+
+    # -- reclaim / sweep ----------------------------------------------------
+
+    async def _reconcile_pods(self, *, adopt: bool) -> None:
+        """Settle every managed Pod this worker is not driving: on start (and
+        after a heartbeat outage) with ``adopt=True`` — restart reclaim — and
+        on each heartbeat tick with ``adopt=False`` — the stale-Pod sweep.
+
+        | Task row                                        | Action                                     |
+        |-------------------------------------------------|--------------------------------------------|
+        | missing, epoch stale, or not RUNNING/cancelling | delete the Pod                             |
+        | cancelling, owner gone                          | delete the Pod, ``release_cancelled_run``  |
+        | RUNNING, epoch ok, owner gone (``adopt``)       | ``adopt_run`` → resume at the Pod's stage  |
+        | RUNNING, owner alive                            | leave                                      |
+        """
+        self._deleting &= set(self.watch.states)
+        states = [
+            state
+            for state in self.watch.states.values()
+            if state.task_id not in self.in_flight and state.name not in self._deleting
+        ]
+        if not states:
+            return
+        tasks = await _load_tasks({state.task_id for state in states})
+        for state in states:
+            task = tasks.get(state.task_id)
+            verdict = _classify(state, task)
+            if verdict == "delete":
+                await self._delete_pod(state.name)
+            elif verdict == "release" and task is not None and await owner_adoptable(task.execution_worker_id):
+                await self._delete_pod(state.name)
+                await release_cancelled_run(task.id, expected_epoch=task.run_epoch)
+            elif verdict == "adopt" and adopt and task is not None:
+                mine = task.execution_worker_id == self.worker_id
+                if mine or await adopt_run(RunKey(task.id, task.run_epoch), task.execution_worker_id, self.worker_id):
+                    self._start(task, adopted=True)
+
+    async def _delete_pod(self, name: str) -> None:
+        self._deleting.add(name)
+        await kw._kubectl_delete(name, self.pod_config.namespace)
 
     # -- timers -------------------------------------------------------------
 
@@ -227,10 +290,19 @@ class _Reconciler:
             item.detach[0] = True
             item.aio.cancel()
 
+    async def _pause(self, seconds: float) -> bool:
+        """Sleep ``seconds`` unless stopped first; False once stopping."""
+        if self._stop.is_set():
+            return False
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=seconds)
+        except TimeoutError:
+            return True
+        return False
+
     async def _heartbeat_loop(self) -> None:
         missed = 0
-        while True:
-            await asyncio.sleep(ew.HEARTBEAT_INTERVAL)
+        while await self._pause(ew.HEARTBEAT_INTERVAL):
             try:
                 status = await execution_worker_heartbeat(self.worker_id)
             except Exception:
@@ -250,11 +322,16 @@ class _Reconciler:
                 self.shutdown = True
                 self.wake.set()
             await self._renew()
+            try:
+                await self._reconcile_pods(adopt=False)
+            except Exception:
+                logger.exception("ExecutionWorker %s stale-Pod sweep failed", self.worker_id)
 
     async def _reattach(self) -> None:
         """The DB is back after an outage: re-list and take back our own Pods
-        (reclaim, see :func:`reclaim`) unless another worker adopted them."""
+        unless another worker adopted them meanwhile."""
         await self.watch.resync()
+        await self._reconcile_pods(adopt=True)
 
     async def _renew(self) -> None:
         items = self._pod_items()
@@ -280,8 +357,7 @@ class _Reconciler:
                 item.aio.cancel()
 
     async def _status_loop(self) -> None:
-        while True:
-            await asyncio.sleep(ew.POLL_INTERVAL)
+        while await self._pause(ew.POLL_INTERVAL):
             items = self._pod_items()
             if not items or self.detached:
                 continue
@@ -333,6 +409,7 @@ class _Reconciler:
 
     async def run(self) -> int:
         await self.watch.resync()
+        await self._reconcile_pods(adopt=True)
         watch_task = asyncio.create_task(self.watch.run())
         timers = [asyncio.create_task(self._heartbeat_loop()), asyncio.create_task(self._status_loop())]
         empty_polls = 0
@@ -346,8 +423,7 @@ class _Reconciler:
                     self._detach_all()
                 await self._wait_for_event()
         finally:
-            for timer in timers:
-                timer.cancel()
+            self._stop.set()
             self._detach_all()
             host = [item.aio for item in self.in_flight.values() if item.pod_name is None]
             pods = [item.aio for item in self.in_flight.values() if item.pod_name is not None]
@@ -410,3 +486,46 @@ async def k8s_worker_main_loop(
     finally:
         await deregister_execution_worker(execution_worker_id)
         logger.info("ExecutionWorker %s stopped (executed %s tasks)", execution_worker_id, reconciler.executed)
+
+
+Verdict = Literal["delete", "release", "adopt", "leave"]
+
+
+def _classify(state: PodState, task: Task | None) -> Verdict:
+    if task is None or state.run_epoch != task.run_epoch:
+        return "delete"
+    if task.status == TASK_RUNNING:
+        return "adopt"
+    if task.status in CANCELLING_TASK_STATUSES:
+        return "release"
+    return "delete"
+
+
+async def _load_tasks(task_ids: set[int]) -> dict[int, Task]:
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Task).where(col(Task.id).in_(list(task_ids))))).scalars().all()
+    return {task.id: task for task in rows}
+
+
+async def _running_run_id(task_id: int) -> int | None:
+    """The attempt's open ``task_runs`` row, for an adopted shell Pod whose
+    previous owner already registered the run."""
+    async with get_sql_session() as session:
+        return (
+            await session.execute(
+                select(TaskRun.run_id)
+                .where(col(TaskRun.task_id) == task_id, col(TaskRun.status) == TASK_RUNNING)
+                .order_by(col(TaskRun.run_id).desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+
+async def _uncancellable(coro):
+    """Run a DB write to completion even if the caller is cancelled meanwhile
+    (shutdown): a half-done transaction would hold locks until GC."""
+    future = asyncio.ensure_future(coro)
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        return await future
