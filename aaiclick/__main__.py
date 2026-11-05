@@ -1454,6 +1454,7 @@ def _dispatch() -> None:
 
     elif args.command == "local":
         if args.local_command == "start":
+            setup_api.setup()  # idempotent; refuses (does not wipe) a stale local.db
             asyncio.run(start_local(host=args.host, port=args.port, reload=args.reload))
 
         else:
