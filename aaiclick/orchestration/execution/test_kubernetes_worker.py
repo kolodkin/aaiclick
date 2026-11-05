@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -462,7 +462,7 @@ async def test_run_shell_pod_adopted_at_io_in_restages_and_copies(shell_pod):
 
 
 async def test_run_shell_pod_adopted_at_task_running_reuses_run_and_follows_since(shell_pod, monkeypatch):
-    since = datetime(2026, 11, 5, 12, 0, 1, tzinfo=UTC)
+    since = datetime(2026, 11, 5, 12, 0, 1, tzinfo=timezone.utc)
     monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=since))
     shell_pod.watch.apply(_shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"running": {}}), deleted=False)
     run = shell_pod.start(image_tag=None, run_id=555)

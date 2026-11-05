@@ -25,7 +25,7 @@ import json
 import os
 import shutil
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -499,7 +499,7 @@ async def run_module_pod(
 def _since_time(moment: datetime) -> str:
     """``--since-time`` value: RFC 3339 in UTC, second precision (kubectl
     rejects fractional offsets on some versions)."""
-    return moment.astimezone(UTC).strftime("--since-time=%Y-%m-%dT%H:%M:%SZ")
+    return moment.astimezone(timezone.utc).strftime("--since-time=%Y-%m-%dT%H:%M:%SZ")
 
 
 async def run_shell_pod(

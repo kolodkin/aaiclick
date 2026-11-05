@@ -296,7 +296,7 @@ class _Reconciler:
             return False
         try:
             await asyncio.wait_for(self._stop.wait(), timeout=seconds)
-        except TimeoutError:
+        except asyncio.TimeoutError:
             return True
         return False
 
