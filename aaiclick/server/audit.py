@@ -78,27 +78,31 @@ class AuditMiddleware:
                 status = message["status"]
             await send(message)
 
-        async with orch_context():
-            try:
-                await self.app(scope, receive, send_wrapper)
-            finally:
-                method, path = scope["method"], scope["path"]
-                if should_audit(config.audit_policy(), method, path, audit.action):
-                    client = scope.get("client")
-                    row = AuditLog(
-                        id=get_snowflake_id(),
-                        at=started_at,
-                        user_id=audit.principal.user_id if audit.principal else None,
-                        username=audit.username,
-                        auth_kind=audit.principal.kind if audit.principal else AUTH_KIND_NONE,
-                        method=method,
-                        path=path,
-                        action=audit.action,
-                        status=status,
-                        duration_ms=int((time.monotonic() - clock) * 1000),
-                        client_ip=client[0] if client else None,
-                    )
-                    try:
+        # Scope orch_context to the audit write only, not the downstream app:
+        # it would otherwise leak a ChClient into the streamable-HTTP /mcp
+        # session context, which captures it and reuses it — closed — for every
+        # later tool call. REST handlers open their own orch_context via deps.
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            method, path = scope["method"], scope["path"]
+            if should_audit(config.audit_policy(), method, path, audit.action):
+                client = scope.get("client")
+                row = AuditLog(
+                    id=get_snowflake_id(),
+                    at=started_at,
+                    user_id=audit.principal.user_id if audit.principal else None,
+                    username=audit.username,
+                    auth_kind=audit.principal.kind if audit.principal else AUTH_KIND_NONE,
+                    method=method,
+                    path=path,
+                    action=audit.action,
+                    status=status,
+                    duration_ms=int((time.monotonic() - clock) * 1000),
+                    client_ip=client[0] if client else None,
+                )
+                try:
+                    async with orch_context():
                         await store.insert(row)
-                    except Exception:  # noqa: BLE001 - auditing must never fail the request
-                        logger.exception("audit_log insert failed for %s %s", method, path)
+                except Exception:  # noqa: BLE001 - auditing must never fail the request
+                    logger.exception("audit_log insert failed for %s %s", method, path)

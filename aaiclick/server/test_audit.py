@@ -7,12 +7,13 @@ import pytest
 from aaiclick.audit import config
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth.view_models import CreateUserRequest
+from aaiclick.data.object_context.ch_client import _ch_client_var
 from aaiclick.internal_api import audit as audit_api
 from aaiclick.internal_api import users
 
 from . import audit as audit_mw
 from .app import API_PREFIX
-from .audit import should_audit
+from .audit import AuditMiddleware, should_audit
 
 
 @pytest.mark.parametrize(
@@ -95,6 +96,38 @@ async def test_policy_all_logs_reads_and_off_logs_nothing(orch_ctx, enabled, ano
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "off")
     await anon_client.get(f"{API_PREFIX}/jobs")
     assert len(await _rows(path="/api/v0/jobs")) == 1
+
+
+async def test_audit_middleware_does_not_leak_a_ch_client_into_downstream():
+    """The middleware must not hold an ``orch_context`` open around the app it
+    wraps: the streamable-HTTP ``/mcp`` session captures the request context and
+    reuses its ChClient — closed once the request ends — for every later tool
+    call ("LazyChClient is closed"). The audit write gets its own short context.
+    """
+    seen: list[object] = []
+
+    async def inner(scope, receive, send):
+        seen.append(_ch_client_var.get())
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    scope = {"type": "http", "method": "GET", "path": f"{API_PREFIX}/jobs", "client": ("1.2.3.4", 0)}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(_message):
+        pass
+
+    # A live request arrives with no ChClient in context (unlike the module-scoped
+    # test harness), which is exactly when the old middleware created and closed
+    # one of its own. Reproduce that condition so the leak is observable.
+    token = _ch_client_var.set(None)
+    try:
+        await AuditMiddleware(inner)(scope, receive, send)
+    finally:
+        _ch_client_var.reset(token)
+    assert seen == [None], "middleware leaked a ChClient into the wrapped app"
 
 
 async def test_audit_route_is_admin_only(orch_ctx, enabled, anon_client, app_client):
