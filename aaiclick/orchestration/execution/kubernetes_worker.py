@@ -43,6 +43,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json
+from .pod_watch import POD_NOT_FOUND
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
 from .runner import stage_in_json
 from .runner_env import build_runner_env
@@ -180,10 +181,6 @@ async def _kubectl_delete(name: str, namespace: str) -> None:
     resources = [f"pod/{name}", f"secret/{name}"]
     await cli.run(_kubectl_bin(), "delete", *resources, "-n", namespace, "--ignore-not-found", check=False)
 
-
-# Phase reported by ``_pod_status`` when the API says the Pod no longer exists
-# (deleted on cancellation, or evicted); never a real Kubernetes phase.
-POD_NOT_FOUND = "NotFound"
 
 # ``Pending``, or empty when ``kubectl`` could not answer.
 _NOT_STARTED_PHASES = ("Pending", "")
