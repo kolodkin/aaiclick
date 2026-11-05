@@ -6,7 +6,7 @@ for automatic schema inference and basic arithmetic operators on Objects.
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.object_context import object_context
@@ -176,15 +176,15 @@ async def example():
     section("Example 7: UTC datetime support")
 
     # Scalar datetime
-    dt_scalar = await create_object_from_value(datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc))
+    dt_scalar = await create_object_from_value(datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC))
     print(f"Created from datetime scalar: {dt_scalar}")
     print(f"Value: {await dt_scalar.data()}\n")  # → 2024-01-15 10:30:00+00:00
 
     # Array of datetimes
     dt_array = await create_object_from_value(
         [
-            datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-            datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+            datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            datetime(2025, 6, 20, 14, 45, 30, tzinfo=UTC),
         ]
     )
     print(f"Created from datetime list: {dt_array}")
@@ -194,8 +194,8 @@ async def example():
     dt_dict = await create_object_from_value(
         {
             "event_time": [
-                datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
-                datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc),
+                datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+                datetime(2025, 6, 20, 14, 45, 30, tzinfo=UTC),
             ],
             "label": ["start", "end"],
         }

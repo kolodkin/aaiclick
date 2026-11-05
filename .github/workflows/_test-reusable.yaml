@@ -1,8 +1,8 @@
 name: tests (reusable)
 
 # Shared matrix body for the test workflows. ``test.yaml`` (PR / push,
-# pinned to 3.10 — the project's minimum) and ``test-py-nightly.yaml``
-# (nightly matrix over 3.10 and 3.14) both call this and differ only in
+# pinned to 3.11 — the project's minimum) and ``test-py-nightly.yaml``
+# (nightly matrix over 3.11 and 3.14) both call this and differ only in
 # the ``python-version`` input.
 #
 # The ClickHouse / Postgres service blocks are YAML-anchored at their first

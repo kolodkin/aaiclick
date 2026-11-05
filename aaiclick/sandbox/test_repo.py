@@ -2,7 +2,7 @@ import asyncio
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -80,7 +80,7 @@ async def test_rejected_push_retries_once_then_raises(tmp_path):
 
 
 def test_submission_path_and_module_parts():
-    now = datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 9, 12, 0, tzinfo=UTC)
     path = submission_path("hello", now)
     assert path == f"20261009/sb_{int(now.timestamp())}_hello.py"
     assert module_parts(path) == ("20261009", f"sb_{int(now.timestamp())}_hello")
@@ -152,7 +152,7 @@ def test_submission_path_reads_a_naive_datetime_as_utc(monkeypatch):
     time.tzset()
     try:
         naive = datetime(2026, 10, 9, 12, 0)
-        aware = naive.replace(tzinfo=timezone.utc)
+        aware = naive.replace(tzinfo=UTC)
         assert submission_path("hello", naive) == submission_path("hello", aware)
     finally:
         monkeypatch.undo()

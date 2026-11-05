@@ -49,7 +49,7 @@ async def event_frames(bus: EventBus) -> AsyncGenerator[str, None]:
         while True:
             try:
                 live = await asyncio.wait_for(sub.wait(), KEEPALIVE_INTERVAL)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield KEEPALIVE_FRAME
                 continue
             if not live:

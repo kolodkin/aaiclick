@@ -1,6 +1,6 @@
 """Tests for arrow_ingest - pyarrow-based ingest schema evaluation."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pyarrow as pa
 import pytest
@@ -164,7 +164,7 @@ def test_arrow_table_casts_type_override():
 
 def test_arrow_table_truncates_timestamps_to_ms():
     """us-precision arrow timestamps truncate to the DateTime64(3) target."""
-    dt = datetime(2024, 1, 1, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    dt = datetime(2024, 1, 1, 12, 0, 0, 123456, tzinfo=UTC)
     col_map = {"t": pa.array([dt])}
     tbl = arrow_table_for_insert(col_map, {"t": ColumnInfo("DateTime64(3, 'UTC')")})
     assert tbl.column("t").type == pa.timestamp("ms", tz="UTC")

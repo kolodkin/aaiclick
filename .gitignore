@@ -214,7 +214,7 @@ tmp/
 .tmp/
 *.tmp.*
 
-# Personal Python pin — let each developer choose their interpreter; CI pins 3.10 explicitly
+# Personal Python pin — let each developer choose their interpreter; CI pins 3.11 explicitly
 .python-version
 
 # GitHub CLI downloads

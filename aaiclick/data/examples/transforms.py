@@ -7,7 +7,7 @@ Object equivalents of View domain helpers (with_year, with_lower, etc.).
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aaiclick import create_object_from_value, literal
 from aaiclick.data.object_context import object_context
@@ -19,9 +19,9 @@ async def example():
     section("Example 1: Date/time transforms")
 
     dates = [
-        datetime(2023, 3, 15, tzinfo=timezone.utc),
-        datetime(2024, 7, 4, tzinfo=timezone.utc),
-        datetime(2025, 12, 25, tzinfo=timezone.utc),
+        datetime(2023, 3, 15, tzinfo=UTC),
+        datetime(2024, 7, 4, tzinfo=UTC),
+        datetime(2025, 12, 25, tzinfo=UTC),
     ]
     obj = await create_object_from_value(dates)
     print(f"Dates: {dates}")
@@ -62,9 +62,9 @@ async def example():
     section("Example 4: Chaining transforms with aggregations")
 
     dates = [
-        datetime(2024, 1, 1, tzinfo=timezone.utc),
-        datetime(2024, 6, 15, tzinfo=timezone.utc),
-        datetime(2025, 3, 10, tzinfo=timezone.utc),
+        datetime(2024, 1, 1, tzinfo=UTC),
+        datetime(2024, 6, 15, tzinfo=UTC),
+        datetime(2025, 3, 10, tzinfo=UTC),
     ]
     obj = await create_object_from_value(dates)
     years = await obj.year()

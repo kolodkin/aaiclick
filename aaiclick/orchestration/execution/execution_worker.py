@@ -297,7 +297,7 @@ async def _collect_unfollowed_output(
         if not rescue and destination == TASK_LOGS_CLICKHOUSE:
             return
         run_id = await register_run(task.id) if rescue else None
-        with suppress(asyncio.TimeoutError):
+        with suppress(TimeoutError):
             await asyncio.wait_for(
                 follow_vehicle_output(argv, task.id, task.job_id, run_id), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT
             )

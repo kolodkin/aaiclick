@@ -18,6 +18,6 @@ async def wait_or_timeout(event: asyncio.Event, timeout: float) -> bool:
     """
     try:
         await asyncio.wait_for(event.wait(), timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False
     return True

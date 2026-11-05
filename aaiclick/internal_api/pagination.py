@@ -9,8 +9,7 @@ call site only has to assemble the predicates and ORDER BY.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, NamedTuple, TypeVar
 
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, func, select
@@ -28,9 +27,8 @@ def name_like(column: str, pattern: str) -> ColumnElement[bool]:
     return col(column).like(escaped, escape=_LIKE_ESCAPE)
 
 
-@dataclass(frozen=True, slots=True)
-class PageRows(Generic[T]):
-    """Pair returned by :func:`paginate` — explicit so callers don't unpack positionally."""
+class PageRows(NamedTuple, Generic[T]):
+    """``(total, rows)`` pair returned by :func:`paginate`."""
 
     total: int
     rows: list[T]

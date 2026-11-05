@@ -2,7 +2,7 @@
 Tests for Object unary transform operators (year, month, lower, abs, etc.).
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -16,12 +16,12 @@ from aaiclick import create_object_from_value
 @pytest.mark.parametrize(
     "value, expected",
     [
-        pytest.param(datetime(2024, 6, 15, 10, 30, 0, tzinfo=timezone.utc), 2024, id="scalar"),
+        pytest.param(datetime(2024, 6, 15, 10, 30, 0, tzinfo=UTC), 2024, id="scalar"),
         pytest.param(
             [
-                datetime(2023, 1, 1, tzinfo=timezone.utc),
-                datetime(2024, 6, 15, tzinfo=timezone.utc),
-                datetime(2025, 12, 31, tzinfo=timezone.utc),
+                datetime(2023, 1, 1, tzinfo=UTC),
+                datetime(2024, 6, 15, tzinfo=UTC),
+                datetime(2025, 12, 31, tzinfo=UTC),
             ],
             [2023, 2024, 2025],
             id="array",
@@ -38,9 +38,9 @@ async def test_year(ctx, value, expected):
 async def test_month_array(ctx):
     """Extract month from an array of DateTimes."""
     dates = [
-        datetime(2024, 1, 15, tzinfo=timezone.utc),
-        datetime(2024, 6, 15, tzinfo=timezone.utc),
-        datetime(2024, 12, 25, tzinfo=timezone.utc),
+        datetime(2024, 1, 15, tzinfo=UTC),
+        datetime(2024, 6, 15, tzinfo=UTC),
+        datetime(2024, 12, 25, tzinfo=UTC),
     ]
     obj = await create_object_from_value(dates)
     result = await obj.month()
@@ -50,9 +50,9 @@ async def test_month_array(ctx):
 async def test_day_of_week_array(ctx):
     """Extract day of week from DateTimes (1=Mon, 7=Sun)."""
     dates = [
-        datetime(2024, 1, 1, tzinfo=timezone.utc),  # Monday
-        datetime(2024, 1, 3, tzinfo=timezone.utc),  # Wednesday
-        datetime(2024, 1, 7, tzinfo=timezone.utc),  # Sunday
+        datetime(2024, 1, 1, tzinfo=UTC),  # Monday
+        datetime(2024, 1, 3, tzinfo=UTC),  # Wednesday
+        datetime(2024, 1, 7, tzinfo=UTC),  # Sunday
     ]
     obj = await create_object_from_value(dates)
     result = await obj.day_of_week()
@@ -140,9 +140,9 @@ async def test_sqrt(ctx, value, expected):
 async def test_chain_year_then_sum(ctx):
     """year() returns an Object that can be aggregated."""
     dates = [
-        datetime(2024, 1, 1, tzinfo=timezone.utc),
-        datetime(2024, 6, 15, tzinfo=timezone.utc),
-        datetime(2025, 12, 31, tzinfo=timezone.utc),
+        datetime(2024, 1, 1, tzinfo=UTC),
+        datetime(2024, 6, 15, tzinfo=UTC),
+        datetime(2025, 12, 31, tzinfo=UTC),
     ]
     obj = await create_object_from_value(dates)
     years = await obj.year()
