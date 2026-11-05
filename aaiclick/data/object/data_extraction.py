@@ -6,7 +6,7 @@ This module provides specialized extraction functions for different table types.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..models import FIELDTYPE_ARRAY, ORIENT_RECORDS, ColumnInfo
@@ -24,9 +24,9 @@ def _convert_value(value):
     if isinstance(value, tuple):
         return [_convert_value(v) for v in value]
     if isinstance(value, datetime) and value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     if isinstance(value, list) and value and isinstance(value[0], datetime):
-        return [v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v for v in value]
+        return [v.replace(tzinfo=UTC) if v.tzinfo is None else v for v in value]
     return value
 
 

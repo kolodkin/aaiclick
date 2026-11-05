@@ -10,7 +10,7 @@ import logging
 import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import NamedTuple
 
 from sqlalchemy import text
@@ -221,7 +221,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         """Insert a single oplog row to ClickHouse. Best effort."""
         # Strip tzinfo: TableRegistry.created_at and operation_log timestamps are
         # mapped to naive SQL/CH columns; asyncpg rejects aware datetimes there.
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         try:
             ch_client = get_ch_client()
             column_types = await get_column_types(ch_client, "operation_log")
@@ -253,7 +253,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         """
         # Strip tzinfo: TableRegistry.created_at and operation_log timestamps are
         # mapped to naive SQL/CH columns; asyncpg rejects aware datetimes there.
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         try:
             async with get_sql_session() as session:
                 await session.execute(

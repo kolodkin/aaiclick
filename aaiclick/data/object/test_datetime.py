@@ -6,7 +6,7 @@ verifying automatic type inference in create_object_from_value and
 explicit schema usage in create_object.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -20,10 +20,10 @@ from aaiclick import (
 )
 from aaiclick.data.object_context import get_ch_client
 
-DT_2024 = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
-DT_2025 = datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc)
-DT_EPOCH = datetime(1970, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-DT_MILLIS = datetime(2024, 3, 10, 8, 15, 30, 123000, tzinfo=timezone.utc)
+DT_2024 = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
+DT_2025 = datetime(2025, 6, 20, 14, 45, 30, tzinfo=UTC)
+DT_EPOCH = datetime(1970, 1, 1, 0, 0, 0, tzinfo=UTC)
+DT_MILLIS = datetime(2024, 3, 10, 8, 15, 30, 123000, tzinfo=UTC)
 
 
 # =============================================================================

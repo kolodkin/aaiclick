@@ -105,7 +105,7 @@ async def _child_run_task(
                 )
             except asyncio.CancelledError:
                 result_queue.put(RunnerResult(success=False, result_ref=None, error="cancelled"))
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 result_queue.put(RunnerResult(success=False, result_ref=None, error=f"Task timed out after {timeout}s"))
             except Exception as e:
                 result_queue.put(RunnerResult(success=False, result_ref=None, error=str(e)))

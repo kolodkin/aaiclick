@@ -253,7 +253,7 @@ jobs:
 
       - &create-venv
         name: Create virtual environment
-        run: uv venv --python 3.10
+        run: uv venv --python 3.11
 
       - *download-dist
 

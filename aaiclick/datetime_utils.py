@@ -10,7 +10,7 @@ drop-in replacement for the deprecated ``datetime.utcnow()``, and
 
 import sqlite3
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 from pydantic_core import PydanticUndefined, PydanticUndefinedType
@@ -30,7 +30,7 @@ sqlite3.register_adapter(date, str)
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def to_naive_utc(value: datetime) -> datetime:
@@ -43,7 +43,7 @@ def to_naive_utc(value: datetime) -> datetime:
     """
     if value.tzinfo is None:
         return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.astimezone(UTC).replace(tzinfo=None)
 
 
 def utc_field(

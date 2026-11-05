@@ -5,7 +5,7 @@ a table. Sync tests pin the SQL / type produced; the DB tests cover the
 values that only round-trip through ClickHouse.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -13,7 +13,7 @@ from aaiclick import create_object_from_value
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
 from aaiclick.data.object.literals import LITERAL_LIST_MAX, literal_query_info
 
-DT_UTC = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+DT_UTC = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
 DT_NAIVE = datetime(2024, 1, 15, 10, 30, 0)
 DT_LITERAL = "'2024-01-15 10:30:00.000000'"
 
@@ -94,7 +94,7 @@ async def test_isin_list_over_threshold_uses_table(ctx):
     [
         pytest.param([True, False, True], [True], [1, 0, 1], id="bool"),
         # tz-aware rows match a naive literal: both sit on the naive-UTC convention
-        pytest.param([DT_UTC, datetime(2025, 6, 20, tzinfo=timezone.utc)], [DT_NAIVE], [1, 0], id="datetime"),
+        pytest.param([DT_UTC, datetime(2025, 6, 20, tzinfo=UTC)], [DT_NAIVE], [1, 0], id="datetime"),
     ],
 )
 async def test_literal_operand_round_trip(ctx, rows, allowed, expected):

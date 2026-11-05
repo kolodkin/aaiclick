@@ -13,14 +13,8 @@ Invoked via ``python -m aaiclick k8s init``.
 
 from __future__ import annotations
 
-import sys
-
-if sys.version_info >= (3, 11):
-    from importlib.resources.abc import Traversable
-else:
-    from importlib.abc import Traversable
-
 from importlib.resources import files
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
 from .compose_scaffold import IMAGE_TAG_TOKEN, default_image_tag
