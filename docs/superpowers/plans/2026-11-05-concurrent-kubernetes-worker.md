@@ -320,7 +320,11 @@ Rows (spec "Restart reclaim"): load `Task` rows for all labeled Pods; `RUNNING` 
 - Modify: `test_e2e/job_wait.py` (`run_worker_until_all_done` drives `k8s_worker_main_loop` when `get_worker_runner() == RUNNER_KUBERNETES`), `test_e2e/kubernetes/test_kubernetes_runner_e2e.py`, `docs/designs/kubernetes_runner.md`, `docs/user_guide/deployment.md`, `docs/designs/future.md`, `aaiclick/deploy/templates/helm/aaiclick/templates/worker.yaml` (comment)
 - Delete: the spec and this plan once green (CLAUDE.md).
 
-- [ ] **Step 1: Add e2e tests**: `test_parallel_tasks_one_worker` (4 independent sleeping tasks finish in < 2× one task's time); `test_worker_restart_adopts_pods` (job with one module and one shell task; stop the loop mid-run, start a new one; job completes with `attempt` unchanged and shell logs intact).
-- [ ] **Step 2:** Push; run the kubernetes e2e workflow via `check-pr` → green.
-- [ ] **Step 3: Update docs** per `markdown-style`: reconciler, gate, deadlines, ownership, reclaim, sweep, shutdown; fix the stale `mark_dead_workers` reference; `future.md` gets Pod-side claim renewal, node-pool targeting, per-replica limits.
-- [ ] **Step 4:** Delete spec + plan, fix references; commit `docs(k8s): concurrent worker`.
+- [ ] **Step 1: Switch the harness**: `run_worker_until_all_done` drives `k8s_worker_main_loop` when `get_worker_runner() == RUNNER_KUBERNETES`, so the six existing k8s e2e tests cover module / shell / jvm / build / sandbox / Secret-GC on the new loop.
+- [ ] **Step 2: Add three e2e tests** in `test_kubernetes_runner_e2e.py` (fixtures in `test_e2e/fixtures/sample_job` as needed):
+  - `test_concurrent_pods_one_worker`: a job fanning out 4 short sleeping module tasks; while it runs, poll `kubectl get pods -l aaiclick/managed=true -o name` and record the peak concurrent count; assert `peak >= 2`; print the peak.
+  - `test_worker_restart_adopts_pods`: one module + one shell sleeping task; wait until both Pods are `Running`; cancel the loop task; assert both Pods still exist; start a new loop; job `COMPLETED`, one `task_runs` row per task, shell `task_logs` present.
+  - `test_unschedulable_job_does_not_block_others`: job A with `resources={"requests": {"cpu": "1000"}}`, `max_retries=0`, env `AAICLICK_K8S_PENDING_TIMEOUT=30` set before the loop starts; job B a normal task; B `COMPLETED` while A is still `RUNNING`; A ends `FAILED` with `"Insufficient cpu"` in `error`.
+- [ ] **Step 3:** Push; dispatch `test-k8s-nightly.yaml` on this branch (`action-run`) → green.
+- [ ] **Step 4: Update docs** per `markdown-style`: reconciler, gate, deadlines, ownership, reclaim, sweep, shutdown; fix the stale `mark_dead_workers` reference; `future.md` gets Pod-side claim renewal, node-pool targeting, per-replica limits.
+- [ ] **Step 5:** Delete spec + plan, fix references; commit `docs(k8s): concurrent worker`.
