@@ -474,7 +474,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .scope-tree { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--hi), var(--shadow); padding: 10px; font-size: 13px; }
-.scope-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+.scope-group { display: flex; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
   font-weight: 700; margin: 12px 6px 6px; }
 .scope-node { padding: 6px 8px; border-radius: 8px; cursor: pointer; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -484,12 +484,11 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .scope-filter { width: 100%; margin: 0 0 6px; padding: 5px 8px; border: 1px solid var(--border);
   border-radius: 8px; background: rgba(255,255,255,.05); color: var(--text); font-size: 12px; }
 .scope-filter:focus { outline: none; border-color: var(--accent); }
-.scope-group { display: flex; align-items: center; }
 .scope-toggle { margin-left: auto; background: none; border: 0; padding: 0 4px; cursor: pointer;
   color: var(--muted); font-size: 13px; line-height: 1; }
 .scope-toggle:hover { color: var(--accent); }
-/* Small by default so the job list doesn't push the objects off a phone screen. */
-.scope-jobs { max-height: 180px; overflow-y: auto; }
+/* Small by default so the job list doesn't crowd out the objects; the toggle expands it. */
+.scope-jobs { position: relative; max-height: 180px; overflow-y: auto; }
 .scope-jobs.is-expanded { max-height: 60vh; }
 
 /* ---- brand overrides for the vendored queryview-core kernel ----

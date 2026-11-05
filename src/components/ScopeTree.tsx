@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useJobs } from "../api/hooks";
 import { ALL, PERSISTENT, scopeKey } from "../lib/viewer";
 
@@ -8,6 +8,13 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
   const { data } = useJobs({ poll: false });
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const list = useRef<HTMLDivElement>(null);
+  // The list is capped, so bring the selected job into its scroll window.
+  useEffect(() => {
+    const box = list.current;
+    const active = box?.querySelector<HTMLElement>(".is-active");
+    if (box && active) box.scrollTop = active.offsetTop - box.clientHeight / 2;
+  }, [scope, data]);
   const jobs = (data?.items ?? []).filter((j) => j.name.includes(filter));
   return (
     <nav className="scope-tree" data-testid="scope-tree">
@@ -47,7 +54,7 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
         onChange={(e) => setFilter(e.target.value)}
         aria-label="Filter jobs"
       />
-      <div className={`scope-jobs${expanded ? " is-expanded" : ""}`}>
+      <div ref={list} className={`scope-jobs${expanded ? " is-expanded" : ""}`}>
         {jobs.map((j) => {
           // Ids are 64-bit snowflakes carried as strings — never parse them.
           const id = String(j.id);

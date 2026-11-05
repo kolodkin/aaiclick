@@ -34,7 +34,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from sqlmodel import func, select
+from sqlmodel import func, select, update
 
 from aaiclick import create_object_from_value
 from aaiclick.datetime_utils import utc_now
@@ -257,12 +257,11 @@ async def seed_filler_jobs() -> None:
         async with get_sql_session() as session:
             if (await session.execute(select(func.count()).where(Job.name == WIDE_JOB))).scalar_one():
                 return
-        statuses = (JOB_COMPLETED, JOB_COMPLETED, JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)
-        task_status = {JOB_COMPLETED: TASK_COMPLETED, JOB_FAILED: TASK_FAILED, JOB_CANCELLED: TASK_CANCELLED}
-        jobs: list[tuple[int, JobStatus]] = []
+        by_status: dict[JobStatus, list[int]] = {JOB_COMPLETED: [], JOB_FAILED: [], JOB_CANCELLED: []}
+        cycle = (JOB_COMPLETED, JOB_COMPLETED, JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)
         for i in range(FILLER_JOBS):
             job = await create_job(FILLER_NAMES[i % len(FILLER_NAMES)], create_task(ENTRYPOINT, name="main"))
-            jobs.append((job.id, statuses[i % len(statuses)]))
+            by_status[cycle[i % len(cycle)]].append(job.id)
 
         entry = create_task(ENTRYPOINT, name="fan_out")
         wide = await create_job(WIDE_JOB, entry)
@@ -270,20 +269,16 @@ async def seed_filler_jobs() -> None:
         for task in branches:
             entry >> task
         await commit_tasks(branches, job_id=wide.id)
-        jobs.append((wide.id, JOB_COMPLETED))
+        by_status[JOB_COMPLETED].append(wide.id)
 
+        task_status = {JOB_COMPLETED: TASK_COMPLETED, JOB_FAILED: TASK_FAILED, JOB_CANCELLED: TASK_CANCELLED}
+        times = {"started_at": _BASE, "completed_at": _offset(30)}
         async with get_sql_session() as session:
-            for job_id, status in jobs:
-                job_row = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one()
-                job_row.status = status
-                job_row.started_at = _BASE
-                job_row.completed_at = _offset(30)
-                session.add(job_row)
-                for task in (await session.execute(select(Task).where(Task.job_id == job_id))).scalars():
-                    task.status = task_status[status]
-                    task.started_at = _BASE
-                    task.completed_at = _offset(30)
-                    session.add(task)
+            for status, ids in by_status.items():
+                await session.execute(update(Job).where(Job.id.in_(ids)).values(status=status, **times))
+                await session.execute(
+                    update(Task).where(Task.job_id.in_(ids)).values(status=task_status[status], **times)
+                )
             await session.commit()
 
 

@@ -88,14 +88,14 @@ function ObjectPreview({
         </div>
         <MetaGrid
           items={[
-            { k: "Scope", v: scopeLabel(scope) },
+            { k: "Scope", v: jobLabel(scope, view) },
             { k: "Rows", v: view?.row_count ?? "—", mono: true },
             { k: "Size", v: formatBytes(view?.size_bytes) },
             { k: "Created", v: relativeTime(view?.created_at) },
           ]}
         />
       </div>
-      <Chips chips={[{ label: `← ${backLabel(scope, view)}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
+      <Chips chips={[{ label: `← ${jobLabel(scope, view)}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
       {query.isPending && <p className="sub">loading rows…</p>}
       {query.isError && <p className="err">{query.error.message}</p>}
       {rows && (
@@ -112,7 +112,7 @@ function ObjectPreview({
 }
 
 // "<job name> #<last 6 id digits>", matching the scope tree; falls back to the scope label.
-function backLabel(scope: string, view: ObjectView | undefined): string {
+function jobLabel(scope: string, view: ObjectView | undefined): string {
   const id = jobOfScope(scope);
   return id && view?.job_name ? `${view.job_name} #${id.slice(-6)}` : scopeLabel(scope);
 }
