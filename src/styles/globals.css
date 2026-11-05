@@ -115,6 +115,8 @@ header {
 }
 #prompt:focus { border-color: var(--accent); background: rgba(255,255,255,.10); box-shadow: 0 0 0 3px var(--accent-soft); }
 .hint { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Decoration only: shown on wide desktops, never on tablets or phones. */
+@media (max-width: 1279px) { .hint-wide { display: none; } }
 .user-menu { display: flex; align-items: center; gap: 10px; }
 .secret-value { overflow-wrap: anywhere; }
 .user-menu .name-link { cursor: pointer; }
