@@ -120,7 +120,7 @@ event loop; per-tick cost is fixed, not per Pod.
 
 | Component   | Behaviour                                                                                                                                                                                                 |
 |-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Pod watch   | One `kubectl get pods --watch-only --output-watch-events -l aaiclick/managed=true -o json` stream (`pod_watch.py`); updates the map, resolves per-Pod stage futures, wakes the dispatcher. On stream end: re-list, re-watch. |
+| Pod watch   | One `kubectl get pods --watch-only --output-watch-events -l aaiclick/managed=true -o json` stream (`pod_watch.py`); updates the map, resolves per-Pod stage futures, wakes the dispatcher. On stream end: re-list, re-watch; a re-list on every heartbeat tick backstops events lost between list and stream start. |
 | Pod state   | Labels, `spec.nodeName`, phase, `io-in` / `task` container states. **Done** = the `task` container terminated, or the Pod is gone — one rule for module and shell Pods (a shell Pod's `io` sidecar never exits). |
 | Gate        | Pure function over the map (`pod_gate.py`), see below.                                                                                                                                                    |
 | Dispatcher  | Wakes on a Pod event or a 1 s tick; while the gate is open, claims with `exclude_job_ids` / `allow_host_tasks` and spawns one coroutine per task. The first pass is restart reclaim.                      |
@@ -151,8 +151,8 @@ overshoot.
 | `max_pods`                     | `AAICLICK_K8S_MAX_PODS`          | unset             | Optional cap on live (not done) Pods                     |
 | `pending_timeout`              | `AAICLICK_K8S_PENDING_TIMEOUT`   | 900 s             | Not-started deadline, see below                          |
 
-Counts are namespace-wide, so with several worker replicas the limits are
-shared, not per replica. A `ResourceQuota` rejection of `kubectl apply`
+Counts are namespace-wide, so with several worker replicas the limits —
+`max_pods` included — are shared, not per replica. A `ResourceQuota` rejection of `kubectl apply`
 (`exceeded quota`) releases the claim back to `PENDING` under a new epoch, with
 no attempt consumed, and pauses claiming for 30 s.
 
@@ -187,9 +187,17 @@ deletes nothing.
 
 - **Shutdown** (`SIGTERM`, `execution-worker stop`): stop claiming, detach every
   Pod coroutine, finish host tasks, deregister. The Pods keep running.
-- **Heartbeat outage**: two missed heartbeats detach every Pod coroutine; the
+- **Heartbeat outage**: 1.5 heartbeat intervals of silence (failed calls are
+  retried at a quarter interval, each bounded by it) detach every Pod
+  coroutine — before `ADOPT_AFTER`, so no adopter overlaps a live driver. The
   next good heartbeat re-lists and takes the worker's own Pods back unless
   another worker adopted them. This replaces `SELF_STOP_AFTER` on kubernetes.
+- **Shutdown before the Pod exists**: a detached coroutine whose Pod never
+  reached the cluster releases the claim (`release_claim`), so a rollout costs
+  no attempt.
+- **One cancel per coroutine**: deadlines and aborts cancel a coroutine once;
+  its cleanup (`kubectl delete --wait=false`, log drain) runs shielded, so a
+  result is never lost to a second cancel.
 - **Lost ownership**: a claim-renew row that did not match is re-read — epoch
   changed (cleared / reaped) → cancel and delete the Pod; unchanged (adopted) →
   detach.
@@ -212,7 +220,9 @@ during a long outage do not hold capacity:
 An adopted module Pod is awaited where it is; an adopted shell Pod re-stages
 `in.json` from the DB if `io-in` still waits, reuses the open `task_runs` row
 and resumes the log follower with `--since-time` set to the last stored line
-(`logging.last_task_log_time`), or reads `out.json` if it is already done.
+(`logging.last_task_log_time`; second precision, so that line may repeat —
+log delivery across a restart is at-least-once), or reads `out.json` if it is
+already done.
 Deadlines are unchanged by adoption. An outage longer than `WORKER_TIMEOUT`
 (10 min) still falls back to claim expiry and a retry; Pod-side claim renewal is
 in `future.md`.

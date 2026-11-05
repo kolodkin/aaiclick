@@ -63,7 +63,7 @@ from .execution_worker import (
     parse_task_timeout,
     register_execution_worker,
 )
-from .kubernetes_worker import QuotaExceeded, _kubectl_bin, _pod_name, run_module_pod, run_shell_pod
+from .kubernetes_worker import QuotaExceeded, _kubectl_bin, _pod_name, run_module_pod, run_shell_pod, shielded
 from .pod_gate import gate
 from .pod_watch import _NO_CONTAINER, PodState, PodWatch
 from .runner_env import validate_worker_runner
@@ -72,9 +72,11 @@ logger = logging.getLogger(__name__)
 
 # Pause on claiming after a ResourceQuota rejection.
 QUOTA_BACKOFF = 30.0
-# Heartbeats that may fail in a row before the worker lets go of its Pods;
-# mirrors ADOPT_AFTER (2 × HEARTBEAT_INTERVAL) on the adopting side.
-DETACH_AFTER_MISSED_HEARTBEATS = 2
+# Heartbeat silence (as a multiple of HEARTBEAT_INTERVAL) after which the
+# worker lets go of its Pods — before ADOPT_AFTER (2 ×), so another worker
+# never adopts a run this one is still driving. While heartbeats fail they
+# are retried at a quarter of the interval, each bounded by that quarter.
+DETACH_AFTER_INTERVALS = 1.5
 
 
 class InFlight(NamedTuple):
@@ -117,6 +119,9 @@ class _Reconciler:
         self.executed = 0
         # Pods whose delete was already requested; forgotten once the watch drops them.
         self._deleting: set[str] = set()
+        # Task ids whose coroutine was cancelled: a cancel is delivered once —
+        # a second one would land inside the coroutine's cleanup and drop its result.
+        self._cancelled: set[int] = set()
 
     # -- dispatch -----------------------------------------------------------
 
@@ -187,7 +192,7 @@ class _Reconciler:
                 success, result_ref, error = await self._run(task, detach, adopted=adopted)
             except QuotaExceeded as e:
                 logger.warning("ExecutionWorker %s task %s refused by quota; releasing: %s", self.worker_id, task.id, e)
-                await _uncancellable(release_claim(RunKey(task.id, task.run_epoch)))
+                await shielded(release_claim(RunKey(task.id, task.run_epoch)))
                 self.quota_pause_until = time.monotonic() + QUOTA_BACKOFF
                 return
             except WorkerStopped:
@@ -195,6 +200,7 @@ class _Reconciler:
                 return
             except asyncio.CancelledError:
                 if detach[0]:
+                    await self._release_if_no_pod(task)
                     return
                 raise
             except Exception as e:
@@ -202,13 +208,26 @@ class _Reconciler:
                 success, result_ref, error = False, None, f"{type(e).__name__}: {e}"
             if detach[0]:
                 return  # ownership gone: the result is not ours to write
-            if await _uncancellable(_handle_task_result(task, self.worker_id, success, result_ref, error)):
+            if await shielded(_handle_task_result(task, self.worker_id, success, result_ref, error)):
                 self.executed += 1
         finally:
             item = self.in_flight.pop(task.id, None)
+            self._cancelled.discard(task.id)
             if item is not None and item.pod_name and not detach[0]:
                 self._deleting.add(item.pod_name)
             self.wake.set()
+
+    async def _release_if_no_pod(self, task: Task) -> None:
+        """A detached Pod task whose Pod never reached the cluster (shutdown
+        between claim and ``kubectl apply``) goes back to the queue now, at no
+        attempt, instead of waiting for claim expiry. Best-effort: during a DB
+        outage the expiry path still covers it."""
+        if _pod_name(task.id, task.run_epoch) in self.watch.states:
+            return
+        try:
+            await shielded(release_claim(RunKey(task.id, task.run_epoch)))
+        except Exception:
+            logger.exception("ExecutionWorker %s could not release task %s", self.worker_id, task.id)
 
     async def _run(self, task: Task, detach: list[bool], *, adopted: bool) -> tuple[bool, dict | None, str | None]:
         dispatch = await resolve_dispatch(task)
@@ -285,10 +304,16 @@ class _Reconciler:
     def _pod_items(self) -> list[InFlight]:
         return [item for item in self.in_flight.values() if item.pod_name and not item.aio.done()]
 
+    def _cancel(self, item: InFlight, reason: str | None = None) -> None:
+        if item.task.id in self._cancelled or item.aio.done():
+            return
+        self._cancelled.add(item.task.id)
+        item.aio.cancel(reason)
+
     def _detach_all(self) -> None:
         for item in self._pod_items():
             item.detach[0] = True
-            item.aio.cancel()
+            self._cancel(item)
 
     async def _pause(self, seconds: float) -> bool:
         """Sleep ``seconds`` unless stopped first; False once stopping."""
@@ -301,19 +326,23 @@ class _Reconciler:
         return False
 
     async def _heartbeat_loop(self) -> None:
-        missed = 0
-        while await self._pause(ew.HEARTBEAT_INTERVAL):
+        last_ok = time.monotonic()
+        interval = ew.HEARTBEAT_INTERVAL
+        while await self._pause(interval):
+            retry = ew.HEARTBEAT_INTERVAL / 4
             try:
-                status = await execution_worker_heartbeat(self.worker_id)
+                status = await asyncio.wait_for(execution_worker_heartbeat(self.worker_id), timeout=retry)
             except Exception:
-                missed += 1
-                logger.exception("ExecutionWorker %s heartbeat failed (%s in a row)", self.worker_id, missed)
-                if missed >= DETACH_AFTER_MISSED_HEARTBEATS and not self.detached:
+                silent = time.monotonic() - last_ok
+                logger.exception("ExecutionWorker %s heartbeat failed (%.0fs of silence)", self.worker_id, silent)
+                interval = retry
+                if silent >= DETACH_AFTER_INTERVALS * ew.HEARTBEAT_INTERVAL and not self.detached:
                     logger.warning("ExecutionWorker %s lost the DB; detaching from its Pods", self.worker_id)
                     self.detached = True
                     self._detach_all()
                 continue
-            missed = 0
+            last_ok = time.monotonic()
+            interval = ew.HEARTBEAT_INTERVAL
             if self.detached:
                 self.detached = False
                 await self._reattach()
@@ -323,6 +352,8 @@ class _Reconciler:
                 self.wake.set()
             await self._renew()
             try:
+                # Backstop for events lost between the list and the watch stream's start.
+                await self.watch.resync()
                 await self._reconcile_pods(adopt=False)
             except Exception:
                 logger.exception("ExecutionWorker %s stale-Pod sweep failed", self.worker_id)
@@ -348,13 +379,13 @@ class _Reconciler:
         statuses = {s.task_id: s for s in await in_flight_status([item.run for item in lost])}
         for item in lost:
             if statuses[item.task.id].aborted:
-                item.aio.cancel()  # cleared / reaped: the Pod goes
+                self._cancel(item)  # cleared / reaped: the Pod goes
             else:
                 logger.info(
                     "ExecutionWorker %s task %s adopted by another worker; detaching", self.worker_id, item.task.id
                 )
                 item.detach[0] = True
-                item.aio.cancel()
+                self._cancel(item)
 
     async def _status_loop(self) -> None:
         while await self._pause(ew.POLL_INTERVAL):
@@ -374,17 +405,17 @@ class _Reconciler:
                 if item is None or item.aio.done():
                     continue
                 if status.aborted:
-                    item.aio.cancel()
+                    self._cancel(item)
                 elif status.run_started_at is None:
                     started_at = item.task.started_at
                     if started_at is not None and now > started_at + timedelta(seconds=self.limits.pending_timeout):
                         state = self.watch.states.get(item.pod_name or "")
                         reason = state.not_started_reason() if state else "Pod not created"
-                        item.aio.cancel(
-                            f"Pod {item.pod_name} not started after {self.limits.pending_timeout:g}s: {reason}"
+                        self._cancel(
+                            item, f"Pod {item.pod_name} not started after {self.limits.pending_timeout:g}s: {reason}"
                         )
                 elif task_timeout is not None and now > status.run_started_at + timedelta(seconds=task_timeout):
-                    item.aio.cancel(f"Task timed out after {task_timeout}s")
+                    self._cancel(item, f"Task timed out after {task_timeout}s")
 
     # -- main loop ----------------------------------------------------------
 
@@ -519,13 +550,3 @@ async def _running_run_id(task_id: int) -> int | None:
                 .limit(1)
             )
         ).scalar_one_or_none()
-
-
-async def _uncancellable(coro):
-    """Run a DB write to completion even if the caller is cancelled meanwhile
-    (shutdown): a half-done transaction would hold locks until GC."""
-    future = asyncio.ensure_future(coro)
-    try:
-        return await asyncio.shield(future)
-    except asyncio.CancelledError:
-        return await future

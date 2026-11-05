@@ -246,9 +246,8 @@ class PodWatch:
         for name in list(self.states):
             if name not in listed:
                 self.apply(_tombstone(self.states[name]), deleted=True)
-        for name in list(self._futures):
-            if name not in listed and name not in self.states:
-                self._resolve(self._futures[name], _gone(name))
+        # Futures of Pods the watch never saw stay pending: the Pod may have
+        # been created after the list started, so "absent" is not "gone".
 
     async def run(self) -> None:
         """Stream watch events forever; on stream end or error, resync and

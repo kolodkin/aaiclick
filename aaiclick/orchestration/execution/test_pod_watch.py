@@ -145,3 +145,15 @@ async def test_apply_ignores_unlabeled_pods(deleted):
     watch.apply(pod, deleted=deleted)
     assert watch.states == {}
     await asyncio.sleep(0)
+
+
+async def test_resync_keeps_future_of_pod_not_seen_yet(monkeypatch):
+    """A Pod created after the resync's list started is not in the listing;
+    its futures must wait for the watch, not resolve as gone."""
+    watch = PodWatch("ns", "kubectl")
+    futures = watch.expect(NAME)
+    monkeypatch.setattr(pod_watch.cli, "run", AsyncMock(return_value=(0, json.dumps({"items": []}), "")))
+
+    await watch.resync()
+
+    assert not futures.done.done()

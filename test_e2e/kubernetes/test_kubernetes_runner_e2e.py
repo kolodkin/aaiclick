@@ -213,8 +213,10 @@ async def test_worker_restart_adopts_pods(orch_ctx, kubernetes_e2e_user_repo, tm
             assert len(await get_task_runs(task.id)) == 1, task.entrypoint
     (shell_task,) = await get_tasks_for_job(shell_done.id)
     (shell_run,) = await get_task_runs(shell_task.id)
+    # Log delivery across a restart is at-least-once: ``--since-time`` has
+    # second precision, so the last line stored before the restart may repeat.
     lines = [line.text for line in await read_task_logs(shell_task.id, shell_run.run_id)]
-    assert lines == ["before", "after"], lines
+    assert lines[0] == "before" and lines[-1] == "after" and set(lines) == {"before", "after"}, lines
 
 
 async def _two_pods_running() -> bool:

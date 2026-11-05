@@ -601,3 +601,102 @@ async def test_sweep_leaves_live_owner_pod(orch_ctx, cluster):
     loop.cancel()
     with pytest.raises(asyncio.CancelledError):
         await loop
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: single cancel, periodic resync, early detach, pre-Pod shutdown
+# ---------------------------------------------------------------------------
+
+
+async def test_deadline_cancel_is_delivered_once(orch_ctx, cluster, monkeypatch):
+    """A slow Pod delete must not be interrupted by the next status tick's
+    cancel: the deadline result still lands and the Pod is deleted once."""
+    cluster.limits = LIMITS._replace(pending_timeout=5.0)
+
+    async def slow_delete(name: str, namespace: str) -> None:
+        await asyncio.sleep(1.5)  # > POLL_INTERVAL (0.5)
+        cluster.deleted.append(name)
+
+    monkeypatch.setattr(kw, "_kubectl_delete", slow_delete)
+    (task,) = await _image_job("cancel_once")
+    loop = cluster.start()
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"waiting": {"reason": "ImagePullBackOff"}}), deleted=False)
+    await _age_claim(task.id, 20)
+
+    await loop
+
+    after = await get_task(task.id)
+    assert after.status == TASK_PENDING_FAILURE_CLEANUP and "ImagePullBackOff" in (after.error or "")
+    assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
+
+
+async def test_heartbeat_tick_resyncs_watch(orch_ctx, cluster):
+    """Events between the list and the watch stream's start would be lost;
+    a resync per heartbeat tick is the backstop."""
+    resyncs = {"n": 0}
+    original = _FakeWatch.resync
+
+    async def counting_resync(self) -> None:
+        resyncs["n"] += 1
+        await original(self)
+
+    _FakeWatch.resync = counting_resync
+    try:
+        loop = cluster.start(max_empty_polls=100)
+        await _until(lambda: resyncs["n"] >= 3, timeout=3.0)
+    finally:
+        _FakeWatch.resync = original
+        loop.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loop
+
+
+async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, cluster, monkeypatch):
+    """Detach must come before another worker may adopt (ADOPT_AFTER =
+    2 × HEARTBEAT_INTERVAL), even when the heartbeat call hangs."""
+
+    async def hanging_heartbeat(worker_id: int):
+        await asyncio.sleep(30)
+
+    (task,) = await _image_job("hb_hang")
+    loop = cluster.start(max_empty_polls=100)
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
+    monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", hanging_heartbeat)
+    started = time.monotonic()
+
+    await _until(lambda: not _tracking(cluster, task), timeout=3.0)
+
+    assert time.monotonic() - started < 2 * ew.HEARTBEAT_INTERVAL + 0.3  # 0.2 s heartbeat → under ~0.7 s
+    assert cluster.deleted == []
+    loop.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await loop
+
+
+async def test_shutdown_before_pod_created_releases_claim(orch_ctx, cluster, monkeypatch):
+    """A rollout that lands between the claim and ``kubectl apply`` must cost
+    no attempt: the claim goes back to the queue instead of waiting for expiry."""
+    gate = asyncio.Event()
+
+    async def blocked_create(manifest: dict, verb: str = "create") -> dict:
+        await gate.wait()
+        return {**manifest, "metadata": {**manifest["metadata"], "uid": "u"}}
+
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", blocked_create)
+    worker = await register_execution_worker()
+    (task,) = await _image_job("shutdown_pre_pod")
+    loop = cluster.start(worker.id, max_empty_polls=100)
+
+    async def claimed() -> bool:
+        return (await get_task(task.id)).status == TASK_RUNNING
+
+    await _until(claimed)
+    await request_execution_worker_stop(worker.id)
+    await loop
+
+    after = await get_task(task.id)
+    assert (after.status, after.run_epoch, after.attempt) == (TASK_PENDING, task.run_epoch + 1, task.attempt)
+    # launch's own cleanup removes the half-created Pod; nothing else runs.
+    assert cluster.pods() == []

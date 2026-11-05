@@ -613,3 +613,17 @@ async def test_run_shell_pod_jvm_logs_reach_task_logs(orch_ctx, monkeypatch, tmp
     applied = json.loads((tmp_path / "applied.json").read_text())
     container = applied["spec"]["containers"][0]
     assert container["args"] == ["com.example.Pipeline"] and "command" not in container
+
+
+async def test_kubectl_delete_does_not_wait(monkeypatch):
+    """Deletes run inside the heartbeat tick; waiting for graceful
+    termination there would stall heartbeats past ADOPT_AFTER."""
+    calls: list[list[str]] = []
+
+    async def fake_run(*argv, **kwargs):
+        calls.append(list(argv))
+        return 0, "", ""
+
+    monkeypatch.setattr(kw.cli, "run", fake_run)
+    await kw._kubectl_delete("aaiclick-task-7-2", "ns")
+    assert "--wait=false" in calls[0] and "pod/aaiclick-task-7-2" in calls[0]

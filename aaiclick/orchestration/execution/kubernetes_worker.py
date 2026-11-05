@@ -154,12 +154,29 @@ class _PodHandle:
         self.job_id = job_id
         self.run_epoch = run_epoch
         self.deleted = False
+        # The Pod as ``kubectl apply -o json`` returned it, to seed the watch.
+        self.created: dict = {}
 
 
 async def _kubectl_delete(name: str, namespace: str) -> None:
-    """Delete an attempt's Pod and its same-named env Secret."""
+    """Delete an attempt's Pod and its same-named env Secret. ``--wait=false``:
+    the watch reports when the Pod is gone, and waiting through graceful
+    termination inside the worker's timers would stall its heartbeats."""
     resources = [f"pod/{name}", f"secret/{name}"]
-    await cli.run(_kubectl_bin(), "delete", *resources, "-n", namespace, "--ignore-not-found", check=False)
+    await cli.run(
+        _kubectl_bin(), "delete", *resources, "-n", namespace, "--ignore-not-found", "--wait=false", check=False
+    )
+
+
+async def shielded(coro):
+    """Run a cleanup or DB write to completion even if the caller is cancelled
+    meanwhile: a half-done ``kubectl delete`` leaks the Pod, a half-done
+    transaction holds locks."""
+    future = asyncio.ensure_future(coro)
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        return await future
 
 
 def _build_env_secret(
@@ -354,6 +371,7 @@ class _KubernetesShellVehicle:
             )
             # Pod first: the Secret is owned by the Pod's uid, so it can never outlive it.
             pod = await _kubectl_create_from_file(manifest, "apply")
+            handle.created = pod
             if self._spec.command_env:
                 labels = pod_labels(task.id, task.job_id, task.run_epoch)
                 secret = _build_env_secret(
@@ -422,7 +440,9 @@ class _KubernetesVehicle:
         except BaseException:
             await _kubectl_delete(name, self._spec.namespace)
             raise
-        return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
+        handle = _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
+        handle.created = pod
+        return handle
 
 
 # ---------------------------------------------------------------------------
@@ -476,11 +496,12 @@ async def run_module_pod(
                 command_env=None,
             )
             try:
-                await _KubernetesVehicle(spec).launch(task, execution_worker_id)
+                handle = await _KubernetesVehicle(spec).launch(task, execution_worker_id)
             except cli.CommandError as e:
                 if "exceeded quota" in e.stderr:
                     raise QuotaExceeded(e.stderr.strip()) from e
                 raise
+            watch.apply(handle.created, deleted=False)  # known to the gate and reclaim at once
         state = await futures.done
         if state.gone:
             return RunnerResult(False, None, f"Pod {name} disappeared")
@@ -493,7 +514,7 @@ async def run_module_pod(
     finally:
         watch.forget(name)
         if not detach[0]:
-            await _kubectl_delete(name, pod_config.namespace)
+            await shielded(_kubectl_delete(name, pod_config.namespace))
 
 
 def _since_time(moment: datetime) -> str:
@@ -547,6 +568,7 @@ async def run_shell_pod(
                 if "exceeded quota" in e.stderr:
                     raise QuotaExceeded(e.stderr.strip()) from e
                 raise
+            watch.apply(handle.created, deleted=False)
         else:
             io_dir = await stage_in_json(task)
             (io_dir / _IN_READY).touch()
@@ -587,8 +609,8 @@ async def run_shell_pod(
         return RunnerResult(False, None, _cancel_reason(e))
     finally:
         watch.forget(name)
-        await stop_output_follower(follower, 0.0 if detach[0] else OUTPUT_FOLLOWER_DRAIN_TIMEOUT)
+        await shielded(stop_output_follower(follower, 0.0 if detach[0] else OUTPUT_FOLLOWER_DRAIN_TIMEOUT))
         if handle is not None:
             shutil.rmtree(handle.io_dir, ignore_errors=True)
         if not detach[0]:
-            await _kubectl_delete(name, namespace)
+            await shielded(_kubectl_delete(name, namespace))
