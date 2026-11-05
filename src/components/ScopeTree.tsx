@@ -10,15 +10,17 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState(false);
   const list = useRef<HTMLDivElement>(null);
-  // Not `data`: live refetches would yank the list back while the user scrolls it.
-  const loaded = data !== undefined;
-  // The list is capped, so center the selected job in it; scrollTop, not
-  // scrollIntoView, so the page itself never jumps.
+  const centered = useRef<string | null>(null);
+  // The list is capped, so center the selected job in it — once per scope, so
+  // live refetches don't yank the list while the user scrolls it, but retried
+  // until the row exists. scrollTop, not scrollIntoView, so the page never jumps.
   useEffect(() => {
     const box = list.current;
     const active = box?.querySelector<HTMLElement>(".is-active");
-    if (box && active) box.scrollTop = active.offsetTop - box.clientHeight / 2;
-  }, [scope, loaded]);
+    if (!box || !active || centered.current === scope) return;
+    box.scrollTop = active.offsetTop - box.clientHeight / 2;
+    centered.current = scope;
+  }, [scope, data]);
   const jobs = (data?.items ?? []).filter((j) => j.name.includes(filter));
   return (
     <nav className="scope-tree" data-testid="scope-tree">

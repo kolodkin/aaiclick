@@ -168,10 +168,14 @@ def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
 @_spa_built
 @_local_only
 def test_data_scrolls_old_job_into_view(page, base_url: str) -> None:
-    oldest = page.request.get(f"{base_url}/api/v0/jobs").json()["items"][-1]
-    open_page(page, f"{base_url}/?p=@data job {oldest['id']}")
-    active = page.locator(".scope-jobs .is-active")
-    active.wait_for(timeout=15000)
-    page.wait_for_timeout(200)  # let the scroll effect run after the list renders
-    box, row = page.locator(".scope-jobs").bounding_box(), active.bounding_box()
-    assert box["y"] <= row["y"] and row["y"] + row["height"] <= box["y"] + box["height"]
+    # Mid-page, not last: a job created meanwhile shifts the page by one.
+    old = page.request.get(f"{base_url}/api/v0/jobs").json()["items"][30]
+    open_page(page, f"{base_url}/?p=@data job {old['id']}")
+    page.wait_for_function(
+        """() => {
+            const box = document.querySelector('.scope-jobs')?.getBoundingClientRect();
+            const row = document.querySelector('.scope-jobs .is-active')?.getBoundingClientRect();
+            return box && row && row.top >= box.top && row.bottom <= box.bottom;
+        }""",
+        timeout=15000,
+    )
