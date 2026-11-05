@@ -196,7 +196,16 @@ One rule covers "never fits" and stuck image pulls (`ImagePullBackOff`,
 `InvalidImageName`, `CreateContainerConfigError`, ...): no event parsing, no
 message classification, no extra RBAC. A doomed task costs
 `pending_timeout × (max_retries + 1)` before it fails for good; the error carries
-the reason so the user sees why. The task timeout (`parse_task_timeout`) starts
+the reason so the user sees why.
+
+Fail-fast was rejected: Kubernetes documents no reason meaning "permanent".
+`ImagePullBackOff` ([Images](https://kubernetes.io/docs/concepts/containers/images/#imagepullbackoff))
+covers transient and permanent causes; `InvalidImageName` / `ErrImagePull` exist
+only in kubelet source; `NotTriggerScaleUp`
+([CA FAQ](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md#what-events-are-emitted-by-ca))
+is autoscaler-specific and also fires on "max size reached"; OCI registry codes
+([error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes))
+reach the Pod only as free text. The task timeout (`parse_task_timeout`) starts
 when the container starts running, not at launch.
 
 ## Restart reclaim
