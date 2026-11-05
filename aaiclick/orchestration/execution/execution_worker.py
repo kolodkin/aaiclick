@@ -93,7 +93,7 @@ class RunnerResult(NamedTuple):
 
 class JobDispatch(NamedTuple):
     """A task's runner plus the launch spec its runner needs, resolved once
-    per task in ``dispatch._resolve_dispatch``. ``runner`` None ⇒ host
+    per task in ``dispatch.resolve_dispatch``. ``runner`` None ⇒ host
     subprocess; ``pod_config`` is set only on the kubernetes runner;
     ``resources`` is the ``Job.resources`` snapshot, for every container runner."""
 

@@ -1,0 +1,370 @@
+"""The concurrent kubernetes worker loop, against a fake cluster: the watch is
+driven by hand, ``kubectl`` is stubbed, host tasks are a stub ExecuteFn."""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import time
+from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from sqlalchemy import update
+from sqlmodel import col, select
+
+from aaiclick.data.object.refs import native_ref
+
+from ...datetime_utils import utc_now
+from ..factories import create_job, create_task
+from ..jobs.queries import get_task
+from ..kubernetes_config import K8sLimits
+from ..models import (
+    TASK_COMPLETED,
+    TASK_PENDING,
+    TASK_PENDING_CANCELLED_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
+    TASK_RUNNING,
+    ExecutionWorker,
+    Task,
+    TaskRun,
+)
+from ..orch_context import commit_tasks, get_sql_session
+from . import cli
+from . import execution_worker as ew
+from . import k8s_worker_loop as loop_mod
+from . import kubernetes_worker as kw
+from .claiming import cancel_job
+from .execution_worker import register_execution_worker, request_execution_worker_stop
+from .k8s_worker_loop import k8s_worker_main_loop
+from .pod_watch import PodWatch, pod_labels
+from .runner import register_run
+
+SIMPLE = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+LIMITS = K8sLimits(max_pending=2, max_pending_total=10, max_pods=None, pending_timeout=900.0)
+
+pytestmark = pytest.mark.usefixtures("fast_poll")
+
+
+async def _until(predicate, timeout: float = 5.0) -> None:
+    """Poll a sync or async predicate until true."""
+    deadline = time.monotonic() + timeout
+    while True:
+        outcome = predicate()
+        if inspect.isawaitable(outcome):
+            outcome = await outcome
+        if outcome:
+            return
+        if time.monotonic() > deadline:
+            raise AssertionError("condition not reached in time")
+        await asyncio.sleep(0.02)
+
+
+def _pod_json(task: Task, task_state: dict, *, node: str | None = "n1") -> dict:
+    spec: dict = {"containers": [{"name": "task"}]}
+    if node:
+        spec["nodeName"] = node
+    status: dict = {"phase": "Running", "containerStatuses": [{"name": "task", "state": task_state}]}
+    if node is None:
+        status["conditions"] = [
+            {"type": "PodScheduled", "status": "False", "reason": "Unschedulable", "message": "0/1 nodes: cpu"}
+        ]
+    name = kw._pod_name(task.id, task.run_epoch)
+    return {
+        "metadata": {"name": name, "labels": pod_labels(task.id, task.job_id, task.run_epoch)},
+        "spec": spec,
+        "status": status,
+    }
+
+
+class _FakeWatch(PodWatch):
+    """A ``PodWatch`` that never talks to kubectl; tests feed ``apply``."""
+
+    async def resync(self) -> None:
+        return None
+
+    async def run(self) -> None:
+        await asyncio.Event().wait()
+
+
+@pytest.fixture
+def cluster(monkeypatch):
+    """Fake cluster + worker wiring for ``k8s_worker_main_loop``."""
+    monkeypatch.setenv("AAICLICK_RUNNER", "kubernetes")
+    monkeypatch.setattr(loop_mod, "is_chdb", lambda: False)
+    monkeypatch.setattr(loop_mod, "resolve_k8s_limits", lambda: state.limits)
+    monkeypatch.setattr(loop_mod, "resolve_launch_image", AsyncMock(return_value="img:1"))
+    monkeypatch.setattr(kw, "build_runner_env", lambda: {"X": "1"})
+    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=kw.RunnerResult(True, native_ref(1), None)))
+    monkeypatch.setattr(kw, "follow_vehicle_output", AsyncMock())
+    monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=None))
+    monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.2)
+
+    created: list[dict] = []
+    deleted: list[str] = []
+    watches: list[PodWatch] = []
+
+    async def create(manifest: dict, verb: str = "create") -> dict:
+        if state.quota_error and manifest["kind"] == "Pod":
+            raise cli.CommandError(("kubectl",), 1, "pods is forbidden: exceeded quota: compute")
+        created.append(manifest)
+        return {**manifest, "metadata": {**manifest["metadata"], "uid": "u"}}
+
+    async def delete(name: str, namespace: str) -> None:
+        deleted.append(name)
+
+    def make_watch(namespace: str, kubectl: str) -> PodWatch:
+        watch = _FakeWatch(namespace, kubectl)
+        watches.append(watch)
+        return watch
+
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", create)
+    monkeypatch.setattr(kw, "_kubectl_delete", delete)
+    monkeypatch.setattr(loop_mod, "PodWatch", make_watch)
+
+    def pods() -> list[dict]:
+        return [m for m in created if m["kind"] == "Pod"]
+
+    def start(worker_id: int | None = None, **kwargs) -> asyncio.Task:
+        kwargs.setdefault("install_signal_handlers", False)
+        kwargs.setdefault("max_empty_polls", 4)
+        return asyncio.create_task(k8s_worker_main_loop(worker_id, **kwargs))
+
+    state = SimpleNamespace(
+        limits=LIMITS, quota_error=False, created=created, deleted=deleted, pods=pods, start=start, watches=watches
+    )
+    state.watch = lambda: watches[-1]
+    return state
+
+
+async def _image_job(name: str, n: int = 1) -> list[Task]:
+    tasks = []
+    for i in range(n):
+        job = await create_job(f"{name}_{i}", create_task(SIMPLE, image="img:1"))
+        tasks.append((await _job_tasks(job.id))[0])
+    return tasks
+
+
+async def _job_tasks(job_id: int) -> list[Task]:
+    async with get_sql_session() as session:
+        return list((await session.execute(select(Task).where(col(Task.job_id) == job_id))).scalars().all())
+
+
+async def test_runs_tasks_concurrently(orch_ctx, cluster):
+    tasks = await _image_job("concurrent", 3)
+    loop = cluster.start()
+
+    await _until(lambda: len(cluster.pods()) == 3)
+    for t in tasks:
+        cluster.watch().apply(_pod_json(t, {"terminated": {"exitCode": 0}}), deleted=False)
+
+    assert await loop == 3
+    assert {(await get_task(t.id)).status for t in tasks} == {TASK_COMPLETED}
+    assert sorted(cluster.deleted) == sorted(kw._pod_name(t.id, t.run_epoch) for t in tasks)
+
+
+async def test_gate_blocks_saturated_job_only(orch_ctx, cluster):
+    """Job A has two unscheduled Pods (its cap); job B still gets claimed."""
+    job_a = await create_job("gate_a", create_task(SIMPLE, image="img:1"))
+    await commit_tasks([create_task(SIMPLE, image="img:1") for _ in range(2)], job_a.id)
+    (task_b,) = await _image_job("gate_b")
+    a_tasks = await _job_tasks(job_a.id)
+    loop = cluster.start()
+
+    await _until(lambda: len(cluster.pods()) >= 2)
+    first_two = [
+        t for t in a_tasks if kw._pod_name(t.id, t.run_epoch) in {m["metadata"]["name"] for m in cluster.pods()}
+    ]
+    for t in first_two:
+        cluster.watch().apply(_pod_json(t, {"waiting": {}}, node=None), deleted=False)
+    await _until(
+        lambda: any(m["metadata"]["name"] == kw._pod_name(task_b.id, task_b.run_epoch) for m in cluster.pods())
+    )
+
+    third = [t for t in a_tasks if t not in first_two]
+    assert all(kw._pod_name(t.id, t.run_epoch) not in {m["metadata"]["name"] for m in cluster.pods()} for t in third)
+
+    for t in [*a_tasks, task_b]:
+        cluster.watch().apply(_pod_json(t, {"terminated": {"exitCode": 0}}), deleted=False)
+    await _until(lambda: len(cluster.pods()) == 4)
+    for t in third:
+        cluster.watch().apply(_pod_json(t, {"terminated": {"exitCode": 0}}), deleted=False)
+    assert await loop == 4
+
+
+async def test_max_pods_stops_claims(orch_ctx, cluster):
+    cluster.limits = LIMITS._replace(max_pods=1)
+    t1, t2 = await _image_job("maxpods", 2)
+    loop = cluster.start()
+
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(t1, {"running": {}}), deleted=False)
+    await asyncio.sleep(0.6)
+    assert len(cluster.pods()) == 1
+
+    cluster.watch().apply(_pod_json(t1, {"terminated": {"exitCode": 0}}), deleted=False)
+    await _until(lambda: len(cluster.pods()) == 2)
+    cluster.watch().apply(_pod_json(t2, {"terminated": {"exitCode": 0}}), deleted=False)
+    assert await loop == 2
+
+
+async def test_quota_backoff_pauses_claims(orch_ctx, cluster, monkeypatch):
+    monkeypatch.setattr(loop_mod, "QUOTA_BACKOFF", 0.8)
+    (task,) = await _image_job("quota")
+    cluster.quota_error = True
+    loop = cluster.start(max_empty_polls=20)
+
+    async def epoch_bumped() -> bool:
+        return (await get_task(task.id)).run_epoch > task.run_epoch
+
+    await _until(epoch_bumped)
+    after = await get_task(task.id)
+    assert after.status == TASK_PENDING and after.run_epoch == task.run_epoch + 1 and after.attempt == task.attempt
+    cluster.quota_error = False
+    await asyncio.sleep(0.3)
+    assert cluster.pods() == []  # still backing off
+
+    await _until(lambda: len(cluster.pods()) == 1, timeout=3.0)
+    cluster.watch().apply(_pod_json(after, {"terminated": {"exitCode": 0}}), deleted=False)
+    assert await loop == 1
+
+
+async def test_cancel_pending_pod(orch_ctx, cluster):
+    (task,) = await _image_job("cancel_pending")
+    loop = cluster.start()
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"waiting": {}}, node=None), deleted=False)
+
+    await cancel_job(task.job_id)
+
+    await _until(lambda: cluster.deleted == [kw._pod_name(task.id, task.run_epoch)])
+    await loop
+    after = await get_task(task.id)
+    assert after.status == TASK_PENDING_CANCELLED_CLEANUP and after.execution_worker_id is None
+
+
+async def _age_claim(task_id: int, seconds: float) -> None:
+    async with get_sql_session() as session:
+        await session.execute(
+            update(Task).where(col(Task.id) == task_id).values(started_at=utc_now() - timedelta(seconds=seconds))
+        )
+        await session.commit()
+
+
+async def test_pending_timeout_counts_from_claim(orch_ctx, cluster):
+    cluster.limits = LIMITS._replace(pending_timeout=5.0)
+    (task,) = await _image_job("pending_timeout")
+    loop = cluster.start()
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(
+        _pod_json(task, {"waiting": {"reason": "ImagePullBackOff", "message": "back-off"}}), deleted=False
+    )
+    await _age_claim(task.id, 20)
+
+    await loop
+
+    after = await get_task(task.id)
+    assert after.status == TASK_PENDING_FAILURE_CLEANUP
+    assert "not started after 5s" in after.error and "ImagePullBackOff: back-off" in after.error
+    assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
+
+
+async def test_running_pod_without_run_row_hits_pending_timeout(orch_ctx, cluster):
+    cluster.limits = LIMITS._replace(pending_timeout=5.0)
+    (task,) = await _image_job("never_registered")
+    loop = cluster.start()
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
+    await _age_claim(task.id, 20)
+
+    await loop
+
+    assert "the task never started" in (await get_task(task.id)).error
+
+
+async def test_task_timeout_counts_from_run_start(orch_ctx, cluster, monkeypatch):
+    monkeypatch.setenv("AAICLICK_TASK_TIMEOUT", "5")
+    (task,) = await _image_job("task_timeout")
+    loop = cluster.start()
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
+    run_id = await register_run(task.id)
+    async with get_sql_session() as session:
+        await session.execute(
+            update(TaskRun).where(col(TaskRun.run_id) == run_id).values(started_at=utc_now() - timedelta(seconds=20))
+        )
+        await session.commit()
+
+    await loop
+
+    after = await get_task(task.id)
+    assert after.status == TASK_PENDING_FAILURE_CLEANUP and after.error == "Task timed out after 5.0s"
+
+
+async def test_lost_ownership_by_adoption_keeps_pod(orch_ctx, cluster):
+    """Another worker took the run (same epoch): this one detaches and never deletes."""
+    (task,) = await _image_job("adopted_away")
+    other = await register_execution_worker()
+    loop = cluster.start()
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
+    async with get_sql_session() as session:
+        await session.execute(update(Task).where(col(Task.id) == task.id).values(execution_worker_id=other.id))
+        await session.commit()
+
+    await loop
+
+    assert cluster.deleted == []
+    assert (await get_task(task.id)).status == TASK_RUNNING
+
+
+async def test_heartbeat_outage_detaches_all(orch_ctx, cluster, monkeypatch):
+    (task,) = await _image_job("hb_outage")
+    loop = cluster.start(max_empty_polls=100)
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
+
+    monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", AsyncMock(side_effect=RuntimeError("db down")))
+    await asyncio.sleep(1.0)  # > 2 * HEARTBEAT_INTERVAL (0.2)
+
+    assert cluster.deleted == []
+    assert (await get_task(task.id)).status == TASK_RUNNING
+    loop.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await loop
+
+
+async def test_shutdown_leaves_pods_running(orch_ctx, cluster):
+    worker = await register_execution_worker()
+    (task,) = await _image_job("shutdown")
+    loop = cluster.start(worker.id, max_empty_polls=100)
+    await _until(lambda: len(cluster.pods()) == 1)
+    cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
+
+    await request_execution_worker_stop(worker.id)
+    await loop
+
+    assert cluster.deleted == []
+    after = await get_task(task.id)
+    assert after.status == TASK_RUNNING and after.execution_worker_id == worker.id
+    async with get_sql_session() as session:
+        assert (await session.get(ExecutionWorker, worker.id)).status == "STOPPED"
+
+
+async def test_one_host_task_at_a_time(orch_ctx, cluster, monkeypatch):
+    running = {"now": 0, "peak": 0}
+
+    async def fake_host(task: Task, execution_worker_id: int):
+        running["now"] += 1
+        running["peak"] = max(running["peak"], running["now"])
+        await asyncio.sleep(0.3)
+        running["now"] -= 1
+        return True, None, None
+
+    monkeypatch.setattr(loop_mod, "dispatch_execute", fake_host)
+    for i in range(3):
+        await create_job(f"host_{i}", SIMPLE)
+
+    assert await cluster.start() == 3
+    assert running["peak"] == 1

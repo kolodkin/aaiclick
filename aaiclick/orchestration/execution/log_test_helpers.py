@@ -91,7 +91,7 @@ async def dispatch_with_fake_cli(
     for runner in (docker_worker, kubernetes_worker):
         monkeypatch.setattr(runner, "read_task_run_result", fake_result_read)
         monkeypatch.setattr(runner, "execution_worker_heartbeat", AsyncMock())
-    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
+    monkeypatch.setattr(dispatch, "resolve_dispatch", AsyncMock(return_value=spec))
 
     job = await create_job("fake_cli_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     task = (await get_tasks_for_job(job.id))[0]

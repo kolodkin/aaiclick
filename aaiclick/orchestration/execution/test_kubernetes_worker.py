@@ -17,17 +17,16 @@ import pytest
 from aaiclick.data.object.refs import native_ref
 
 from ...testing import get_task_runs
+from ..factories import create_job, create_task
+from ..jobs.queries import get_tasks_for_job
 from ..kubernetes_config import KubernetesConfig
 from ..logging import read_task_logs
-from ..models import TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, Task
-from ..runner_config import ENTRY_JVM, ImagePrebuilt
+from ..models import Task
+from ..runner_config import ENTRY_JVM
 from . import cli
 from . import kubernetes_worker as kw
-from .execution_worker import JobDispatch
 from .kubernetes_worker import build_shell_pod_manifest
-from .log_test_helpers import dispatch_with_fake_cli
 from .pod_watch import PodWatch, pod_labels
-from .runner_env import RUNNER_KUBERNETES
 
 
 def test_build_pod_manifest_shape():
@@ -76,30 +75,8 @@ def test_build_pod_manifest_omits_optional_fields():
     assert "resources" not in spec["containers"][0]
 
 
-def _handle(task_id=7, run_epoch=1):
-    return kw._PodHandle(
-        name="aaiclick-task-7-1",
-        namespace="default",
-        task_id=task_id,
-        job_id=1,
-        run_epoch=run_epoch,
-    )
-
-
-def _vehicle(entry_type="module"):
-    v = kw._KubernetesVehicle.__new__(kw._KubernetesVehicle)
-    v._spec = kw._PodSpec(
-        image_tag="img",
-        job_id=1,
-        namespace="default",
-        service_account=None,
-        image_pull_secret=None,
-        resources=None,
-        entry_type=entry_type,
-        command=None,
-        command_env=None,
-    )
-    return v
+def _vehicle():
+    return kw._KubernetesVehicle(kw._PodSpec("img", 1, "default", None, None, None, "module", None, None))
 
 
 LABELS = {"aaiclick/managed": "true", "aaiclick/job-id": "3", "aaiclick/task-id": "7", "aaiclick/run-epoch": "2"}
@@ -151,28 +128,6 @@ async def test_shell_launch_creates_pod_before_secret(monkeypatch, tmp_path, com
         assert created[1]["metadata"]["ownerReferences"][0]["uid"] == "uid-pod"
 
 
-def _collect(handle, exit_code, error, was_cancelled, payload, entry_type="module"):
-    return _vehicle(entry_type).collect(handle, exit_code, error, was_cancelled, payload)
-
-
-def test_collect_cancelled_overrides_row():
-    payload = kw.RunnerResult(True, {"x": 1}, None)
-    out = _collect(_handle(), 137, None, was_cancelled=True, payload=payload)
-    assert out.success is False and out.error == "cancelled"
-
-
-def test_collect_synthesizes_failure_when_row_missing():
-    out = _collect(_handle(), 1, None, was_cancelled=False, payload=None)
-    assert out.success is False
-    assert "no result" in (out.error or "")
-
-
-def test_collect_returns_row():
-    payload = kw.RunnerResult(True, native_ref(5), None)
-    out = _collect(_handle(), 0, None, was_cancelled=False, payload=payload)
-    assert out.success is True and out.result_ref == native_ref(5)
-
-
 async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
     """The runner env carries database passwords; anyone who can ``get pods``
     must not read them, so they travel in a per-attempt Secret."""
@@ -186,61 +141,6 @@ async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
     assert secret["kind"] == "Secret" and secret["stringData"] == {"AAICLICK_SQL_URL": "postgresql://u:hunter2@db/x"}
     assert pod["kind"] == "Pod" and "hunter2" not in json.dumps(pod)
     assert pod["spec"]["containers"][0]["envFrom"] == [{"secretRef": {"name": secret["metadata"]["name"]}}]
-
-
-async def test_module_pod_wait_reads_result_row(monkeypatch):
-    monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
-    row = kw.RunnerResult(True, None, None)
-    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=row))
-
-    exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
-
-    assert (exit_code, error) == (0, None)
-    assert payload is row
-
-
-@pytest.mark.parametrize(
-    "rc, stderr, expected_phase",
-    [
-        pytest.param(
-            1, 'Error from server (NotFound): pods "aaiclick-task-7-1" not found', kw.POD_NOT_FOUND, id="gone"
-        ),
-        pytest.param(1, "Unable to connect to the server: dial tcp: i/o timeout", "", id="transient"),
-    ],
-)
-async def test_pod_status_maps_kubectl_failure(monkeypatch, rc, stderr, expected_phase):
-    monkeypatch.setattr(kw.cli, "run", AsyncMock(return_value=(rc, "", stderr)))
-
-    assert await kw._pod_status(_handle()) == (expected_phase, -1)
-
-
-async def test_wait_ends_when_pod_disappears(monkeypatch):
-    """A Pod that vanishes never reports a terminal phase; ``wait`` must end on
-    ``POD_NOT_FOUND`` instead of looping forever."""
-    monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
-    monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), (kw.POD_NOT_FOUND, -1)]))
-    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
-
-    exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
-
-    assert (exit_code, error, payload) == (-1, "Pod aaiclick-task-7-1 disappeared", None)
-
-
-async def test_wait_retries_transient_kubectl_failure(monkeypatch):
-    """An empty phase (``kubectl`` could not answer) does not end the wait."""
-    monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
-    monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), ("", -1), ("Succeeded", 0)]))
-    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
-
-    exit_code, error, _ = await _vehicle("module").wait(_handle(), None)
-
-    assert (exit_code, error) == (0, None)
-
-
-def test_pod_spec_requires_pod_config():
-    task = Task(id=1, job_id=1, entrypoint="m.f", name="t", run_epoch=1)
-    with pytest.raises(RuntimeError, match="pod_config"):
-        kw._pod_spec_from(task, JobDispatch(RUNNER_KUBERNETES, None), "img:1")
 
 
 def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
@@ -320,108 +220,6 @@ case "$1" in
   delete) echo "$1" >> "$d/calls" ;;
 esac
 """
-
-
-async def test_shell_pod_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_path):
-    """The host copies the resolved kwargs into the waiting init container,
-    reads ``out.json`` back through the ``io`` sidecar, stores the result and
-    deletes the Pod."""
-    monkeypatch.setenv("FAKE_OUT_JSON", '{"_aaiclick_type": "native", "value": {"k": "v"}}')
-    spec = JobDispatch(
-        RUNNER_KUBERNETES,
-        KubernetesConfig("jobs", None, None),
-        entry_type="shell",
-        command=["sh", "-c", "x"],
-        command_env={"K": "v"},
-        image_source=ImagePrebuilt(image_tag="img:1"),
-    )
-    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, spec)
-
-    assert stored.result == native_ref({"k": "v"}), stored.error
-    assert (tmp_path / "copied-in.json").read_text() == "{}"
-    # in.json lands first, then the marker io-in waits for — kubectl cp
-    # extracts in place, so the marker is what proves the file is whole.
-    cps = (tmp_path / "cp-argv").read_text().splitlines()
-    assert [c.split()[2].rsplit(":", 1)[1] for c in cps] == ["/aaiclick/in.json", "/aaiclick/in.ready"]
-    assert all(c.split()[-2:] == ["-c", "io-in"] for c in cps)
-    exec_argv = (tmp_path / "exec-argv").read_text()
-    assert "-c io -- sh -c" in exec_argv and "/aaiclick/out.json" in exec_argv
-    assert (tmp_path / "calls").read_text().split() == ["apply", "create", "delete"]  # Pod first, then its owned Secret
-
-
-def _shell_spec() -> JobDispatch:
-    return JobDispatch(
-        RUNNER_KUBERNETES,
-        KubernetesConfig("jobs", None, None),
-        entry_type="shell",
-        command=["sh", "-c", "x"],
-        image_source=ImagePrebuilt(image_tag="img:1"),
-    )
-
-
-@pytest.mark.parametrize(
-    "mode, status, error",
-    [
-        # Only "no such file" is "no result"; any other read failure fails the task.
-        pytest.param("missing", TASK_COMPLETED, None, id="missing-out-json"),
-        pytest.param("broken", TASK_PENDING_FAILURE_CLEANUP, "unable to upgrade connection", id="exec-failure"),
-    ],
-)
-async def test_shell_pod_out_json_read_failures(orch_ctx, monkeypatch, tmp_path, mode, status, error):
-    monkeypatch.setenv("FAKE_OUT_MODE", mode)
-    stored = await dispatch_with_fake_cli(
-        monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, _shell_spec()
-    )
-    assert (stored.status, stored.result) == (status, None)
-    if error:
-        assert error in (stored.error or "")
-
-
-async def test_shell_pod_terminal_phase_without_task_exit_fails(orch_ctx, monkeypatch, tmp_path):
-    """A Pod that reaches Failed while the task container never ran (helper
-    image pull failure, activeDeadlineSeconds, eviction) ends the wait with
-    an error instead of parking the worker."""
-    monkeypatch.setenv("FAKE_POD_PHASE", "Failed")
-    stored = await dispatch_with_fake_cli(
-        monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, _shell_spec()
-    )
-    assert stored.status == TASK_PENDING_FAILURE_CLEANUP
-    assert "Failed before the task container terminated" in (stored.error or "")
-
-
-async def test_shell_pod_copy_in_failure_fails_the_task(orch_ctx, monkeypatch, tmp_path):
-    """``kubectl cp`` needs ``pods/exec``; a cluster without it must fail the
-    task with kubectl's reason, not park the Pod in Init forever."""
-    monkeypatch.setenv("FAKE_CP_FAIL", "1")
-    monkeypatch.setattr(kw, "COPY_IN_ATTEMPTS", 2)
-    monkeypatch.setattr(kw, "POLL_INTERVAL", 0.01)
-    stored = await dispatch_with_fake_cli(
-        monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, _shell_spec()
-    )
-    assert stored.status == TASK_PENDING_FAILURE_CLEANUP
-    assert "pods/exec forbidden" in (stored.error or "")
-
-
-async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
-    """The jvm shim writes no logs itself: the host registers the attempt and
-    follows ``kubectl logs -c task`` into task_logs (Kubernetes merges the
-    streams). The class name is the shim's one argument."""
-    monkeypatch.setenv("FAKE_OUT_JSON", "null")
-    spec = JobDispatch(
-        RUNNER_KUBERNETES,
-        KubernetesConfig("default", None, None),
-        entry_type=ENTRY_JVM,
-        command=["com.example.Pipeline"],
-        image_source=ImagePrebuilt(image_tag="img:1"),
-    )
-    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, spec)
-
-    (run,) = await get_task_runs(stored.id)
-    lines = await read_task_logs(stored.id, run.run_id)
-    assert [(line.stream, line.text) for line in lines] == [("stdout", "pod says hi")]
-    applied = json.loads((tmp_path / "applied.json").read_text())
-    task = applied["spec"]["containers"][0]
-    assert task["args"] == ["com.example.Pipeline"] and "command" not in task
 
 
 # ---------------------------------------------------------------------------
@@ -566,10 +364,18 @@ def shell_pod(monkeypatch, tmp_path):
     io_dir.mkdir()
     (io_dir / "in.json").write_text("{}")
 
+    knobs = SimpleNamespace(exec_mode="ok", cp_fails=False)
+
     async def fake_cli(*argv, check=True, stream=True, cwd=None, env=None):
         cli_calls.append(list(argv))
         if argv[1] == "exec":
+            if knobs.exec_mode == "missing":
+                return 3, "", ""
+            if knobs.exec_mode == "broken":
+                return 1, "", "error: unable to upgrade connection"
             return 0, _OUT_JSON, ""
+        if argv[1] == "cp" and knobs.cp_fails:
+            return 1, "", "pods/exec forbidden"
         return 0, "", ""
 
     async def fake_follow(argv, task_id, job_id, run_id):
@@ -600,7 +406,14 @@ def shell_pod(monkeypatch, tmp_path):
         return asyncio.create_task(coro)
 
     return SimpleNamespace(
-        watch=watch, created=created, deleted=deleted, cli=cli_calls, follows=follows, io_dir=io_dir, start=start
+        watch=watch,
+        created=created,
+        deleted=deleted,
+        cli=cli_calls,
+        follows=follows,
+        io_dir=io_dir,
+        start=start,
+        knobs=knobs,
     )
 
 
@@ -706,3 +519,97 @@ async def test_run_shell_pod_done_without_pod_terminal_phase(shell_pod):
     assert pod["status"]["phase"] == "Running"
     shell_pod.watch.apply(pod, deleted=False)
     assert (await run).success
+
+
+@pytest.mark.parametrize(
+    "mode, expected",
+    [
+        # Only "no such file" is "no result"; any other read failure fails the task.
+        pytest.param("missing", kw.RunnerResult(True, None, None), id="missing-out-json"),
+        pytest.param(
+            "broken",
+            kw.RunnerResult(False, None, "reading out.json failed: error: unable to upgrade connection"),
+            id="exec-failure",
+        ),
+    ],
+)
+async def test_run_shell_pod_out_json_read_failures(shell_pod, mode, expected):
+    shell_pod.knobs.exec_mode = mode
+    done = _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}})
+    shell_pod.watch.apply(done, deleted=False)
+
+    assert await shell_pod.start(image_tag=None, run_id=555) == expected
+
+
+async def test_run_shell_pod_copy_in_failure_fails_the_task(shell_pod, monkeypatch):
+    """``kubectl cp`` needs ``pods/exec``; a cluster without it fails the task
+    with kubectl's reason rather than parking the Pod in Init forever."""
+    monkeypatch.setattr(kw, "COPY_IN_ATTEMPTS", 2)
+    monkeypatch.setattr(kw, "POLL_INTERVAL", 0.01)
+    shell_pod.knobs.cp_fails = True
+    run = shell_pod.start()
+    await asyncio.sleep(0)
+    shell_pod.watch.apply(_shell_pod_json(_POD, {"running": {}}, {"waiting": {}}), deleted=False)
+
+    result = await run
+
+    assert result == kw.RunnerResult(False, None, "kubectl cp of in.json failed 2 times: pods/exec forbidden")
+    assert shell_pod.deleted == [_POD]
+
+
+async def test_run_shell_pod_jvm_logs_reach_task_logs(orch_ctx, monkeypatch, tmp_path):
+    """End to end against the fake ``kubectl`` script: the jvm shim writes no
+    logs itself, so the host registers the attempt once the task container
+    runs and follows ``kubectl logs -c task`` into task_logs. The class name
+    is the shim's one argument."""
+    kubectl = tmp_path / "kubectl"
+    kubectl.write_text(_FAKE_KUBECTL_SHELL)
+    kubectl.chmod(0o755)
+    monkeypatch.setenv("AAICLICK_KUBECTL_BIN", str(kubectl))
+    monkeypatch.setenv("FAKE_OUT_JSON", "null")
+    job = await create_job("jvm_logs", create_task("com.example.Pipeline", entry_type=ENTRY_JVM, image="img:1"))
+    (task,) = await get_tasks_for_job(job.id)
+    watch = PodWatch("default", str(kubectl))
+    name = kw._pod_name(task.id, task.run_epoch)
+
+    def pod(io_in: dict, task_state: dict) -> dict:
+        return {
+            "metadata": {"name": name, "labels": pod_labels(task.id, task.job_id, task.run_epoch)},
+            "spec": {"nodeName": "n1", "containers": [{"name": "task"}]},
+            "status": {
+                "phase": "Running",
+                "initContainerStatuses": [{"name": "io-in", "state": io_in}],
+                "containerStatuses": [{"name": "task", "state": task_state}],
+            },
+        }
+
+    run = asyncio.create_task(
+        kw.run_shell_pod(
+            task,
+            1,
+            KubernetesConfig("default", None, None),
+            watch,
+            image_tag="img:1",
+            command=["com.example.Pipeline"],
+            command_env=None,
+            resources=None,
+            run_id=None,
+            detach=[False],
+        )
+    )
+    await asyncio.sleep(0.2)
+    watch.apply(pod({"running": {}}, {"waiting": {}}), deleted=False)
+    await asyncio.sleep(0.2)
+    watch.apply(pod({"terminated": {"exitCode": 0}}, {"running": {}}), deleted=False)
+    await asyncio.sleep(0.2)
+    watch.apply(pod({"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False)
+
+    result = await run
+
+    assert result == kw.RunnerResult(True, None, None), result
+    (task_run,) = await get_task_runs(task.id)
+    lines = await read_task_logs(task.id, task_run.run_id)
+    assert [(line.stream, line.text) for line in lines] == [("stdout", "pod says hi")]
+    applied = json.loads((tmp_path / "applied.json").read_text())
+    container = applied["spec"]["containers"][0]
+    assert container["args"] == ["com.example.Pipeline"] and "command" not in container

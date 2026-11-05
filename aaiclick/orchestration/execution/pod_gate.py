@@ -27,12 +27,13 @@ class GateDecision(NamedTuple):
 
 def gate(states: Iterable[PodState], limits: K8sLimits) -> GateDecision:
     """Pure: ``blocked_jobs`` are jobs with ≥ ``max_pending`` unscheduled Pods;
-    the gate closes when unscheduled Pods reach ``max_pending_total`` or running
-    Pods reach ``max_pods``. Done Pods count toward nothing."""
-    pending = Counter(state.job_id for state in states if state.unscheduled and not state.done)
-    running = sum(1 for state in states if state.running)
+    the gate closes when unscheduled Pods reach ``max_pending_total`` or live
+    (not done) Pods reach ``max_pods`` — a just-created Pod counts, so a burst
+    cannot overshoot the cap. Done Pods count toward nothing."""
+    live = [state for state in states if not state.done]
+    pending = Counter(state.job_id for state in live if state.unscheduled)
     blocked = frozenset(job_id for job_id, n in pending.items() if n >= limits.max_pending)
     closed = sum(pending.values()) >= limits.max_pending_total or (
-        limits.max_pods is not None and running >= limits.max_pods
+        limits.max_pods is not None and len(live) >= limits.max_pods
     )
     return GateDecision(not closed, blocked)

@@ -39,6 +39,7 @@ LIMITS = K8sLimits(max_pending=2, max_pending_total=3, max_pods=None, pending_ti
         (_pod(1, scheduled=True, n=2), LIMITS._replace(max_pods=2), GateDecision(False, frozenset())),
         (_pod(1, scheduled=True, task=_DONE, n=2), LIMITS._replace(max_pods=2), GateDecision(True, frozenset())),
         (_pod(1, scheduled=False, task=_DONE, n=2), LIMITS, GateDecision(True, frozenset())),
+        (_pod(1, scheduled=False, task=_WAITING, n=1), LIMITS._replace(max_pods=1), GateDecision(False, frozenset())),
     ],
     ids=[
         "empty",
@@ -49,6 +50,7 @@ LIMITS = K8sLimits(max_pending=2, max_pending_total=3, max_pods=None, pending_ti
         "max-pods",
         "done-not-running",
         "done-not-pending",
+        "max-pods-counts-pending",
     ],
 )
 def test_gate(states, limits, expected):

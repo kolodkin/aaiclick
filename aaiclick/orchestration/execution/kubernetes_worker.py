@@ -1,20 +1,21 @@
-"""Kubernetes runner — host-side ExecuteFns driving Pods.
+"""Kubernetes runner — the Pod launchers and the watch-driven task coroutines.
 
 See docs/designs/kubernetes_runner.md.
 See docs/designs/orchestration.md — "Execution layers".
 
-Mirrors ``docker_worker``: ``_run_task_in_pod`` drives a ``KubernetesVehicle``
-via the shared ``drive_vehicle``. The Pod runs the shared container entrypoint
-(``remote_result``), which writes a ``RemoteTaskResult`` row the host reads
-back after the Pod exits.
+The concurrent worker (``k8s_worker_loop``) runs :func:`run_module_pod` /
+:func:`run_shell_pod` once per claimed task; both await their Pod's stage
+futures from the shared ``PodWatch`` instead of polling. A module Pod runs the
+shared container entrypoint (``remote_result``), which writes a
+``RemoteTaskResult`` row the host reads back once the ``task`` container exits.
 
-``_run_shell_in_pod`` is the shell/jvm counterpart on the file data plane
-(``io_plane``). A Pod has no filesystem the host can reach, in either
-direction, so the shell Pod carries two helper containers sharing an
-``emptyDir`` with the task: init container ``io-in`` waits for ``in.json``
-(``kubectl cp`` puts it there), and sidecar ``io`` outlives the task so
-``kubectl exec`` can read ``out.json`` back. The host waits on the *task*
-container's state, since the Pod never ends on its own.
+Shell and jvm tasks ride the file data plane (``io_plane``). A Pod has no
+filesystem the host can reach, in either direction, so the shell Pod carries
+two helper containers sharing an ``emptyDir`` with the task: init container
+``io-in`` waits for ``in.json`` (``kubectl cp`` puts it there), and sidecar
+``io`` outlives the task so ``kubectl exec`` can read ``out.json`` back. The
+*task* container's exit is what ends the run, since the Pod never ends on its
+own.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ import json
 import os
 import shutil
 import tempfile
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -33,21 +33,14 @@ from ..kubernetes_config import KubernetesConfig
 from ..logging import last_task_log_time
 from ..models import Task
 from . import cli
-from .docker_build import resolve_launch_image
 from .execution_worker import (
     POLL_INTERVAL,
-    JobDispatch,
     RunnerResult,
-    ShellVehicle,
-    TaskVehicle,
-    drive_shell_vehicle,
-    drive_vehicle,
-    execution_worker_heartbeat,
     finish_shell_outcome,
     parse_task_timeout,
 )
 from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json
-from .pod_watch import POD_NOT_FOUND, PodWatch, pod_labels
+from .pod_watch import PodWatch, pod_labels
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
 from .runner import (
     OUTPUT_FOLLOWER_DRAIN_TIMEOUT,
@@ -150,26 +143,9 @@ class _PodSpec(NamedTuple):
     command_env: dict[str, str] | None
 
 
-def _pod_spec_from(task: Task, dispatch: JobDispatch, image_tag: str) -> _PodSpec:
-    pod = dispatch.pod_config
-    if pod is None:
-        raise RuntimeError("kubernetes dispatch without pod_config")
-    return _PodSpec(
-        image_tag=image_tag,
-        job_id=task.job_id,
-        namespace=pod.namespace,
-        service_account=pod.service_account,
-        image_pull_secret=pod.image_pull_secret,
-        resources=dispatch.resources,
-        entry_type=dispatch.entry_type,
-        command=dispatch.command,
-        command_env=dispatch.command_env,
-    )
-
-
 class _PodHandle:
     """Pod identity + a ``deleted`` latch so ``cleanup`` doesn't re-delete a
-    Pod ``terminate`` already removed (the cancellation path)."""
+    Pod already removed."""
 
     def __init__(self, name: str, namespace: str, task_id: int, job_id: int, run_epoch: int) -> None:
         self.name = name
@@ -178,53 +154,12 @@ class _PodHandle:
         self.job_id = job_id
         self.run_epoch = run_epoch
         self.deleted = False
-        # Set by ``wait`` once the Pod leaves Pending (or ``wait`` ends), so the
-        # output follower needs no status polling of its own; ``phase`` is the
-        # phase seen at that moment.
-        self.started = asyncio.Event()
-        self.phase = ""
-
-    def mark_started(self, phase: str) -> None:
-        if not self.started.is_set():
-            self.phase = phase
-            self.started.set()
 
 
 async def _kubectl_delete(name: str, namespace: str) -> None:
     """Delete an attempt's Pod and its same-named env Secret."""
     resources = [f"pod/{name}", f"secret/{name}"]
     await cli.run(_kubectl_bin(), "delete", *resources, "-n", namespace, "--ignore-not-found", check=False)
-
-
-# ``Pending``, or empty when ``kubectl`` could not answer.
-_NOT_STARTED_PHASES = ("Pending", "")
-
-
-async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
-    """One ``kubectl get`` returning ``(phase, container exit code)``. The exit
-    code is ``-1`` until the container has terminated. A missing Pod reports
-    ``POD_NOT_FOUND``; any other ``kubectl`` failure reports an empty phase so
-    the caller retries."""
-    rc, out, err = await cli.run(
-        _kubectl_bin(),
-        "get",
-        "pod",
-        handle.name,
-        "-n",
-        handle.namespace,
-        "-o",
-        "jsonpath={.status.phase} {.status.containerStatuses[0].state.terminated.exitCode}",
-        check=False,
-    )
-    if rc != 0:
-        return (POD_NOT_FOUND if "NotFound" in err else ""), -1
-    parts = out.split()
-    phase = parts[0] if parts else ""
-    try:
-        exit_code = int(parts[1]) if len(parts) > 1 else -1
-    except ValueError:
-        exit_code = -1
-    return phase, exit_code
 
 
 def _build_env_secret(
@@ -360,35 +295,6 @@ class _ShellPodHandle(_PodHandle):
         self.copy_error = ""
 
 
-def _container_state(pod: dict, container: str, *, init: bool = False) -> tuple[str, int]:
-    """``(state, exit_code)`` of one container from a Pod's JSON status:
-    ``"running"`` / ``"terminated"`` / ``"waiting"`` / ``""`` (not reported),
-    exit code ``-1`` until terminated."""
-    key = "initContainerStatuses" if init else "containerStatuses"
-    for status in pod.get("status", {}).get(key, []):
-        if status.get("name") != container:
-            continue
-        state = status.get("state", {})
-        if "terminated" in state:
-            return "terminated", int(state["terminated"].get("exitCode", -1))
-        return next((k for k in ("running", "waiting") if k in state), ""), -1
-    return "", -1
-
-
-async def _pod_json(handle: _PodHandle) -> dict | None:
-    """One ``kubectl get -o json``; ``None`` when the Pod is gone, ``{}`` when
-    ``kubectl`` could not answer (the caller retries)."""
-    rc, out, err = await cli.run(
-        _kubectl_bin(), "get", "pod", handle.name, "-n", handle.namespace, "-o", "json", check=False, stream=False
-    )
-    if rc != 0:
-        return None if "NotFound" in err else {}
-    try:
-        return json.loads(out)
-    except json.JSONDecodeError:
-        return {}
-
-
 async def _read_out_json(name: str, namespace: str) -> tuple[str | None, Any]:
     """``(error, value)`` of the Pod's ``out.json`` read through the ``io``
     sidecar; ``(None, None)`` when the task wrote none."""
@@ -418,9 +324,9 @@ async def _read_out_json(name: str, namespace: str) -> tuple[str | None, Any]:
         return str(e), None
 
 
-class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
-    """Shell and jvm tasks on the Kubernetes runner — the file data plane
-    through the ``io-in`` / ``io`` helpers (see the module docstring)."""
+class _KubernetesShellVehicle:
+    """Launcher of a shell/jvm Pod on the file data plane (``io-in`` / ``io``
+    helpers, see the module docstring); :func:`run_shell_pod` drives it."""
 
     def __init__(self, spec: _PodSpec, timeout: float | None) -> None:
         self._spec = spec
@@ -479,71 +385,14 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
                 return
         handle.in_copied = True
 
-    async def wait(self, handle: _ShellPodHandle, timeout: float | None) -> tuple[int, str | None, Any]:
-        """Poll the Pod: copy ``in.json`` once ``io-in`` runs, then wait for
-        the ``task`` container to terminate. Both legs count against
-        ``timeout``; a Pod that vanishes (``terminate`` on cancellation,
-        eviction) ends the wait."""
-        deadline = None if timeout is None else time.monotonic() + timeout
-        while True:
-            pod = await _pod_json(handle)
-            if pod is None:
-                handle.mark_started(POD_NOT_FOUND)
-                return -1, f"Pod {handle.name} disappeared", None
-            if not handle.in_copied and _container_state(pod, _IO_IN_CONTAINER, init=True)[0] == "running":
-                await self._copy_in(handle)
-                if handle.copy_failures >= COPY_IN_ATTEMPTS:
-                    handle.mark_started(pod.get("status", {}).get("phase", ""))
-                    return -1, f"kubectl cp of in.json failed {handle.copy_failures} times: {handle.copy_error}", None
-            state, exit_code = _container_state(pod, _TASK_CONTAINER)
-            phase = pod.get("status", {}).get("phase", "")
-            if state in ("running", "terminated"):
-                handle.mark_started(phase or "Running")
-            if state == "terminated":
-                break
-            if phase in ("Succeeded", "Failed"):
-                # Helper image pull failure, activeDeadlineSeconds, eviction:
-                # the task container never ran and never will.
-                handle.mark_started(phase)
-                return -1, f"Pod {handle.name} {phase} before the task container terminated", None
-            if deadline is not None and time.monotonic() >= deadline:
-                handle.mark_started(pod.get("status", {}).get("phase", ""))
-                return -1, f"Task timed out after {timeout}s", None
-            await asyncio.sleep(POLL_INTERVAL)
-        if exit_code != 0:
-            return exit_code, None, None
-        error, out_value = await _read_out_json(handle.name, handle.namespace)
-        return exit_code, error, out_value
-
-    async def terminate(self, handle: _ShellPodHandle) -> None:
-        await _kubectl_delete(handle.name, handle.namespace)
-        handle.deleted = True
-
-    async def output_argv(self, handle: _ShellPodHandle) -> list[str] | None:
-        await handle.started.wait()
-        if handle.deleted or handle.phase in (*_NOT_STARTED_PHASES, POD_NOT_FOUND):
-            return None
-        return [_kubectl_bin(), "logs", "--follow", handle.name, "-n", handle.namespace, "-c", _TASK_CONTAINER]
-
     async def cleanup(self, handle: _ShellPodHandle) -> None:
         if not handle.deleted:
             await _kubectl_delete(handle.name, handle.namespace)
         shutil.rmtree(handle.io_dir, ignore_errors=True)
 
 
-async def _run_shell_in_pod(
-    task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
-) -> tuple[bool, dict | None, str | None]:
-    """ExecuteFn for shell and jvm tasks on the Kubernetes runner."""
-    image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
-    timeout = parse_task_timeout()
-    vehicle = _KubernetesShellVehicle(_pod_spec_from(task, dispatch, image_tag), timeout)
-    return await drive_shell_vehicle(task, execution_worker_id, vehicle, timeout=timeout, log_run_id=log_run_id)
-
-
-class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
-    """``TaskVehicle`` for module tasks on the Kubernetes runner (shell and
-    jvm tasks use :class:`_KubernetesShellVehicle`)."""
+class _KubernetesVehicle:
+    """Launcher of a module Pod; :func:`run_module_pod` drives it."""
 
     def __init__(self, spec: _PodSpec) -> None:
         self._spec = spec
@@ -574,77 +423,6 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await _kubectl_delete(name, self._spec.namespace)
             raise
         return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
-
-    async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
-        """Poll the Pod until it reaches a terminal phase.
-
-        A Pod that vanishes — deleted by ``terminate`` on cancellation, or
-        evicted — never reports Succeeded/Failed, so ``POD_NOT_FOUND`` ends the
-        wait too; otherwise a cancelled task with no timeout would park the
-        worker here forever."""
-        deadline = None if timeout is None else time.monotonic() + timeout
-        error: str | None = None
-        exit_code = -1
-        while True:
-            phase, exit_code = await _pod_status(handle)
-            if phase not in _NOT_STARTED_PHASES:
-                handle.mark_started(phase)
-            if phase in ("Succeeded", "Failed"):
-                break
-            if phase == POD_NOT_FOUND:
-                error, exit_code = f"Pod {handle.name} disappeared", -1
-                break
-            if deadline is not None and time.monotonic() >= deadline:
-                error, exit_code = f"Task timed out after {timeout}s", -1
-                break
-            await asyncio.sleep(POLL_INTERVAL)
-        handle.mark_started(phase)  # release a follower still waiting on a Pod that never ran
-        result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
-        return exit_code, error, result_row
-
-    async def terminate(self, handle: _PodHandle) -> None:
-        await _kubectl_delete(handle.name, handle.namespace)
-        handle.deleted = True
-
-    def collect(
-        self, handle: _PodHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult | None
-    ) -> RunnerResult:
-        return collect_remote_result(exit_code, error, was_cancelled, payload, "pod")
-
-    async def output_argv(self, handle: _PodHandle) -> list[str] | None:
-        """``kubectl logs -f`` fails on a ``Pending`` Pod (image pull,
-        scheduling), so wait until ``wait`` sees it start; a Pod that never ran
-        has nothing to follow, nor does one ``terminate`` already deleted. The
-        log merges stdout and stderr, so every line lands as stdout."""
-        await handle.started.wait()
-        if handle.deleted or handle.phase in (*_NOT_STARTED_PHASES, POD_NOT_FOUND):
-            return None
-        return [_kubectl_bin(), "logs", "--follow", handle.name, "-n", handle.namespace]
-
-    async def cleanup(self, handle: _PodHandle) -> None:
-        if handle.deleted:
-            return
-        await _kubectl_delete(handle.name, handle.namespace)
-
-
-async def _run_task_in_pod(
-    task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
-) -> tuple[bool, dict | None, str | None]:
-    """ExecuteFn for the Kubernetes runner."""
-    image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
-    spec = _pod_spec_from(task, dispatch, image_tag)
-    timeout = parse_task_timeout()
-    vehicle = _KubernetesVehicle(spec)
-    result = await drive_vehicle(
-        task,
-        execution_worker_id,
-        vehicle,
-        timeout=timeout,
-        poll_interval=POLL_INTERVAL,
-        heartbeat_fn=execution_worker_heartbeat,
-        log_run_id=log_run_id,
-    )
-    return result.success, result.result_ref, result.error
 
 
 # ---------------------------------------------------------------------------
