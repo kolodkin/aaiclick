@@ -18,7 +18,7 @@ STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" 
 # the guard's return value — importing the package would break the lint job.
 playwright_api = pytest.importorskip("playwright.sync_api")
 
-from seed import OBJECTS_JOB  # noqa: E402  (must follow the playwright guard)
+from seed import OBJECTS_JOB, WIDE_JOB, WIDE_TASKS  # noqa: E402  (must follow the playwright guard)
 
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs through chdb (local mode)")
@@ -151,3 +151,14 @@ def test_data_job_object_on_phone(page, base_url: str, shot) -> None:
     playwright_api.expect(jobs).to_have_class("scope-jobs is-expanded")
     assert jobs.bounding_box()["height"] >= small
     shot("data-job-list-expanded-phone")
+
+
+@_spa_built
+@_local_only
+def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
+    open_page(page, f"{base_url}/?p=@job {WIDE_JOB}")
+    page.get_by_text("part_000", exact=True).wait_for(timeout=15000)
+    shot("job-table-100-tasks")
+    open_page(page, f"{base_url}/?p=@job {WIDE_JOB} graph")
+    playwright_api.expect(page.locator(".gnode")).to_have_count(WIDE_TASKS, timeout=15000)
+    shot("job-graph-100-tasks")
