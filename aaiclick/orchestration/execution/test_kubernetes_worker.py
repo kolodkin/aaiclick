@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -536,3 +537,172 @@ async def test_pod_gone_reports_disappeared(module_pod):
     result = await run
 
     assert result.success is False and "disappeared" in (result.error or "")
+
+
+# ---------------------------------------------------------------------------
+# run_shell_pod — the watch-driven shell/jvm coroutine with mid-stage adoption
+# ---------------------------------------------------------------------------
+
+
+def _shell_pod_json(name: str, io_in: dict, task_state: dict, *, node: str | None = "n1") -> dict:
+    pod = _pod_json(name, task_state, node=node)
+    pod["status"]["initContainerStatuses"] = [{"name": "io-in", "state": io_in}]
+    return pod
+
+
+_SHELL_TASK = Task(id=7, job_id=3, entrypoint="m.f", name="t", run_epoch=2, entry_type="shell", kwargs={})
+_OUT_JSON = '{"_aaiclick_type": "native", "value": {"k": "v"}}'
+
+
+@pytest.fixture
+def shell_pod(monkeypatch, tmp_path):
+    """A fake cluster for ``run_shell_pod``: ``kubectl cp`` / ``exec`` are
+    recorded, the log follower and run registration are stubbed."""
+    created: list[dict] = []
+    deleted: list[str] = []
+    cli_calls: list[list[str]] = []
+    follows: list[list[str]] = []
+    io_dir = tmp_path / "io"
+    io_dir.mkdir()
+    (io_dir / "in.json").write_text("{}")
+
+    async def fake_cli(*argv, check=True, stream=True, cwd=None, env=None):
+        cli_calls.append(list(argv))
+        if argv[1] == "exec":
+            return 0, _OUT_JSON, ""
+        return 0, "", ""
+
+    async def fake_follow(argv, task_id, job_id, run_id):
+        follows.append(argv)
+
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", AsyncMock(side_effect=_fake_create(created)))
+    monkeypatch.setattr(kw, "_kubectl_delete", AsyncMock(side_effect=lambda name, ns: deleted.append(name)))
+    monkeypatch.setattr(kw, "stage_in_json", AsyncMock(return_value=io_dir))
+    monkeypatch.setattr(kw.cli, "run", fake_cli)
+    monkeypatch.setattr(kw, "follow_vehicle_output", fake_follow)
+    monkeypatch.setattr(kw, "register_run", AsyncMock(return_value=123))
+    monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=None))
+    watch = PodWatch("ns", "kubectl")
+
+    def start(*, image_tag: str | None = "img:1", run_id: int | None = None, detach: list[bool] | None = None):
+        coro = kw.run_shell_pod(
+            _SHELL_TASK,
+            1,
+            _POD_CONFIG,
+            watch,
+            image_tag=image_tag,
+            command=["sh", "-c", "x"],
+            command_env={"K": "v"},
+            resources=None,
+            run_id=run_id,
+            detach=detach or [False],
+        )
+        return asyncio.create_task(coro)
+
+    return SimpleNamespace(
+        watch=watch, created=created, deleted=deleted, cli=cli_calls, follows=follows, io_dir=io_dir, start=start
+    )
+
+
+def _cp_targets(calls: list[list[str]]) -> list[str]:
+    return [c[3].rsplit(":", 1)[1] for c in calls if c[1] == "cp"]
+
+
+async def test_run_shell_pod_full_lifecycle(shell_pod):
+    run = shell_pod.start()
+    await asyncio.sleep(0)
+    assert [m["kind"] for m in shell_pod.created] == ["Pod", "Secret"]
+
+    shell_pod.watch.apply(_shell_pod_json(_POD, {"running": {}}, {"waiting": {}}), deleted=False)
+    await asyncio.sleep(0.05)
+    assert _cp_targets(shell_pod.cli) == ["/aaiclick/in.json", "/aaiclick/in.ready"]
+    assert kw.register_run.await_count == 0 and shell_pod.follows == []
+
+    shell_pod.watch.apply(_shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"running": {}}), deleted=False)
+    await asyncio.sleep(0.05)
+    kw.register_run.assert_awaited_once_with(7)
+    assert shell_pod.follows and shell_pod.follows[0][1:3] == ["logs", "--follow"]
+    assert not any(a.startswith("--since-time") for a in shell_pod.follows[0])
+
+    shell_pod.watch.apply(
+        _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False
+    )
+    result = await run
+
+    assert result == kw.RunnerResult(True, native_ref({"k": "v"}), None)
+    assert [c[1] for c in shell_pod.cli if c[1] == "exec"] == ["exec"]
+    assert shell_pod.deleted == [_POD] and not shell_pod.io_dir.exists()
+
+
+async def test_run_shell_pod_adopted_at_io_in_restages_and_copies(shell_pod):
+    shell_pod.watch.apply(_shell_pod_json(_POD, {"running": {}}, {"waiting": {}}), deleted=False)
+    run = shell_pod.start(image_tag=None)
+    await asyncio.sleep(0.05)
+
+    assert shell_pod.created == []
+    kw.stage_in_json.assert_awaited_once()
+    assert _cp_targets(shell_pod.cli) == ["/aaiclick/in.json", "/aaiclick/in.ready"]
+    shell_pod.watch.apply(
+        _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False
+    )
+    assert (await run).success
+
+
+async def test_run_shell_pod_adopted_at_task_running_reuses_run_and_follows_since(shell_pod, monkeypatch):
+    since = datetime(2026, 11, 5, 12, 0, 1, tzinfo=UTC)
+    monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=since))
+    shell_pod.watch.apply(_shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"running": {}}), deleted=False)
+    run = shell_pod.start(image_tag=None, run_id=555)
+    await asyncio.sleep(0.05)
+
+    assert _cp_targets(shell_pod.cli) == []
+    kw.register_run.assert_not_awaited()
+    kw.last_task_log_time.assert_awaited_once_with(7, 555)
+    assert "--since-time=2026-11-05T12:00:01Z" in shell_pod.follows[0]
+    shell_pod.watch.apply(
+        _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False
+    )
+    assert (await run).success
+
+
+async def test_run_shell_pod_adopted_at_done_reads_out_json(shell_pod):
+    shell_pod.watch.apply(
+        _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False
+    )
+
+    result = await shell_pod.start(image_tag=None, run_id=555)
+
+    assert result.success and [c[1] for c in shell_pod.cli] == ["exec"]
+
+
+async def test_run_shell_pod_detached_keeps_pod_removes_tmpdir(shell_pod):
+    detach = [False]
+    run = shell_pod.start(detach=detach)
+    await asyncio.sleep(0)
+    detach[0] = True
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+
+    assert shell_pod.deleted == [] and not shell_pod.io_dir.exists()
+
+
+async def test_run_shell_pod_nonzero_exit_fails(shell_pod):
+    run = shell_pod.start()
+    await asyncio.sleep(0)
+    shell_pod.watch.apply(
+        _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 3}}), deleted=False
+    )
+    assert (await run) == kw.RunnerResult(False, None, "exit 3")
+
+
+async def test_run_shell_pod_done_without_pod_terminal_phase(shell_pod):
+    """The ``io`` sidecar keeps the Pod ``Running`` forever; the task
+    container's exit is what ends the run."""
+    run = shell_pod.start()
+    await asyncio.sleep(0)
+    pod = _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}})
+    pod["status"]["containerStatuses"].append({"name": "io", "state": {"running": {}}})
+    assert pod["status"]["phase"] == "Running"
+    shell_pod.watch.apply(pod, deleted=False)
+    assert (await run).success

@@ -190,11 +190,18 @@ async def drive_shell_vehicle(
     )
     if not result.success:
         return False, None, result.error
+    return await finish_shell_outcome(task, vehicle.out_value)
+
+
+async def finish_shell_outcome(task: Task, out_value: Any) -> RunnerResult:
+    """Interpret a shell/jvm task's ``out.json`` value host-side
+    (``finish_shell_result`` registers any returned tasks) and serialize the
+    data for the task row; an interpretation error fails the run."""
     try:
-        data = await finish_shell_result(task, vehicle.out_value)
+        data = await finish_shell_result(task, out_value)
     except Exception as e:
-        return False, None, f"{type(e).__name__}: {e}"
-    return True, serialize_task_result(data, task.job_id), None
+        return RunnerResult(False, None, f"{type(e).__name__}: {e}")
+    return RunnerResult(True, serialize_task_result(data, task.job_id), None)
 
 
 class WorkerStopped(Exception):

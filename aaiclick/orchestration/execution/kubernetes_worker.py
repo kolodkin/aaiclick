@@ -25,10 +25,12 @@ import os
 import shutil
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
 from ..kubernetes_config import KubernetesConfig
+from ..logging import last_task_log_time
 from ..models import Task
 from . import cli
 from .docker_build import resolve_launch_image
@@ -41,12 +43,19 @@ from .execution_worker import (
     drive_shell_vehicle,
     drive_vehicle,
     execution_worker_heartbeat,
+    finish_shell_outcome,
     parse_task_timeout,
 )
 from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json
 from .pod_watch import POD_NOT_FOUND, PodWatch, pod_labels
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import stage_in_json
+from .runner import (
+    OUTPUT_FOLLOWER_DRAIN_TIMEOUT,
+    follow_vehicle_output,
+    register_run,
+    stage_in_json,
+    stop_output_follower,
+)
 from .runner_env import build_runner_env
 
 IO_IMAGE_ENV = "AAICLICK_K8S_IO_IMAGE"
@@ -380,6 +389,35 @@ async def _pod_json(handle: _PodHandle) -> dict | None:
         return {}
 
 
+async def _read_out_json(name: str, namespace: str) -> tuple[str | None, Any]:
+    """``(error, value)`` of the Pod's ``out.json`` read through the ``io``
+    sidecar; ``(None, None)`` when the task wrote none."""
+    out_path = f"{CONTAINER_IO_DIR}/{OUT_JSON}"
+    rc, out, err = await cli.run(
+        _kubectl_bin(),
+        "exec",
+        name,
+        "-n",
+        namespace,
+        "-c",
+        _IO_CONTAINER,
+        "--",
+        "sh",
+        "-c",
+        f"if [ -f {out_path} ]; then cat {out_path}; else exit {_NO_OUT_JSON_RC}; fi",
+        check=False,
+        stream=False,
+    )
+    if rc == _NO_OUT_JSON_RC:
+        return None, None
+    if rc != 0:
+        return f"reading {OUT_JSON} failed: {err.strip() or out.strip()}", None
+    try:
+        return None, parse_out_json(out)
+    except ValueError as e:
+        return str(e), None
+
+
 class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
     """Shell and jvm tasks on the Kubernetes runner — the file data plane
     through the ``io-in`` / ``io`` helpers (see the module docstring)."""
@@ -474,30 +512,8 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
             await asyncio.sleep(POLL_INTERVAL)
         if exit_code != 0:
             return exit_code, None, None
-        out_path = f"{CONTAINER_IO_DIR}/{OUT_JSON}"
-        rc, out, err = await cli.run(
-            _kubectl_bin(),
-            "exec",
-            handle.name,
-            "-n",
-            handle.namespace,
-            "-c",
-            _IO_CONTAINER,
-            "--",
-            "sh",
-            "-c",
-            f"if [ -f {out_path} ]; then cat {out_path}; else exit {_NO_OUT_JSON_RC}; fi",
-            check=False,
-            stream=False,
-        )
-        if rc == _NO_OUT_JSON_RC:
-            return exit_code, None, None  # no out.json: no result
-        if rc != 0:
-            return exit_code, f"reading {OUT_JSON} failed: {err.strip() or out.strip()}", None
-        try:
-            return exit_code, None, parse_out_json(out)
-        except ValueError as e:
-            return exit_code, str(e), None
+        error, out_value = await _read_out_json(handle.name, handle.namespace)
+        return exit_code, error, out_value
 
     async def terminate(self, handle: _ShellPodHandle) -> None:
         await _kubectl_delete(handle.name, handle.namespace)
@@ -700,3 +716,101 @@ async def run_module_pod(
         watch.forget(name)
         if not detach[0]:
             await _kubectl_delete(name, pod_config.namespace)
+
+
+def _since_time(moment: datetime) -> str:
+    """``--since-time`` value: RFC 3339 in UTC, second precision (kubectl
+    rejects fractional offsets on some versions)."""
+    return moment.astimezone(UTC).strftime("--since-time=%Y-%m-%dT%H:%M:%SZ")
+
+
+async def run_shell_pod(
+    task: Task,
+    execution_worker_id: int,
+    pod_config: KubernetesConfig,
+    watch: PodWatch,
+    *,
+    image_tag: str | None,
+    command: list[str] | None,
+    command_env: dict[str, str] | None,
+    resources: dict | None,
+    run_id: int | None,
+    detach: list[bool],
+) -> RunnerResult:
+    """Run a shell/jvm task as a Pod on the file data plane, driven by the
+    shared watch, stage by stage: ``io-in`` running → copy ``in.json`` in;
+    ``task`` running → register the run (unless ``run_id`` names an existing
+    one) and follow its logs; done → read ``out.json``. ``image_tag`` None ⇒
+    adopted: no launch, resume at whatever stage the Pod is in — ``in.json``
+    is re-staged from the DB, the follower resumes after the last stored line.
+    Cancellation and ``detach`` work as in :func:`run_module_pod`."""
+    name = _pod_name(task.id, task.run_epoch)
+    namespace = pod_config.namespace
+    futures = watch.expect(name)
+    spec = _PodSpec(
+        image_tag=image_tag or "",
+        job_id=task.job_id,
+        namespace=namespace,
+        service_account=pod_config.service_account,
+        image_pull_secret=pod_config.image_pull_secret,
+        resources=resources,
+        entry_type=task.entry_type,
+        command=command,
+        command_env=command_env,
+    )
+    vehicle = _KubernetesShellVehicle(spec, parse_task_timeout())
+    handle: _ShellPodHandle | None = None
+    follower: asyncio.Task[None] | None = None
+    try:
+        if image_tag is not None:
+            try:
+                handle = await vehicle.launch(task, execution_worker_id)
+            except cli.CommandError as e:
+                if "exceeded quota" in e.stderr:
+                    raise QuotaExceeded(e.stderr.strip()) from e
+                raise
+        else:
+            io_dir = await stage_in_json(task)
+            (io_dir / _IN_READY).touch()
+            handle = _ShellPodHandle(name, namespace, task.id, task.job_id, task.run_epoch, io_dir)
+
+        state = await futures.io_in_running
+        if state.io_in.state == "running":
+            while not handle.in_copied and handle.copy_failures < COPY_IN_ATTEMPTS:
+                await vehicle._copy_in(handle)
+                if not handle.in_copied:
+                    await asyncio.sleep(POLL_INTERVAL)
+            if not handle.in_copied:
+                return RunnerResult(
+                    False, None, f"kubectl cp of in.json failed {handle.copy_failures} times: {handle.copy_error}"
+                )
+
+        await futures.task_running
+        since = await last_task_log_time(task.id, run_id) if run_id is not None else None
+        if run_id is None:
+            run_id = await register_run(task.id)
+        argv = [_kubectl_bin(), "logs", "--follow", name, "-n", namespace, "-c", _TASK_CONTAINER]
+        if since is not None:
+            argv.append(_since_time(since))
+        follower = asyncio.create_task(follow_vehicle_output(argv, task.id, task.job_id, run_id))
+
+        state = await futures.done
+        if state.gone:
+            return RunnerResult(False, None, f"Pod {name} disappeared")
+        if state.task.exit_code != 0:
+            return RunnerResult(False, None, f"exit {state.task.exit_code}")
+        error, out_value = await _read_out_json(name, namespace)
+        if error is not None:
+            return RunnerResult(False, None, error)
+        return await finish_shell_outcome(task, out_value)
+    except asyncio.CancelledError as e:
+        if detach[0]:
+            raise
+        return RunnerResult(False, None, _cancel_reason(e))
+    finally:
+        watch.forget(name)
+        await stop_output_follower(follower, 0.0 if detach[0] else OUTPUT_FOLLOWER_DRAIN_TIMEOUT)
+        if handle is not None:
+            shutil.rmtree(handle.io_dir, ignore_errors=True)
+        if not detach[0]:
+            await _kubectl_delete(name, namespace)
