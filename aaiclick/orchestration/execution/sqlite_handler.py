@@ -22,6 +22,7 @@ from ..models import (
     WORKER_TIMEOUT,
     Task,
 )
+from ..sql_utils import in_clause
 from .db_handler import DEPENDENCY_WHERE, DbHandler
 
 
@@ -29,8 +30,17 @@ class SqliteDbHandler(DbHandler):
     """SQLite: sequential SELECT + UPDATE, no row locking."""
 
     @staticmethod
-    async def claim_next_task(session: AsyncSession, execution_worker_id: int, now: datetime) -> Task | None:
+    async def claim_next_task(
+        session: AsyncSession,
+        execution_worker_id: int,
+        now: datetime,
+        exclude_job_ids: list[int],
+        allow_host_tasks: bool,
+    ) -> Task | None:
         # Step 1: find the next eligible task
+        excluded, exclude_params = in_clause(exclude_job_ids, "xj")
+        exclude_where = f"AND t.job_id NOT IN ({excluded})" if exclude_job_ids else ""
+        host_where = "" if allow_host_tasks else "AND NOT (t.image_source IS NULL OR t.image_source = 'null')"
         find_result = await session.execute(
             text(f"""
                 SELECT t.id FROM tasks t
@@ -38,6 +48,8 @@ class SqliteDbHandler(DbHandler):
                 WHERE t.status = :pending_status
                 AND (t.retry_after IS NULL OR t.retry_after <= :now)
                 AND j.status NOT IN (:cancelled_job_status, :failed_job_status)
+                {exclude_where}
+                {host_where}
                 {DEPENDENCY_WHERE}
                 ORDER BY j.started_at ASC NULLS LAST, t.id ASC
                 LIMIT 1
@@ -48,6 +60,7 @@ class SqliteDbHandler(DbHandler):
                 "cancelled_job_status": JOB_CANCELLED,
                 "failed_job_status": JOB_FAILED,
                 "now": now,
+                **exclude_params,
             },
         )
         row = find_result.fetchone()

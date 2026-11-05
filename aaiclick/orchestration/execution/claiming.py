@@ -3,6 +3,7 @@
 See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
 """
 
+from collections.abc import Collection
 from typing import cast
 
 from sqlalchemy import func, text, update
@@ -47,7 +48,9 @@ class TaskNotFound(ValueError):
     """Raised when no task with the given id exists."""
 
 
-async def claim_next_task(execution_worker_id: int) -> Task | None:
+async def claim_next_task(
+    execution_worker_id: int, *, exclude_job_ids: Collection[int] = (), allow_host_tasks: bool = True
+) -> Task | None:
     """
     Atomically claim the next available task for a worker.
 
@@ -65,13 +68,17 @@ async def claim_next_task(execution_worker_id: int) -> Task | None:
 
     Args:
         execution_worker_id: ID of the worker claiming the task
+        exclude_job_ids: Jobs to skip this claim (capacity-gated on kubernetes)
+        allow_host_tasks: False skips ``image_source IS NULL`` tasks
 
     Returns:
         Task if one was claimed, None if no tasks available
     """
     handler = get_db_handler()
     async with get_sql_session() as session:
-        task = await handler.claim_next_task(session, execution_worker_id, utc_now())
+        task = await handler.claim_next_task(
+            session, execution_worker_id, utc_now(), list(exclude_job_ids), allow_host_tasks
+        )
         await session.commit()
         return task
 
