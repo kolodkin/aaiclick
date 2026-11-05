@@ -114,7 +114,7 @@ All run on one asyncio event loop — no locks, no threads.
 | Pod-state map  | `dict[pod name → state]`: `spec.nodeName`, phase, container waiting reason, `scheduled_at`, labels. Written only by the watch. |
 | Gate           | Pure function over the map (see Capacity gate): returns `blocked_jobs` and whether any claim is allowed. |
 | Dispatcher     | Loop: wait on wake event or 1 s tick → clear event → run gate → `claim_next_task(exclude_jobs=…)` until gate closes or no task → `create_task(task coro)` per claim. First pass is restart reclaim. |
-| Task coro      | Launch Secret + Pod → `await` its Pod future → read `remote_task_results` → `_handle_task_result` → delete Pod + Secret. Shell Pods also run their `kubectl logs -f` follower. |
+| Task coro      | Create Pod, then its Secret owned by the Pod → `await` its Pod future → read `remote_task_results` → `_handle_task_result` → delete Pod (Secret garbage-collected). Shell Pods also run their `kubectl logs -f` follower. |
 | Heartbeat      | Every `HEARTBEAT_INTERVAL`: worker heartbeat + one claim-renew `UPDATE … WHERE execution_worker_id = :me AND (id, run_epoch) IN (in-flight)`. |
 | Cancel         | Every `POLL_INTERVAL`: one query for aborted in-flight `(task_id, run_epoch)` (`check_run_aborted` predicate over a set); cancels those task coros. |
 
@@ -158,6 +158,21 @@ Every Pod (and Secret) carries:
 | `aaiclick/job-id`    | `job_id`       |
 | `aaiclick/task-id`   | `task_id`      |
 | `aaiclick/run-epoch` | `run_epoch`    |
+
+## Secret ownership
+
+The per-attempt Secret holds the DB URLs (module) or `command_env` (shell), and
+the worker may not list Secrets (`rbac.yaml`: create / delete only). So no Secret
+may outlive its Pod:
+
+- Create the **Pod first** (`kubectl apply -o json` returns its `uid`), then the
+  Secret with `metadata.ownerReferences: [{apiVersion: v1, kind: Pod, name, uid}]`
+  (no `blockOwnerDeletion`, so no extra RBAC).
+- The Kubernetes garbage collector deletes the Secret whenever the Pod goes —
+  worker delete, eviction, manual delete.
+- Until the Secret exists the Pod waits in `CreateContainerConfigError`. A worker
+  crash in between leaves a Pod that never starts; `pending_timeout` fails it and
+  the Pod delete removes everything.
 
 ## Capacity gate
 
@@ -206,19 +221,20 @@ only in kubelet source; `NotTriggerScaleUp`
 is autoscaler-specific and also fires on "max size reached"; OCI registry codes
 ([error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes))
 reach the Pod only as free text. The task timeout (`parse_task_timeout`) starts
-when the container starts running, not at launch.
+when the container starts running, not at launch. Both timers count from the
+Pod's own timestamps — `metadata.creationTimestamp` and the `task` container's
+`state.running.startedAt` — so an adopted Pod keeps its original deadlines.
 
 ## Restart reclaim
 
 On start (and before the first claim), the worker lists `aaiclick/managed=true`
-Pods and Secrets and joins them with tasks in `RUNNING` / cancelling states:
+Pods and joins them with tasks in `RUNNING` / cancelling states:
 
 | Found                                                                 | Action                                                     |
 |-----------------------------------------------------------------------|------------------------------------------------------------|
 | Live Pod, task `RUNNING`, label epoch == `run_epoch`, owner adoptable | Move claim to this worker (`execution_worker_id`, renew `claim_expires_at`, epoch-fenced UPDATE), resume as an in-flight task |
 | Pod terminal, epoch matches                                           | Adopt, read `remote_task_results`, finish normally         |
-| Label epoch ≠ `run_epoch`, or task terminal / not found               | Delete Pod + Secret                                        |
-| Orphan Secret with no Pod                                             | Delete                                                     |
+| Label epoch ≠ `run_epoch`, or task terminal / not found               | Delete Pod                                                 |
 
 Reclaim starts from labeled Pods only, so docker / local / mp tasks are never
 touched. A `RUNNING` task whose Pod is gone is left to claim expiry
@@ -230,6 +246,7 @@ touched. A `RUNNING` task whose Pod is gone is left to claim expiry
 runs adopted just stops tracking them (see batched heartbeat) — no Pod is killed.
 
 Gate counts and the watch map are rebuilt from the same list; no state is persisted.
+Secrets need no reclaim pass (see Secret ownership).
 
 ## Shutdown
 
