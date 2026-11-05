@@ -213,8 +213,12 @@ def missing_local_tables() -> list[str]:
     setup, a wiped data dir) looked set up and every query failed with "no such
     table".
 
-    Returns table names, empty when the database is current or absent.
+    Returns table names: all of them when ``local.db`` is absent, none when it
+    is current or in Postgres mode.
     """
+    db_path = _local_db_path()
+    if db_path is not None and not db_path.exists():
+        return sorted(SQLModel.metadata.tables)
     with _local_db_connection() as conn:
         return [] if conn is None else _drift(conn).missing_tables
 
