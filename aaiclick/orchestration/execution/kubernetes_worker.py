@@ -43,7 +43,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json
-from .pod_watch import POD_NOT_FOUND
+from .pod_watch import POD_NOT_FOUND, pod_labels
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
 from .runner import stage_in_json
 from .runner_env import build_runner_env
@@ -90,6 +90,7 @@ def _build_pod_manifest(
     namespace: str,
     image_tag: str,
     task_id: int,
+    job_id: int,
     run_epoch: int,
     env_secret: str,
     service_account: str | None,
@@ -115,6 +116,7 @@ def _build_pod_manifest(
     return _pod_scaffold(
         name=name,
         namespace=namespace,
+        labels=pod_labels(task_id, job_id, run_epoch),
         service_account=service_account,
         image_pull_secret=image_pull_secret,
         containers=[container],
@@ -128,6 +130,7 @@ def _build_pod_manifest(
 
 class _PodSpec(NamedTuple):
     image_tag: str
+    job_id: int
     namespace: str
     service_account: str | None
     image_pull_secret: str | None
@@ -143,6 +146,7 @@ def _pod_spec_from(task: Task, dispatch: JobDispatch, image_tag: str) -> _PodSpe
         raise RuntimeError("kubernetes dispatch without pod_config")
     return _PodSpec(
         image_tag=image_tag,
+        job_id=task.job_id,
         namespace=pod.namespace,
         service_account=pod.service_account,
         image_pull_secret=pod.image_pull_secret,
@@ -213,41 +217,65 @@ async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
     return phase, exit_code
 
 
-def _build_env_secret(name: str, namespace: str, env: dict[str, str]) -> dict:
+def _build_env_secret(
+    name: str, namespace: str, env: dict[str, str], *, labels: dict[str, str], owner_uid: str
+) -> dict:
     """Manifest of the per-attempt Secret a Pod reads its env from
     (``envFrom``). ``stringData`` carries the values verbatim (no env-file
-    format limits), and the Secret shares the Pod's name so one delete removes
-    both."""
+    format limits). The Secret is owned by its Pod (``ownerReferences`` on the
+    Pod's uid), so the garbage collector removes it however the Pod goes; the
+    worker never needs to list Secrets."""
     return {
         "apiVersion": "v1",
         "kind": "Secret",
-        "metadata": {"name": name, "namespace": namespace},
+        "metadata": {
+            "name": name,
+            "namespace": namespace,
+            "labels": labels,
+            "ownerReferences": [{"apiVersion": "v1", "kind": "Pod", "name": name, "uid": owner_uid}],
+        },
         "type": "Opaque",
         "stringData": env,
     }
 
 
-async def _kubectl_create_from_file(manifest: dict, verb: str = "create") -> None:
+async def _kubectl_create_from_file(manifest: dict, verb: str = "create") -> dict:
     """``kubectl <verb> -f`` a manifest through a private (0600) temp file —
-    never the argv — removed once kubectl returns."""
+    never the argv — removed once kubectl returns. Returns the created object
+    as kubectl reports it (``-o json``), so a Pod's uid can own its Secret."""
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(manifest, f)
         manifest_path = f.name
     try:
-        await cli.run(_kubectl_bin(), verb, "-f", manifest_path)
+        _, out, _ = await cli.run(_kubectl_bin(), verb, "-f", manifest_path, "-o", "json", stream=False)
     finally:
         os.unlink(manifest_path)
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        return {}
+
+
+def _uid(created: dict) -> str:
+    return created.get("metadata", {}).get("uid", "")
 
 
 def _pod_scaffold(
-    *, name: str, namespace: str, service_account: str | None, image_pull_secret: str | None, containers: list[dict]
+    *,
+    name: str,
+    namespace: str,
+    labels: dict[str, str],
+    service_account: str | None,
+    image_pull_secret: str | None,
+    containers: list[dict],
 ) -> dict:
     spec: dict = {"restartPolicy": "Never", "containers": containers}
     if service_account:
         spec["serviceAccountName"] = service_account
     if image_pull_secret:
         spec["imagePullSecrets"] = [{"name": image_pull_secret}]
-    return {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "namespace": namespace}, "spec": spec}
+    metadata = {"name": name, "namespace": namespace, "labels": labels}
+    return {"apiVersion": "v1", "kind": "Pod", "metadata": metadata, "spec": spec}
 
 
 def build_shell_pod_manifest(
@@ -255,6 +283,9 @@ def build_shell_pod_manifest(
     name: str,
     namespace: str,
     image_tag: str,
+    task_id: int,
+    job_id: int,
+    run_epoch: int,
     command: list[str],
     service_account: str | None,
     image_pull_secret: str | None,
@@ -296,6 +327,7 @@ def build_shell_pod_manifest(
     manifest = _pod_scaffold(
         name=name,
         namespace=namespace,
+        labels=pod_labels(task_id, job_id, run_epoch),
         service_account=service_account,
         image_pull_secret=image_pull_secret,
         containers=[task, io],
@@ -361,12 +393,13 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
         handle = _ShellPodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch, io_dir)
         try:
             (io_dir / _IN_READY).touch()
-            if self._spec.command_env:
-                await _kubectl_create_from_file(_build_env_secret(name, self._spec.namespace, self._spec.command_env))
             manifest = build_shell_pod_manifest(
                 name=name,
                 namespace=self._spec.namespace,
                 image_tag=self._spec.image_tag,
+                task_id=task.id,
+                job_id=task.job_id,
+                run_epoch=task.run_epoch,
                 command=self._spec.command or [],
                 service_account=self._spec.service_account,
                 image_pull_secret=self._spec.image_pull_secret,
@@ -374,7 +407,14 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
                 command_env_secret=name if self._spec.command_env else None,
                 active_deadline=self._deadline,
             )
-            await _kubectl_create_from_file(manifest, "apply")
+            # Pod first: the Secret is owned by the Pod's uid, so it can never outlive it.
+            pod = await _kubectl_create_from_file(manifest, "apply")
+            if self._spec.command_env:
+                labels = pod_labels(task.id, task.job_id, task.run_epoch)
+                secret = _build_env_secret(
+                    name, self._spec.namespace, self._spec.command_env, labels=labels, owner_uid=_uid(pod)
+                )
+                await _kubectl_create_from_file(secret)
         except BaseException:
             await self.cleanup(handle)
             raise
@@ -493,20 +533,26 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
 
     async def launch(self, task: Task, execution_worker_id: int) -> _PodHandle:
         name = _pod_name(task.id, task.run_epoch)
+        labels = pod_labels(task.id, task.job_id, task.run_epoch)
         try:
-            await _kubectl_create_from_file(_build_env_secret(name, self._spec.namespace, build_runner_env()))
             manifest = _build_pod_manifest(
                 name=name,
                 namespace=self._spec.namespace,
                 image_tag=self._spec.image_tag,
                 task_id=task.id,
+                job_id=task.job_id,
                 run_epoch=task.run_epoch,
                 env_secret=name,
                 service_account=self._spec.service_account,
                 image_pull_secret=self._spec.image_pull_secret,
                 resources=self._spec.resources,
             )
-            await _kubectl_create_from_file(manifest, "apply")
+            # Pod first: the Secret is owned by the Pod's uid, so it can never outlive it.
+            pod = await _kubectl_create_from_file(manifest, "apply")
+            secret = _build_env_secret(
+                name, self._spec.namespace, build_runner_env(), labels=labels, owner_uid=_uid(pod)
+            )
+            await _kubectl_create_from_file(secret)
         except BaseException:
             await _kubectl_delete(name, self._spec.namespace)
             raise

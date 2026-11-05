@@ -31,6 +31,7 @@ def test_build_pod_manifest_shape():
         namespace="ml",
         image_tag="reg/aaiclick-job:abc",
         task_id=7,
+        job_id=3,
         run_epoch=2,
         env_secret="p",
         service_account="sa",
@@ -38,7 +39,7 @@ def test_build_pod_manifest_shape():
         resources={"limits": {"cpu": "1"}},
     )
     assert m["kind"] == "Pod"
-    assert m["metadata"] == {"name": "aaiclick-task-7-2", "namespace": "ml"}
+    assert m["metadata"] == {"name": "aaiclick-task-7-2", "namespace": "ml", "labels": LABELS}
     spec = m["spec"]
     assert spec["restartPolicy"] == "Never"
     assert spec["serviceAccountName"] == "sa"
@@ -57,6 +58,7 @@ def test_build_pod_manifest_omits_optional_fields():
         namespace="default",
         image_tag="img",
         task_id=1,
+        job_id=1,
         run_epoch=0,
         env_secret="n",
         service_account=None,
@@ -83,6 +85,7 @@ def _vehicle(entry_type="module"):
     v = kw._KubernetesVehicle.__new__(kw._KubernetesVehicle)
     v._spec = kw._PodSpec(
         image_tag="img",
+        job_id=1,
         namespace="default",
         service_account=None,
         image_pull_secret=None,
@@ -92,6 +95,55 @@ def _vehicle(entry_type="module"):
         command_env=None,
     )
     return v
+
+
+LABELS = {"aaiclick/managed": "true", "aaiclick/job-id": "3", "aaiclick/task-id": "7", "aaiclick/run-epoch": "2"}
+
+
+def _fake_create(created: list[dict]):
+    """Stand-in for ``_kubectl_create_from_file``: records manifests and
+    answers like ``kubectl -o json``, with a uid for Pods."""
+
+    async def create(manifest: dict, verb: str = "create") -> dict:
+        created.append(manifest)
+        return {**manifest, "metadata": {**manifest["metadata"], "uid": f"uid-{manifest['kind'].lower()}"}}
+
+    return create
+
+
+def test_env_secret_owned_by_pod():
+    secret = kw._build_env_secret("aaiclick-task-7-2", "ns", {"A": "1"}, labels=LABELS, owner_uid="u1")
+    assert secret["metadata"]["labels"] == LABELS
+    assert secret["metadata"]["ownerReferences"] == [
+        {"apiVersion": "v1", "kind": "Pod", "name": "aaiclick-task-7-2", "uid": "u1"}
+    ]
+
+
+async def test_module_launch_creates_pod_before_secret(monkeypatch):
+    monkeypatch.setattr(kw, "build_runner_env", lambda: {"X": "1"})
+    created: list[dict] = []
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", AsyncMock(side_effect=_fake_create(created)))
+
+    await _vehicle().launch(Task(id=7, job_id=3, entrypoint="m.f", name="t", run_epoch=2), execution_worker_id=1)
+
+    assert [m["kind"] for m in created] == ["Pod", "Secret"]
+    assert created[1]["metadata"]["ownerReferences"][0]["uid"] == "uid-pod"
+    assert created[0]["metadata"]["labels"] == LABELS == created[1]["metadata"]["labels"]
+
+
+@pytest.mark.parametrize("command_env,kinds", [({"K": "v"}, ["Pod", "Secret"]), (None, ["Pod"])])
+async def test_shell_launch_creates_pod_before_secret(monkeypatch, tmp_path, command_env, kinds):
+    created: list[dict] = []
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", AsyncMock(side_effect=_fake_create(created)))
+    monkeypatch.setattr(kw, "stage_in_json", AsyncMock(return_value=tmp_path))
+    spec = kw._PodSpec("img", 3, "ns", None, None, None, "shell", ["true"], command_env)
+    vehicle = kw._KubernetesShellVehicle(spec, timeout=None)
+
+    await vehicle.launch(Task(id=7, job_id=3, entrypoint="m.f", name="t", run_epoch=2), execution_worker_id=1)
+
+    assert [m["kind"] for m in created] == kinds
+    if command_env:
+        assert created[1]["metadata"]["ownerReferences"][0]["uid"] == "uid-pod"
 
 
 def _collect(handle, exit_code, error, was_cancelled, payload, entry_type="module"):
@@ -121,13 +173,11 @@ async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
     must not read them, so they travel in a per-attempt Secret."""
     monkeypatch.setattr(kw, "build_runner_env", lambda: {"AAICLICK_SQL_URL": "postgresql://u:hunter2@db/x"})
     created: list[dict] = []
-    monkeypatch.setattr(
-        kw, "_kubectl_create_from_file", AsyncMock(side_effect=lambda m, verb="create": created.append(m))
-    )
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", AsyncMock(side_effect=_fake_create(created)))
 
     await _vehicle().launch(Task(id=7, job_id=1, entrypoint="m.f", name="t", run_epoch=2), execution_worker_id=1)
 
-    secret, pod = created
+    pod, secret = created
     assert secret["kind"] == "Secret" and secret["stringData"] == {"AAICLICK_SQL_URL": "postgresql://u:hunter2@db/x"}
     assert pod["kind"] == "Pod" and "hunter2" not in json.dumps(pod)
     assert pod["spec"]["containers"][0]["envFrom"] == [{"secretRef": {"name": secret["metadata"]["name"]}}]
@@ -194,6 +244,9 @@ def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
         name="p",
         namespace="ns",
         image_tag="img",
+        task_id=7,
+        job_id=3,
+        run_epoch=2,
         command=["sh", "-c", "x"],
         service_account="sa",
         image_pull_secret=None,
@@ -202,6 +255,7 @@ def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
         active_deadline=90,
     )
     spec = m["spec"]
+    assert m["metadata"]["labels"] == LABELS
     assert spec["restartPolicy"] == "Never" and spec["serviceAccountName"] == "sa"
     assert spec["activeDeadlineSeconds"] == 90
     assert [c["name"] for c in spec["containers"]] == ["task", "io"]
@@ -225,6 +279,9 @@ def test_shell_pod_manifest_without_command_env_has_no_env_from():
         name="p",
         namespace="ns",
         image_tag="img",
+        task_id=1,
+        job_id=1,
+        run_epoch=0,
         command=["true"],
         service_account=None,
         image_pull_secret=None,
@@ -253,8 +310,9 @@ case "$1" in
           *) printf '%s' "$FAKE_OUT_JSON" ;;
         esac ;;
   logs) echo "pod says hi" ;;
-  apply) cp "$3" "$d/applied.json"; echo "$1" >> "$d/calls" ;;
-  create|delete) echo "$1" >> "$d/calls" ;;
+  apply) cp "$3" "$d/applied.json"; echo "$1" >> "$d/calls"; printf '{"metadata": {"uid": "u-fake"}}' ;;
+  create) echo "$1" >> "$d/calls"; printf '{"metadata": {"uid": "u-fake"}}' ;;
+  delete) echo "$1" >> "$d/calls" ;;
 esac
 """
 
@@ -283,7 +341,7 @@ async def test_shell_pod_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_
     assert all(c.split()[-2:] == ["-c", "io-in"] for c in cps)
     exec_argv = (tmp_path / "exec-argv").read_text()
     assert "-c io -- sh -c" in exec_argv and "/aaiclick/out.json" in exec_argv
-    assert (tmp_path / "calls").read_text().split() == ["create", "apply", "delete"]
+    assert (tmp_path / "calls").read_text().split() == ["apply", "create", "delete"]  # Pod first, then its owned Secret
 
 
 def _shell_spec() -> JobDispatch:
