@@ -13,6 +13,7 @@ from aaiclick.__main__ import (
     build_parser,
     main,
 )
+from aaiclick.internal_api.errors import Invalid
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_FAILED, Job, JobStatus, RegisteredJob, Task
 from aaiclick.orchestration.registered_jobs import run_job
 from aaiclick.orchestration.sql_context import get_sql_session
@@ -384,6 +385,45 @@ def test_setup_does_not_prompt_when_not_a_tty(monkeypatch):
     _run_setup_main()
 
     assert calls == [False]
+
+
+def _stub_local_start(monkeypatch, setup) -> list[str]:
+    """Stub ``local start``'s setup and server; returns the calls in order."""
+    calls: list[str] = []
+
+    async def _start_local(**_kwargs):
+        calls.append("server")
+
+    monkeypatch.setattr("aaiclick.__main__.setup_api.setup", lambda: (setup(), calls.append("setup")))
+    monkeypatch.setattr("aaiclick.__main__.start_local", _start_local)
+    return calls
+
+
+def test_local_start_runs_setup_before_the_server(monkeypatch):
+    """A fresh install needs no separate ``setup`` before ``local start``."""
+    calls = _stub_local_start(monkeypatch, lambda: None)
+
+    with patch("sys.argv", ["aaiclick", "local", "start"]):
+        main()
+
+    assert calls == ["setup", "server"]
+
+
+def test_local_start_refuses_a_stale_local_db(monkeypatch, capsys):
+    """A stale local.db stops startup with setup's ``--force`` guidance —
+    the server never starts on a half-upgraded schema."""
+
+    def _stale():
+        raise Invalid("local.db predates this version; re-run setup with --force")
+
+    calls = _stub_local_start(monkeypatch, _stale)
+
+    with patch("sys.argv", ["aaiclick", "local", "start"]), pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    assert calls == []
+    assert "--force" in capsys.readouterr().err
 
 
 def test_token_parser_flags():
