@@ -34,6 +34,17 @@ Bring it back as one nightly job that publishes the report where it is read
 
 # Deferred
 
+## Kubernetes Worker Follow-ups
+
+- **Pod-side claim renewal**: a worker outage longer than `WORKER_TIMEOUT`
+  (10 min) still reaps running Pods. The module entrypoint (and a sidecar for
+  shell Pods) could renew `claim_expires_at` itself, epoch-fenced, so a run
+  survives any outage.
+- **Node-pool targeting**: `nodeSelector` / tolerations on `pod_config`, so a
+  job can be sent to a Karpenter `NodePool` or a GPU pool.
+- **Per-replica limits**: the capacity gate counts namespace-wide; several
+  worker replicas share `AAICLICK_K8S_MAX_*` instead of each getting its own.
+
 ## Build Quotas
 
 Shell/jvm children can declare image builds, so one job can queue many builds

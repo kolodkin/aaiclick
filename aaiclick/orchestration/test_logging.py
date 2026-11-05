@@ -3,11 +3,18 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from datetime import timedelta
 
 import pytest
 
-from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM
-from aaiclick.orchestration.logging import ChLogSink, capture_task_output, read_task_logs
+from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogLine
+from aaiclick.orchestration.logging import (
+    ChLogSink,
+    capture_task_output,
+    flush_task_logs,
+    last_task_log_time,
+    read_task_logs,
+)
 
 
 def test_sink_tags_lines_with_their_stream():
@@ -80,3 +87,17 @@ async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     assert mid_run_lines == ["early line"]
     final = [line.text for line in await read_task_logs(task_id, run_id)]
     assert final == ["early line", "late line"]
+
+
+async def test_last_task_log_time_is_newest_line(orch_ctx):
+    task_id, job_id, run_id = 777, 99, 556
+    assert await last_task_log_time(task_id, run_id) is None
+    await flush_task_logs(task_id, job_id, run_id, [LogLine(stream=STDOUT_STREAM, text="first")])
+    await flush_task_logs(task_id, job_id, run_id, [LogLine(stream=STDOUT_STREAM, text="second")], seq_offset=1)
+
+    newest = await last_task_log_time(task_id, run_id)
+    assert newest is not None
+
+    lines = await read_task_logs(task_id, run_id)
+    assert newest.utcoffset() == timedelta(0)
+    assert newest.replace(tzinfo=None) == lines[-1].created_at >= lines[0].created_at

@@ -20,8 +20,8 @@ import signal
 from aaiclick.backend import LOOPBACK_HOSTS, is_local
 
 from .background import BackgroundWorker
-from .execution import mp_worker_main_loop
-from .execution.runner_env import validate_worker_runner
+from .execution import k8s_worker_main_loop, mp_worker_main_loop
+from .execution.runner_env import RUNNER_KUBERNETES, get_worker_runner, validate_worker_runner
 from .orch_context import orch_context
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,8 @@ async def start_execution_worker(max_tasks: int | None = None) -> None:
 
     Each task runs in a dedicated child process for isolation.  The main
     process handles SQL (claim/status), the child process connects to
-    ClickHouse.  Run ``background start`` separately for table cleanup
+    ClickHouse. On ``AAICLICK_RUNNER=kubernetes`` the concurrent reconciler
+    (``k8s_worker_main_loop``) drives many Pods at once instead.  Run ``background start`` separately for table cleanup
     and job scheduling.
 
     Requires distributed backends (ClickHouse server + PostgreSQL).
@@ -52,7 +53,10 @@ async def start_execution_worker(max_tasks: int | None = None) -> None:
         )
     configure_logging()
     async with orch_context():
-        await mp_worker_main_loop(max_tasks=max_tasks)
+        if get_worker_runner() == RUNNER_KUBERNETES:
+            await k8s_worker_main_loop(max_tasks=max_tasks)
+        else:
+            await mp_worker_main_loop(max_tasks=max_tasks)
 
 
 # INFO stderr logging for the ``aaiclick`` logger tree. Python's WARNING

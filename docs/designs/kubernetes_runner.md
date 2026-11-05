@@ -1,14 +1,17 @@
 Kubernetes Runner
 ---
 
-**Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py`
+**Implementation**: `aaiclick/orchestration/execution/k8s_worker_loop.py`
 
 The Kubernetes runner executes each task in a fresh Pod built from the user's
 repo at a specific git SHA — the same model as the [Docker runner](orchestration.md),
 swapping `docker run` for a Pod. Both runners hand results back through the
 shared `remote_task_results` transport.
 
-It is a third `TaskVehicle` driven by the shared `drive_vehicle` lifecycle.
+Unlike the other runners, one kubernetes worker drives **many Pods at once**: a
+reconciler over the namespace's task Pods, bounded by what the cluster can
+schedule rather than by worker replicas, that re-adopts its Pods after a
+restart.
 
 Both `docker` and `kubectl` are driven through one subprocess helper,
 `execution/cli.py` (`run(...)` captures; `run(..., stream=True)` tees live output,
@@ -24,19 +27,33 @@ which is what `kubectl logs -f` needs).
 
 # Launch unit: a bare Pod
 
-The vehicle creates a bare Pod with `restartPolicy: Never`, not a Kubernetes
+The worker creates a bare Pod with `restartPolicy: Never`, not a Kubernetes
 `Job` object. aaiclick already owns retries (`Task.max_retries` / `attempt`)
 and dead-worker reaping; a `Job` controller's own backoff and re-creation would
-duplicate and fight that. The vehicle is the sole authority on the Pod's
+duplicate and fight that. The worker is the sole authority on the Pod's
 lifecycle.
+
+Every Pod carries the labels `aaiclick/managed=true`, `aaiclick/job-id`,
+`aaiclick/task-id` and `aaiclick/run-epoch`; the watch, the gate and restart
+reclaim all key on them. The Pod kind (module / shell / jvm) comes from the
+task's `entry_type`, not a label.
+
+## Secrets owned by their Pod
+
+The per-attempt Secret holds the DB URLs (module) or `command_env` (shell), and
+the worker may not list Secrets (`rbac.yaml`: create / delete only). So no Secret
+may outlive its Pod: the Pod is created first (`kubectl apply -o json` returns
+its `uid`), then the Secret with an `ownerReferences` entry to that uid. The
+garbage collector removes the Secret however the Pod goes — worker delete,
+eviction, manual delete. Until the Secret exists the Pod waits in
+`CreateContainerConfigError`; a worker crash in between leaves a Pod that never
+starts, which the not-started deadline fails and deletes.
 
 # Result handoff via `remote_task_results`
 
 A Pod may be scheduled on a different node, so a bind-mounted file handoff
-has no equivalent. Result transport lives entirely inside a vehicle's
-`wait()` / `collect()`: the container writes a database row the host reads
-back at the claimed epoch. The Docker runner shares this transport
-(`remote_result.py`).
+has no equivalent. The container writes a database row the host reads back at
+the claimed epoch. The Docker runner shares this transport (`remote_result.py`).
 
 ```python
 class RemoteTaskResult(SQLModel, table=True):
@@ -60,7 +77,7 @@ today.
 
 !!! warning "The Pod must never write `Task.status` or a terminal `task_runs` status"
     Terminal writes happen only in the host via `_handle_task_result`, or in the
-    reaper via `mark_dead_workers`. The Pod writes only its own
+    background worker via `release_expired_claims`. The Pod writes only its own
     `remote_task_results` row and, for module images, the `RUNNING` `task_runs`
     row `register_run` opens. Violating this reintroduces the double-write race the
     reaper invariant exists to prevent.
@@ -70,58 +87,145 @@ today.
 Module Pods stream stdout/stderr into the ClickHouse `task_logs` table from
 inside the Pod (`capture_task_output`), so `get_task_logs` reads them on the host
 with no node coordination. Shell Pods have no aaiclick harness, so the host
-follows `kubectl logs -f -c task` into `task_logs`, with `command_env` in a
-per-attempt Secret and `in.json` / `out.json` moved through the `io-in` /
-`io` helper containers — the Task Interface, `task_interface.md`.
+follows `kubectl logs -f -c task` into `task_logs` once the task container runs,
+with `command_env` in the per-attempt Secret and `in.json` / `out.json` moved
+through the `io-in` / `io` helper containers — the Task Interface,
+`task_interface.md`.
 
-# The vehicle
+# The reconciler
 
-`KubernetesVehicle` implements the five `TaskVehicle` methods; `drive_vehicle` is
-reused verbatim (heartbeating, cancellation polling, terminate-on-cancel,
-cancelled-overrides-result are all generic).
+**Implementation**: `aaiclick/orchestration/execution/k8s_worker_loop.py`
 
-| Method           | Kubernetes behaviour                                                              |
-|------------------|-----------------------------------------------------------------------------------|
-| `launch`         | `kubectl create` a per-attempt Secret holding the runner env (DB URLs), then `kubectl apply` a bare-Pod manifest reading it via `envFrom` (image_tag, `--task-id` / `--run-epoch`); handle = pod name + namespace + host log path |
-| `wait`           | Poll Pod phase to terminal/timeout, fetch `kubectl logs` to the host file, read the `remote_task_results` row and stash it on the handle; return `(exit_code, error)` |
-| `terminate`      | `kubectl delete` the Pod and its Secret (cancellation / timeout path)             |
-| `collect`        | Return the stashed result row; synthesize failure if absent; cancellation overrides |
-| `cleanup`        | `kubectl delete` the Pod and its Secret (idempotent); always runs, after logs are captured |
-
-The Pod runs the shared container entrypoint (`remote_result.remote_entry_main`,
-also used by Docker containers): boot `orch_context`, run the task through the
-shared `runner.execute_task` path, then write a `RemoteTaskResult` row.
-
-## Example: the Pod disappears mid-run
-
-A Pod that is deleted (cancellation) or evicted never reaches `Succeeded` or
-`Failed`, so `wait` cannot rely on phase alone. `_pod_status` reads kubectl's
-exit code and stderr and reports the sentinel `POD_NOT_FOUND`; any other
-kubectl failure reports an empty phase and is retried.
+`execution-worker start` runs `k8s_worker_main_loop` when `AAICLICK_RUNNER` is
+`kubernetes` (the serial mp loop otherwise). Everything runs on one asyncio
+event loop; per-tick cost is fixed, not per Pod.
 
 ```
-# poll 1 — Pod running, container not terminated yet
-$ kubectl get pod aaiclick-task-7-1 -n jobs -o jsonpath='{.status.phase} {...exitCode}'
-Running                                   → ("Running", -1)   keep polling
-
-# meanwhile: cancel_job(7) → check_run_aborted → terminate → kubectl delete pod
-
-# poll 2 — the Pod is gone
-$ kubectl get pod aaiclick-task-7-1 -n jobs ...
-Error from server (NotFound): pods "aaiclick-task-7-1" not found   (rc 1)
-                                          → ("NotFound", -1)  wait ends:
-                                            error "Pod aaiclick-task-7-1 disappeared"
-
-# by contrast, an API blip is not the Pod's fault
-$ kubectl get pod aaiclick-task-7-1 -n jobs ...
-Unable to connect to the server: dial tcp: i/o timeout             (rc 1)
-                                          → ("", -1)          keep polling
++------------------------------------------------------+
+| ExecutionWorker  (AAICLICK_RUNNER=kubernetes)        |
+| +-----------+   +-----------------+   +------------+ |
+| | Pod watch |-->| Pod-state map   |-->| Gate       | |
+| +-----------+   +-----------------+   +------------+ |
+|    | futures          | wake event        | open     |
+|    |        +------------------------------------+   |
+|    |        | Dispatcher: reclaim, claim, spawn  |   |
+|    |        +------------------------------------+   |
+|    v                   | create_task                 |
+| +---------------------------+ +-----------+ +------+ |
+| | Module coro | Shell coro  | | Heartbeat | |Status| |
+| | Host task (mp child) x 1  | | 30 s      | | 1 s  | |
+| +---------------------------+ +-----------+ +------+ |
++------------------------------------------------------+
 ```
 
-`collect` then folds the outcome: a fired cancellation wins (`"cancelled"`),
-otherwise the `disappeared` error stands, since an evicted Pod wrote no result
-row. Tests: `test_kubernetes_worker.py` — `test_pod_status_maps_kubectl_failure`,
-`test_wait_ends_when_pod_disappears`, `test_wait_retries_transient_kubectl_failure`.
+| Component   | Behaviour                                                                                                                                                                                                 |
+|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Pod watch   | One `kubectl get pods --watch-only --output-watch-events -l aaiclick/managed=true -o json` stream (`pod_watch.py`); updates the map, resolves per-Pod stage futures, wakes the dispatcher. On stream end: re-list, re-watch; a re-list on every heartbeat tick backstops events lost between list and stream start. |
+| Pod state   | Labels, `spec.nodeName`, phase, `io-in` / `task` container states. **Done** = the `task` container terminated, or the Pod is gone — one rule for module and shell Pods (a shell Pod's `io` sidecar never exits). |
+| Gate        | Pure function over the map (`pod_gate.py`), see below.                                                                                                                                                    |
+| Dispatcher  | Wakes on a Pod event or a 1 s tick; while the gate is open, claims with `exclude_job_ids` / `allow_host_tasks` and spawns one coroutine per task. The first pass is restart reclaim.                      |
+| Module coro | `run_module_pod`: Pod, then owned Secret → await done → read `remote_task_results` → delete the Pod.                                                                                                      |
+| Shell coro  | `run_shell_pod`: stage `in.json` → Pod (+ Secret when `command_env`) → `io-in` running: `kubectl cp` → `task` running: `register_run`, follow logs → done: `kubectl exec` reads `out.json` → delete the Pod. |
+| Host task   | `image_source IS NULL` tasks (image builds, plain host tasks) keep the mp child via `dispatch_execute`, one at a time; the claim query skips them while one runs.                                          |
+| Heartbeat   | Every 30 s: worker heartbeat, one `renew_claims` UPDATE for every in-flight Pod run, then the stale-Pod sweep.                                                                                             |
+| Status      | Every 1 s: one `in_flight_status` SELECT — the `check_run_aborted` predicate plus each attempt's `RUNNING` `task_runs.started_at`. Drives cancellation and both deadlines.                                 |
+
+A coroutine registers its Pod's futures **before** `kubectl apply`, so no event
+is missed. Cancellation is delivered as `Task.cancel(reason)`: a plain cancel
+(`cancel_job` / `clear_task`) deletes the Pod and reports `"cancelled"`; a
+deadline reason deletes the Pod and reports that reason as the failure.
+
+## Capacity gate
+
+Unscheduled Pods are the backpressure signal: Kubernetes (and any autoscaler —
+cluster-level, outside aaiclick's RBAC) does the capacity accounting, the worker
+only stops claiming while too many of its Pods wait for a node. A Pod is
+unscheduled when it has no `spec.nodeName`; Pod tasks the watch has not reported
+yet count as unscheduled too, so a burst of claims within one tick cannot
+overshoot.
+
+| Setting                        | Env var                          | Default           | Effect                                                   |
+|--------------------------------|----------------------------------|-------------------|----------------------------------------------------------|
+| `max_pending` (per job)        | `AAICLICK_K8S_MAX_PENDING`       | 10                | A job at the cap is skipped by the claim; others flow    |
+| `max_pending_total`            | `AAICLICK_K8S_MAX_PENDING_TOTAL` | 4 × `max_pending` | Claiming pauses                                          |
+| `max_pods`                     | `AAICLICK_K8S_MAX_PODS`          | unset             | Optional cap on live (not done) Pods                     |
+| `pending_timeout`              | `AAICLICK_K8S_PENDING_TIMEOUT`   | 900 s             | Not-started deadline, see below                          |
+
+Counts are namespace-wide, so with several worker replicas the limits —
+`max_pods` included — are shared, not per replica. A `ResourceQuota` rejection of `kubectl apply`
+(`exceeded quota`) releases the claim back to `PENDING` under a new epoch, with
+no attempt consumed, and pauses claiming for 30 s.
+
+## Deadlines
+
+Both deadlines come from the aaiclick DB only — no Kubernetes timestamps, no
+worker-local launch time — so they survive a restart and match what the UI
+shows. A task counts as **started** once the attempt's `RUNNING` `task_runs`
+row exists: `register_run` inside a module Pod, or the host's `register_run`
+when a shell Pod's `task` container starts.
+
+| Phase       | Deadline                              | On expiry                                                                                                |
+|-------------|---------------------------------------|----------------------------------------------------------------------------------------------------------|
+| Not started | `tasks.started_at + pending_timeout`  | Delete the Pod; fail with the scheduler message or container waiting reason (`ImagePullBackOff: …`), or "Pod running but the task never started"; normal retries |
+| Started     | `task_runs.started_at + task timeout` | Delete the Pod; fail through normal retries                                                              |
+
+One rule covers "never fits" and stuck image pulls: no event parsing, no
+message classification, no extra RBAC. A doomed task costs
+`pending_timeout × (max_retries + 1)` before it fails for good; the error carries
+the reason. Fail-fast was rejected because Kubernetes documents no reason meaning
+"permanent": `ImagePullBackOff` covers transient and permanent causes,
+`InvalidImageName` / `ErrImagePull` exist only in kubelet source, the autoscaler's
+`NotTriggerScaleUp` also fires on "max size reached", and OCI registry codes reach
+the Pod only as free text.
+
+## Ownership and restart
+
+Ownership is `execution_worker_id` + `run_epoch`, as for every worker. A Pod
+coroutine is **detached** (`detach[0] = True` before its cancel) whenever the
+worker lets go of a running Pod without finishing it; a detached coroutine
+deletes nothing.
+
+- **Shutdown** (`SIGTERM`, `execution-worker stop`): stop claiming, detach every
+  Pod coroutine, finish host tasks, deregister. The Pods keep running.
+- **Heartbeat outage**: 1.5 heartbeat intervals of silence (failed calls are
+  retried at a quarter interval, each bounded by it) detach every Pod
+  coroutine — before `ADOPT_AFTER`, so no adopter overlaps a live driver. The
+  next good heartbeat re-lists and takes the worker's own Pods back unless
+  another worker adopted them. This replaces `SELF_STOP_AFTER` on kubernetes.
+- **Shutdown before the Pod exists**: a detached coroutine whose Pod never
+  reached the cluster releases the claim (`release_claim`), so a rollout costs
+  no attempt.
+- **One cancel per coroutine**: deadlines and aborts cancel a coroutine once;
+  its cleanup (`kubectl delete --wait=false`, log drain) runs shielded, so a
+  result is never lost to a second cancel.
+- **Lost ownership**: a claim-renew row that did not match is re-read — epoch
+  changed (cleared / reaped) → cancel and delete the Pod; unchanged (adopted) →
+  detach.
+- **Adoption**: a worker may take a run whose owner is `STOPPED` or silent for
+  `ADOPT_AFTER` (2 × `HEARTBEAT_INTERVAL`); `adopt_run` is fenced on the previous
+  owner and the epoch, so two restarting replicas cannot both win.
+
+On start (and after an outage) the worker lists the managed Pods, loads their
+tasks and settles each one; the same pass without adoption runs on every
+heartbeat tick as the **stale-Pod sweep**, so Pods of tasks reaped or cleared
+during a long outage do not hold capacity:
+
+| Task row                                        | Action                                            |
+|-------------------------------------------------|---------------------------------------------------|
+| `RUNNING`, epoch matches, owner gone            | `adopt_run` → resume the coroutine at the Pod's stage (reclaim only) |
+| Cancelling, epoch matches, owner gone           | Delete the Pod, `release_cancelled_run`           |
+| Missing, epoch stale, or any other status       | Delete the Pod                                    |
+| Owner alive                                     | Leave                                             |
+
+An adopted module Pod is awaited where it is; an adopted shell Pod re-stages
+`in.json` from the DB if `io-in` still waits, reuses the open `task_runs` row
+and resumes the log follower with `--since-time` set to the last stored line
+(`logging.last_task_log_time`; second precision, so that line may repeat —
+log delivery across a restart is at-least-once), or reads `out.json` if it is
+already done.
+Deadlines are unchanged by adoption. An outage longer than `WORKER_TIMEOUT`
+(10 min) still falls back to claim expiry and a retry; Pod-side claim renewal is
+in `future.md`.
 
 # Image build is shared
 
@@ -149,6 +253,9 @@ the worker's environment, mirroring `AAICLICK_REGISTRY` and matching Argo's
 | `service_account`   | `AAICLICK_K8S_SERVICE_ACCOUNT`                     |
 | `image_pull_secret` | `AAICLICK_K8S_IMAGE_PULL_SECRET`                   |
 
+The concurrency limits (`AAICLICK_K8S_MAX_PENDING`, `…_MAX_PENDING_TOTAL`,
+`…_MAX_PODS`, `…_PENDING_TIMEOUT`) sit beside them, see "Capacity gate".
+
 `resources` (requests/limits) is the one per-job setting: a nullable JSON column
 on `RegisteredJob` (default) and `Job` (per-run snapshot: `run_job` kwarg →
 registration default → `None`), exposed on the Python API, `RegisterJobRequest`
@@ -157,31 +264,26 @@ and `RunJobRequest`, and validated at submission. It rides on
 its `limits` too; with no scheduler, docker ignores `requests` (mapping:
 [Resources](../user_guide/orchestration.md#resources-docker-kubernetes)).
 
-Both are resolved on the **worker at dispatch** and handed to the vehicle as
-`JobDispatch.pod_config` and `JobDispatch.resources`.
-
-# Selection and dispatch
-
-`dispatch._resolve_dispatch` picks the runner from the task and the worker, never
-from the job: a `NULL` `image_source` is a host subprocess; otherwise
-`get_worker_runner()` names the vehicle, and `None` raises a `DispatchError`
-("task declares an image_source but this worker has no `AAICLICK_RUNNER`"), which
-the worker loop already turns into a failed task. The job row is read only for
-`resources`, on both container runners.
-
-In-flight cancellation works from day one: the driver polls
-`check_run_aborted` and deletes the Pod when a run is cancelled or cleared,
-identical to the Docker `docker kill` path.
+Both are resolved on the **worker at dispatch** (`dispatch.resolve_dispatch`
+picks the runner from the task and the worker, never from the job: a `NULL`
+`image_source` is a host subprocess) and handed to the Pod coroutines.
 
 # End-to-end test
 
 `test_e2e/kubernetes/` mirrors `test_e2e/docker/`: the same `sample_job` fixture
 and git-daemon publishing, driven through the `register-job` → `run-job` CLI,
-polling for completion. The reusable workflow `_kubernetes-e2e-reusable.yaml`
-follows `_docker-e2e-reusable.yaml` with a **kind** cluster (the CI-standard
-lightweight Kubernetes) plus the same Postgres / ClickHouse services. A
-`kubernetes_e2e` marker gates the suite; collection skips it unless
-`kubectl cluster-info` succeeds.
+with `job_wait.start_worker_loop` running the reconciler in-process. The
+reusable workflow `_kubernetes-e2e-reusable.yaml` follows
+`_docker-e2e-reusable.yaml` with a **kind** cluster (the CI-standard lightweight
+Kubernetes) plus the same Postgres / ClickHouse services. A `kubernetes_e2e`
+marker gates the suite; collection skips it unless `kubectl cluster-info`
+succeeds.
+
+Three tests cover the concurrent worker: a fan-out whose peak number of live
+Pods, sampled while it runs, is above one; a worker stopped mid-run whose
+module and shell Pods the next worker adopts (one attempt each, shell log
+intact across the restart); and a job no node can fit that fails on the
+not-started deadline while another job completes beside it.
 
 !!! note "kind networking recipe (validated green in CI)"
     - **Registry**: a local `registry:2` on `127.0.0.1:5000` + a kind

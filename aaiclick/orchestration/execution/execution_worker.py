@@ -29,6 +29,7 @@ from ..models import (
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
+    HEARTBEAT_INTERVAL,
     SELF_STOP_AFTER,
     TASK_FAILED,
     TASK_PENDING_FAILURE_CLEANUP,
@@ -66,9 +67,6 @@ logger = logging.getLogger(__name__)
 # Args: (task, execution_worker_id). Returns: (success, result_ref, error).
 ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, dict | None, str | None]]]
 
-# Heartbeat interval in seconds
-HEARTBEAT_INTERVAL = 30
-
 # Poll interval when no tasks available
 POLL_INTERVAL = 1
 
@@ -95,7 +93,7 @@ class RunnerResult(NamedTuple):
 
 class JobDispatch(NamedTuple):
     """A task's runner plus the launch spec its runner needs, resolved once
-    per task in ``dispatch._resolve_dispatch``. ``runner`` None ⇒ host
+    per task in ``dispatch.resolve_dispatch``. ``runner`` None ⇒ host
     subprocess; ``pod_config`` is set only on the kubernetes runner;
     ``resources`` is the ``Job.resources`` snapshot, for every container runner."""
 
@@ -192,11 +190,18 @@ async def drive_shell_vehicle(
     )
     if not result.success:
         return False, None, result.error
+    return await finish_shell_outcome(task, vehicle.out_value)
+
+
+async def finish_shell_outcome(task: Task, out_value: Any) -> RunnerResult:
+    """Interpret a shell/jvm task's ``out.json`` value host-side
+    (``finish_shell_result`` registers any returned tasks) and serialize the
+    data for the task row; an interpretation error fails the run."""
     try:
-        data = await finish_shell_result(task, vehicle.out_value)
+        data = await finish_shell_result(task, out_value)
     except Exception as e:
-        return False, None, f"{type(e).__name__}: {e}"
-    return True, serialize_task_result(data, task.job_id), None
+        return RunnerResult(False, None, f"{type(e).__name__}: {e}")
+    return RunnerResult(True, serialize_task_result(data, task.job_id), None)
 
 
 class WorkerStopped(Exception):

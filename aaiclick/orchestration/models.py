@@ -240,6 +240,12 @@ WORKER_TIMEOUT = timedelta(minutes=10)
 # A worker whose last successful heartbeat is older than this stops itself,
 # before the sweep can declare it dead.
 SELF_STOP_AFTER = 0.8 * WORKER_TIMEOUT
+# Seconds between a worker's heartbeats (and claim renewals).
+HEARTBEAT_INTERVAL = 30
+# A worker silent for two heartbeats is adoptable: another kubernetes worker
+# may take over its runs (its Pods keep running meanwhile). The silent worker
+# detaches from its runs on the same threshold, so the two never overlap.
+ADOPT_AFTER = timedelta(seconds=2 * HEARTBEAT_INTERVAL)
 
 
 class ExecutionWorker(SQLModel, table=True):

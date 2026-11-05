@@ -21,7 +21,6 @@ from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_JVM, ENTRY_SHELL, parse_image_source
 from .docker_worker import _run_shell_in_container, _run_task_in_container
 from .execution_worker import JobDispatch
-from .kubernetes_worker import _run_shell_in_pod, _run_task_in_pod
 from .mp_worker import _run_task_in_child
 from .runner import ShellSpec, register_host_log_run, require_container_runner
 from .runner_env import RUNNER_DOCKER, RUNNER_KUBERNETES, WorkerRunner, get_worker_runner
@@ -39,7 +38,7 @@ def _subprocess_dispatch(task: Task) -> JobDispatch:
     return JobDispatch(None, None, task.entry_type, _launch_command(task), task.command_env, None)
 
 
-async def _resolve_dispatch(task: Task) -> JobDispatch:
+async def resolve_dispatch(task: Task) -> JobDispatch:
     """Pick the runner for a task from its own ``image_source`` and the worker.
 
     NULL ``image_source`` ⇒ host subprocess on any worker — the rule that
@@ -62,21 +61,23 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
 # registry rather than carry unused args.
 _IMAGE_RUNNERS: dict[WorkerRunner, Callable[[Task, int, JobDispatch, int | None], Awaitable[ExecuteResult]]] = {
     RUNNER_DOCKER: _run_task_in_container,
-    RUNNER_KUBERNETES: _run_task_in_pod,
 }
 
 
 _SHELL_RUNNERS: dict[WorkerRunner, Callable[[Task, int, JobDispatch, int | None], Awaitable[ExecuteResult]]] = {
     RUNNER_DOCKER: _run_shell_in_container,
-    RUNNER_KUBERNETES: _run_shell_in_pod,
 }
 """Shell/jvm tasks on the file data plane run host-side: the launch is a
 multi-step create/cp/start sequence, not one argv for the mp child."""
 
 
 async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResult:
-    """ExecuteFn that picks the runner per task."""
-    dispatch = await _resolve_dispatch(task)
+    """ExecuteFn that picks the runner per task. Kubernetes Pods are not
+    dispatched here: ``k8s_worker_loop`` drives them through the shared watch
+    and only hands host tasks to this function."""
+    dispatch = await resolve_dispatch(task)
+    if dispatch.runner == RUNNER_KUBERNETES:
+        raise RuntimeError(f"task {task.id} is a kubernetes Pod task; it is driven by k8s_worker_main_loop")
     if dispatch.entry_type in (ENTRY_SHELL, ENTRY_JVM):
         shell_handler = _SHELL_RUNNERS.get(dispatch.runner)
         if shell_handler is not None:

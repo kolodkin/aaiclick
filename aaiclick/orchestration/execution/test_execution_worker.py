@@ -272,6 +272,31 @@ async def test_claim_next_task_basic(orch_ctx):
         assert db_job.started_at is not None
 
 
+async def test_claim_skips_excluded_jobs(orch_ctx):
+    """A job named in ``exclude_job_ids`` is skipped even when its task is first in order."""
+    worker = await register_execution_worker()
+    job_a = await create_job("claim_excl_a", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    job_b = await create_job("claim_excl_b", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+
+    task = await claim_next_task(worker.id, exclude_job_ids={job_a.id})
+
+    assert task is not None and task.job_id == job_b.id
+
+
+async def test_claim_skips_host_tasks_when_disallowed(orch_ctx):
+    """``allow_host_tasks=False`` leaves ``image_source IS NULL`` tasks in the queue."""
+    worker = await register_execution_worker()
+    await create_job("claim_host_first", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    image_job = await create_job(
+        "claim_image_second",
+        create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task", image="reg/img:1"),
+    )
+
+    task = await claim_next_task(worker.id, allow_host_tasks=False)
+
+    assert task is not None and task.job_id == image_job.id and task.image_source is not None
+
+
 async def test_claim_next_task_does_not_register_claimed_task(orch_ctx):
     """A claimed (persisted) task never enters the active registry, or a long-lived worker leaks it."""
     execution_worker = await register_execution_worker()

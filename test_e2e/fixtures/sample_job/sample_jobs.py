@@ -13,6 +13,7 @@ boundaries — not just a single spawn."""
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from aaiclick import Object, create_object_from_value
@@ -103,3 +104,17 @@ async def jvm_fanout_entry_task(jvm_image: str):
     values >> fanned
     reported = report(summary=fanned)
     return tasks_list(values, fanned, reported)
+
+
+@task
+async def nap(seconds: float) -> float:
+    """Stay RUNNING for ``seconds``: the concurrency and worker-restart e2e
+    tests need Pods that are alive long enough to be counted or adopted."""
+    await asyncio.sleep(seconds)
+    return seconds
+
+
+@task
+async def fanout_naps(seconds: float = 20, count: int = 4):
+    """Fan out ``count`` independent naps, each in its own Pod."""
+    return tasks_list(*[nap(seconds=seconds) for _ in range(count)])

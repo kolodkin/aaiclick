@@ -5,7 +5,7 @@ holds no chdb session, so reading back what a worker child wrote requires
 another child that opens its own ``orch_context``.
 
 ``dispatch_with_fake_cli``: run a persisted task through ``dispatch_execute``
-against a fake ``docker`` / ``kubectl`` script.
+against a fake ``docker`` script (kubernetes Pods are driven by the reconciler, see ``test_k8s_worker_loop``).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from ..jobs import get_task
 from ..jobs.queries import get_tasks_for_job
 from ..logging import read_task_logs
 from ..models import Task
-from . import dispatch, docker_worker, execution_worker, kubernetes_worker
+from . import dispatch, docker_worker, execution_worker
 from .execution_worker import JobDispatch, RunnerResult
 from .runner import register_run
 
@@ -88,10 +88,9 @@ async def dispatch_with_fake_cli(
             await register_run(task_id)
         return result_row
 
-    for runner in (docker_worker, kubernetes_worker):
-        monkeypatch.setattr(runner, "read_task_run_result", fake_result_read)
-        monkeypatch.setattr(runner, "execution_worker_heartbeat", AsyncMock())
-    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
+    monkeypatch.setattr(docker_worker, "read_task_run_result", fake_result_read)
+    monkeypatch.setattr(docker_worker, "execution_worker_heartbeat", AsyncMock())
+    monkeypatch.setattr(dispatch, "resolve_dispatch", AsyncMock(return_value=spec))
 
     job = await create_job("fake_cli_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     task = (await get_tasks_for_job(job.id))[0]
