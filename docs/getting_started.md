@@ -54,6 +54,7 @@ Run a two-task job on a local server and watch it in the UI.
 ```bash
 mkdir my_project && cd my_project
 pip install "aaiclick[server]"
+python -m aaiclick setup
 ```
 
 ## 2. Write a job

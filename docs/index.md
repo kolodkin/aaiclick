@@ -68,8 +68,14 @@ The Object API also runs standalone, without tasks or jobs — wrap the code in
 `object_context()`. See [ObjectContext](user_guide/object_context.md).
 
 ```python
+import asyncio
+from aaiclick import create_object_from_value
+from aaiclick.data.object_context import object_context
+
 @object_context()
 async def main():
     prices = await create_object_from_value([10.0, 20.0, 30.0])
     print(await (prices * 1.1).data())  # → [11.0, 22.0, 33.0]
+
+asyncio.run(main())
 ```
