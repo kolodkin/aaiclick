@@ -30,24 +30,24 @@ exercised end to end.
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from sqlmodel import func, select, update
+from sqlmodel import func, select
 
 from aaiclick import create_object_from_value
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import objects as objects_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import viewer as viewer_api
-from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.factories import create_job, create_task, new_job_row
 from aaiclick.orchestration.models import (
     JOB_CANCELLED,
     JOB_COMPLETED,
     JOB_FAILED,
     JOB_RUNNING,
+    RUN_MANUAL,
     TASK_CANCELLED,
     TASK_COMPLETED,
     TASK_FAILED,
@@ -260,25 +260,31 @@ async def seed_filler_jobs() -> None:
                 return
         done = (JOB_COMPLETED, TASK_COMPLETED)
         cycle = (done, done, done, (JOB_FAILED, TASK_FAILED), (JOB_CANCELLED, TASK_CANCELLED))
-        by_status: dict[tuple[JobStatus, TaskStatus], list[int]] = defaultdict(list)
-        for i in range(FILLER_JOBS):
-            job = await create_job(FILLER_NAMES[i % len(FILLER_NAMES)], create_task(ENTRYPOINT, name="main"))
-            by_status[cycle[i % len(cycle)]].append(job.id)
 
+        def finished(job: Job, tasks: list[Task], statuses: tuple[JobStatus, TaskStatus]) -> None:
+            job.status, task_status = statuses
+            for row in (job, *tasks):
+                row.started_at, row.completed_at = _BASE, _offset(30)
+            for task in tasks:
+                task.status, task.job_id = task_status, job.id
+
+        # Rows built in memory, written in one transaction: ~1 commit instead of ~100.
+        async with get_sql_session() as session:
+            for i in range(FILLER_JOBS):
+                job = new_job_row(FILLER_NAMES[i % len(FILLER_NAMES)], run_type=RUN_MANUAL)
+                task = create_task(ENTRYPOINT, name="main")
+                finished(job, [task], cycle[i % len(cycle)])
+                session.add_all([job, task])
+            await session.commit()
+
+        # commit_tasks persists the fan-out edges; the job row rides in the same commit.
+        wide = new_job_row(WIDE_JOB, run_type=RUN_MANUAL)
         entry = create_task(ENTRYPOINT, name="fan_out")
-        wide = await create_job(WIDE_JOB, entry)
         branches = [create_task(ENTRYPOINT, name=f"part_{i:03d}") for i in range(WIDE_TASKS - 1)]
         for task in branches:
             entry >> task
-        await commit_tasks(branches, job_id=wide.id)
-        by_status[done].append(wide.id)
-
-        times = {"started_at": _BASE, "completed_at": _offset(30)}
-        async with get_sql_session() as session:
-            for (job_status, task_status), ids in by_status.items():
-                await session.execute(update(Job).where(Job.id.in_(ids)).values(status=job_status, **times))
-                await session.execute(update(Task).where(Task.job_id.in_(ids)).values(status=task_status, **times))
-            await session.commit()
+        finished(wide, [entry, *branches], done)
+        await commit_tasks(branches, job_id=wide.id, job=wide)
 
 
 if __name__ == "__main__":
