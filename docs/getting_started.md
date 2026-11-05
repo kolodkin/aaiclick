@@ -45,30 +45,6 @@ Getting Started
     Then connect the agent to `http://127.0.0.1:5255/mcp` — see
     [Lineage via MCP](user_guide/lineage.md).
 
-# Quick Example
-
-```python
-from aaiclick import create_object_from_value
-from aaiclick.orchestration import job, job_test, task
-
-@task
-async def load_prices():
-    return await create_object_from_value([10.0, 20.0, 30.0])
-
-@task
-async def with_tax(prices) -> list[float]:
-    return await (prices * 1.1).data()  # → [11.0, 22.0, 33.0]
-
-@job("prices")
-def prices_job():
-    return with_tax(prices=load_prices())
-
-job_test(prices_job)  # runs all tasks locally
-```
-
-!!! warning "Always `await` operation results"
-    Forgetting `await` causes confusing errors downstream, not at the forgotten line.
-
 # Your First Pipeline
 
 Run a two-task job on a local server and watch it in the UI.
@@ -102,7 +78,15 @@ async def double(x: int) -> int:
 @job("my_pipeline")
 def my_pipeline(a: int = 1, b: int = 2):
     return double(x=add(a=a, b=b))  # double waits for add
+
+
+if __name__ == "__main__":
+    from aaiclick.orchestration import job_test
+    job_test(my_pipeline, a=5)  # runs all tasks in-process for debugging
 ```
+
+`python my_pipeline.py` runs it in-process, no server needed. The next steps run
+it on a local server instead.
 
 ## 3. Start the server
 
