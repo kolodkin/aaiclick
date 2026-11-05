@@ -99,10 +99,9 @@ async def test_policy_all_logs_reads_and_off_logs_nothing(orch_ctx, enabled, ano
 
 
 async def test_audit_middleware_does_not_leak_a_ch_client_into_downstream():
-    """The middleware must not hold an ``orch_context`` open around the app it
-    wraps: the streamable-HTTP ``/mcp`` session captures the request context and
-    reuses its ChClient — closed once the request ends — for every later tool
-    call ("LazyChClient is closed"). The audit write gets its own short context.
+    """The middleware must not hold an ``orch_context`` around the wrapped app:
+    the ``/mcp`` session captures that context and reuses its ChClient — closed
+    once the request ends — for every later tool call ("LazyChClient is closed").
     """
     seen: list[object] = []
 

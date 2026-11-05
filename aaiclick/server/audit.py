@@ -6,9 +6,9 @@ and, after the response is done, reads what the request left on its
 never raised: auditing must not turn a served request into an error.
 See ``docs/designs/auth.md`` — Audit Log.
 
-It also opens the request's SQL context: every ``orch_scope`` dependency,
-API-token lookup, and the audit insert itself nest inside it and share one
-engine instead of each building and disposing their own.
+The audit insert opens its own short ``orch_context``; the middleware does not
+wrap the downstream app in one (that leaked a ``ChClient`` into the ``/mcp``
+session — see the call site). Downstream handlers open their own context.
 """
 
 from __future__ import annotations
