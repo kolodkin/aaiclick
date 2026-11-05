@@ -36,6 +36,7 @@ from ..models import (
     ExecutionWorkerStatus,
     Task,
     end_run,
+    HEARTBEAT_INTERVAL,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
@@ -65,9 +66,6 @@ logger = logging.getLogger(__name__)
 # Task execution strategy used by _execution_worker_loop.
 # Args: (task, execution_worker_id). Returns: (success, result_ref, error).
 ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, dict | None, str | None]]]
-
-# Heartbeat interval in seconds
-HEARTBEAT_INTERVAL = 30
 
 # Poll interval when no tasks available
 POLL_INTERVAL = 1

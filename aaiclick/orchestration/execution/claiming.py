@@ -4,9 +4,10 @@ See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
 """
 
 from collections.abc import Collection
-from typing import cast
+from datetime import datetime
+from typing import NamedTuple, cast
 
-from sqlalchemy import func, text, update
+from sqlalchemy import and_, exists, func, or_, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -31,6 +32,9 @@ from ..models import (
     TaskRun,
     TaskStatus,
     end_run,
+    ADOPT_AFTER,
+    EXECUTION_WORKER_STOPPED,
+    ExecutionWorker,
 )
 from ..orch_context import get_db_handler, get_sql_session
 from ..sql_utils import batched, in_clause
@@ -106,6 +110,129 @@ async def renew_claim(task_id: int, execution_worker_id: int, expected_epoch: in
         )
         await session.commit()
         return result.rowcount == 1
+
+
+class RunKey(NamedTuple):
+    """A worker's in-flight run: the task and the epoch it was claimed at."""
+
+    task_id: int
+    run_epoch: int
+
+
+class InFlightStatus(NamedTuple):
+    """One row of :func:`in_flight_status`."""
+
+    task_id: int
+    aborted: bool
+    run_started_at: datetime | None
+    """``started_at`` of the attempt's ``RUNNING`` ``task_runs`` row; None until it exists."""
+
+
+def _runs_match(runs: Collection[RunKey]):
+    return or_(*(and_(col(Task.id) == r.task_id, col(Task.run_epoch) == r.run_epoch) for r in runs))
+
+
+async def renew_claims(execution_worker_id: int, runs: Collection[RunKey]) -> set[int]:
+    """Push ``claim_expires_at`` out by ``WORKER_TIMEOUT`` for every run this
+    worker still owns; one UPDATE. Returns the task ids renewed — a missing id
+    is a run the worker no longer owns (cleared, reaped, or adopted)."""
+    if not runs:
+        return set()
+    async with get_sql_session() as session:
+        rows = await session.execute(
+            update(Task)
+            .where(col(Task.execution_worker_id) == execution_worker_id, _runs_match(runs))
+            .values(claim_expires_at=utc_now() + WORKER_TIMEOUT)
+            .returning(col(Task.id))
+        )
+        renewed = set(rows.scalars().all())
+        await session.commit()
+        return renewed
+
+
+async def in_flight_status(runs: Collection[RunKey]) -> list[InFlightStatus]:
+    """The :func:`check_run_aborted` predicate over a set of runs plus each
+    attempt's ``RUNNING`` run start, in one SELECT. A task that no longer
+    exists reads as not aborted with no run."""
+    if not runs:
+        return []
+    expected = {r.task_id: r.run_epoch for r in runs}
+    async with get_sql_session() as session:
+        rows = (
+            await session.execute(
+                select(Task.id, Task.status, Task.run_epoch, TaskRun.started_at)
+                .outerjoin(TaskRun, and_(col(TaskRun.task_id) == col(Task.id), col(TaskRun.status) == TASK_RUNNING))
+                .where(col(Task.id).in_(list(expected)))
+            )
+        ).all()
+    found = {
+        task_id: InFlightStatus(task_id, status in CANCELLING_TASK_STATUSES or epoch != expected[task_id], started)
+        for task_id, status, epoch, started in rows
+    }
+    return [found.get(task_id, InFlightStatus(task_id, False, None)) for task_id in expected]
+
+
+async def adopt_run(run: RunKey, previous_owner: int, execution_worker_id: int) -> bool:
+    """Take over a ``RUNNING`` run from a worker that is ``STOPPED`` or has not
+    heartbeated for ``ADOPT_AFTER``. Fenced on the previous owner and the
+    epoch, so two adopters cannot both win; the claim is renewed on success."""
+    adoptable = exists(
+        select(ExecutionWorker.id).where(
+            col(ExecutionWorker.id) == previous_owner,
+            or_(
+                col(ExecutionWorker.status) == EXECUTION_WORKER_STOPPED,
+                col(ExecutionWorker.last_heartbeat) < utc_now() - ADOPT_AFTER,
+            ),
+        )
+    )
+    async with get_sql_session() as session:
+        result = cast(
+            CursorResult,
+            await session.execute(
+                update(Task)
+                .where(
+                    col(Task.id) == run.task_id,
+                    col(Task.run_epoch) == run.run_epoch,
+                    col(Task.status) == TASK_RUNNING,
+                    col(Task.execution_worker_id) == previous_owner,
+                    adoptable,
+                )
+                .values(execution_worker_id=execution_worker_id, claim_expires_at=utc_now() + WORKER_TIMEOUT)
+            ),
+        )
+        await session.commit()
+        return result.rowcount == 1
+
+
+async def release_claim(run: RunKey) -> bool:
+    """Put a claimed-but-never-launched run back in the queue (``kubectl apply``
+    refused by a ``ResourceQuota``): ``PENDING``, epoch bumped so late writes
+    are fenced, ownership cleared, an open run row closed ``CANCELLED``. No
+    attempt is consumed. False when the run no longer owns the task."""
+    async with get_sql_session() as session:
+        result = cast(
+            CursorResult,
+            await session.execute(
+                update(Task)
+                .where(
+                    col(Task.id) == run.task_id,
+                    col(Task.run_epoch) == run.run_epoch,
+                    col(Task.status) == TASK_RUNNING,
+                )
+                .values(
+                    status=TASK_PENDING,
+                    run_epoch=run.run_epoch + 1,
+                    execution_worker_id=None,
+                    claim_expires_at=None,
+                    started_at=None,
+                )
+            ),
+        )
+        if result.rowcount != 1:
+            return False
+        await end_run(session, run.task_id, TASK_CANCELLED)
+        await session.commit()
+        return True
 
 
 async def update_task_status(
