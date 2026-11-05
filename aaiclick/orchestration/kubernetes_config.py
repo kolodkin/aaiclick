@@ -16,7 +16,7 @@ ENV_NAMESPACE = "AAICLICK_K8S_NAMESPACE"
 ENV_SERVICE_ACCOUNT = "AAICLICK_K8S_SERVICE_ACCOUNT"
 ENV_IMAGE_PULL_SECRET = "AAICLICK_K8S_IMAGE_PULL_SECRET"
 
-# Concurrency limits of the kubernetes worker (spec: concurrent worker design,
+# Concurrency limits of the kubernetes worker (docs/designs/kubernetes_runner.md
 # "Capacity gate"). Unscheduled Pods are the backpressure signal; the per-job
 # cap keeps one job stuck on capacity from blocking the rest.
 ENV_MAX_PENDING = "AAICLICK_K8S_MAX_PENDING"
