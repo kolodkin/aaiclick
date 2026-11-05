@@ -102,7 +102,7 @@ export function Header({ prompt, commits, onPrompt }: HeaderProps) {
           </button>
         </div>
       ) : (
-        <div className="hint">prompt drives the view ↑</div>
+        <div className="hint hint-wide">prompt drives the view ↑</div>
       )}
     </header>
   );
