@@ -3,7 +3,7 @@ aaiclick.data.sql_utils - SQL utility functions for safe identifier and literal 
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # --- SQL text guards (shared by the lineage query sandbox and the viewer) ---
 
@@ -78,7 +78,7 @@ def quote_sql_literal(value: str) -> str:
 
 def naive_utc(dt: datetime) -> datetime:
     """Coerce a datetime to the storage convention — naive UTC."""
-    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+    return dt.astimezone(UTC).replace(tzinfo=None) if dt.tzinfo else dt
 
 
 def sql_literal(value: bool | int | float | str | datetime) -> str:

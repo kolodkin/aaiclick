@@ -22,6 +22,17 @@ export function scopeLabel(scope: string): string {
   return job ? `Job ${job}` : "Persistent";
 }
 
+// Last 6 digits of a job snowflake — enough to tell reruns apart.
+export function shortJobId(id: string): string {
+  return id.slice(-6);
+}
+
+// "<job name> #<short id>" when the scope is a job and its name is known, else `scopeLabel`.
+export function jobScopeLabel(scope: string, jobName: string | null | undefined): string {
+  const id = jobOfScope(scope);
+  return id && jobName ? `${jobName} #${shortJobId(id)}` : scopeLabel(scope);
+}
+
 // The scope an object lives in, keyed by job id so reruns stay distinct.
 export function objectScope(o: ObjectView): string {
   return o.job_id != null ? scopeKey(String(o.job_id)) : PERSISTENT;

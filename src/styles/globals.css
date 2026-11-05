@@ -115,6 +115,8 @@ header {
 }
 #prompt:focus { border-color: var(--accent); background: rgba(255,255,255,.10); box-shadow: 0 0 0 3px var(--accent-soft); }
 .hint { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Decoration only: shown on wide desktops, never on tablets or phones. */
+@media (max-width: 1279px) { .hint-wide { display: none; } }
 .user-menu { display: flex; align-items: center; gap: 10px; }
 .secret-value { overflow-wrap: anywhere; }
 .user-menu .name-link { cursor: pointer; }
@@ -155,6 +157,10 @@ h2 { font-size: 18px; margin: 0 0 4px; }
   box-shadow: var(--hi);
   cursor: pointer;
   color: var(--accent-text);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chip:hover { background: var(--accent-soft); border-color: var(--accent); }
 .spacer { flex: 1; }
@@ -468,7 +474,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .scope-tree { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--hi), var(--shadow); padding: 10px; font-size: 13px; }
-.scope-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+.scope-group { display: flex; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
   font-weight: 700; margin: 12px 6px 6px; }
 .scope-node { padding: 6px 8px; border-radius: 8px; cursor: pointer; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -478,6 +484,10 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .scope-filter { width: 100%; margin: 0 0 6px; padding: 5px 8px; border: 1px solid var(--border);
   border-radius: 8px; background: rgba(255,255,255,.05); color: var(--text); font-size: 12px; }
 .scope-filter:focus { outline: none; border-color: var(--accent); }
+.scope-toggle { margin-left: auto; }
+/* Small by default so the job list doesn't crowd out the objects; the toggle expands it. */
+.scope-jobs { position: relative; max-height: 180px; overflow-y: auto; }
+.scope-jobs.is-expanded { max-height: 60vh; }
 
 /* ---- brand overrides for the vendored queryview-core kernel ----
    queryview-core.css ships indigo accents and declares everything inside

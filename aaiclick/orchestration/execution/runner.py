@@ -591,7 +591,7 @@ async def stop_output_follower(follower: asyncio.Task[None] | None, drain_timeou
     if follower is None:
         return
     if drain_timeout > 0:
-        with suppress(asyncio.TimeoutError):
+        with suppress(TimeoutError):
             await asyncio.wait_for(asyncio.shield(follower), timeout=drain_timeout)
     follower.cancel()
     with suppress(asyncio.CancelledError):

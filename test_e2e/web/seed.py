@@ -34,17 +34,20 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from sqlmodel import select
+from sqlmodel import func, select
 
 from aaiclick import create_object_from_value
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import objects as objects_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import viewer as viewer_api
-from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.factories import create_job, create_task, new_job_row
 from aaiclick.orchestration.models import (
+    JOB_CANCELLED,
     JOB_COMPLETED,
+    JOB_FAILED,
     JOB_RUNNING,
+    RUN_MANUAL,
     TASK_CANCELLED,
     TASK_COMPLETED,
     TASK_FAILED,
@@ -237,7 +240,64 @@ async def seed_viewer_objects() -> None:
             await create_object_from_value({"id": [1, 2], "amount": [5, 7]}, name=name, scope="job")
 
 
+#: Filler job names, cycled so lists look like a lived-in deployment, not a fresh one.
+FILLER_NAMES = ("nightly_etl", "hourly_ingest", "basic_orchestration", "nyc_taxi_pipeline", "weekly_report")
+FILLER_JOBS = 100
+#: Tasks in ``WIDE_JOB`` — one entry fanning out, for task-heavy pages.
+WIDE_JOB = "wide_pipeline"
+WIDE_TASKS = 100
+
+
+async def seed_filler_jobs() -> None:
+    """``FILLER_JOBS`` finished jobs plus one ``WIDE_TASKS``-task job, never run.
+
+    Terminal statuses only, so no worker ever picks them up. Seeded once per
+    database: reruns against a surviving local root skip it.
+    """
+    async with orch_context():
+        async with get_sql_session() as session:
+            # Fillers commit last, so their presence means the whole seed landed.
+            if (await session.execute(select(func.count()).where(Job.name == FILLER_NAMES[0]))).scalar_one():
+                return
+        done = (JOB_COMPLETED, TASK_COMPLETED)
+        cycle = (done, done, done, (JOB_FAILED, TASK_FAILED), (JOB_CANCELLED, TASK_CANCELLED))
+
+        def finished(job: Job, tasks: list[Task], statuses: tuple[JobStatus, TaskStatus]) -> None:
+            job.status, task_status = statuses
+            for row in (job, *tasks):
+                row.started_at, row.completed_at = _BASE, _offset(30)
+            for task in tasks:
+                task.status = task_status
+
+        # commit_tasks persists the fan-out edges; the job row rides in the same commit.
+        wide = new_job_row(WIDE_JOB, run_type=RUN_MANUAL)
+        entry = create_task(ENTRYPOINT, name="fan_out")
+        branches = [create_task(ENTRYPOINT, name=f"part_{i:03d}") for i in range(WIDE_TASKS - 1)]
+        for task in branches:
+            entry >> task
+        finished(wide, [entry, *branches], done)
+        await commit_tasks(branches, job_id=wide.id, job=wide)
+
+        # shortcut: fillers bypass commit_tasks (one commit, not 100) — fine for
+        # edge-less plain module tasks; route through it if they gain images or edges.
+        async with get_sql_session() as session:
+            for i in range(FILLER_JOBS):
+                job = new_job_row(FILLER_NAMES[i % len(FILLER_NAMES)], run_type=RUN_MANUAL)
+                # Distinct, older-than-wide timestamps keep list order deterministic.
+                job.created_at = wide.created_at - timedelta(seconds=i + 1)
+                task = create_task(ENTRYPOINT, name="main")
+                task.job_id = job.id
+                finished(job, [task], cycle[i % len(cycle)])
+                session.add_all([job, task])
+            await session.commit()
+
+
 if __name__ == "__main__":
     # `python seed.py viewer`: create the local schema, seed, exit (releasing chdb).
     setup_api.setup()
-    asyncio.run(seed_viewer_objects())
+
+    async def _seed() -> None:
+        await seed_filler_jobs()
+        await seed_viewer_objects()
+
+    asyncio.run(_seed())

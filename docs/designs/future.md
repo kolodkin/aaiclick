@@ -202,6 +202,19 @@ client-only; the graph response already carries every group and its members.
 
 **When to revisit**: when a real job's group makes the graph unreadable.
 
+## Job Graph — Wide Fan-out Layout
+
+dagre puts every sibling of a fan-out in one rank, so `wide_pipeline` (1 task
+→ 99, seeded by `test_e2e/web/seed.py`) renders as a single column that
+`fitView` shrinks until nodes are unreadable.
+
+- Wrap a rank past N nodes into several columns, or
+- fold siblings with the same entrypoint and status into one "×N" node that
+  expands on click (same mechanics as collapsible groups above), and
+- set a minimum zoom on initial fit so nodes stay legible and the canvas pans.
+
+**When to revisit**: a real job fans out past ~20 tasks.
+
 ## Lineage — Tier 2 Full Replay
 
 An MCP client can already do Tier 2 by hand: `run_job` with

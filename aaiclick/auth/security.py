@@ -13,7 +13,7 @@ import hmac
 import secrets
 import struct
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 from urllib.parse import quote
 
@@ -85,7 +85,7 @@ def api_token_display_prefix(token: str) -> str:
 
 
 def encode_access_token(*, user_id: int, role: Role, secret: str, ttl: int) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "role": role,

@@ -18,7 +18,7 @@ STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" 
 # the guard's return value — importing the package would break the lint job.
 playwright_api = pytest.importorskip("playwright.sync_api")
 
-from seed import OBJECTS_JOB  # noqa: E402  (must follow the playwright guard)
+from seed import OBJECTS_JOB, WIDE_JOB  # noqa: E402  (must follow the playwright guard)
 
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs through chdb (local mode)")
@@ -134,3 +134,48 @@ def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
     shot("task-objects-menu-phone")
     page.keyboard.press("Escape")
     playwright_api.expect(menu.locator("li a").first).to_be_hidden()
+
+
+@_spa_built
+@_local_only
+def test_data_job_object_on_phone(page, base_url: str, shot) -> None:
+    page.set_viewport_size({"width": 412, "height": 900})
+    open_page(page, f"{base_url}/?p=@data")
+    page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales").first.click()
+    page.get_by_test_id("object-rows").wait_for(timeout=15000)
+    playwright_api.expect(page.locator(".chip", has_text="←").last).to_contain_text(f"{OBJECTS_JOB} #")
+    jobs = page.locator(".scope-jobs")
+    small = jobs.bounding_box()["height"]
+    shot("data-job-object-phone")
+    page.get_by_test_id("scope-jobs-toggle").click()
+    playwright_api.expect(jobs).to_have_class("scope-jobs is-expanded")
+    assert jobs.bounding_box()["height"] > small
+    shot("data-job-list-expanded-phone")
+
+
+@_spa_built
+@_local_only
+def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
+    open_page(page, f"{base_url}/?p=@job {WIDE_JOB}")
+    page.get_by_text("part_000", exact=True).wait_for(timeout=15000)
+    shot("job-table-100-tasks")
+    open_page(page, f"{base_url}/?p=@job {WIDE_JOB} graph")
+    # The canvas renders only on-screen nodes, so wait on the hub, not a count.
+    page.locator(".gnode", has_text="fan_out").wait_for(timeout=15000)
+    shot("job-graph-100-tasks")
+
+
+@_spa_built
+@_local_only
+def test_data_scrolls_old_job_into_view(page, base_url: str) -> None:
+    # Mid-page, not last: a job created meanwhile shifts the page by one.
+    old = page.request.get(f"{base_url}/api/v0/jobs").json()["items"][30]
+    open_page(page, f"{base_url}/?p=@data job {old['id']}")
+    page.wait_for_function(
+        """() => {
+            const box = document.querySelector('.scope-jobs')?.getBoundingClientRect();
+            const row = document.querySelector('.scope-jobs .is-active')?.getBoundingClientRect();
+            return box && row && row.top >= box.top && row.bottom <= box.bottom;
+        }""",
+        timeout=15000,
+    )

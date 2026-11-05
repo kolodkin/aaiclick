@@ -8,7 +8,7 @@ inputs:
   python-version:
     description: "Python version passed to `uv sync --python`."
     required: false
-    default: "3.10"
+    default: "3.11"
   sync-args:
     description: >-
       Extra arguments for `uv sync --frozen` (e.g. "--extra test --extra

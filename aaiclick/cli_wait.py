@@ -88,7 +88,7 @@ async def _wake_ups(transport: SignalTransport) -> AsyncIterator[Callable[[float
                 async def wake(seconds: float) -> None:
                     # A signal, a timeout and a closed bus all mean the same
                     # thing — refetch now — so the reason is never read.
-                    with suppress(asyncio.TimeoutError):
+                    with suppress(TimeoutError):
                         await asyncio.wait_for(sub.wait(), seconds)
 
                 yield wake
