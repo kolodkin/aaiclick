@@ -6,7 +6,9 @@ single-session constraint in ``docs/designs/testing.md``."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,10 +20,12 @@ from ..kubernetes_config import KubernetesConfig
 from ..logging import read_task_logs
 from ..models import TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, Task
 from ..runner_config import ENTRY_JVM, ImagePrebuilt
+from . import cli
 from . import kubernetes_worker as kw
 from .execution_worker import JobDispatch
 from .kubernetes_worker import build_shell_pod_manifest
 from .log_test_helpers import dispatch_with_fake_cli
+from .pod_watch import PodWatch, pod_labels
 from .runner_env import RUNNER_KUBERNETES
 
 
@@ -417,3 +421,118 @@ async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path)
     applied = json.loads((tmp_path / "applied.json").read_text())
     task = applied["spec"]["containers"][0]
     assert task["args"] == ["com.example.Pipeline"] and "command" not in task
+
+
+# ---------------------------------------------------------------------------
+# run_module_pod — the watch-driven module coroutine
+# ---------------------------------------------------------------------------
+
+
+def _pod_json(name: str, task_state: dict, *, node: str | None = "n1") -> dict:
+    spec: dict = {"containers": [{"name": "task"}]}
+    if node:
+        spec["nodeName"] = node
+    return {
+        "metadata": {"name": name, "labels": pod_labels(7, 3, 2)},
+        "spec": spec,
+        "status": {"phase": "Running", "containerStatuses": [{"name": "task", "state": task_state}]},
+    }
+
+
+_POD_CONFIG = KubernetesConfig("ns", None, None)
+_MODULE_TASK = Task(id=7, job_id=3, entrypoint="m.f", name="t", run_epoch=2)
+_POD = "aaiclick-task-7-2"
+
+
+@pytest.fixture
+def module_pod(monkeypatch):
+    """A fake cluster for ``run_module_pod``: records creates and deletes,
+    serves a result row, and exposes the watch to drive Pod events."""
+    created: list[dict] = []
+    deleted: list[str] = []
+    monkeypatch.setattr(kw, "build_runner_env", lambda: {"X": "1"})
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", AsyncMock(side_effect=_fake_create(created)))
+    monkeypatch.setattr(kw, "_kubectl_delete", AsyncMock(side_effect=lambda name, ns: deleted.append(name)))
+    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=kw.RunnerResult(True, native_ref(5), None)))
+    watch = PodWatch("ns", "kubectl")
+
+    def start(*, image_tag: str | None = "img:1", detach: list[bool] | None = None) -> asyncio.Task:
+        coro = kw.run_module_pod(
+            _MODULE_TASK, 1, _POD_CONFIG, watch, image_tag=image_tag, resources=None, detach=detach or [False]
+        )
+        return asyncio.create_task(coro)
+
+    return SimpleNamespace(watch=watch, created=created, deleted=deleted, start=start)
+
+
+async def test_run_module_pod_success_reads_result_row(module_pod):
+    run = module_pod.start()
+    await asyncio.sleep(0)
+    assert [m["kind"] for m in module_pod.created] == ["Pod", "Secret"]
+    module_pod.watch.apply(_pod_json(_POD, {"terminated": {"exitCode": 0}}), deleted=False)
+
+    result = await run
+
+    assert result == kw.RunnerResult(True, native_ref(5), None)
+    assert module_pod.deleted == [_POD]
+
+
+async def test_run_module_pod_adopted_skips_launch(module_pod):
+    module_pod.watch.apply(_pod_json(_POD, {"running": {}}), deleted=False)
+    run = module_pod.start(image_tag=None)
+    await asyncio.sleep(0)
+    assert module_pod.created == []
+    module_pod.watch.apply(_pod_json(_POD, {"terminated": {"exitCode": 0}}), deleted=False)
+
+    assert (await run).success
+    assert module_pod.deleted == [_POD]
+
+
+async def test_cancel_with_deadline_reason_reports_it_and_deletes_pod(module_pod):
+    run = module_pod.start()
+    await asyncio.sleep(0)
+
+    run.cancel("Pod aaiclick-task-7-2 not started after 900s: ImagePullBackOff: back-off")
+    result = await run
+
+    assert result.success is False and "ImagePullBackOff" in (result.error or "")
+    assert module_pod.deleted == [_POD]
+
+
+async def test_cancel_without_reason_reports_cancelled(module_pod):
+    run = module_pod.start()
+    await asyncio.sleep(0)
+    run.cancel()
+    assert (await run) == kw.RunnerResult(False, None, "cancelled")
+
+
+async def test_cancel_detached_keeps_pod(module_pod):
+    detach = [False]
+    run = module_pod.start(detach=detach)
+    await asyncio.sleep(0)
+
+    detach[0] = True
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
+
+    assert module_pod.deleted == []
+
+
+async def test_quota_rejection_raises(module_pod, monkeypatch):
+    err = cli.CommandError(("kubectl",), 1, 'pods "x" is forbidden: exceeded quota: compute, requested: cpu=1')
+    monkeypatch.setattr(kw, "_kubectl_create_from_file", AsyncMock(side_effect=err))
+
+    with pytest.raises(kw.QuotaExceeded):
+        await module_pod.start()
+
+
+async def test_pod_gone_reports_disappeared(module_pod):
+    run = module_pod.start()
+    await asyncio.sleep(0)
+    module_pod.watch.apply(_pod_json(_POD, {"running": {}}), deleted=False)
+    module_pod.watch.apply(_pod_json(_POD, {"running": {}}), deleted=True)
+
+    result = await run
+
+    assert result.success is False and "disappeared" in (result.error or "")

@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from ..kubernetes_config import KubernetesConfig
 from ..models import Task
 from . import cli
 from .docker_build import resolve_launch_image
@@ -43,7 +44,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json
-from .pod_watch import POD_NOT_FOUND, pod_labels
+from .pod_watch import POD_NOT_FOUND, PodWatch, pod_labels
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
 from .runner import stage_in_json
 from .runner_env import build_runner_env
@@ -628,3 +629,74 @@ async def _run_task_in_pod(
         log_run_id=log_run_id,
     )
     return result.success, result.result_ref, result.error
+
+
+# ---------------------------------------------------------------------------
+# Watch-driven coroutines (the concurrent kubernetes worker)
+# ---------------------------------------------------------------------------
+
+
+class QuotaExceeded(Exception):
+    """``kubectl apply`` refused the Pod because of a ``ResourceQuota``; the
+    claim goes back to the queue and the worker backs off."""
+
+
+def _cancel_reason(exc: asyncio.CancelledError) -> str:
+    """The message ``Task.cancel(msg)`` carried — a deadline reason — or
+    ``"cancelled"`` for a plain cancellation (cancel_job / clear_task)."""
+    return str(exc.args[0]) if exc.args and exc.args[0] else "cancelled"
+
+
+async def run_module_pod(
+    task: Task,
+    execution_worker_id: int,
+    pod_config: KubernetesConfig,
+    watch: PodWatch,
+    *,
+    image_tag: str | None,
+    resources: dict | None,
+    detach: list[bool],
+) -> RunnerResult:
+    """Run a module task as a Pod, driven by the shared watch: create the Pod
+    (``image_tag`` None ⇒ adopted, already running), await its ``done``
+    future, read the ``remote_task_results`` row, delete the Pod.
+
+    The reconciler enforces deadlines and cancellation by cancelling this
+    coroutine; the cancel message is the failure reason. ``detach[0]`` set
+    before the cancel means the worker is letting go of the Pod (shutdown,
+    ownership lost to adoption): nothing is deleted and the cancellation
+    propagates."""
+    name = _pod_name(task.id, task.run_epoch)
+    futures = watch.expect(name)
+    try:
+        if image_tag is not None:
+            spec = _PodSpec(
+                image_tag=image_tag,
+                job_id=task.job_id,
+                namespace=pod_config.namespace,
+                service_account=pod_config.service_account,
+                image_pull_secret=pod_config.image_pull_secret,
+                resources=resources,
+                entry_type="module",
+                command=None,
+                command_env=None,
+            )
+            try:
+                await _KubernetesVehicle(spec).launch(task, execution_worker_id)
+            except cli.CommandError as e:
+                if "exceeded quota" in e.stderr:
+                    raise QuotaExceeded(e.stderr.strip()) from e
+                raise
+        state = await futures.done
+        if state.gone:
+            return RunnerResult(False, None, f"Pod {name} disappeared")
+        row = await read_task_run_result(task.id, task.run_epoch)
+        return collect_remote_result(state.task.exit_code, None, False, row, "pod")
+    except asyncio.CancelledError as e:
+        if detach[0]:
+            raise
+        return RunnerResult(False, None, _cancel_reason(e))
+    finally:
+        watch.forget(name)
+        if not detach[0]:
+            await _kubectl_delete(name, pod_config.namespace)
