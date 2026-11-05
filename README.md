@@ -79,10 +79,14 @@ if __name__ == "__main__":
 python sales_pipeline.py
 ```
 
-## Data Operation Only Mode
+## Documentation
 
-Use `object_context()` directly for interactive work without orchestration.
-Decorate an async function to wrap its whole body in a context:
+[aaiclick.readthedocs.io](https://aaiclick.readthedocs.io/en/stable/)
+
+## Side Note: Data Operations Without Orchestration
+
+The Object API also runs on its own, without tasks or jobs — handy for notebooks
+and quick exploration. Wrap the code in `object_context()`:
 
 ```python
 import asyncio
@@ -92,20 +96,12 @@ from aaiclick.data.object_context import object_context
 @object_context()
 async def main():
     prices = await create_object_from_value([10.0, 20.0, 30.0])
-
-    total = prices * 1.1                         # LazyOperator — no DB call yet
-    print(await total.data())                    # → [11.0, 22.0, 33.0]
-    print(await total.mean().data())             # → 22.0
+    print(await (prices * 1.1).data())  # → [11.0, 22.0, 33.0]
 
 asyncio.run(main())
 ```
 
-`object_context()` also works as an `async with` block when you only need part of
-a function inside the context.
-
-## Documentation
-
-[aaiclick.readthedocs.io](https://aaiclick.readthedocs.io/en/stable/)
+See [ObjectContext](docs/user_guide/object_context.md).
 
 ## License
 

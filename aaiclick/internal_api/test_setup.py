@@ -220,6 +220,11 @@ def test_missing_local_tables_is_separate_from_shape_drift(local_db):
     assert setup.stale_local_db_reason() is None
 
 
+def test_missing_local_tables_lists_every_table_when_db_absent(local_db):
+    """A marker beside a deleted ``local.db`` must still trigger setup."""
+    assert setup.missing_local_tables() == sorted(SQLModel.metadata.tables)
+
+
 def test_stale_local_db_empty_when_absent(local_db):
     """A first run has no database to compare against."""
     assert setup.stale_local_db_reason() is None
