@@ -221,7 +221,7 @@ only in kubelet source; `NotTriggerScaleUp`
 is autoscaler-specific and also fires on "max size reached"; OCI registry codes
 ([error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes))
 reach the Pod only as free text. The task timeout (`parse_task_timeout`) starts
-when the container starts running, not at launch. Both deadlines come from the aaiclick DB only — no Kubernetes timestamps — so
+when the task begins executing, not at launch. Both deadlines come from the aaiclick DB only — no Kubernetes timestamps — so
 they survive a worker restart and match what the UI shows:
 
 | Deadline    | Base                                   | Read                                    |
