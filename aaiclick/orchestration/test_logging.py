@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
-from datetime import UTC
+from datetime import timedelta
 
 import pytest
 
@@ -98,5 +98,5 @@ async def test_last_task_log_time_is_newest_line(orch_ctx):
     newest = await last_task_log_time(task_id, run_id)
 
     lines = await read_task_logs(task_id, run_id)
-    assert newest.tzinfo is UTC
+    assert newest.utcoffset() == timedelta(0)
     assert newest.replace(tzinfo=None) == lines[-1].created_at >= lines[0].created_at
