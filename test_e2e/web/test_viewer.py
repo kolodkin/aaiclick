@@ -134,3 +134,20 @@ def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
     shot("task-objects-menu-phone")
     page.keyboard.press("Escape")
     playwright_api.expect(menu.locator("li a").first).to_be_hidden()
+
+
+@_spa_built
+@_local_only
+def test_data_job_object_on_phone(page, base_url: str, shot) -> None:
+    page.set_viewport_size({"width": 412, "height": 900})
+    open_page(page, f"{base_url}/?p=@data")
+    page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales").first.click()
+    page.get_by_test_id("object-rows").wait_for(timeout=15000)
+    playwright_api.expect(page.locator(".chip", has_text="←").last).to_contain_text(f"{OBJECTS_JOB} #")
+    jobs = page.locator(".scope-jobs")
+    small = jobs.bounding_box()["height"]
+    shot("data-job-object-phone")
+    page.get_by_test_id("scope-jobs-toggle").click()
+    playwright_api.expect(jobs).to_have_class("scope-jobs is-expanded")
+    assert jobs.bounding_box()["height"] >= small
+    shot("data-job-list-expanded-phone")
