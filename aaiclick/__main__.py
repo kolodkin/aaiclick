@@ -955,7 +955,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Add run-job subcommand
     run_job_parser = subparsers.add_parser(
         "run-job",
-        help="Run a job immediately (auto-registers if needed)",
+        help="Run a job immediately (by registered name or dotted entrypoint)",
     )
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
