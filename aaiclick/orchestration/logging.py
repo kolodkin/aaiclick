@@ -18,7 +18,7 @@ import sys
 import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal, cast, get_args
 
 from aaiclick.async_wait import wait_or_timeout
@@ -265,7 +265,7 @@ async def last_task_log_time(task_id: int, run_id: int) -> datetime | None:
     if not rows:
         return None
     newest: datetime = rows[0][0]
-    return newest if newest.tzinfo else newest.replace(tzinfo=timezone.utc)
+    return newest if newest.tzinfo else newest.replace(tzinfo=UTC)
 
 
 async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:

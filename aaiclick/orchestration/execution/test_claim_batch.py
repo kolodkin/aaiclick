@@ -30,6 +30,13 @@ from .runner import register_run
 SIMPLE = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 
+async def _task(task_id: int) -> Task:
+    """``get_task`` for a task the test created: never None."""
+    task = await get_task(task_id)
+    assert task is not None
+    return task
+
+
 async def _claimed(worker_id: int, name: str) -> Task:
     await create_job(name, SIMPLE)
     task = await claim_next_task(worker_id)
@@ -64,7 +71,8 @@ async def test_renew_claims_only_owned_epochs(orch_ctx):
 async def test_renew_claims_keeps_claim_fresh_across_ticks(orch_ctx):
     w = await register_execution_worker()
     t = await _claimed(w.id, "renew_fresh")
-    first = (await get_task(t.id)).claim_expires_at
+    first = (await _task(t.id)).claim_expires_at
+    assert first is not None
     async with get_sql_session() as session:
         await session.execute(
             update(Task).where(col(Task.id) == t.id).values(claim_expires_at=first - timedelta(minutes=5))
@@ -73,7 +81,8 @@ async def test_renew_claims_keeps_claim_fresh_across_ticks(orch_ctx):
 
     await renew_claims(w.id, [_key(t)])
 
-    assert (await get_task(t.id)).claim_expires_at >= first
+    renewed_until = (await _task(t.id)).claim_expires_at
+    assert renewed_until is not None and renewed_until >= first
 
 
 async def test_in_flight_status_flags_cancelled_and_cleared(orch_ctx):
@@ -113,7 +122,7 @@ async def test_adopt_run_from_stopped_worker(orch_ctx):
     await deregister_execution_worker(old.id)
 
     assert await adopt_run(_key(t), old.id, new.id)
-    assert (await get_task(t.id)).execution_worker_id == new.id
+    assert (await _task(t.id)).execution_worker_id == new.id
 
 
 async def test_adopt_run_refuses_live_owner(orch_ctx):
@@ -122,7 +131,7 @@ async def test_adopt_run_refuses_live_owner(orch_ctx):
     t = await _claimed(old.id, "adopt_live")
 
     assert not await adopt_run(_key(t), old.id, new.id)
-    assert (await get_task(t.id)).execution_worker_id == old.id
+    assert (await _task(t.id)).execution_worker_id == old.id
 
 
 async def test_adopt_run_from_silent_worker(orch_ctx):
@@ -143,7 +152,7 @@ async def test_adopt_run_fenced_on_previous_owner(orch_ctx):
 
     assert await adopt_run(_key(t), old.id, first.id)
     assert not await adopt_run(_key(t), old.id, second.id)
-    assert (await get_task(t.id)).execution_worker_id == first.id
+    assert (await _task(t.id)).execution_worker_id == first.id
 
 
 async def test_adopt_run_refuses_stale_epoch(orch_ctx):
@@ -161,7 +170,7 @@ async def test_release_claim_returns_task_to_pending(orch_ctx):
 
     assert await release_claim(_key(t))
 
-    after = await get_task(t.id)
+    after = await _task(t.id)
     assert (after.status, after.run_epoch, after.execution_worker_id, after.started_at, after.attempt) == (
         TASK_PENDING,
         t.run_epoch + 1,
@@ -181,6 +190,6 @@ async def test_release_claim_closes_host_run_row(orch_ctx):
 
     runs = await get_task_runs(t.id)
     assert [r.status for r in runs] == [TASK_CANCELLED]
-    assert (await get_task(t.id)).status != TASK_RUNNING
+    assert (await _task(t.id)).status != TASK_RUNNING
     async with get_sql_session() as session:
         assert (await session.execute(select(Task.id).where(col(Task.id) == t.id))).scalar_one() == t.id

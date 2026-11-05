@@ -96,6 +96,7 @@ async def test_last_task_log_time_is_newest_line(orch_ctx):
     await flush_task_logs(task_id, job_id, run_id, [LogLine(stream=STDOUT_STREAM, text="second")], seq_offset=1)
 
     newest = await last_task_log_time(task_id, run_id)
+    assert newest is not None
 
     lines = await read_task_logs(task_id, run_id)
     assert newest.utcoffset() == timedelta(0)

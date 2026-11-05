@@ -49,6 +49,13 @@ LIMITS = K8sLimits(max_pending=2, max_pending_total=10, max_pods=None, pending_t
 pytestmark = pytest.mark.usefixtures("fast_poll")
 
 
+async def _task(task_id: int) -> Task:
+    """``get_task`` for a task the test created: never None."""
+    task = await get_task(task_id)
+    assert task is not None
+    return task
+
+
 async def _until(predicate, timeout: float = 5.0) -> None:
     """Poll a sync or async predicate until true."""
     deadline = time.monotonic() + timeout
@@ -186,7 +193,7 @@ async def test_runs_tasks_concurrently(orch_ctx, cluster):
         cluster.watch().apply(_pod_json(t, {"terminated": {"exitCode": 0}}), deleted=False)
 
     assert await loop == 3
-    assert {(await get_task(t.id)).status for t in tasks} == {TASK_COMPLETED}
+    assert {(await _task(t.id)).status for t in tasks} == {TASK_COMPLETED}
     assert sorted(cluster.deleted) == sorted(kw._pod_name(t.id, t.run_epoch) for t in tasks)
 
 
@@ -242,10 +249,10 @@ async def test_quota_backoff_pauses_claims(orch_ctx, cluster, monkeypatch):
     loop = cluster.start(max_empty_polls=20)
 
     async def epoch_bumped() -> bool:
-        return (await get_task(task.id)).run_epoch > task.run_epoch
+        return (await _task(task.id)).run_epoch > task.run_epoch
 
     await _until(epoch_bumped)
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_PENDING and after.run_epoch == task.run_epoch + 1 and after.attempt == task.attempt
     cluster.quota_error = False
     await asyncio.sleep(0.3)
@@ -266,7 +273,7 @@ async def test_cancel_pending_pod(orch_ctx, cluster):
 
     await _until(lambda: cluster.deleted == [kw._pod_name(task.id, task.run_epoch)])
     await loop
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_PENDING_CANCELLED_CLEANUP and after.execution_worker_id is None
 
 
@@ -290,9 +297,9 @@ async def test_pending_timeout_counts_from_claim(orch_ctx, cluster):
 
     await loop
 
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_PENDING_FAILURE_CLEANUP
-    assert "not started after 5s" in after.error and "ImagePullBackOff: back-off" in after.error
+    assert "not started after 5s" in (after.error or "") and "ImagePullBackOff: back-off" in (after.error or "")
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
@@ -306,7 +313,7 @@ async def test_running_pod_without_run_row_hits_pending_timeout(orch_ctx, cluste
 
     await loop
 
-    assert "the task never started" in (await get_task(task.id)).error
+    assert "the task never started" in ((await _task(task.id)).error or "")
 
 
 async def test_task_timeout_counts_from_run_start(orch_ctx, cluster, monkeypatch):
@@ -324,7 +331,7 @@ async def test_task_timeout_counts_from_run_start(orch_ctx, cluster, monkeypatch
 
     await loop
 
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_PENDING_FAILURE_CLEANUP and after.error == "Task timed out after 5.0s"
 
 
@@ -342,7 +349,7 @@ async def test_lost_ownership_by_adoption_keeps_pod(orch_ctx, cluster):
     await loop
 
     assert cluster.deleted == []
-    assert (await get_task(task.id)).status == TASK_RUNNING
+    assert (await _task(task.id)).status == TASK_RUNNING
 
 
 async def test_heartbeat_outage_detaches_all(orch_ctx, cluster, monkeypatch):
@@ -355,7 +362,7 @@ async def test_heartbeat_outage_detaches_all(orch_ctx, cluster, monkeypatch):
     await asyncio.sleep(1.0)  # > 2 * HEARTBEAT_INTERVAL (0.2)
 
     assert cluster.deleted == []
-    assert (await get_task(task.id)).status == TASK_RUNNING
+    assert (await _task(task.id)).status == TASK_RUNNING
     loop.cancel()
     with pytest.raises(asyncio.CancelledError):
         await loop
@@ -372,10 +379,11 @@ async def test_shutdown_leaves_pods_running(orch_ctx, cluster):
     await loop
 
     assert cluster.deleted == []
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_RUNNING and after.execution_worker_id == worker.id
     async with get_sql_session() as session:
-        assert (await session.get(ExecutionWorker, worker.id)).status == "STOPPED"
+        stopped = await session.get(ExecutionWorker, worker.id)
+        assert stopped is not None and stopped.status == "STOPPED"
 
 
 async def test_one_host_task_at_a_time(orch_ctx, cluster, monkeypatch):
@@ -428,11 +436,11 @@ async def test_reclaim_adopts_running_module_pod_from_dead_worker(orch_ctx, clus
 
     await _until(lambda: _tracking(cluster, task))
     assert cluster.pods() == []
-    assert (await get_task(task.id)).execution_worker_id == new.id
+    assert (await _task(task.id)).execution_worker_id == new.id
     cluster.watch().apply(_pod_json(task, {"terminated": {"exitCode": 0}}), deleted=False)
 
     assert await loop == 1
-    assert (await get_task(task.id)).status == TASK_COMPLETED
+    assert (await _task(task.id)).status == TASK_COMPLETED
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
@@ -441,7 +449,7 @@ async def test_reclaim_finishes_done_module_pod(orch_ctx, cluster):
     cluster.preload = [_pod_json(task, {"terminated": {"exitCode": 0}})]
 
     assert await cluster.start() == 1
-    assert (await get_task(task.id)).status == TASK_COMPLETED
+    assert (await _task(task.id)).status == TASK_COMPLETED
     assert cluster.pods() == [] and cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
@@ -453,7 +461,7 @@ async def test_reclaim_deletes_stale_epoch_pod(orch_ctx, cluster):
     loop = cluster.start()
 
     await _until(lambda: cluster.deleted == [kw._pod_name(task.id, task.run_epoch)])
-    fresh = await get_task(task.id)
+    fresh = await _task(task.id)
     await _until(lambda: len(cluster.pods()) == 1)
     cluster.watch().apply(_pod_json(fresh, {"terminated": {"exitCode": 0}}), deleted=False)
     assert await loop == 1
@@ -476,7 +484,7 @@ async def test_reclaim_cancelling_task_pod_deleted_and_released(orch_ctx, cluste
     assert await cluster.start() == 0
 
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_PENDING_CANCELLED_CLEANUP and after.execution_worker_id is None
 
 
@@ -484,12 +492,13 @@ async def test_reclaim_ignores_live_owner_pods(orch_ctx, cluster):
     live = await register_execution_worker()
     await create_job("reclaim_live", create_task(SIMPLE, image="img:1"))
     task = await claim_next_task(live.id)
+    assert task is not None
     cluster.preload = [_pod_json(task, {"running": {}})]
 
     assert await cluster.start() == 0
 
     assert cluster.deleted == [] and cluster.pods() == []
-    assert (await get_task(task.id)).execution_worker_id == live.id
+    assert (await _task(task.id)).execution_worker_id == live.id
 
 
 async def test_reclaim_shell_pod_at_io_in_restages_input(orch_ctx, cluster):  # Review Focus 5
@@ -506,7 +515,7 @@ async def test_reclaim_shell_pod_at_io_in_restages_input(orch_ctx, cluster):  # 
     )
 
     assert await loop == 1
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_COMPLETED and after.result == native_ref({"k": "v"})
 
 
@@ -538,8 +547,8 @@ async def test_adopted_pod_keeps_original_deadlines(orch_ctx, cluster):
 
     await cluster.start()
 
-    after = await get_task(task.id)
-    assert after.status == TASK_PENDING_FAILURE_CLEANUP and "the task never started" in after.error
+    after = await _task(task.id)
+    assert after.status == TASK_PENDING_FAILURE_CLEANUP and "the task never started" in (after.error or "")
 
 
 def _tracking(cluster, task: Task) -> bool:
@@ -561,7 +570,7 @@ async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeyp
 
     cluster.watch().apply(_pod_json(task, {"terminated": {"exitCode": 0}}), deleted=False)
     await _until(lambda: not _tracking(cluster, task))
-    assert (await get_task(task.id)).status == TASK_COMPLETED
+    assert (await _task(task.id)).status == TASK_COMPLETED
     loop.cancel()
     with pytest.raises(asyncio.CancelledError):
         await loop
@@ -626,7 +635,7 @@ async def test_deadline_cancel_is_delivered_once(orch_ctx, cluster, monkeypatch)
 
     await loop
 
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert after.status == TASK_PENDING_FAILURE_CLEANUP and "ImagePullBackOff" in (after.error or "")
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
@@ -642,8 +651,8 @@ async def test_heartbeat_tick_resyncs_watch(orch_ctx, cluster):
         await original(self)
 
     _FakeWatch.resync = counting_resync
+    loop = cluster.start(max_empty_polls=100)
     try:
-        loop = cluster.start(max_empty_polls=100)
         await _until(lambda: resyncs["n"] >= 3, timeout=3.0)
     finally:
         _FakeWatch.resync = original
@@ -690,13 +699,13 @@ async def test_shutdown_before_pod_created_releases_claim(orch_ctx, cluster, mon
     loop = cluster.start(worker.id, max_empty_polls=100)
 
     async def claimed() -> bool:
-        return (await get_task(task.id)).status == TASK_RUNNING
+        return (await _task(task.id)).status == TASK_RUNNING
 
     await _until(claimed)
     await request_execution_worker_stop(worker.id)
     await loop
 
-    after = await get_task(task.id)
+    after = await _task(task.id)
     assert (after.status, after.run_epoch, after.attempt) == (TASK_PENDING, task.run_epoch + 1, task.attempt)
     # launch's own cleanup removes the half-created Pod; nothing else runs.
     assert cluster.pods() == []
