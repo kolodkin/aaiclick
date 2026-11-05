@@ -221,9 +221,17 @@ only in kubelet source; `NotTriggerScaleUp`
 is autoscaler-specific and also fires on "max size reached"; OCI registry codes
 ([error codes](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#error-codes))
 reach the Pod only as free text. The task timeout (`parse_task_timeout`) starts
-when the container starts running, not at launch. Both timers count from the
-Pod's own timestamps — `metadata.creationTimestamp` and the `task` container's
-`state.running.startedAt` — so an adopted Pod keeps its original deadlines.
+when the container starts running, not at launch. Both deadlines come from the aaiclick DB only — no Kubernetes timestamps — so
+they survive a worker restart and match what the UI shows:
+
+| Deadline    | Base                                   | Read                                    |
+|-------------|----------------------------------------|-----------------------------------------|
+| Not started | `tasks.started_at` (claim time)        | Already on the claimed / adopted `Task` |
+| Task        | `task_runs.started_at` of the attempt (written by `register_run` inside the Pod) | Once, when the watch first reports the `task` container started |
+
+If no `task_runs` row exists yet at that moment (e.g. the Pod cannot reach the
+DB), the task deadline falls back to `tasks.started_at` — earlier, so never
+longer. Shell / jvm Pods keep their existing timeout path.
 
 ## Restart reclaim
 

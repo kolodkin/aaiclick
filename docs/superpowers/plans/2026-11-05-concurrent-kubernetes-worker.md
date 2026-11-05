@@ -21,7 +21,7 @@
 - No Pod is ever deleted by a worker that lost ownership to adoption, nor on SIGTERM/`STOPPING`.
 - Not-started longer than `pending_timeout` → fail through normal retries with the scheduler message / container waiting reason; no event parsing, no extra RBAC.
 - RBAC stays as is: the worker never lists or reads Secrets. Each Secret is created **after** its Pod with an `ownerReferences` entry to the Pod's `uid` (no `blockOwnerDeletion`), so garbage collection removes it with the Pod.
-- Pending and task timers count from the Pod's `metadata.creationTimestamp` and the `task` container's `state.running.startedAt`, never from worker-local time of launch or adoption.
+- Deadlines come from the DB only: not-started = `tasks.started_at + pending_timeout`; task = `task_runs.started_at + task timeout` (read once when the container starts; no row yet → fall back to `tasks.started_at`). No Kubernetes timestamps, no worker-local launch/adoption time.
 - All imports at module top; `ContextVar` not `global`; `Literal` over enums; `NamedTuple` over tuples (CLAUDE.md).
 
 ## Review Focus
@@ -160,7 +160,7 @@ async def test_release_claim_returns_task_to_pending(orch_ctx): ...
 **Interfaces:**
 - Consumes: `LABEL_*` (Task 4).
 - Produces:
-  - `class PodState(NamedTuple): name: str; job_id: int; task_id: int; run_epoch: int; node_name: str | None; phase: str; started: bool; terminal: bool; exit_code: int; waiting_reason: str | None; message: str | None; created_ts: float; started_ts: float | None` (epoch seconds parsed from `metadata.creationTimestamp` and the `task` container's `state.running.startedAt` / `state.terminated.startedAt`).
+  - `class PodState(NamedTuple): name: str; job_id: int; task_id: int; run_epoch: int; node_name: str | None; phase: str; started: bool; terminal: bool; exit_code: int; waiting_reason: str | None; message: str | None`.
   - `parse_pod(obj: dict) -> PodState`
   - `class PodWatch`: `__init__(namespace: str, kubectl: str)`, `states: dict[str, PodState]`, `changed: asyncio.Event`, `expect(name: str) -> PodFutures` (call **before** apply), `forget(name: str)`, `async run()` (stream forever), `async resync()`, `apply(obj: dict, deleted: bool)` (pure state update — the unit-test seam).
   - `class PodFutures(NamedTuple): started: asyncio.Future[PodState]; done: asyncio.Future[PodState]` — `done` resolves on terminal **or** deletion (`phase=POD_NOT_FOUND`).
@@ -211,7 +211,7 @@ def test_stream_decoder_splits_concatenated_json(): ...   # pretty-printed objec
 - Consumes: `PodWatch.expect/forget`, `PodFutures` (Task 5), `K8sLimits.pending_timeout` (Task 1), existing `_KubernetesVehicle.launch/terminate/cleanup`, `read_task_run_result`, `collect_remote_result`.
 - Produces:
   - `class QuotaExceeded(Exception)` — raised by launch when `kubectl apply`/`create` stderr contains `exceeded quota`.
-  - `async run_module_pod(task: Task, dispatch: JobDispatch, watch: PodWatch, limits: K8sLimits, *, adopted: bool = False) -> RunnerResult` — waits `started` up to `pending_timeout` (timeout → `RunnerResult(False, None, "Pod <name> not started after <n>s: <waiting_reason or message>")`), then `done` up to `parse_task_timeout()` (deadlines computed from `PodState.created_ts` / `started_ts` against `time.time()`, so adoption keeps them), reads the result row; deletes Pod + Secret in `finally` **unless** cancelled with `detach=True` (see Task 8). With `adopted=True` it skips launch.
+  - `async run_module_pod(task: Task, dispatch: JobDispatch, watch: PodWatch, limits: K8sLimits, *, adopted: bool = False) -> RunnerResult` — waits `started` up to `pending_timeout` (timeout → `RunnerResult(False, None, "Pod <name> not started after <n>s: <waiting_reason or message>")`), then `done` up to `parse_task_timeout()` (not-started deadline `task.started_at + pending_timeout`; on `started`, one query for the attempt's `task_runs.started_at` — fallback `task.started_at` — plus `parse_task_timeout()`; compared with `utc_now()`, so adoption keeps them), reads the result row; deletes Pod + Secret in `finally` **unless** cancelled with `detach=True` (see Task 8). With `adopted=True` it skips launch.
 
 - [ ] **Step 1: Write failing tests** (fake watch: a `PodWatch` driven via `apply`; `dispatch_with_fake_cli` for kubectl):
 
@@ -220,7 +220,8 @@ async def test_run_module_pod_success_reads_result_row(...): ...
 async def test_run_module_pod_pending_timeout_fails_with_reason(...):
     assert "ImagePullBackOff" in result.error
 async def test_task_timeout_starts_at_container_start(...): ...
-async def test_adopted_pod_keeps_original_deadline(...):   # started_ts 10 s ago, timeout 15 s -> fails after ~5 s
+async def test_adopted_pod_keeps_original_deadline(...):   # task_runs.started_at 10 s ago, timeout 15 s -> fails after ~5 s
+async def test_task_deadline_falls_back_to_claim_time(...):   # no task_runs row -> base is tasks.started_at
 async def test_quota_rejection_raises(...):   # Review Focus 4 (release is Task 8)
     with pytest.raises(QuotaExceeded): ...
 async def test_pod_disappeared_reports_error(...): ...
