@@ -7,6 +7,7 @@ import { ALL, PERSISTENT, scopeKey } from "../lib/viewer";
 export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: string) => void }) {
   const { data } = useJobs({ poll: false });
   const [filter, setFilter] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const jobs = (data?.items ?? []).filter((j) => j.name.includes(filter));
   return (
     <nav className="scope-tree" data-testid="scope-tree">
@@ -25,7 +26,20 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
           {label}
         </div>
       ))}
-      <div className="scope-group">Jobs</div>
+      <div className="scope-group">
+        Jobs
+        <button
+          type="button"
+          className="scope-toggle"
+          data-testid="scope-jobs-toggle"
+          aria-expanded={expanded}
+          aria-label={expanded ? "Shrink job list" : "Expand job list"}
+          title={expanded ? "Shrink" : "Expand"}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? "▴" : "▾"}
+        </button>
+      </div>
       <input
         className="scope-filter mono"
         placeholder="filter jobs…"
@@ -33,22 +47,24 @@ export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: 
         onChange={(e) => setFilter(e.target.value)}
         aria-label="Filter jobs"
       />
-      {jobs.map((j) => {
-        // Ids are 64-bit snowflakes carried as strings — never parse them.
-        const id = String(j.id);
-        const key = scopeKey(id);
-        return (
-          <div
-            key={id}
-            className={`scope-node mono${scope === key ? " is-active" : ""}`}
-            data-testid="scope-job"
-            title={`#${id}`}
-            onClick={() => onScope(key)}
-          >
-            {j.name} <span className="sub-inline">#{id.slice(-6)}</span>
-          </div>
-        );
-      })}
+      <div className={`scope-jobs${expanded ? " is-expanded" : ""}`}>
+        {jobs.map((j) => {
+          // Ids are 64-bit snowflakes carried as strings — never parse them.
+          const id = String(j.id);
+          const key = scopeKey(id);
+          return (
+            <div
+              key={id}
+              className={`scope-node mono${scope === key ? " is-active" : ""}`}
+              data-testid="scope-job"
+              title={`#${id}`}
+              onClick={() => onScope(key)}
+            >
+              {j.name} <span className="sub-inline">#{id.slice(-6)}</span>
+            </div>
+          );
+        })}
+      </div>
     </nav>
   );
 }

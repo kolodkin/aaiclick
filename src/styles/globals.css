@@ -482,6 +482,13 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .scope-filter { width: 100%; margin: 0 0 6px; padding: 5px 8px; border: 1px solid var(--border);
   border-radius: 8px; background: rgba(255,255,255,.05); color: var(--text); font-size: 12px; }
 .scope-filter:focus { outline: none; border-color: var(--accent); }
+.scope-group { display: flex; align-items: center; }
+.scope-toggle { margin-left: auto; background: none; border: 0; padding: 0 4px; cursor: pointer;
+  color: var(--muted); font-size: 13px; line-height: 1; }
+.scope-toggle:hover { color: var(--accent); }
+/* Small by default so the job list doesn't push the objects off a phone screen. */
+.scope-jobs { max-height: 180px; overflow-y: auto; }
+.scope-jobs.is-expanded { max-height: 60vh; }
 
 /* ---- brand overrides for the vendored queryview-core kernel ----
    queryview-core.css ships indigo accents and declares everything inside
