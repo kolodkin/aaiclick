@@ -250,8 +250,8 @@ ValueScalarType = int | float | bool | str | datetime
 ValueListType = list[int] | list[float] | list[bool] | list[str] | list[datetime]
 # Recursive: a dict value may itself be a scalar, a homogeneous list, a nested
 # dict, or a list of nested dicts (flattened to dot-notation columns upstream).
-# The forward reference lets pyright resolve the self-reference
-# (PEP 695 `type` statements are not available before 3.12).
+# Forward reference, not a PEP 695 `type` statement: that needs 3.12 and the
+# minimum is 3.11.
 ValueDictType = dict[str, "ValueScalarType | ValueListType | ValueDictType | list[ValueDictType]"]
 ValueRecordType = list[ValueDictType]
 ValueType = ValueScalarType | ValueListType | ValueDictType | ValueRecordType
