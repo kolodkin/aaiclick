@@ -48,19 +48,22 @@ Getting Started
 # Quick Example
 
 ```python
-import asyncio
 from aaiclick import create_object_from_value
-from aaiclick.data.object_context import object_context
+from aaiclick.orchestration import job, job_test, task
 
-@object_context()
-async def main():
-    prices = await create_object_from_value([10.0, 20.0, 30.0])
+@task
+async def load_prices():
+    return await create_object_from_value([10.0, 20.0, 30.0])
 
-    total = prices * 1.1                        # LazyOperator — no DB call yet
-    print(await total.data())                   # [11.0, 22.0, 33.0]
-    print(await total.mean().data())            # 22.0
+@task
+async def with_tax(prices) -> list[float]:
+    return await (prices * 1.1).data()  # → [11.0, 22.0, 33.0]
 
-asyncio.run(main())
+@job("prices")
+def prices_job():
+    return with_tax(prices=load_prices())
+
+job_test(prices_job)  # runs all tasks locally
 ```
 
 !!! warning "Always `await` operation results"
@@ -75,8 +78,8 @@ asyncio.run(main())
 
 # Next Steps
 
-- [Object API](user_guide/object.md) — operators, aggregations, views, group by
-- [ObjectContext](user_guide/object_context.md) — lifecycle management, persistent objects
 - [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
+- [Object API](user_guide/object.md) — operators, aggregations, views, group by
+- [ObjectContext](user_guide/object_context.md) — lifecycle, persistent objects, data operations without orchestration
 - [Container images](user_guide/container_images.md) — published `aaiclick`, `aaiclick-docker`, `aaiclick-kubectl` images and their Kubernetes/Docker runtime requirements
-- [Examples](examples/basic_operators.md) — runnable scripts for every feature
+- [Examples](examples/orchestration_basic.md) — runnable scripts for every feature

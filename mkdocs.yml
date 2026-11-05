@@ -69,8 +69,6 @@ nav:
     - Building & Combining Data: tutorial/building_data.md
     - Orchestration: tutorial/orchestration.md
   - User Guide:
-    - Object API: user_guide/object.md
-    - ObjectContext: user_guide/object_context.md
     - Orchestration: user_guide/orchestration.md
     - Task API: user_guide/task_api.md
     - Task API (Python): user_guide/task_api_python.md
@@ -82,7 +80,13 @@ nav:
     - Lineage: user_guide/lineage.md
     - Operation Log: user_guide/oplog.md
     - Example Projects: user_guide/example_projects.md
+    - Object API: user_guide/object.md
+    - ObjectContext: user_guide/object_context.md
   - Examples:
+    - Orchestration Basics: examples/orchestration_basic.md
+    - Orchestration Dynamic: examples/orchestration_dynamic.md
+    - Orchestration Groups: examples/orchestration_groups.md
+    - Orchestration Operators: examples/orchestration_operators.md
     - Basic Operators: examples/basic_operators.md
     - Array Operators: examples/array_operators.md
     - Transforms: examples/transforms.md
@@ -95,8 +99,4 @@ nav:
     - Explode: examples/explode.md
     - Nested Arrays: examples/nested_arrays.md
     - Nullable Columns: examples/nullable.md
-    - Orchestration Basics: examples/orchestration_basic.md
-    - Orchestration Dynamic: examples/orchestration_dynamic.md
-    - Orchestration Groups: examples/orchestration_groups.md
-    - Orchestration Operators: examples/orchestration_operators.md
   - License: LICENSE.md
