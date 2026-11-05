@@ -28,7 +28,7 @@ def name_like(column: str, pattern: str) -> ColumnElement[bool]:
 
 
 class PageRows(NamedTuple, Generic[T]):
-    """Pair returned by :func:`paginate` — explicit so callers don't unpack positionally."""
+    """``(total, rows)`` pair returned by :func:`paginate`."""
 
     total: int
     rows: list[T]
