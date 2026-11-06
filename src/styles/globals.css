@@ -262,9 +262,10 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   border-radius: 14px; padding: 16px; margin-bottom: 16px;
   box-shadow: var(--hi), var(--shadow);
 }
-.detail-head .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-/* Objects popup: anchored under its button, kept inside a phone's width. */
-.objects-menu { position: relative; }
+.detail-head .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; position: relative; }
+/* Objects popup: anchored to the title row's right edge, not the button. When
+   the row wraps on a phone the button sits at the left, and a right-anchored
+   260px popup would hang off-screen. */
 .objects-menu summary { list-style: none; }
 .objects-menu summary::-webkit-details-marker { display: none; }
 .objects-popup {

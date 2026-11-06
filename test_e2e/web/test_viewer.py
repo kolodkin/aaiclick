@@ -131,6 +131,9 @@ def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
     menu = page.get_by_test_id("job-objects")
     menu.locator("summary").click()
     playwright_api.expect(menu.locator("li a")).to_have_count(6)
+    # The wrapped title row puts the button at the left; the popup must not hang off-screen.
+    box = menu.locator(".objects-popup").bounding_box()
+    assert box["x"] >= 0 and box["x"] + box["width"] <= 412
     shot("task-objects-menu-phone")
     page.keyboard.press("Escape")
     playwright_api.expect(menu.locator("li a").first).to_be_hidden()
