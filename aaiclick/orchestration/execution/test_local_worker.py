@@ -42,6 +42,16 @@ async def _child_step(label: str) -> str:
     return label
 
 
+async def _until_heartbeats(n: int) -> None:
+    """Runs in-process, so it sees the test's patched heartbeat; returns once
+    it has been awaited ``n`` times, or after 5s so a missing heartbeat fails
+    the assertion instead of hanging the test."""
+    for _ in range(500):
+        if ew.execution_worker_heartbeat.await_count >= n:
+            return
+        await asyncio.sleep(0.01)
+
+
 @job("test_local_dynamic_list")
 def dynamic_list_pipeline():
     """Entry task returning a plain list of Tasks (the documented @job shape)."""
@@ -201,10 +211,7 @@ async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
     monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.05)
     heartbeat = AsyncMock(wraps=execution_worker_heartbeat)
     monkeypatch.setattr(ew, "execution_worker_heartbeat", heartbeat)
-    await create_job(
-        "test_heartbeat_during_task",
-        create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 0.5, "steps": 5}),
-    )
+    await create_job("test_heartbeat_during_task", create_task(_until_heartbeats, {"n": 3}))
 
     tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 

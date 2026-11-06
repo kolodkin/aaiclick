@@ -571,8 +571,11 @@ async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeyp
     await _until(lambda: _tracking(cluster, task), timeout=5.0)
 
     cluster.watch().apply(_pod_json(task, {"terminated": {"exitCode": 0}}), deleted=False)
-    await _until(lambda: not _tracking(cluster, task))
-    assert (await _task(task.id)).status == TASK_COMPLETED
+
+    async def completed() -> bool:
+        return (await _task(task.id)).status == TASK_COMPLETED
+
+    await _until(completed)  # the watch is dropped before the result is written
     loop.cancel()
     with pytest.raises(asyncio.CancelledError):
         await loop
