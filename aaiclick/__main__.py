@@ -69,7 +69,7 @@ from aaiclick.internal_api.errors import InternalApiError, NotFound
 from aaiclick.orchestration.cli import start_background, start_execution_worker, start_local
 from aaiclick.orchestration.env import job_wait_timeout
 from aaiclick.orchestration.execution.docker_scaffold import DockerfileExists, init_dockerfile
-from aaiclick.orchestration.models import JOB_COMPLETED, ExecutionWorkerStatus, JobStatus, PreservationMode
+from aaiclick.orchestration.models import JOB_COMPLETED, ExecutionWorkerStatus, JobStatus, PreservationMode, TaskStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
 from aaiclick.view_models import (
@@ -82,6 +82,7 @@ from aaiclick.view_models import (
     RegisteredJobFilter,
     RegisterJobRequest,
     RunJobRequest,
+    TaskListFilter,
 )
 from aaiclick.viewer.view_models import DashboardIn, ObjectQueryRequest, OrderBy, SavedQueryFilter, SavedQueryIn
 
@@ -300,6 +301,18 @@ async def _run_job_enable(args: argparse.Namespace) -> None:
 async def _run_job_disable(args: argparse.Namespace) -> None:
     view = await _run_internal_api(internal_api.disable_job(args.name))
     _render(args, view, cli_renderers.render_registered_job_disabled)
+
+
+async def _run_task_list(args: argparse.Namespace) -> None:
+    filter = TaskListFilter(
+        name=args.like,
+        job=args.job,
+        status=cast(TaskStatus, args.status) if args.status else None,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    page = await _run_internal_api(internal_api.list_tasks(filter))
+    _render(args, page, lambda p: cli_renderers.render_tasks_page(p, offset=args.offset))
 
 
 async def _run_task_get(args: argparse.Namespace) -> None:
@@ -826,7 +839,7 @@ def build_parser() -> argparse.ArgumentParser:
     job_list_parser.add_argument(
         "--like",
         default=None,
-        help="Filter by name pattern (SQL LIKE, e.g. '%%etl%%')",
+        help="Filter by name pattern; %% is the only wildcard (e.g. '%%etl%%')",
     )
     job_list_parser.add_argument(
         "--limit",
@@ -876,6 +889,17 @@ def build_parser() -> argparse.ArgumentParser:
         dest="task_command",
         help="Task commands",
     )
+
+    # task list
+    task_list_parser = task_subparsers.add_parser("list", help="List tasks across jobs, newest first")
+    task_list_parser.add_argument(
+        "--like", default=None, help="Filter by name pattern; %% is the only wildcard (e.g. '%%load%%')"
+    )
+    task_list_parser.add_argument("--job", default=None, help="Only tasks of this job (ID or name)")
+    task_list_parser.add_argument("--status", choices=list(get_args(TaskStatus)), default=None, help="Filter by status")
+    task_list_parser.add_argument("--limit", type=int, default=50, help="Maximum results (default: 50)")
+    task_list_parser.add_argument("--offset", type=int, default=0, help="Skip N results (default: 0)")
+    _add_json_flag(task_list_parser)
 
     # task get <id>
     task_get_parser = task_subparsers.add_parser(
@@ -931,7 +955,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Add run-job subcommand
     run_job_parser = subparsers.add_parser(
         "run-job",
-        help="Run a job immediately (auto-registers if needed)",
+        help="Run a job immediately (by registered name or dotted entrypoint)",
     )
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
@@ -1036,7 +1060,7 @@ def build_parser() -> argparse.ArgumentParser:
     registered_job_list_parser.add_argument(
         "--like",
         default=None,
-        help="Filter by name pattern (SQL LIKE, e.g. '%%etl%%')",
+        help="Filter by name pattern; %% is the only wildcard (e.g. '%%etl%%')",
     )
     registered_job_list_parser.add_argument(
         "--limit",
@@ -1474,7 +1498,9 @@ def _dispatch() -> None:
             subcommands["job"].print_help()
 
     elif args.command == "task":
-        if args.task_command == "get":
+        if args.task_command == "list":
+            asyncio.run(_run_task_list(args))
+        elif args.task_command == "get":
             asyncio.run(_run_task_get(args))
 
         else:

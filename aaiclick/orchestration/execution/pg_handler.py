@@ -25,7 +25,13 @@ class PgDbHandler(DbHandler):
     """PostgreSQL: writable CTEs, FOR UPDATE SKIP LOCKED."""
 
     @staticmethod
-    async def claim_next_task(session: AsyncSession, execution_worker_id: int, now: datetime) -> Task | None:
+    async def claim_next_task(
+        session: AsyncSession,
+        execution_worker_id: int,
+        now: datetime,
+        exclude_job_ids: list[int],
+        allow_host_tasks: bool,
+    ) -> Task | None:
         # ORM-load: Task(**row) would register the task in the worker's registry.
         result = await session.execute(
             select(Task).from_statement(text(CLAIM_NEXT_TASK_SQL)),
@@ -37,6 +43,8 @@ class PgDbHandler(DbHandler):
                 # image-based tasks itself, so its capability set is total.
                 "entry_types": list(ENTRY_TYPES),
                 "allow_image_tasks": True,
+                "allow_host_tasks": allow_host_tasks,
+                "exclude_job_ids": exclude_job_ids,
             },
         )
 

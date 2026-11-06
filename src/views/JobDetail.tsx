@@ -5,9 +5,12 @@ import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";
 import { JobGraph } from "../components/graph/JobGraph";
 import { MetaGrid } from "../components/MetaGrid";
+import { ObjectsMenu } from "../components/ObjectsMenu";
 import { ProgressBar } from "../components/ProgressBar";
 import { StatusBadge } from "../components/StatusBadge";
 import { TasksTable } from "../components/TasksTable";
+import { JobDuration } from "../components/timings/JobDuration";
+import { JobTimings } from "../components/timings/JobTimings";
 import { durationMs, relativeTime } from "../lib/format";
 import type { JobViewMode } from "../prompt";
 
@@ -33,7 +36,7 @@ export function JobDetail({
     );
 
   // Named once: the badge above and the body below must not drift apart.
-  const graphView = view === "graph";
+  const tableView = view === "table";
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
   const onCancel = () => onPrompt(`cancel ${job.name}`);
 
@@ -46,14 +49,15 @@ export function JobDetail({
             <span className="mono">{job.name}</span> <StatusBadge status={job.status} />
           </h2>
           <div className="spacer" />
+          <ObjectsMenu jobId={job.id} refreshKey={job.completed_tasks} onPrompt={onPrompt} />
           {cancellable && (
             <AdminButton className="btn btn-danger btn-sm" onClick={onCancel}>
               Cancel job
             </AdminButton>
           )}
         </div>
-        {/* Graph view gets its badge from JobGraph, for its own query. */}
-        {!graphView && (
+        {/* Other views show their own badge, for their own query. */}
+        {tableView && (
           <p className="sub">
             <LiveStatus updatedAt={dataUpdatedAt} queryKey="job" />
           </p>
@@ -73,14 +77,15 @@ export function JobDetail({
         chips={[
           { label: "Table", cmd: `@job ${job.name}`, active: view === "table" },
           { label: "Graph", cmd: `@job ${job.name} graph`, active: view === "graph" },
+          { label: "Timings", cmd: `@job ${job.name} timings`, active: view === "timings" },
+          { label: "Duration", cmd: `@job ${job.name} duration`, active: view === "duration" },
         ]}
         onPrompt={onPrompt}
       />
-      {graphView ? (
-        <JobGraph refId={job.name} onPrompt={onPrompt} />
-      ) : (
-        <TasksTable tasks={job.tasks ?? []} onPrompt={onPrompt} />
-      )}
+      {view === "graph" && <JobGraph refId={job.name} onPrompt={onPrompt} />}
+      {view === "timings" && <JobTimings refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
+      {view === "duration" && <JobDuration refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
+      {tableView && <TasksTable tasks={job.tasks} onPrompt={onPrompt} />}
     </>
   );
 }

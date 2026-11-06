@@ -82,7 +82,7 @@ aaiclick/
     jobs.py                        list_jobs, get_job, job_stats, cancel_job, run_job
     registered_jobs.py             list_registered_jobs, register_job,
                                    enable_job, disable_job
-    tasks.py                       get_task
+    tasks.py                       list_tasks, get_task
     execution_workers.py                     list_execution_workers, start_execution_worker, stop_execution_worker
     objects.py                     list_objects, get_object, delete_object, purge_objects
     setup.py                       setup, migrate
@@ -182,6 +182,41 @@ View models import **enums only**, never SQLModel classes.
 Split keeps list payloads compact without forking into three-per-surface
 model families.
 
+## Required fields on the wire
+
+**Implementation**: `aaiclick/api_model.py`
+
+Every model that appears in the OpenAPI schema extends `ApiModel`, not
+`BaseModel`. It sets one Pydantic option,
+`json_schema_serialization_defaults_required=True`, so a field with a default
+reads as optional going in and required coming out.
+
+Pydantic builds two JSON schemas per model, and FastAPI picks one per role:
+
+| Role                      | Schema mode   | Field with a default | Without `ApiModel` |
+|---------------------------|---------------|----------------------|--------------------|
+| Request body, query model | validation    | optional             | optional           |
+| Response model            | serialization | required             | optional           |
+
+The response side is true on the wire: the server always serializes every
+field (no route uses `exclude_none` / `exclude_unset`). The generated SPA types
+follow — `JobView.total_tasks` is `number`, not `number | undefined` — and
+`openapi-typescript --default-non-nullable false` keeps defaulted request
+fields optional (`RegisterJobRequest.replace?`).
+
+A model used in both roles gets two schemas, `Name-Input` and `Name-Output`
+(today only `ObjectQuery`). Code that reads `components["schemas"]` must pick
+the right one.
+
+The option affects schema generation only — validation and `model_dump()`
+behave as with `BaseModel`. Pydantic config is per class with no global
+default, so nested models need it too, hence the shared base.
+
+!!! warning "New API models must extend `ApiModel`"
+    A plain `BaseModel` still works at runtime, but its defaulted response
+    fields regress to optional in `src/api/schema.ts`. A server test walks every
+    response schema and fails on such a field.
+
 # Internal API Contract
 
 Every function in `aaiclick/internal_api/` follows one shape:
@@ -240,6 +275,7 @@ All REST paths share a common `/api/v0` prefix — see
 | `view dashboards save`     | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`    | `save_dashboard`          |
 | `view dashboards delete`   | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}` | `delete_dashboard`        |
 | `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
+| `task list`                | `list_tasks(filter)`               | `GET /tasks`                       | `list_tasks`              |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
 
 `job wait <ref>` and `run-job --progress` have no row: they are CLI-only

@@ -13,8 +13,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, Field, PlainSerializer, WithJsonSchema
+from pydantic import AfterValidator, Field, PlainSerializer, WithJsonSchema
 
+from .api_model import ApiModel
 from .datetime_utils import to_naive_utc, utc_now
 
 # Snowflake ids are 64-bit, exceeding JavaScript's safe-integer range (2^53-1),
@@ -52,7 +53,7 @@ STDERR_STREAM = "stderr"
 LogStream = Literal["stdout", "stderr"]
 
 
-class LogLine(BaseModel):
+class LogLine(ApiModel):
     """One captured output line tagged with its stream and emit time."""
 
     stream: LogStream

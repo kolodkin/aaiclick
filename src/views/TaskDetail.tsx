@@ -4,6 +4,7 @@ import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";
 import { LogViewer } from "../components/LogViewer";
 import { MetaGrid } from "../components/MetaGrid";
+import { ObjectsMenu } from "../components/ObjectsMenu";
 import { StatusBadge } from "../components/StatusBadge";
 import { Truncated } from "../components/Truncated";
 import { durationBetween, relativeTime } from "../lib/format";
@@ -31,9 +32,13 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
         onPrompt={onPrompt}
       />
       <div className="detail-head">
-        <h2>
-          <span className="mono">{task.name}</span> <StatusBadge status={task.status} />
-        </h2>
+        <div className="title-row">
+          <h2>
+            <span className="mono">{task.name}</span> <StatusBadge status={task.status} />
+          </h2>
+          <div className="spacer" />
+          <ObjectsMenu jobId={task.job_id} refreshKey={task.status} onPrompt={onPrompt} />
+        </div>
         <p className="sub">
           <LiveStatus updatedAt={dataUpdatedAt} queryKey="task" />
         </p>

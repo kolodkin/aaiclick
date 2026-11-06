@@ -9,7 +9,6 @@ within its scope, automatically cleaning up tables when the context exits.
 
 from __future__ import annotations
 
-import re
 import warnings
 import weakref
 from collections.abc import AsyncIterator, Mapping
@@ -23,6 +22,7 @@ from sqlalchemy import delete as sql_delete
 from sqlmodel import col, select
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
+from aaiclick.names import MAX_NAME_LEN, name_error
 from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
@@ -228,13 +228,11 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     return f"ENGINE = {engine} ORDER BY {order_by}"
 
 
-_VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-
 # ClickHouse caps table names near ``213 - len(database)`` characters; the
 # widest prefix aaiclick adds is ``j_<19-digit id>_`` (22), so 128 leaves ample
 # room while failing an over-long name at the API boundary instead of deep in
 # ClickHouse.
-MAX_PERSISTENT_NAME_LEN = 128
+MAX_PERSISTENT_NAME_LEN = MAX_NAME_LEN
 
 
 class InvalidObjectNameError(ValueError):
@@ -252,12 +250,9 @@ def _validate_persistent_name(name: str) -> None:
         InvalidObjectNameError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]* or
             exceeds ``MAX_PERSISTENT_NAME_LEN`` characters.
     """
-    if not _VALID_NAME_RE.match(name):
-        raise InvalidObjectNameError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
-    if len(name) > MAX_PERSISTENT_NAME_LEN:
-        raise InvalidObjectNameError(
-            f"Invalid persistent name: {len(name)} characters exceeds the {MAX_PERSISTENT_NAME_LEN}-character limit"
-        )
+    error = name_error("persistent", name)
+    if error:
+        raise InvalidObjectNameError(error)
 
 
 def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | None:

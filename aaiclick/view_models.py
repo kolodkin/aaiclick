@@ -18,8 +18,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
 
+from .api_model import ApiModel
 from .log_models import (
     MAX_PAGE_LIMIT,
     STDERR_STREAM,
@@ -31,7 +32,7 @@ from .log_models import (
     SnowflakeId,
     UtcDateTime,
 )
-from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode
+from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, TaskStatus
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -49,7 +50,7 @@ RefId = int | str
 """Reference to an entity by numeric ID or human-readable name."""
 
 
-class Page(BaseModel, Generic[T]):
+class Page(ApiModel, Generic[T]):
     """Generic paged list response."""
 
     items: list[T]
@@ -70,7 +71,7 @@ class ProblemCode(str, Enum):
     SANDBOX_UNAVAILABLE = "sandbox_unavailable"
 
 
-class Problem(BaseModel):
+class Problem(ApiModel):
     """RFC 7807-style error payload used by the REST surface."""
 
     title: str
@@ -79,7 +80,7 @@ class Problem(BaseModel):
     code: ProblemCode | None = None
 
 
-class RunJobRequest(BaseModel):
+class RunJobRequest(ApiModel):
     """Inputs for ``internal_api.run_job``."""
 
     name: str
@@ -103,28 +104,28 @@ class RunJobRequest(BaseModel):
     resources: dict[str, Any] | None = None
 
 
-class SubmitSandboxRequest(BaseModel):
+class SubmitSandboxRequest(ApiModel):
     """Inputs for ``internal_api.submit_sandbox_file``: a name and one Python file."""
 
     name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]*$", max_length=64)
     source: str = Field(min_length=1, max_length=200_000)
 
 
-class SandboxFileFilter(BaseModel):
+class SandboxFileFilter(ApiModel):
     """Paging for ``internal_api.list_sandbox_files``."""
 
     limit: PageLimit = 50
     offset: PageOffset = 0
 
 
-class SandboxConfigView(BaseModel):
+class SandboxConfigView(ApiModel):
     """Whether the sandbox is enabled; ``remote`` is shown to admins only."""
 
     enabled: bool
     remote: str | None = None
 
 
-class RegisterJobRequest(BaseModel):
+class RegisterJobRequest(ApiModel):
     """Inputs for ``internal_api.register_job``.
 
     ``name`` defaults to the last dotted segment of ``entrypoint`` (pass ``""``
@@ -153,7 +154,7 @@ class RegisterJobRequest(BaseModel):
         return self
 
 
-class JobListFilter(BaseModel):
+class JobListFilter(ApiModel):
     """Filter parameters for ``internal_api.list_jobs``."""
 
     status: JobStatus | None = None
@@ -164,7 +165,17 @@ class JobListFilter(BaseModel):
     cursor: str | None = None
 
 
-class RegisteredJobFilter(BaseModel):
+class TaskListFilter(ApiModel):
+    """Filter parameters for ``internal_api.list_tasks``; ``name`` is a ``LIKE`` pattern where only ``%`` is a wildcard."""
+
+    name: str | None = None
+    job: RefId | None = None
+    status: TaskStatus | None = None
+    limit: PageLimit = 50
+    offset: PageOffset = 0
+
+
+class RegisteredJobFilter(ApiModel):
     """Filter parameters for ``internal_api.list_registered_jobs``."""
 
     enabled: bool | None = None
@@ -174,7 +185,7 @@ class RegisteredJobFilter(BaseModel):
     cursor: str | None = None
 
 
-class ExecutionWorkerFilter(BaseModel):
+class ExecutionWorkerFilter(ApiModel):
     """Filter parameters for ``internal_api.list_execution_workers``."""
 
     status: ExecutionWorkerStatus | None = None
@@ -183,7 +194,7 @@ class ExecutionWorkerFilter(BaseModel):
     cursor: str | None = None
 
 
-class StartExecutionWorkerRequest(BaseModel):
+class StartExecutionWorkerRequest(ApiModel):
     """Inputs for ``internal_api.start_execution_worker``.
 
     ``max_tasks`` caps how many tasks the spawned execution worker executes
@@ -193,17 +204,20 @@ class StartExecutionWorkerRequest(BaseModel):
     max_tasks: int | None = None
 
 
-class ObjectFilter(BaseModel):
+SCOPE_ALL = "all"  # listing-only scope: global plus every job's objects
+
+
+class ObjectFilter(ApiModel):
     """Filter parameters for ``internal_api.list_objects``."""
 
     prefix: str | None = None
-    scope: ObjectScope | None = None
+    scope: ObjectScope | Literal["all"] | None = None
     job: RefId | None = None  # list one job's objects: id, or name → latest run
     limit: PageLimit = 50
     cursor: str | None = None
 
 
-class PurgeObjectsRequest(BaseModel):
+class PurgeObjectsRequest(ApiModel):
     """Inputs for ``internal_api.purge_objects``.
 
     At least one of ``after`` / ``before`` must be set — the internal_api
@@ -214,13 +228,13 @@ class PurgeObjectsRequest(BaseModel):
     before: UtcDateTime | None = None
 
 
-class PurgeObjectsResult(BaseModel):
+class PurgeObjectsResult(ApiModel):
     """Response from ``internal_api.purge_objects`` — names of dropped tables."""
 
     deleted: list[str]
 
 
-class Deleted(BaseModel):
+class Deleted(ApiModel):
     """Response from a delete-by-name verb: the name that was removed."""
 
     name: str
@@ -229,7 +243,7 @@ class Deleted(BaseModel):
 SetupStepStatus = Literal["ok", "skipped", "failed"]
 
 
-class SetupStep(BaseModel):
+class SetupStep(ApiModel):
     """One check/action performed during ``internal_api.setup``."""
 
     name: str
@@ -237,7 +251,7 @@ class SetupStep(BaseModel):
     detail: str | None = None
 
 
-class SetupResult(BaseModel):
+class SetupResult(ApiModel):
     """Response from ``internal_api.setup`` — per-step outcomes + resolved config."""
 
     root: str
@@ -257,14 +271,14 @@ MigrationAction = Literal["upgrade", "downgrade", "current", "history", "heads",
 """Alembic subcommand executed by ``internal_api.migrate``."""
 
 
-class ChVersionStatus(BaseModel):
+class ChVersionStatus(ApiModel):
     """One ClickHouse migration version and whether it has been applied."""
 
     version: str
     applied: bool
 
 
-class MigrationResult(BaseModel):
+class MigrationResult(ApiModel):
     """Response from ``internal_api.migrate`` — describes what was run.
 
     Alembic commands emit their own output to stdout; this model captures the

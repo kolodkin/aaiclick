@@ -31,6 +31,15 @@ async def test_list_registered_jobs_returns_page_with_total(orch_ctx):
     assert "rj_a" in names and "rj_b" in names
 
 
+async def test_list_registered_jobs_name_underscore_is_literal(orch_ctx):
+    await _register_job_impl(name="rj_x", entrypoint="myapp.rj_x")
+    await _register_job_impl(name="rjzx", entrypoint="myapp.rjzx")
+
+    page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="rj_%"))
+
+    assert [rj.name for rj in page.items] == ["rj_x"]
+
+
 async def test_list_registered_jobs_filter_by_enabled(orch_ctx):
     await _register_job_impl(name="rj_on", entrypoint="myapp.on", enabled=True)
     await _register_job_impl(name="rj_off", entrypoint="myapp.off", enabled=False)
@@ -163,3 +172,14 @@ async def test_register_job_build_skips_host_entrypoint_validation(orch_ctx):
     )
     view = await registered_jobs.register_job(request)
     assert view.name == "built_reg"
+
+
+@pytest.mark.parametrize("name", ["my job", "etl-v2", "etl.v2", "9lives", "a%b"])
+async def test_register_job_rejects_a_name_objects_would_reject(orch_ctx, name):
+    with pytest.raises(errors.Invalid):
+        await registered_jobs.register_job(RegisterJobRequest(name=name, entrypoint=_VALID_ENTRYPOINT))
+
+
+async def test_register_job_rejects_an_over_long_name(orch_ctx):
+    with pytest.raises(errors.Invalid):
+        await registered_jobs.register_job(RegisterJobRequest(name="a" * 129, entrypoint=_VALID_ENTRYPOINT))

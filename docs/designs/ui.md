@@ -33,7 +33,6 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 (empty prompt)  ──────▶  Help / command reference
 @jobs           ──────▶  Jobs list
 @job <name>     ──────▶  Job detail (tasks table)
-@task <id>      ──────▶  Task detail (status + logs)
 @data …         ──────▶  Objects of a scope and their rows
 @query …        ──────▶  Query panel over one object
 @dashboard …    ──────▶  Saved dashboard in a sandbox
@@ -42,6 +41,32 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 ```
 @jobs  ──click job row──▶  @job <name>  ──click task row──▶  @task <id>
 ```
+
+Home lists no `@task` command — tasks are reached through a job, or by typing `@task <id>`.
+
+## Prompt dropdown
+
+**Implementation**: `src/components/Header.tsx`
+
+The input edits a draft; the view follows only the committed prompt.
+
+- **Commit**: picking a row, Enter, or typing a whole argument-less command (`@jobs`, `@data`, `help`). Clicks inside views commit directly.
+- **Esc**: drops the draft back to the committed prompt.
+- **No command yet**: the dropdown lists matching commands.
+- **After `<command> `**: it lists that command's values; the rest of the draft narrows them.
+
+| Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
+|-------------------------------------------------|----------------------|---------------|---------------------|
+| `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
+| `@job`, `cancel`, `@data job`, `@query job`     | jobs, newest first   | name contains | `<cmd> <id>`        |
+| `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
+| `@data`, `@query` (+ `persistent`, `job <ref>`) | objects of the scope | name prefix   | `<cmd> … <name>`    |
+| `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
+| `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
+
+- Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
+- Jobs insert their id: a name opens the latest run.
+- `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
 # Modes
 
@@ -53,6 +78,8 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 
 Displays a help/command reference showing available commands and their descriptions.
 In local mode (auth disabled) the Account and Administration groups are greyed out and marked "(Distributed mode only)".
+
+One registry, `src/components/commands.ts`, feeds Home, the prompt dropdown and the "Unknown command" chips. The dropdown labels distributed-only commands "Distributed mode only".
 
 ## Jobs List (`@jobs`)
 
@@ -90,6 +117,13 @@ Header with job info, followed by a table of tasks. Auto-refreshes on the SSE `c
 
 **Job header**: name, status badge, created/started/completed times, error (if any).
 
+**Objects menu** (job and task pages; hidden when the job has none): a popup of
+links to `@data job <id> <object>`.
+
+- A name filter appears above 5 objects.
+- A "new tab" toggle, remembered per browser, picks where a click opens.
+- Ctrl/middle-click and long-press always offer a new tab.
+
 **Tasks table**:
 
 | Column     | Source field    | Notes                           |
@@ -101,9 +135,9 @@ Header with job info, followed by a table of tasks. Auto-refreshes on the SSE `c
 | Started    | `started_at`   | Relative time                   |
 | Duration   | computed       | `started_at` to `completed_at` or now |
 
-A Table/Graph toggle switches the body between the tasks table and the
-dependency graph. The prompt carries the mode — `@job <name> graph` — so the
-view stays shareable as a URL.
+A Table / Graph / Timings / Duration toggle switches the body. The prompt
+carries the mode — `@job <name> graph`, `timings`, `duration` — so the view
+stays shareable as a URL.
 
 One edge is drawn per dependency, so a `Group` dependency is a single edge
 on the group's container — every member waits, as the scheduler enforces
@@ -121,6 +155,20 @@ a detail view.
 
 Task statuses use the same color scheme as job statuses.
 
+**Timings** (`src/components/timings/`) is a Gantt view from
+`GET /jobs/{ref}/timings`: one row per task in start order, one bar per
+attempt (`task_runs`), earlier attempts faded. Before the first bar, grey dots
+mark time **blocked** on upstream tasks and yellow hatching time **queued**
+with no free worker; hatching also marks the wait between attempts. A task's
+`ready_at` — the latest upstream `completed_at`, groups expanded to direct
+members as the scheduler does — is computed on read. A strip under the rows
+counts attempts running at once; Total runs from `ready_at` to the last
+attempt's end.
+
+**Duration** reads the same endpoint and ranks every attempt by run time,
+longest first, labelled `name #n` when a task ran more than once. Both tabs
+tick every second while the job is active, so running bars grow.
+
 ## Task Detail (`@task <id>`)
 
 **Implementation**: `src/views/TaskDetail.tsx`
@@ -131,25 +179,26 @@ Task statuses use the same color scheme as job statuses.
 
 **Main section**: log viewer filling the remaining screen with vertical scroll. Logs refresh on the same `changed` signal as every other view. Lines come from the ClickHouse `task_logs` stream for one run of the task, so they resolve regardless of which host ran the task. A retried task gets an Airflow-style "Task tries" row: one button per run, colored by how it ended; the latest is selected and polled. A failed run's log ends with its traceback on stderr (shell: `error: exit N`); the header shows only the latest error and clears on success. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by keyword (`src/lib/logTone.ts`), stderr lines carry a marker bar, and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
-## Data (`@data [job <ref>] [<object>]`)
+## Data (`@data [persistent | job <ref>] [<object>]`)
 
 **Implementation**: `src/views/Data.tsx`
 
-**Prompt**: `@data`, `@data job <ref>`, `@data [job <ref>] <object>`
+**Prompt**: `@data` (all scopes), `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>` (no `job`: persistent)
 
-Left: a scope tree — Persistent, then the jobs (newest first, name filter).
-Right: the objects of the selected scope (name, rows, size, created, a
-Query button), or, with an object named, its header and first page of rows.
+Left: a scope tree — All, Persistent, then the jobs (newest first, name
+filter). Right: the objects of the selected scope (name, scope —
+`persistent` or `job`, job name, rows, size, created, a Query button), or,
+with an object named, its header and first page of rows.
 Rows render through the QueryView kernel's `ResultsTable` and default cell
 views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 
-## Query (`@query [job <ref>] [<object>]`)
+## Query (`@query [persistent | job <ref>] [<object>]`)
 
 **Implementation**: `src/views/Query.tsx`
 
-**Prompt**: `@query`, `@query job <ref>`, `@query [job <ref>] <object>`
+**Prompt**: same forms as `@data`
 
-The scope tree plus an object picker; with an object chosen, the query
+The scope tree plus an object picker (entries read `<name> (<scope>)`); with an object chosen, the query
 panel: a `where` expression, limit / offset paging, the kernel's field and
 order-by pickers (fed from `GET /objects/{name}[?job=…]`), static `params:` dropdowns,
 the cell-view YAML modal, a saved-query dropdown (Save / Delete), and CSV

@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, NamedTuple, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+
+from ..api_model import ApiModel
 
 # ClickHouse column type literals
 ColumnType = Literal[
@@ -68,7 +70,7 @@ Fieldtype = Literal["s", "a", "d"]
 AAI_ID_COLUMN = "aai_id"
 
 
-class ColumnInfo(BaseModel):
+class ColumnInfo(ApiModel):
     """Column definition including base type, nullability, array wrapping, and cardinality.
 
     Attributes:
@@ -248,8 +250,8 @@ ValueScalarType = int | float | bool | str | datetime
 ValueListType = list[int] | list[float] | list[bool] | list[str] | list[datetime]
 # Recursive: a dict value may itself be a scalar, a homogeneous list, a nested
 # dict, or a list of nested dicts (flattened to dot-notation columns upstream).
-# The forward reference lets pyright resolve the self-reference on Python 3.10
-# (PEP 695 `type` statements are not available before 3.12).
+# Forward reference, not a PEP 695 `type` statement: that needs 3.12 and the
+# minimum is 3.11.
 ValueDictType = dict[str, "ValueScalarType | ValueListType | ValueDictType | list[ValueDictType]"]
 ValueRecordType = list[ValueDictType]
 ValueType = ValueScalarType | ValueListType | ValueDictType | ValueRecordType
@@ -393,7 +395,7 @@ class QueryStats:
         )
 
 
-class Schema(BaseModel):
+class Schema(ApiModel):
     """
     Schema definition for Object tables. Also serves as Object metadata
     when table is set.

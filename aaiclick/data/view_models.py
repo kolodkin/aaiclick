@@ -11,26 +11,28 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
-
+from ..api_model import ApiModel
+from ..log_models import SnowflakeId
 from .models import Schema
 from .scope import ObjectScope
 
 
-class ColumnSchema(BaseModel):
+class ColumnSchema(ApiModel):
     """One result column: its name and ClickHouse type string."""
 
     name: str
     type: str
 
 
-class ObjectView(BaseModel):
+class ObjectView(ApiModel):
     """Compact object representation used by list endpoints."""
 
     name: str
     table: str
     scope: ObjectScope
     persistent: bool
+    job_id: SnowflakeId | None = None
+    job_name: str | None = None
     row_count: int | None = None
     size_bytes: int | None = None
     created_at: datetime | None = None

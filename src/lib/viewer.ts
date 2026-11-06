@@ -1,11 +1,12 @@
 // Adapters between aaiclick's wire format and the queryview-core kernel.
 import type { Field, OrderCol } from "@qv/core";
-import type { ColumnInfo, OrderByPair } from "../api/types";
+import type { ColumnInfo, ObjectView, OrderByPair } from "../api/types";
 
+export const ALL = "all";
 export const PERSISTENT = "persistent";
 export const AAI_ID = "aai_id";
 
-// A scope key as the backend expects it: "persistent" or "job:<id|name>".
+// A scope key: "all", "persistent" or "job:<id|name>".
 export function scopeKey(job: string | null): string {
   return job ? `job:${job}` : PERSISTENT;
 }
@@ -16,14 +17,38 @@ export function jobOfScope(scope: string): string | null {
 }
 
 export function scopeLabel(scope: string): string {
+  if (scope === ALL) return "All scopes";
   const job = jobOfScope(scope);
   return job ? `Job ${job}` : "Persistent";
 }
 
-// `<verb> [job <ref>] [<object>]` — the `@data` / `@query` prompt for a scope.
+// Last 6 digits of a job snowflake — enough to tell reruns apart.
+export function shortJobId(id: string): string {
+  return id.slice(-6);
+}
+
+// "<job name> #<short id>" when the scope is a job and its name is known, else `scopeLabel`.
+export function jobScopeLabel(scope: string, jobName: string | null | undefined): string {
+  const id = jobOfScope(scope);
+  return id && jobName ? `${jobName} #${shortJobId(id)}` : scopeLabel(scope);
+}
+
+// The scope an object lives in, keyed by job id so reruns stay distinct.
+export function objectScope(o: ObjectView): string {
+  return o.job_id != null ? scopeKey(String(o.job_id)) : PERSISTENT;
+}
+
+// "job - <name>" or "persistent" — the Scope column / picker suffix.
+export function objectScopeLabel(o: ObjectView): string {
+  return o.job_id != null ? `job - ${o.job_name ?? o.job_id}` : "persistent";
+}
+
+// `<verb> [persistent | job <ref>] [<object>]` — the `@data` / `@query`
+// prompt for a scope; bare `<verb>` is all scopes.
 function scopedPrompt(verb: "@data" | "@query", scope: string, object?: string): string {
   const job = jobOfScope(scope);
-  return [verb, job ? `job ${job}` : "", object ?? ""].filter(Boolean).join(" ");
+  const prefix = job ? `job ${job}` : scope === PERSISTENT ? PERSISTENT : "";
+  return [verb, prefix, object ?? ""].filter(Boolean).join(" ");
 }
 
 export const dataPrompt = (scope: string, object?: string) => scopedPrompt("@data", scope, object);

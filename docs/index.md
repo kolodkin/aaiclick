@@ -50,10 +50,22 @@ if __name__ == "__main__":
     job_test(sales_pipeline)  # runs all tasks locally for debugging
 ```
 
-# Data Operation Only Mode
+# Quick Start
 
-Use `object_context()` directly for interactive work without orchestration.
-Decorate an async function to wrap its whole body in a context:
+```bash
+pip install aaiclick
+python -m aaiclick setup
+```
+
+- [Getting Started](getting_started.md) — installation, setup, environment variables
+- [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
+- [Object API](user_guide/object.md) — operators, aggregations, views, group by
+- [Examples](examples/orchestration_basic.md) — runnable scripts for every feature
+
+# Without Orchestration
+
+The Object API also runs standalone, without tasks or jobs — wrap the code in
+`object_context()`. See [ObjectContext](user_guide/object_context.md).
 
 ```python
 import asyncio
@@ -63,25 +75,7 @@ from aaiclick.data.object_context import object_context
 @object_context()
 async def main():
     prices = await create_object_from_value([10.0, 20.0, 30.0])
-
-    total = prices * 1.1                         # LazyOperator — no DB call yet
-    print(await total.data())                    # → [11.0, 22.0, 33.0]
-    print(await total.mean().data())             # → 22.0
+    print(await (prices * 1.1).data())  # → [11.0, 22.0, 33.0]
 
 asyncio.run(main())
 ```
-
-`object_context()` also works as an `async with` block when you only need part of
-a function inside the context.
-
-# Quick Start
-
-```bash
-pip install aaiclick
-python -m aaiclick setup
-```
-
-- [Getting Started](getting_started.md) — installation, setup, environment variables
-- [Object API](user_guide/object.md) — operators, aggregations, views, group by
-- [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
-- [Examples](examples/basic_operators.md) — runnable scripts for every feature

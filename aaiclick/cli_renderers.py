@@ -25,6 +25,7 @@ from aaiclick.orchestration.view_models import (
     JobView,
     RegisteredJobView,
     TaskDetail,
+    TaskView,
 )
 from aaiclick.view_models import (
     MIGRATE_DOWNGRADE,
@@ -79,6 +80,20 @@ def render_jobs_page(page: Page[JobView], offset: int) -> None:
     for j in page.items:
         created = j.created_at.strftime("%Y-%m-%d %H:%M:%S")
         print(f"{j.id:<20} {j.name:<25} {j.status:<12} {j.run_type:<10} {created:<20}")
+    _print_page_footer(page, offset)
+
+
+def render_tasks_page(page: Page[TaskView], offset: int) -> None:
+    """Print a paged list of tasks as an aligned text table."""
+    if not page.items:
+        print("No tasks found")
+        return
+
+    print(f"{'ID':<20} {'Name':<25} {'Job ID':<20} {'Status':<12} {'Created':<20}")
+    print("-" * 101)
+    for t in page.items:
+        created = t.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{t.id:<20} {t.name:<25} {t.job_id:<20} {t.status:<12} {created:<20}")
     _print_page_footer(page, offset)
 
 

@@ -11,6 +11,9 @@
 --   allow_image_tasks    false pins the worker to host-subprocess tasks
 --                         (image_source both SQL NULL and JSON null mean
 --                         "no image" — SQLAlchemy writes the latter)
+--   allow_host_tasks     false skips host-subprocess tasks (the kubernetes
+--                         worker runs one at a time)
+--   exclude_job_ids      jobs skipped this claim (capacity-gated; may be empty)
 --
 -- The final SELECT must return every claimed row: the change-signal hook
 -- (events/hooks.py) reads this statement's row count and signals only when
@@ -30,6 +33,8 @@ WITH claimed_task AS (
         AND j.status NOT IN ('CANCELLED', 'FAILED')
         AND COALESCE(t.entry_type, 'module') = ANY(:entry_types)
         AND (:allow_image_tasks OR t.image_source IS NULL OR t.image_source::text = 'null')
+        AND (:allow_host_tasks OR NOT (t.image_source IS NULL OR t.image_source::text = 'null'))
+        AND NOT (t.job_id = ANY(:exclude_job_ids))
         AND NOT EXISTS (
             SELECT 1 FROM dependencies d
             JOIN tasks prev ON d.previous_id = prev.id

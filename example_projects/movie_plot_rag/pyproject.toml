@@ -2,7 +2,7 @@
 name = "movie-plot-rag"
 version = "0.1.0"
 description = "RAG + embeddings example: semantic movie search with ClickHouse as the vector store"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 dependencies = [
     "aaiclick",

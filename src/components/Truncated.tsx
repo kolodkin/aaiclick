@@ -14,7 +14,7 @@ const ICON_PROPS = {
   "aria-hidden": true,
 } as const;
 
-function ExpandIcon({ expanded }: { expanded: boolean }) {
+export function ExpandIcon({ expanded }: { expanded: boolean }) {
   return <svg {...ICON_PROPS}>{expanded ? <path d="M4 10l4-4 4 4" /> : <path d="M4 6l4 4 4-4" />}</svg>;
 }
 

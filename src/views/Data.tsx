@@ -1,4 +1,4 @@
-// See docs/designs/ui.md — "Data (`@data [job <ref>] [<object>]`)".
+// See docs/designs/ui.md — "Data (`@data [persistent | job <ref>] [<object>]`)".
 import { columnNames, columnTypes, renderCell, ResultsTable } from "@qv/core";
 import { useObjectRows, useObjects } from "../api/hooks";
 import type { ObjectView } from "../api/types";
@@ -8,18 +8,17 @@ import { MetaGrid } from "../components/MetaGrid";
 import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, queryPrompt, scopeKey, scopeLabel } from "../lib/viewer";
+import { dataPrompt, formatBytes, jobScopeLabel, queryPrompt } from "../lib/viewer";
 
 export function Data({
-  job,
+  scope,
   object,
   onPrompt,
 }: {
-  job: string | null;
+  scope: string;
   object: string | null;
   onPrompt: (v: string) => void;
 }) {
-  const scope = scopeKey(job);
   const objects = useObjects(scope);
   const selected = object ? objects.data?.items.find((o) => o.name === object) : undefined;
 
@@ -46,7 +45,7 @@ export function Data({
           {object ? (
             <ObjectPreview scope={scope} name={object} view={selected} onPrompt={onPrompt} />
           ) : (
-            objects.data && <ObjectsTable objects={objects.data.items} scope={scope} onPrompt={onPrompt} />
+            objects.data && <ObjectsTable objects={objects.data.items} onPrompt={onPrompt} />
           )}
         </div>
       </div>
@@ -69,6 +68,7 @@ function ObjectPreview({
   const rows = query.data ?? null;
   const columns = rows ? columnNames(rows) : [];
   const colTypes = rows ? columnTypes(rows) : {};
+  const scopeText = jobScopeLabel(scope, view?.job_name);
 
   return (
     <>
@@ -89,14 +89,14 @@ function ObjectPreview({
         </div>
         <MetaGrid
           items={[
-            { k: "Scope", v: scopeLabel(scope) },
+            { k: "Scope", v: scopeText },
             { k: "Rows", v: view?.row_count ?? "—", mono: true },
             { k: "Size", v: formatBytes(view?.size_bytes) },
             { k: "Created", v: relativeTime(view?.created_at) },
           ]}
         />
       </div>
-      <Chips chips={[{ label: `← ${scopeLabel(scope)}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
+      <Chips chips={[{ label: `← ${scopeText}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
       {query.isPending && <p className="sub">loading rows…</p>}
       {query.isError && <p className="err">{query.error.message}</p>}
       {rows && (

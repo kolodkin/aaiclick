@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/
 import type { QueryRows } from "@qv/core";
 import { deleteJSON, fetchJSON, postJSON, postText, putJSON } from "./client";
 import { isTaskStarted, isTerminalTask } from "../lib/status";
-import { jobOfScope } from "../lib/viewer";
+import { ALL, jobOfScope } from "../lib/viewer";
 import type {
   ApiTokenCreated,
   ApiTokenView,
@@ -19,6 +19,7 @@ import type {
   InviteView,
   JobDetail,
   JobGraphView,
+  JobTimingsView,
   JobView,
   MfaSetupView,
   ObjectDetail,
@@ -72,6 +73,14 @@ export function useJobGraph(ref: string) {
   return useQuery({
     queryKey: ["job-graph", ref],
     queryFn: () => fetchJSON<JobGraphView>(`/jobs/${encodeURIComponent(ref)}/graph`),
+    enabled: ref.length > 0,
+  });
+}
+
+export function useJobTimings(ref: string) {
+  return useQuery({
+    queryKey: ["job-timings", ref],
+    queryFn: () => fetchJSON<JobTimingsView>(`/jobs/${encodeURIComponent(ref)}/timings`),
     enabled: ref.length > 0,
   });
 }
@@ -206,6 +215,7 @@ export function useToggleRegisteredJob() {
 // --- viewer ---------------------------------------------------------------
 
 function jobParam(scope: string): string {
+  if (scope === ALL) return "?scope=all";
   const job = jobOfScope(scope);
   return job ? `?job=${encodeURIComponent(job)}` : "";
 }

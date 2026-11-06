@@ -6,7 +6,7 @@ Full with_columns() tests are in test_with_columns.py.
 """
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -18,9 +18,9 @@ from aaiclick import Object, create_object_from_value
 
 
 DATES = [
-    datetime(2023, 1, 2, tzinfo=timezone.utc),  # Monday
-    datetime(2024, 6, 15, tzinfo=timezone.utc),  # Saturday
-    datetime(2025, 12, 31, tzinfo=timezone.utc),  # Wednesday
+    datetime(2023, 1, 2, tzinfo=UTC),  # Monday
+    datetime(2024, 6, 15, tzinfo=UTC),  # Saturday
+    datetime(2025, 12, 31, tzinfo=UTC),  # Wednesday
 ]
 
 
@@ -45,12 +45,12 @@ async def test_with_date_diff(ctx):
     obj = await create_object_from_value(
         {
             "start": [
-                datetime(2024, 1, 1, tzinfo=timezone.utc),
-                datetime(2024, 3, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 1, tzinfo=UTC),
+                datetime(2024, 3, 1, tzinfo=UTC),
             ],
             "end": [
-                datetime(2024, 1, 31, tzinfo=timezone.utc),
-                datetime(2024, 6, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 31, tzinfo=UTC),
+                datetime(2024, 6, 1, tzinfo=UTC),
             ],
         }
     )
@@ -63,8 +63,8 @@ async def test_with_date_diff_custom_alias(ctx):
     """with_date_diff accepts alias override."""
     obj = await create_object_from_value(
         {
-            "a": [datetime(2024, 1, 1, tzinfo=timezone.utc)],
-            "b": [datetime(2024, 4, 1, tzinfo=timezone.utc)],
+            "a": [datetime(2024, 1, 1, tzinfo=UTC)],
+            "b": [datetime(2024, 4, 1, tzinfo=UTC)],
         }
     )
     view = obj.with_date_diff("month", "a", "b", alias="months_apart")

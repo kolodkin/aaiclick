@@ -34,6 +34,17 @@ Bring it back as one nightly job that publishes the report where it is read
 
 # Deferred
 
+## Kubernetes Worker Follow-ups
+
+- **Pod-side claim renewal**: a worker outage longer than `WORKER_TIMEOUT`
+  (10 min) still reaps running Pods. The module entrypoint (and a sidecar for
+  shell Pods) could renew `claim_expires_at` itself, epoch-fenced, so a run
+  survives any outage.
+- **Node-pool targeting**: `nodeSelector` / tolerations on `pod_config`, so a
+  job can be sent to a Karpenter `NodePool` or a GPU pool.
+- **Per-replica limits**: the capacity gate counts namespace-wide; several
+  worker replicas share `AAICLICK_K8S_MAX_*` instead of each getting its own.
+
 ## Build Quotas
 
 Shell/jvm children can declare image builds, so one job can queue many builds
@@ -190,6 +201,19 @@ client-only; the graph response already carries every group and its members.
   toggle, the point is to reclaim space.
 
 **When to revisit**: when a real job's group makes the graph unreadable.
+
+## Job Graph — Wide Fan-out Layout
+
+dagre puts every sibling of a fan-out in one rank, so `wide_pipeline` (1 task
+→ 99, seeded by `test_e2e/web/seed.py`) renders as a single column that
+`fitView` shrinks until nodes are unreadable.
+
+- Wrap a rank past N nodes into several columns, or
+- fold siblings with the same entrypoint and status into one "×N" node that
+  expands on click (same mechanics as collapsible groups above), and
+- set a minimum zoom on initial fit so nodes stay legible and the canvas pans.
+
+**When to revisit**: a real job fans out past ~20 tasks.
 
 ## Lineage — Tier 2 Full Replay
 

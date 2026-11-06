@@ -38,7 +38,7 @@ DOCKERFILE_TEMPLATE = """\
 # never build-args; mount them into the RUN step that needs them):
 #   pip_index_url, pip_extra_index_url  (e.g. corporate / test pypi)
 
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 ARG GIT_REMOTE
 ARG GIT_SHA

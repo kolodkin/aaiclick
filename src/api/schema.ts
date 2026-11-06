@@ -385,6 +385,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/jobs/{ref}/timings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Timings */
+        get: operations["job_timings_api_v0_jobs__ref__timings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/jobs:run": {
         parameters: {
             query?: never;
@@ -553,6 +570,23 @@ export interface paths {
         };
         /** Get Sandbox File */
         get: operations["get_sandbox_file_api_v0_sandbox__file_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tasks */
+        get: operations["list_tasks_api_v0_tasks_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -985,7 +1019,7 @@ export interface components {
          */
         ClearTaskView: {
             /** Cleared Task Ids */
-            cleared_task_ids?: string[];
+            cleared_task_ids: string[];
             job: components["schemas"]["JobView"];
         };
         /**
@@ -1010,7 +1044,7 @@ export interface components {
              */
             array: number;
             /** Default */
-            default?: string | null;
+            default: string | null;
             /**
              * Description
              * @default
@@ -1056,7 +1090,7 @@ export interface components {
              * @default read
              * @enum {string}
              */
-            scope: "read" | "write" | "admin";
+            scope?: "read" | "write" | "admin";
         };
         /** CreateUserRequest */
         CreateUserRequest: {
@@ -1069,7 +1103,7 @@ export interface components {
              * @default viewer
              * @enum {string}
              */
-            role: "viewer" | "member" | "admin";
+            role?: "viewer" | "member" | "admin";
             /** Username */
             username: string;
         };
@@ -1081,7 +1115,7 @@ export interface components {
             name: string;
             /** Queries */
             queries: {
-                [key: string]: components["schemas"]["ObjectQuery"];
+                [key: string]: components["schemas"]["ObjectQuery-Output"];
             };
             /**
              * Scope
@@ -1102,16 +1136,16 @@ export interface components {
              * Name
              * @default
              */
-            name: string;
+            name?: string;
             /** Queries */
             queries: {
-                [key: string]: components["schemas"]["ObjectQuery"];
+                [key: string]: components["schemas"]["ObjectQuery-Input"];
             };
             /**
              * Scope
              * @default persistent
              */
-            scope: string;
+            scope?: string;
         };
         /**
          * DashboardResults
@@ -1218,11 +1252,11 @@ export interface components {
             /** Attempt */
             attempt: number;
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /** Entrypoint */
             entrypoint: string;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Id */
             id: string;
             /**
@@ -1238,9 +1272,9 @@ export interface components {
             /** Name */
             name: string;
             /** Parent Group Id */
-            parent_group_id?: string | null;
+            parent_group_id: string | null;
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
@@ -1264,7 +1298,7 @@ export interface components {
              * @default viewer
              * @enum {string}
              */
-            role: "viewer" | "member" | "admin";
+            role?: "viewer" | "member" | "admin";
             /** Username */
             username: string;
         };
@@ -1282,7 +1316,7 @@ export interface components {
          */
         JobDetail: {
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Completed Tasks
              * @default 0
@@ -1294,9 +1328,9 @@ export interface components {
              */
             created_at: string;
             /** Duration Ms */
-            duration_ms?: number | null;
+            duration_ms: number | null;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Id */
             id: string;
             /** Name */
@@ -1307,21 +1341,21 @@ export interface components {
              */
             preservation_mode: "NONE" | "FULL";
             /** Registered Job Id */
-            registered_job_id?: string | null;
+            registered_job_id: string | null;
             /**
              * Run Type
              * @enum {string}
              */
             run_type: "SCHEDULED" | "MANUAL" | "SANDBOX";
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
              */
             status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
             /** Tasks */
-            tasks?: components["schemas"]["TaskView"][];
+            tasks: components["schemas"]["TaskView"][];
             /**
              * Total Tasks
              * @default 0
@@ -1339,13 +1373,13 @@ export interface components {
              */
             dropped_cycle_edges: number;
             /** Edges */
-            edges?: components["schemas"]["GraphEdgeView"][];
+            edges: components["schemas"]["GraphEdgeView"][];
             /** Job Id */
             job_id: string;
             /** Layout Edges */
-            layout_edges?: components["schemas"]["LayoutEdgeView"][];
+            layout_edges: components["schemas"]["LayoutEdgeView"][];
             /** Nodes */
-            nodes?: components["schemas"]["GraphNodeView"][];
+            nodes: components["schemas"]["GraphNodeView"][];
         };
         /**
          * JobStatsView
@@ -1353,7 +1387,7 @@ export interface components {
          */
         JobStatsView: {
             /** Exec Time Ms */
-            exec_time_ms?: number | null;
+            exec_time_ms: number | null;
             /** Job Id */
             job_id: string;
             /** Job Name */
@@ -1368,11 +1402,21 @@ export interface components {
                 [key: string]: number;
             };
             /** Tasks */
-            tasks?: components["schemas"]["TaskStatsView"][];
+            tasks: components["schemas"]["TaskStatsView"][];
             /** Total Tasks */
             total_tasks: number;
             /** Wall Time Ms */
-            wall_time_ms?: number | null;
+            wall_time_ms: number | null;
+        };
+        /**
+         * JobTimingsView
+         * @description Per-task timelines served by ``GET /jobs/{ref}/timings``.
+         */
+        JobTimingsView: {
+            /** Job Id */
+            job_id: string;
+            /** Tasks */
+            tasks: components["schemas"]["TaskTimingView"][];
         };
         /**
          * JobView
@@ -1380,7 +1424,7 @@ export interface components {
          */
         JobView: {
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Completed Tasks
              * @default 0
@@ -1392,7 +1436,7 @@ export interface components {
              */
             created_at: string;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Id */
             id: string;
             /** Name */
@@ -1403,14 +1447,14 @@ export interface components {
              */
             preservation_mode: "NONE" | "FULL";
             /** Registered Job Id */
-            registered_job_id?: string | null;
+            registered_job_id: string | null;
             /**
              * Run Type
              * @enum {string}
              */
             run_type: "SCHEDULED" | "MANUAL" | "SANDBOX";
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
@@ -1443,7 +1487,7 @@ export interface components {
              * Created At
              * Format: date-time
              */
-            created_at?: string;
+            created_at: string;
             /**
              * Stream
              * @enum {string}
@@ -1519,22 +1563,26 @@ export interface components {
          */
         ObjectDetail: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Job Name */
+            job_name: string | null;
             /** Lineage Summary */
-            lineage_summary?: string | null;
+            lineage_summary: string | null;
             /** Name */
             name: string;
             /** Persistent */
             persistent: boolean;
             /** Row Count */
-            row_count?: number | null;
+            row_count: number | null;
             /**
              * Scope
              * @enum {string}
              */
             scope: "temp" | "temp_named" | "job" | "global";
             /** Size Bytes */
-            size_bytes?: number | null;
+            size_bytes: number | null;
             /** Table */
             table: string;
             table_schema: components["schemas"]["Schema"];
@@ -1543,7 +1591,7 @@ export interface components {
          * ObjectQuery
          * @description What to read from one object — a dashboard panel, or the saved part of a request.
          */
-        ObjectQuery: {
+        "ObjectQuery-Input": {
             /** Fields */
             fields?: string[] | null;
             /** Object */
@@ -1552,6 +1600,20 @@ export interface components {
             order_by?: components["schemas"]["OrderBy"][];
             /** Where */
             where?: string | null;
+        };
+        /**
+         * ObjectQuery
+         * @description What to read from one object — a dashboard panel, or the saved part of a request.
+         */
+        "ObjectQuery-Output": {
+            /** Fields */
+            fields: string[] | null;
+            /** Object */
+            object: string;
+            /** Order By */
+            order_by: components["schemas"]["OrderBy"][];
+            /** Where */
+            where: string | null;
         };
         /** ObjectQueryRequest */
         ObjectQueryRequest: {
@@ -1562,26 +1624,26 @@ export interface components {
              * @default json
              * @enum {string}
              */
-            fmt: "json" | "csv";
+            fmt?: "json" | "csv";
             /**
              * Limit
              * @default 100
              */
-            limit: number;
+            limit?: number;
             /** Object */
             object: string;
             /**
              * Offset
              * @default 0
              */
-            offset: number;
+            offset?: number;
             /** Order By */
             order_by?: components["schemas"]["OrderBy"][];
             /**
              * Scope
              * @default persistent
              */
-            scope: string;
+            scope?: string;
             /** Where */
             where?: string | null;
         };
@@ -1591,20 +1653,24 @@ export interface components {
          */
         ObjectView: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Job Name */
+            job_name: string | null;
             /** Name */
             name: string;
             /** Persistent */
             persistent: boolean;
             /** Row Count */
-            row_count?: number | null;
+            row_count: number | null;
             /**
              * Scope
              * @enum {string}
              */
             scope: "temp" | "temp_named" | "job" | "global";
             /** Size Bytes */
-            size_bytes?: number | null;
+            size_bytes: number | null;
             /** Table */
             table: string;
         };
@@ -1617,90 +1683,99 @@ export interface components {
             /** Items */
             items: components["schemas"]["ApiTokenView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[AuditEntryView] */
         Page_AuditEntryView_: {
             /** Items */
             items: components["schemas"]["AuditEntryView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[DashboardSummary] */
         Page_DashboardSummary_: {
             /** Items */
             items: components["schemas"]["DashboardSummary"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[ExecutionWorkerView] */
         Page_ExecutionWorkerView_: {
             /** Items */
             items: components["schemas"]["ExecutionWorkerView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[JobView] */
         Page_JobView_: {
             /** Items */
             items: components["schemas"]["JobView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[ObjectView] */
         Page_ObjectView_: {
             /** Items */
             items: components["schemas"]["ObjectView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[RegisteredJobView] */
         Page_RegisteredJobView_: {
             /** Items */
             items: components["schemas"]["RegisteredJobView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[SandboxFileView] */
         Page_SandboxFileView_: {
             /** Items */
             items: components["schemas"]["SandboxFileView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /** Page[SavedQuery] */
         Page_SavedQuery_: {
             /** Items */
             items: components["schemas"]["SavedQuery"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
+        };
+        /** Page[TaskView] */
+        Page_TaskView_: {
+            /** Items */
+            items: components["schemas"]["TaskView"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Total */
+            total: number | null;
         };
         /** Page[UserView] */
         Page_UserView_: {
             /** Items */
             items: components["schemas"]["UserView"][];
             /** Next Cursor */
-            next_cursor?: string | null;
+            next_cursor: string | null;
             /** Total */
-            total?: number | null;
+            total: number | null;
         };
         /**
          * PasswordResetLinkView
@@ -1730,9 +1805,9 @@ export interface components {
          * @description RFC 7807-style error payload used by the REST surface.
          */
         Problem: {
-            code?: components["schemas"]["ProblemCode"] | null;
+            code: components["schemas"]["ProblemCode"] | null;
             /** Detail */
-            detail?: string | null;
+            detail: string | null;
             /** Status */
             status: number;
             /** Title */
@@ -1783,7 +1858,7 @@ export interface components {
              * Build
              * @default false
              */
-            build: boolean;
+            build?: boolean;
             /** Default Kwargs */
             default_kwargs?: {
                 [key: string]: unknown;
@@ -1794,7 +1869,7 @@ export interface components {
              * Enabled
              * @default true
              */
-            enabled: boolean;
+            enabled?: boolean;
             /** Entrypoint */
             entrypoint: string;
             /** Git Remote */
@@ -1805,14 +1880,14 @@ export interface components {
              * Name
              * @default
              */
-            name: string;
+            name?: string;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
             /**
              * Replace
              * @default false
              */
-            replace: boolean;
+            replace?: boolean;
             /** Resources */
             resources?: {
                 [key: string]: unknown;
@@ -1836,33 +1911,33 @@ export interface components {
              */
             created_at: string;
             /** Default Kwargs */
-            default_kwargs?: {
+            default_kwargs: {
                 [key: string]: unknown;
             } | null;
             /** Dockerfile */
-            dockerfile?: string | null;
+            dockerfile: string | null;
             /** Enabled */
             enabled: boolean;
             /** Entrypoint */
             entrypoint: string;
             /** Git Remote */
-            git_remote?: string | null;
+            git_remote: string | null;
             /** Id */
             id: string;
             /** Image */
-            image?: string | null;
+            image: string | null;
             /** Name */
             name: string;
             /** Next Run At */
-            next_run_at?: string | null;
+            next_run_at: string | null;
             /** Preservation Mode */
-            preservation_mode?: ("NONE" | "FULL") | null;
+            preservation_mode: ("NONE" | "FULL") | null;
             /** Resources */
-            resources?: {
+            resources: {
                 [key: string]: unknown;
             } | null;
             /** Schedule */
-            schedule?: string | null;
+            schedule: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -1878,7 +1953,7 @@ export interface components {
              * Build
              * @default false
              */
-            build: boolean;
+            build?: boolean;
             /** Command */
             command?: string[] | null;
             /** Command Env */
@@ -1892,7 +1967,7 @@ export interface components {
              * @default module
              * @enum {string}
              */
-            entry_type: "module" | "shell";
+            entry_type?: "module" | "shell";
             /** Git Branch */
             git_branch?: string | null;
             /** Git Remote */
@@ -1922,7 +1997,7 @@ export interface components {
             /** Enabled */
             enabled: boolean;
             /** Remote */
-            remote?: string | null;
+            remote: string | null;
         };
         /**
          * SandboxFileDetailView
@@ -1935,13 +2010,13 @@ export interface components {
              */
             created_at: string;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Git Sha */
             git_sha: string;
             /** Id */
             id: string;
             /** Job Ids */
-            job_ids?: string[] | null;
+            job_ids: string[] | null;
             /** Job Names */
             job_names: string[];
             /** Name */
@@ -1974,13 +2049,13 @@ export interface components {
              */
             created_at: string;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Git Sha */
             git_sha: string;
             /** Id */
             id: string;
             /** Job Ids */
-            job_ids?: string[] | null;
+            job_ids: string[] | null;
             /** Job Names */
             job_names: string[];
             /** Name */
@@ -2003,15 +2078,15 @@ export interface components {
         /** SavedQuery */
         SavedQuery: {
             /** Cell View */
-            cell_view?: string | null;
+            cell_view: string | null;
             /** Fields */
-            fields?: string[] | null;
+            fields: string[] | null;
             /** Name */
             name: string;
             /** Object */
             object: string;
             /** Order By */
-            order_by?: components["schemas"]["OrderBy"][];
+            order_by: components["schemas"]["OrderBy"][];
             /**
              * Scope
              * @default persistent
@@ -2023,7 +2098,7 @@ export interface components {
              */
             updated_at: string;
             /** Where */
-            where?: string | null;
+            where: string | null;
         };
         /** SavedQueryBody */
         SavedQueryBody: {
@@ -2035,7 +2110,7 @@ export interface components {
              * Name
              * @default
              */
-            name: string;
+            name?: string;
             /** Object */
             object: string;
             /** Order By */
@@ -2044,7 +2119,7 @@ export interface components {
              * Scope
              * @default persistent
              */
-            scope: string | null;
+            scope?: string | null;
             /** Where */
             where?: string | null;
         };
@@ -2068,13 +2143,13 @@ export interface components {
                 [key: string]: components["schemas"]["ColumnInfo"];
             };
             /** Engine */
-            engine?: ("MergeTree" | "AggregatingMergeTree" | "Memory") | null;
+            engine: ("MergeTree" | "AggregatingMergeTree" | "Memory") | null;
             /** Fieldtype */
             fieldtype: string;
             /** Order By */
-            order_by?: string | null;
+            order_by: string | null;
             /** Table */
-            table?: string | null;
+            table: string | null;
         };
         /** SetEmailRequest */
         SetEmailRequest: {
@@ -2123,7 +2198,7 @@ export interface components {
             /** Attempt */
             attempt: number;
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Started At
              * Format: date-time
@@ -2143,7 +2218,7 @@ export interface components {
             /** Attempt */
             attempt: number;
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2152,9 +2227,9 @@ export interface components {
             /** Entrypoint */
             entrypoint: string;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Execution Worker Id */
-            execution_worker_id?: string | null;
+            execution_worker_id: string | null;
             /** Id */
             id: string;
             /**
@@ -2165,7 +2240,7 @@ export interface components {
             /** Job Id */
             job_id: string;
             /** Kwargs */
-            kwargs?: {
+            kwargs: {
                 [key: string]: unknown;
             };
             /**
@@ -2176,7 +2251,7 @@ export interface components {
             /** Name */
             name: string;
             /** Result */
-            result?: {
+            result: {
                 [key: string]: unknown;
             } | null;
             /**
@@ -2185,7 +2260,7 @@ export interface components {
              */
             runs: number;
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
@@ -2201,13 +2276,13 @@ export interface components {
          */
         TaskLogsView: {
             /** Attempt */
-            attempt?: number | null;
+            attempt: number | null;
             /** Attempts */
-            attempts?: components["schemas"]["TaskAttemptView"][];
+            attempts: components["schemas"]["TaskAttemptView"][];
             /** Available */
             available: boolean;
             /** Lines */
-            lines?: components["schemas"]["LogLine"][];
+            lines: components["schemas"]["LogLine"][];
         };
         /**
          * TaskStatsView
@@ -2217,13 +2292,37 @@ export interface components {
             /** Entrypoint */
             entrypoint: string;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Exec Time Ms */
-            exec_time_ms?: number | null;
+            exec_time_ms: number | null;
             /** Id */
             id: string;
             /** Queue Time Ms */
-            queue_time_ms?: number | null;
+            queue_time_ms: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+        };
+        /**
+         * TaskTimingView
+         * @description One task's timeline: when it became ready and each attempt's span.
+         */
+        TaskTimingView: {
+            /** Attempts */
+            attempts: components["schemas"]["TaskAttemptView"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Ready At */
+            ready_at: string | null;
             /**
              * Status
              * @enum {string}
@@ -2238,7 +2337,7 @@ export interface components {
             /** Attempt */
             attempt: number;
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2247,7 +2346,7 @@ export interface components {
             /** Entrypoint */
             entrypoint: string;
             /** Error */
-            error?: string | null;
+            error: string | null;
             /** Id */
             id: string;
             /**
@@ -2260,7 +2359,7 @@ export interface components {
             /** Name */
             name: string;
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /**
              * Status
              * @enum {string}
@@ -3314,6 +3413,46 @@ export interface operations {
             };
         };
     };
+    job_timings_api_v0_jobs__ref__timings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: number | string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTimingsView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     run_job_api_v0_jobs_run_post: {
         parameters: {
             query?: never;
@@ -3360,7 +3499,7 @@ export interface operations {
         parameters: {
             query?: {
                 prefix?: string | null;
-                scope?: ("temp" | "temp_named" | "job" | "global") | null;
+                scope?: ("temp" | "temp_named" | "job" | "global") | "all" | null;
                 job?: number | string | null;
                 limit?: number;
                 cursor?: string | null;
@@ -3865,6 +4004,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_tasks_api_v0_tasks_get: {
+        parameters: {
+            query?: {
+                name?: string | null;
+                job?: number | string | null;
+                status?: ("PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TaskView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

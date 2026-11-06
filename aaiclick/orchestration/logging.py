@@ -18,6 +18,7 @@ import sys
 import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from typing import Literal, cast, get_args
 
 from aaiclick.async_wait import wait_or_timeout
@@ -243,6 +244,28 @@ async def read_task_logs(task_id: int, run_id: int, tail: int = MAX_TASK_LOG_LIN
     )
     rows = reversed(result.result_rows)
     return [LogLine(stream=row[0], text=row[1], created_at=row[2]) for row in rows]
+
+
+async def last_task_log_time(task_id: int, run_id: int) -> datetime | None:
+    """Emit time of the newest stored line of one attempt, or None when it has
+    none. A worker resuming a log follower after adopting a Pod starts from
+    here. Opens its own client off chdb (the worker parent must not share the
+    task client), closed before returning."""
+    client = get_ch_client() if is_chdb() else await create_ch_client()
+    try:
+        result = await client.query(
+            "SELECT created_at FROM task_logs WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64} "
+            "ORDER BY seq DESC LIMIT 1",
+            parameters={"task_id": task_id, "run_id": run_id},
+        )
+    finally:
+        if not is_chdb():
+            await client.close()
+    rows = result.result_rows
+    if not rows:
+        return None
+    newest: datetime = rows[0][0]
+    return newest if newest.tzinfo else newest.replace(tzinfo=UTC)
 
 
 async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:

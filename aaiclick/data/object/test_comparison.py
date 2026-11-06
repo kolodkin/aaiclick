@@ -6,7 +6,7 @@ Scalar-broadcast comparisons are covered in test_arithmetic_broadcast.py.
 """
 
 import operator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -88,8 +88,8 @@ async def test_comparison_then_unique(ctx):
         pytest.param([1.5, 5.0, 9.5], 5.0, id="float"),
         pytest.param(["a", "b", "c"], "b", id="str"),
         pytest.param(
-            [datetime(2024, 1, 1, tzinfo=timezone.utc)] * 2 + [datetime(2025, 1, 1, tzinfo=timezone.utc)],
-            datetime(2024, 6, 1, tzinfo=timezone.utc),
+            [datetime(2024, 1, 1, tzinfo=UTC)] * 2 + [datetime(2025, 1, 1, tzinfo=UTC)],
+            datetime(2024, 6, 1, tzinfo=UTC),
             id="datetime",
         ),
     ],

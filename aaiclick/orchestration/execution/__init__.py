@@ -11,6 +11,7 @@ from .execution_worker import (
     request_execution_worker_stop,
 )
 from .execution_worker_context import TaskInfo, current_task_info, get_current_task_info
+from .k8s_worker_loop import k8s_worker_main_loop
 from .mp_worker import mp_worker_main_loop
 from .runner import (
     deserialize_task_params,

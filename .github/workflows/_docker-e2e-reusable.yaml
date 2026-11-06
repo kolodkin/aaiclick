@@ -116,7 +116,7 @@ jobs:
       - name: Build wheel from source
         if: inputs.wheel_source == 'source'
         run: |
-          uv sync --frozen --extra distributed --extra test --python 3.10
+          uv sync --frozen --extra distributed --extra test --python 3.11
           uv build
 
       - name: Download dist artifact
@@ -155,7 +155,7 @@ jobs:
           # the local index, so allow it to consider both.
           UV_INDEX_STRATEGY: unsafe-best-match
         run: |
-          uv venv --python 3.10
+          uv venv --python 3.11
           uv pip install -r requirements-dist.txt
           VERSION="${{ inputs.version_pin }}"
           uv pip install "aaiclick[distributed]==${VERSION#v}"

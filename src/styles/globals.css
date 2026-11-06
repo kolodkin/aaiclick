@@ -91,8 +91,32 @@ header {
   outline: none;
 }
 #prompt::placeholder { color: var(--muted); }
+.prompt-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+  max-height: min(60vh, 420px); overflow-y: auto; margin: 0; padding: 4px; list-style: none;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+.prompt-dropdown li {
+  display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 10px;
+  border-radius: 8px; cursor: pointer;
+}
+.prompt-dropdown li .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.prompt-dropdown li.active { background: var(--panel-strong); }
+.prompt-dropdown li.empty { color: var(--muted); cursor: default; min-height: 32px; }
+.prompt-dropdown .sub-inline { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Phones: the prompt box is narrow, so the list spans the header and row details wrap under the name. */
+@media (max-width: 640px) {
+  header { position: relative; }
+  .prompt-wrap { position: static; }
+  .prompt-dropdown { left: 8px; right: 8px; }
+  .prompt-dropdown li { flex-wrap: wrap; row-gap: 2px; }
+  .prompt-dropdown li .mono { flex-basis: 100%; }
+}
 #prompt:focus { border-color: var(--accent); background: rgba(255,255,255,.10); box-shadow: 0 0 0 3px var(--accent-soft); }
 .hint { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Decoration only: shown on wide desktops, never on tablets or phones. */
+@media (max-width: 1279px) { .hint-wide { display: none; } }
 .user-menu { display: flex; align-items: center; gap: 10px; }
 .secret-value { overflow-wrap: anywhere; }
 .user-menu .name-link { cursor: pointer; }
@@ -133,6 +157,10 @@ h2 { font-size: 18px; margin: 0 0 4px; }
   box-shadow: var(--hi);
   cursor: pointer;
   color: var(--accent-text);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chip:hover { background: var(--accent-soft); border-color: var(--accent); }
 .spacer { flex: 1; }
@@ -234,7 +262,25 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   border-radius: 14px; padding: 16px; margin-bottom: 16px;
   box-shadow: var(--hi), var(--shadow);
 }
-.detail-head .title-row { display: flex; align-items: center; gap: 10px; }
+.detail-head .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+/* Objects popup: anchored under its button, kept inside a phone's width. */
+.objects-menu { position: relative; }
+.objects-menu summary { list-style: none; }
+.objects-menu summary::-webkit-details-marker { display: none; }
+.objects-popup {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; padding: 6px;
+  width: 260px; max-width: calc(100vw - 32px);
+  background: #0c1018; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.objects-popup-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.objects-popup-head .scope-filter { flex: 1; min-width: 0; margin: 0; }
+.objects-popup .chip { flex: none; font-size: 11px; }
+.objects-empty { margin: 4px 8px; font-size: 12px; }
+.objects-popup ul { margin: 0; padding: 0; list-style: none; max-height: 60vh; overflow: auto; }
+.objects-popup li a {
+  display: block; padding: 6px 8px; border-radius: 6px; font-size: 12px; color: var(--text); text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.objects-popup li a:hover, .objects-popup li a:focus-visible { background: var(--accent-soft); }
+.objects-more { display: block; padding: 6px 8px; font-size: 12px; color: var(--accent); text-decoration: none; }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
 /* Content-sized items share a row, wrapping only when out of width, so the
    header stays short. */
@@ -310,22 +356,9 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   background: rgba(250,255,105,.08); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   color: #dbe2ea; border-radius: 0 10px 10px 0; font-size: 13px; }
 
-/* ---- @all gallery ---- */
-.screen { margin: 0 0 30px; }
-.screen-label { font: 12px var(--mono); color: var(--muted); font-weight: 700; margin: 0 0 8px 2px;
-  text-transform: uppercase; letter-spacing: .04em; }
-.screen-label .sl-cmd { color: var(--accent-text); }
-.frame { border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
-  box-shadow: var(--hi), var(--shadow); background: rgba(255,255,255,.03);
-  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
-.frame-header { display: flex; align-items: center; gap: 14px; padding: 10px 16px;
-  background: rgba(13,18,30,.5); border-bottom: 1px solid var(--border); }
-.frame-header .logo { font-size: 15px; }
+/* fake prompt input (audit filters) */
 .fake-prompt { flex: 1; font: 14px var(--mono); padding: 9px 12px; border: 1px solid var(--border);
   border-radius: 10px; background: rgba(255,255,255,.05); color: var(--text); }
-.fake-prompt.empty { color: var(--muted); }
-.frame-body { padding: 22px; }
-.frame-body .logs { max-height: 320px; }
 
 /* ---- job graph ---- */
 .graph-canvas {
@@ -434,12 +467,14 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 
 /* ---- viewer (@data / @query) ---- */
 .viewer-layout { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
-.viewer-main { min-width: 0; }
+.viewer-main { min-width: 0; overflow-x: auto; }
+/* Phones: stack the scope tree above the objects so the table keeps the full width. */
+@media (max-width: 720px) { .viewer-layout { grid-template-columns: 1fr; } }
 .viewer-panel { max-width: none; }
 .scope-tree { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--hi), var(--shadow); padding: 10px; font-size: 13px; }
-.scope-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+.scope-group { display: flex; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
   font-weight: 700; margin: 12px 6px 6px; }
 .scope-node { padding: 6px 8px; border-radius: 8px; cursor: pointer; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -449,6 +484,10 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .scope-filter { width: 100%; margin: 0 0 6px; padding: 5px 8px; border: 1px solid var(--border);
   border-radius: 8px; background: rgba(255,255,255,.05); color: var(--text); font-size: 12px; }
 .scope-filter:focus { outline: none; border-color: var(--accent); }
+.scope-toggle { margin-left: auto; }
+/* Small by default so the job list doesn't crowd out the objects; the toggle expands it. */
+.scope-jobs { position: relative; max-height: 180px; overflow-y: auto; }
+.scope-jobs.is-expanded { max-height: 60vh; }
 
 /* ---- brand overrides for the vendored queryview-core kernel ----
    queryview-core.css ships indigo accents and declares everything inside
@@ -481,3 +520,31 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   color: #e8ecb0;
   background: rgba(250,255,105,.08);
 }
+
+/* job timings / duration (src/components/timings) */
+.tl { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 18px; }
+.tl-row { display: grid; grid-template-columns: minmax(140px, 220px) 1fr 70px; gap: 12px; align-items: center;
+  min-height: 34px; border-bottom: 1px solid var(--border); }
+.tl-row:last-child { border-bottom: 0; }
+.tl-row.clickable { cursor: pointer; }
+.tl-row.clickable:hover { background: rgba(250,255,105,.07); }
+.tl-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.tl-track { position: relative; height: 18px; }
+.tl-head .tl-track { height: 16px; }
+.tl-tick { position: absolute; transform: translateX(-50%); font-family: var(--mono); text-transform: none; white-space: nowrap; }
+.tl-num { text-align: right; }
+.tl-note { color: var(--muted); font-size: 12px; }
+.tl-bar { position: absolute; top: 0; height: 18px; min-width: 2px; border-radius: 4px; border: 1px solid currentColor; }
+.tl-old { opacity: .45; }
+.tl-blocked { position: absolute; top: 8px; height: 2px;
+  background: repeating-linear-gradient(90deg, var(--gray) 0 2px, transparent 2px 6px); }
+.tl-queued { position: absolute; top: 5px; height: 8px; border-radius: 2px; border: 1px dashed var(--yellow);
+  background: repeating-linear-gradient(45deg, var(--yellow-bg) 0 4px, transparent 4px 8px); }
+.tl-par { align-items: end; padding: 8px 0 6px; }
+.tl-strip { display: flex; align-items: flex-end; gap: 1px; height: 30px; }
+.tl-strip i { flex: 1; background: var(--blue-bg); border-top: 2px solid var(--blue); }
+.tl-strip i[style="height: 0%;"] { border-top: 0; }
+.tl-legend { display: flex; flex-wrap: wrap; gap: 18px; color: var(--muted); font-size: 12px; margin: 10px 4px 0; }
+.tl-legend b { position: relative; display: inline-block; width: 22px; vertical-align: middle; top: 0; margin-right: 4px; }
+.tl-legend b.tl-blocked { height: 2px; }
+.tl-legend b.tl-queued { height: 8px; }

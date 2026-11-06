@@ -160,3 +160,14 @@ def build_graph_edges(
     kept = set(layout)
     drawn = {edge for edge, members in expanded if members & kept}
     return GraphEdges(sorted(drawn), layout, dropped)
+
+
+def upstream_task_ids(
+    dependencies: Sequence[DependencyRow],
+    group_members: Mapping[int, set[int]],
+) -> dict[int, set[int]]:
+    """Task id → ids of the tasks it waits on, groups expanded to direct members."""
+    upstream: dict[int, set[int]] = {}
+    for edge in build_graph_edges(dependencies, group_members).layout:
+        upstream.setdefault(edge.target_id, set()).add(edge.source_id)
+    return upstream

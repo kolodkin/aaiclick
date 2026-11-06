@@ -199,12 +199,12 @@ async def _wait_for_container(container_id: str, timeout: float | None) -> tuple
     timeout_fired = False
     try:
         stdout_b, stderr_b = await asyncio.wait_for(wait_proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         timeout_fired = True
         await _docker_kill(container_id)
         try:
             stdout_b, stderr_b = await asyncio.wait_for(wait_proc.communicate(), timeout=DOCKER_KILL_REAP_TIMEOUT)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             wait_proc.kill()
             await wait_proc.wait()
             return -1, f"Task timed out after {timeout}s (docker wait did not return)"

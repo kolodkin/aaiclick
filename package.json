@@ -9,7 +9,7 @@
     "test": "vitest run",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
-    "gen-types": "uv run --extra server python -m aaiclick.server.dump_openapi | openapi-typescript -o src/api/schema.ts",
+    "gen-types": "uv run --extra server python -m aaiclick.server.dump_openapi | openapi-typescript --default-non-nullable false -o src/api/schema.ts",
     "preview": "vite preview"
   },
   "dependencies": {

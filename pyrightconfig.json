@@ -13,7 +13,7 @@
     "aaiclick/orchestration/migrations/versions",
     "docs"
   ],
-  "pythonVersion": "3.10",
+  "pythonVersion": "3.11",
   "typeCheckingMode": "basic",
   "reportMissingImports": "error",
   "reportMissingTypeStubs": false,

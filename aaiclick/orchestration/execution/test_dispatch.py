@@ -55,15 +55,15 @@ async def test_jvm_without_container_runner_fails_instead_of_python_child():
 
 async def test_null_image_source_dispatches_subprocess_whatever_the_worker_runner(monkeypatch):
     monkeypatch.setenv(ENV_WORKER_RUNNER, "kubernetes")
-    resolved = await dispatch._resolve_dispatch(_task(image_source=None))
+    resolved = await dispatch.resolve_dispatch(_task(image_source=None))
     assert resolved.runner is None
     assert resolved.image_source is None
 
 
-async def test_resolve_dispatch_without_worker_runner_raises(monkeypatch):
+async def testresolve_dispatch_without_worker_runner_raises(monkeypatch):
     monkeypatch.delenv(ENV_WORKER_RUNNER, raising=False)
     with pytest.raises(DispatchError, match="AAICLICK_RUNNER"):
-        await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
+        await dispatch.resolve_dispatch(_task(image_source=PREBUILT))
 
 
 @pytest.mark.parametrize(
@@ -73,13 +73,13 @@ async def test_resolve_dispatch_without_worker_runner_raises(monkeypatch):
         pytest.param(RUNNER_KUBERNETES, {"limits": {"cpu": "2"}}, KubernetesConfig("ml", None, None), id="kubernetes"),
     ],
 )
-async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch, runner, resources, pod_config):
+async def testresolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch, runner, resources, pod_config):
     """Both container runners read the job row for ``resources``; only
     kubernetes resolves a ``pod_config`` (cluster env)."""
     monkeypatch.setenv(ENV_WORKER_RUNNER, runner)
     monkeypatch.setenv(ENV_NAMESPACE, "ml")
     monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(resources))
-    resolved = await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
+    resolved = await dispatch.resolve_dispatch(_task(image_source=PREBUILT))
     assert resolved.runner == runner
     assert isinstance(resolved.image_source, ImagePrebuilt)
     assert resolved.resources == resources
@@ -89,9 +89,7 @@ async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch
 async def test_dispatch_shell_on_docker_uses_the_shell_vehicle(monkeypatch):
     """Container shell tasks run host-side (the file plane is multi-step), under
     a host-registered log run; only the subprocess runner uses the mp child."""
-    monkeypatch.setattr(
-        dispatch, "_resolve_dispatch", AsyncMock(return_value=JobDispatch(RUNNER_DOCKER, None, "shell"))
-    )
+    monkeypatch.setattr(dispatch, "resolve_dispatch", AsyncMock(return_value=JobDispatch(RUNNER_DOCKER, None, "shell")))
     monkeypatch.setattr(dispatch, "register_host_log_run", AsyncMock(return_value=99))
     vehicle = AsyncMock(return_value=(True, None, None))
     monkeypatch.setitem(dispatch._SHELL_RUNNERS, RUNNER_DOCKER, vehicle)
@@ -104,20 +102,20 @@ async def test_dispatch_shell_on_docker_uses_the_shell_vehicle(monkeypatch):
     child.assert_not_awaited()
 
 
-async def test_resolve_dispatch_jvm_command_is_the_class_name(monkeypatch):
+async def testresolve_dispatch_jvm_command_is_the_class_name(monkeypatch):
     """A jvm task is a shell task whose argv is the class name: the image's
     ENTRYPOINT (the aaiclick-task-api shim) receives it."""
     monkeypatch.setenv(ENV_WORKER_RUNNER, RUNNER_DOCKER)
     monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(None))
     task = _task(entrypoint="com.example.Pipeline", image_source=PREBUILT)
     task.entry_type = "jvm"
-    resolved = await dispatch._resolve_dispatch(task)
+    resolved = await dispatch.resolve_dispatch(task)
     assert (resolved.entry_type, resolved.command) == ("jvm", ["com.example.Pipeline"])
 
 
 async def test_dispatch_jvm_uses_shell_vehicle(monkeypatch):
     resolved = JobDispatch(RUNNER_DOCKER, None, "jvm", ["com.example.Pipeline"], image_source=PREBUILT)
-    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=resolved))
+    monkeypatch.setattr(dispatch, "resolve_dispatch", AsyncMock(return_value=resolved))
     monkeypatch.setattr(dispatch, "register_host_log_run", AsyncMock(return_value=99))
     vehicle = AsyncMock(return_value=(True, None, None))
     monkeypatch.setitem(dispatch._SHELL_RUNNERS, RUNNER_DOCKER, vehicle)

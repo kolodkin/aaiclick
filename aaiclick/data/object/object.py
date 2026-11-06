@@ -13,9 +13,7 @@ import re
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from enum import Enum
-from typing import Any, NamedTuple, TypedDict, Union
-
-from typing_extensions import Self
+from typing import Any, NamedTuple, Self, TypedDict, Union
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake import get_snowflake_id
