@@ -122,6 +122,7 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     shot("job-objects-opened")
     page.locator(".chip", has_text="←").last.click()
     page.wait_for_url(lambda url: unquote_plus(url).endswith(f"@job {OBJECTS_JOB}"))
+    shot("job-objects-back")
 
 
 @_spa_built
