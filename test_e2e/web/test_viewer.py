@@ -121,7 +121,8 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     page.get_by_test_id("object-rows").wait_for(timeout=15000)
     shot("job-objects-opened")
     page.locator(".chip", has_text="←").last.click()
-    page.wait_for_url(lambda url: unquote_plus(url).endswith(f"@job {OBJECTS_JOB}"))
+    page.wait_for_url(lambda url: "@job " in unquote_plus(url))
+    playwright_api.expect(page.locator("h2").first).to_contain_text(OBJECTS_JOB)
     shot("job-objects-back")
 
 
