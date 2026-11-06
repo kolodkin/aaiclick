@@ -11,7 +11,7 @@ from aaiclick.testing import get_task_runs, set_task_image_source
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..decorators import job, task
 from ..factories import create_job, create_task
-from ..jobs import get_task
+from ..jobs import get_task, get_tasks_for_job
 from ..models import (
     EXECUTION_WORKER_STOPPED,
     TASK_CANCELLED,
@@ -44,14 +44,11 @@ async def _child_step(label: str) -> str:
 
 async def _until_heartbeats(n: int) -> None:
     """Runs in-process, so it sees the test's patched heartbeat; returns once
-    it has been awaited ``n`` more times since the task started. Fails the
-    task after 5s so a missing heartbeat is a task error, not a hang."""
+    it has been awaited ``n`` more times since the task started."""
     target = ew.execution_worker_heartbeat.await_count + n
-    for _ in range(500):
-        if ew.execution_worker_heartbeat.await_count >= target:
-            return
-        await asyncio.sleep(0.01)
-    raise TimeoutError(f"{ew.execution_worker_heartbeat.await_count} heartbeats, wanted {target}")
+    async with asyncio.timeout(5):  # a missing heartbeat fails the task instead of hanging
+        while ew.execution_worker_heartbeat.await_count < target:
+            await asyncio.sleep(0.01)
 
 
 @job("test_local_dynamic_list")
@@ -211,15 +208,13 @@ async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
     claims — otherwise any task longer than the dead-worker timeout is
     declared dead and run twice."""
     monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.05)
-    heartbeat = AsyncMock(wraps=execution_worker_heartbeat)
-    monkeypatch.setattr(ew, "execution_worker_heartbeat", heartbeat)
+    monkeypatch.setattr(ew, "execution_worker_heartbeat", AsyncMock(wraps=execution_worker_heartbeat))
     job = await create_job("test_heartbeat_during_task", create_task(_until_heartbeats, {"n": 3}))
 
     tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
     assert tasks_executed == 1
-    async with get_sql_session() as session:
-        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+    (task,) = await get_tasks_for_job(job.id)
     assert (task.status, task.error) == (TASK_COMPLETED, None)
 
 
