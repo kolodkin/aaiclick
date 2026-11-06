@@ -96,7 +96,17 @@ function ObjectPreview({
           ]}
         />
       </div>
-      <Chips chips={[{ label: `← ${scopeText}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
+      <Chips
+        chips={
+          view?.job_name
+            ? [
+                { label: `← ${scopeText}`, cmd: `@job ${view.job_name}` },
+                { label: "@data", cmd: dataPrompt(scope) },
+              ]
+            : [{ label: `← ${scopeText}`, cmd: dataPrompt(scope) }]
+        }
+        onPrompt={onPrompt}
+      />
       {query.isPending && <p className="sub">loading rows…</p>}
       {query.isError && <p className="err">{query.error.message}</p>}
       {rows && (
