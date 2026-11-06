@@ -576,6 +576,7 @@ async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeyp
         return (await _task(task.id)).status == TASK_COMPLETED
 
     await _until(completed)  # the watch is dropped before the result is written
+    assert not _tracking(cluster, task)
     loop.cancel()
     with pytest.raises(asyncio.CancelledError):
         await loop

@@ -44,12 +44,14 @@ async def _child_step(label: str) -> str:
 
 async def _until_heartbeats(n: int) -> None:
     """Runs in-process, so it sees the test's patched heartbeat; returns once
-    it has been awaited ``n`` times, or after 5s so a missing heartbeat fails
-    the assertion instead of hanging the test."""
+    it has been awaited ``n`` more times since the task started. Fails the
+    task after 5s so a missing heartbeat is a task error, not a hang."""
+    target = ew.execution_worker_heartbeat.await_count + n
     for _ in range(500):
-        if ew.execution_worker_heartbeat.await_count >= n:
+        if ew.execution_worker_heartbeat.await_count >= target:
             return
         await asyncio.sleep(0.01)
+    raise TimeoutError(f"{ew.execution_worker_heartbeat.await_count} heartbeats, wanted {target}")
 
 
 @job("test_local_dynamic_list")
@@ -211,12 +213,14 @@ async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
     monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.05)
     heartbeat = AsyncMock(wraps=execution_worker_heartbeat)
     monkeypatch.setattr(ew, "execution_worker_heartbeat", heartbeat)
-    await create_job("test_heartbeat_during_task", create_task(_until_heartbeats, {"n": 3}))
+    job = await create_job("test_heartbeat_during_task", create_task(_until_heartbeats, {"n": 3}))
 
     tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
     assert tasks_executed == 1
-    assert heartbeat.await_count >= 3
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+    assert (task.status, task.error) == (TASK_COMPLETED, None)
 
 
 async def test_local_worker_cancel_propagates_to_loop(orch_ctx):
