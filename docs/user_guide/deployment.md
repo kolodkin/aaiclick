@@ -41,8 +41,11 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 
 ## Distributed mode
 
-Independent worker processes claim tasks from the shared PostgreSQL queue and
-execute each in a child process for isolation:
+Independent worker processes claim tasks from the shared PostgreSQL queue.
+Where a claimed task runs is the worker's `AAICLICK_RUNNER`: a child process
+on the worker host, a container on its Docker daemon, or a Pod — one
+kubernetes worker drives many Pods at once. See
+[Orchestration — Runner modes](orchestration.md#runner-modes).
 
 ```bash
 python -m aaiclick execution-worker start [--max-tasks N]
