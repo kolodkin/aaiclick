@@ -175,7 +175,8 @@ python -m aaiclick job wait crawl --timeout 900
 ```
 
 Both re-print the task table whenever the status counts change and exit
-**non-zero** on failure, cancellation, or timeout (default 600s), so `set -e`
+**non-zero** on failure, cancellation, or timeout (`--timeout`, defaulting to `AAICLICK_JOB_WAIT_TIMEOUT`,
+3600 s — a timeout stops watching while the job keeps running), so `set -e`
 scripts and CI stop on a failed run. Failures print the failing task's full error
 and its `task get` command; `--json` emits the final stats as one parseable
 document, with diagnostics on stderr.
@@ -542,6 +543,17 @@ inside the task). The UI colors lines by keyword — `error` / `exception` /
 `traceback` red, `warn` yellow, `debug` dim. Logs share
 the job's retention lifecycle. Fetch them via
 `GET /api/v0/tasks/<task_id>/logs?tail=100`.
+
+## Worker logs
+
+Every long-running command (`local start`, `execution-worker start`,
+`background start`) writes timestamped `INFO` lines to stderr. The execution
+worker logs `executing task` before each task and `completed task` (or the
+failure state) after it, so a slow task shows up as a gap between its two
+lines. Local mode also logs `chdb session ready in Ns` when the embedded
+engine starts. The first task after a start is still slower than the rest: the
+engine's first DDL and first insert fault more of its ~540 MB library into
+memory.
 
 # Internal Design
 
