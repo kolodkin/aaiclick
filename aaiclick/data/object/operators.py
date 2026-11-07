@@ -855,7 +855,7 @@ async def group_by_agg(
         name=name,
         scope=scope,
         oplog_op="group_by",
-        oplog_kwargs={"source": info.base_table, "keys": ",".join(info.group_keys)},
+        oplog_kwargs={"source": info.base_table},
     )
 
 

@@ -60,19 +60,27 @@ async def test_backward_oplog(pipeline):
     }
 
 
-async def test_group_by_records_lineage(orch_shared_ctx):
-    """A GROUP BY result is reachable backward from its source like any other operator."""
+class GroupedTables(NamedTuple):
+    sales: str
+    total: str
+
+
+@pytest.fixture(scope="module")
+async def grouped(orch_shared_ctx) -> GroupedTables:
+    """One create/group_by pipeline shared by the read-only graph tests."""
     async with task_scope(task_id=2, job_id=1, run_id=101):
         sales = await create_object_from_value({"k": ["a", "b"], "v": [1, 2]})
         total = await sales.group_by("k").sum("v")
+        return GroupedTables(sales.table, total.table)
 
+
+async def test_group_by_records_lineage(grouped):
+    """A GROUP BY result traces back to its source; the key columns are not mistaken for tables."""
     async with lineage_context():
-        nodes = await backward_oplog(total.table)
+        graph = await oplog_subgraph(grouped.total, direction="backward")
 
-    by_table = {n.table: n for n in nodes}
-    assert set(by_table) == {total.table, sales.table}
-    assert by_table[total.table].operation == "group_by"
-    assert by_table[total.table].kwargs == {"source": sales.table, "keys": "k"}
+    assert graph.tables == {grouped.total, grouped.sales}
+    assert {(e.source, e.target, e.operation) for e in graph.edges} == {(grouped.sales, grouped.total, "group_by")}
 
 
 async def test_forward_oplog(pipeline):

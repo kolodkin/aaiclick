@@ -100,7 +100,7 @@ async def query_object_bytes(request: ObjectQueryRequest) -> bytes:
     ``CSVWithNames``. The REST route returns these bytes verbatim, so the SPA's
     kernel reads ``{meta, data}`` with no parse or re-serialise in between."""
     _check_where(request.where)
-    obj = await objects_api.open_scoped(request.object, _scope_job(request.scope))
+    obj = (await objects_api.open_scoped(request.object, _scope_job(request.scope))).object
     view = obj.view(
         where=request.where,
         order_by=_order_clause(obj, request.order_by),
