@@ -261,7 +261,7 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     assert "t_scratch" not in remaining, "Temp table was not cleaned up"
 
 
-async def test_delete_job_data_exempts_persistent_tables(bg_db, orch_ctx):
+async def test_delete_job_data_exempts_persistent_tables(orch_ctx, bg_db):
     """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never ``p_*``."""
     job_id = 555
     await insert_job(bg_db, job_id, preservation_mode="NONE")
@@ -283,7 +283,7 @@ async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
     return {row[0] for row in result.result_rows}
 
 
-async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
+async def test_delete_job_data_purges_ch_log_tables(orch_ctx, bg_db):
     """``_delete_job_data`` synchronously deletes the job's operation_log and task_logs rows, and no other job's."""
     job_id, other_job_id = 556, 557
     await insert_job(bg_db, job_id, preservation_mode="NONE")
@@ -306,7 +306,7 @@ async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
     assert await _log_job_ids(ch, "task_logs") == {other_job_id}
 
 
-async def test_delete_job_data_keeps_job_when_log_purge_fails(bg_db, orch_ctx):
+async def test_delete_job_data_keeps_job_when_log_purge_fails(orch_ctx, bg_db):
     """A log-purge mutation that fails while running keeps the job's SQL rows for the next cycle.
 
     The ``throwIf`` alias raises only when the mutation executes, which a

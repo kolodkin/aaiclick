@@ -29,7 +29,12 @@ from ...datetime_utils import utc_now
 
 @pytest.fixture
 async def bg_db():
-    """Yield an async engine on a temp SQLite DB with the full schema; dispose and delete it after."""
+    """Yield an async engine on a temp SQLite DB with the full schema, as the
+    active ``orch_context`` engine; dispose and delete it after.
+
+    Request it after ``orch_ctx``, whose per-test reset must run on the real
+    engine, not this one.
+    """
     tmpdir = tempfile.mkdtemp(prefix="aaiclick_bgtest_")
     db_path = os.path.join(tmpdir, "test.db")
     sync_engine = create_engine(f"sqlite:///{db_path}")
