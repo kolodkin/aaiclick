@@ -26,9 +26,9 @@ def object_to_detail(
 ) -> ObjectDetail:
     """Adapt an :class:`Object` to a detail-form view.
 
-    ``row_count``, ``size_bytes``, and ``created_at`` come from
-    ``system.tables`` and are supplied by the caller (``internal_api``)
-    because ``Object`` itself does not carry them.
+    ``row_count`` and ``size_bytes`` come from ``system.tables``,
+    ``created_at`` from ``table_registry``; all three are supplied by the
+    caller (``internal_api``) because ``Object`` itself does not carry them.
     """
     return ObjectDetail(
         name=name_from_table(obj.table),

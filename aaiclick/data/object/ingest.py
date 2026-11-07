@@ -182,8 +182,8 @@ async def _insert_source(
     target_types: dict[str, ColumnInfo],
     alias_index: int,
     ch_client,
-) -> None:
-    """Insert a single source into a target table.
+) -> str:
+    """Insert a single source into a target table; returns the SELECT it ran.
 
     Args:
         target_table: Destination table name.
@@ -199,10 +199,8 @@ async def _insert_source(
     insert_cols = ", ".join(quote_identifier(col) for col in col_names)
     select = f"SELECT {cast_exprs} FROM {info.source}{alias}"
 
-    await ch_client.command(f"""
-    INSERT INTO {target_table} ({insert_cols})
-    {select}
-    """)
+    await ch_client.command(f"INSERT INTO {target_table} ({insert_cols}) {select}")
+    return select
 
 
 async def concat_objects_db(
@@ -322,6 +320,7 @@ async def insert_objects_db(
 
     target_columns = target_info.columns
 
+    selects = []
     advisory_id = await load_advisory_id(target_info.base_table)
     async with table_insert_lock(advisory_id):
         for i, info in enumerate(source_infos):
@@ -339,17 +338,19 @@ async def insert_objects_db(
                     )
 
             source_target_types = {col: target_columns[col] for col in col_names}
-            await _insert_source(
+            select = await _insert_source(
                 target_info.base_table,
                 info,
                 source_target_types,
                 i,
                 ch_client,
             )
+            selects.append(select)
 
-    for info in source_infos:
+    for info, select in zip(source_infos, selects, strict=True):
         oplog_record_sample(
             target_info.base_table,
             "insert",
             kwargs={"source": info.base_table, "target": target_info.base_table},
+            sql=select,
         )

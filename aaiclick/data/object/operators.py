@@ -360,11 +360,10 @@ async def _apply_operator_db(
     result = await create_object(schema, name=name, scope=scope)
     operand_tables = _operand_tables(left=info_a.base_table, right=info_b.base_table)
 
-    async def insert(select_sql: str) -> str:
+    async def insert(select_sql: str) -> None:
         result._stats = await execute_for_stats(
             f"INSERT INTO {result.table} {proj.insert_cols} {select_sql}", client=ch_client
         )
-        return select_sql
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
@@ -375,7 +374,8 @@ async def _apply_operator_db(
             col_a = quote_identifier(info_a.value_column)
             col_b = quote_identifier(info_b.value_column)
             expr = expression.replace("a.value", col_a).replace("b.value", col_b)
-            query = await insert(f"SELECT {expr} AS value{proj.inner} FROM {info_a.row_source}")
+            query = f"SELECT {expr} AS value{proj.inner} FROM {info_a.row_source}"
+            await insert(query)
         else:
             # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
             assert info_a.order_by and info_b.order_by, (
@@ -383,8 +383,18 @@ async def _apply_operator_db(
                 "on both sides — the contract check in _apply_operator should have rejected it"
             )
             either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
+            inner_a = proj.inner if aai_id_alias == "a" else ""
+            inner_b = proj.inner if aai_id_alias == "b" else ""
+            query = (
+                f"SELECT {expression} AS value{proj.aliased} "
+                f"FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a "
+                f"INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b "
+                "ON a.rn = b.rn"
+            )
 
             if either_is_view:
+                # Same join, materialized through a temp table that is dropped on
+                # exit; ``query`` stays the recorded lineage SQL over live sources.
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
                 async with _array_join_temp(
                     info_a.source,
@@ -396,26 +406,16 @@ async def _apply_operator_db(
                     order_b=info_b.order_by,
                     propagate_aai_id_from=aai_id_side,
                 ) as temp_table:
-                    query = await insert(f"SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}")
+                    await insert(f"SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
-                inner_a = proj.inner if aai_id_alias == "a" else ""
-                inner_b = proj.inner if aai_id_alias == "b" else ""
-                query = await insert(
-                    f"""
-                    SELECT {expression} AS value{proj.aliased}
-                    FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a
-                    INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b
-                    ON a.rn = b.rn
-                """
-                )
+                await insert(query)
     else:
         # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
         # Cross-join works for all cases. Row order follows ClickHouse's natural
         # source order; callers wanting determinism apply .view(order_by=...).
-        query = await insert(
-            f"SELECT {expression} AS value{proj.aliased} FROM {info_a.source} AS a, {info_b.source} AS b"
-        )
+        query = f"SELECT {expression} AS value{proj.aliased} FROM {info_a.source} AS a, {info_b.source} AS b"
+        await insert(query)
 
     oplog_record_sample(result.table, operator, kwargs=operand_tables, sql=query)
     return result
