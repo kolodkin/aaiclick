@@ -128,6 +128,19 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
 
 @_spa_built
 @_local_only
+def test_job_objects_menu_on_phone(page, base_url: str, shot) -> None:
+    # The long job name wraps the button to the left edge; the popup must stay on screen.
+    page.set_viewport_size({"width": 412, "height": 900})
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
+    menu = page.get_by_test_id("job-objects")
+    menu.locator("summary").click()
+    box = menu.locator(".objects-popup").bounding_box()
+    assert box["x"] >= 0 and box["x"] + box["width"] <= 412, box
+    shot("job-objects-menu-phone")
+
+
+@_spa_built
+@_local_only
 def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
     page.set_viewport_size({"width": 412, "height": 900})
     open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
