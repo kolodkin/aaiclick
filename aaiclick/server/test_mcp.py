@@ -30,6 +30,7 @@ from aaiclick.orchestration.view_models import (
     JobDetail,
     JobView,
     TaskDetail,
+    TaskLogsView,
     TaskView,
 )
 from aaiclick.view_models import Page
@@ -53,6 +54,7 @@ EXPECTED_TOOLS = {
     "enable_job",
     "disable_job",
     "get_task",
+    "get_task_logs",
     "list_tasks",
     "clear_task",
     "list_execution_workers",
@@ -149,6 +151,26 @@ async def test_get_task_returns_detail(orch_ctx, mcp_client):
 
     detail = TaskDetail.model_validate(result.structured_content)
     assert detail.id == task.id
+
+
+async def test_get_task_logs_returns_view(orch_ctx, mcp_client):
+    job = await create_job("mcp_task_logs_job", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    result = await mcp_client.call_tool("get_task_logs", {"task_id": task.id})
+
+    logs = TaskLogsView.model_validate(result.structured_content)
+    assert logs.available is False
+
+
+@pytest.mark.parametrize("params", [{"tail": 0}, {"attempt": 0}, {"attempt": 1}], ids=["tail", "attempt0", "attempt"])
+async def test_get_task_logs_rejects_bad_params(orch_ctx, mcp_client, params):
+    """Range bounds hold at the tool boundary; an in-range ``attempt`` still reaches ``internal_api``."""
+    job = await create_job("mcp_task_logs_params", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool("get_task_logs", {"task_id": task.id, **params})
 
 
 async def test_clear_task_returns_view(orch_ctx, mcp_client):

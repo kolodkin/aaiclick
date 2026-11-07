@@ -188,7 +188,8 @@ tick every second while the job is active, so running bars grow.
 Left: a scope tree — All, Persistent, then the jobs (newest first, name
 filter). Right: the objects of the selected scope (name, scope —
 `persistent` or `job`, job name, rows, size, created, a Query button), or,
-with an object named, its header and first page of rows.
+with an object named, its header and first page of rows. A job object's
+back chip returns to `@job <id>`; an `@data` chip lists the scope.
 Rows render through the QueryView kernel's `ResultsTable` and default cell
 views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 

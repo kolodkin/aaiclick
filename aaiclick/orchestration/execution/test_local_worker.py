@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import select
 
-from aaiclick.testing import get_task_runs, set_task_image_source
+from aaiclick.testing import get_task_runs, set_task_image_source, until
 
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..decorators import job, task
 from ..factories import create_job, create_task
-from ..jobs import get_task
+from ..jobs import get_task, get_tasks_for_job
 from ..models import (
     EXECUTION_WORKER_STOPPED,
     TASK_CANCELLED,
@@ -40,6 +40,12 @@ pytestmark = pytest.mark.usefixtures("fast_poll")
 async def _child_step(label: str) -> str:
     """Child of a dynamic registration test — returns its label."""
     return label
+
+
+async def _until_heartbeats(n: int) -> None:
+    """Runs in-process, so it sees the test's patched heartbeat."""
+    target = ew.execution_worker_heartbeat.await_count + n
+    await until(lambda: ew.execution_worker_heartbeat.await_count >= target, what="in-task heartbeats")
 
 
 @job("test_local_dynamic_list")
@@ -159,16 +165,10 @@ async def test_local_worker_no_tasks(orch_ctx):
 
 
 async def _wait_for_status(task_id: int, status: str) -> None:
-    """Poll until the task reaches ``status``."""
+    async def reached() -> bool:
+        return (task := await get_task(task_id)) is not None and task.status == status
 
-    async def poll():
-        while True:
-            task = await get_task(task_id)
-            if task is not None and task.status == status:
-                return
-            await asyncio.sleep(0.05)
-
-    await asyncio.wait_for(poll(), timeout=5)
+    await until(reached, what=status)
 
 
 async def test_local_worker_dispatch_exception_fails_task(orch_ctx):
@@ -199,17 +199,14 @@ async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
     claims — otherwise any task longer than the dead-worker timeout is
     declared dead and run twice."""
     monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.05)
-    heartbeat = AsyncMock(wraps=execution_worker_heartbeat)
-    monkeypatch.setattr(ew, "execution_worker_heartbeat", heartbeat)
-    await create_job(
-        "test_heartbeat_during_task",
-        create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 0.5, "steps": 5}),
-    )
+    monkeypatch.setattr(ew, "execution_worker_heartbeat", AsyncMock(wraps=execution_worker_heartbeat))
+    job = await create_job("test_heartbeat_during_task", create_task(_until_heartbeats, {"n": 3}))
 
     tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
     assert tasks_executed == 1
-    assert heartbeat.await_count >= 3
+    (task,) = await get_tasks_for_job(job.id)
+    assert (task.status, task.error) == (TASK_COMPLETED, None)
 
 
 async def test_local_worker_cancel_propagates_to_loop(orch_ctx):
@@ -278,9 +275,11 @@ async def test_local_worker_cancelled_mid_run(orch_ctx):
     loop = asyncio.create_task(
         execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
     )
-    while [r.status for r in await get_task_runs((await _task_row(job.id)).id)] != [TASK_RUNNING]:
-        await asyncio.sleep(0.05)
 
+    async def running() -> bool:
+        return [r.status for r in await get_task_runs((await _task_row(job.id)).id)] == [TASK_RUNNING]
+
+    await until(running)
     await cancel_job(job.id)
     assert await loop == 0
 

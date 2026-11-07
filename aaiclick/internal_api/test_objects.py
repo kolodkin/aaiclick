@@ -145,6 +145,7 @@ async def test_list_objects_job_scope_by_ref():
 
     detail = await objects.get_object("result", job="objs_job")
     assert detail.table == f"j_{job.id}_result"
+    assert (detail.job_id, detail.job_name) == (job.id, "objs_job")
     with pytest.raises(errors.NotFound):
         await objects.get_object("persist", job=job.id)
 

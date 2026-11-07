@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from fastapi.routing import APIRoute
 from starlette.routing import Route
@@ -10,6 +8,7 @@ from aaiclick.backend import is_local
 from aaiclick.deploy.placeholders import PLACEHOLDER_MARKER
 from aaiclick.orchestration.execution import list_execution_workers
 from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE
+from aaiclick.testing import until
 from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app
@@ -136,12 +135,7 @@ async def test_lifespan_starts_worker_in_local_mode():
         pytest.skip("lifespan starts workers only in local mode")
 
     async with _lifespan(app):
-        for _ in range(50):
-            if await list_execution_workers(status=EXECUTION_WORKER_ACTIVE):
-                return
-            await asyncio.sleep(0.1)
-
-        pytest.fail("no ACTIVE worker after 5s")
+        await until(lambda: list_execution_workers(status=EXECUTION_WORKER_ACTIVE), what="ACTIVE worker")
 
 
 async def test_lifespan_distributed_mode_is_a_no_op():

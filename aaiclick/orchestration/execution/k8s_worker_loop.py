@@ -452,7 +452,7 @@ class _Reconciler:
         self.watch.changed.clear()
 
     def _done(self, empty_polls: int) -> bool:
-        if self.in_flight:
+        if self.in_flight or (self.detached and not self.shutdown):  # detached Pods are still ours to take back
             return False
         if self.shutdown:
             return True

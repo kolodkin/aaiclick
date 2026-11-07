@@ -153,10 +153,16 @@ async def open_scoped(name: str, job: RefId | None = None) -> Object:
 
 async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
     """Return full object detail including its schema (see ``open_scoped``)."""
-    obj = await open_scoped(name, job)
+    owner = await jobs_api.resolve_job(job) if job is not None else None
+    obj = await open_scoped(name, owner.id if owner else None)
 
     metadata = await _fetch_table_metadata([obj.table])
-    return object_to_detail(obj, **metadata.get(obj.table, {}))
+    return object_to_detail(
+        obj,
+        job_id=owner.id if owner else None,
+        job_name=owner.name if owner else None,
+        **metadata.get(obj.table, {}),
+    )
 
 
 async def delete_object(name: str) -> Deleted:
