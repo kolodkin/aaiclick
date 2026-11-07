@@ -360,6 +360,12 @@ async def _apply_operator_db(
     result = await create_object(schema, name=name, scope=scope)
     operand_tables = _operand_tables(left=info_a.base_table, right=info_b.base_table)
 
+    async def insert(select_sql: str) -> str:
+        result._stats = await execute_for_stats(
+            f"INSERT INTO {result.table} {proj.insert_cols} {select_sql}", client=ch_client
+        )
+        return select_sql
+
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
         # Operands over the same rows (same filters, renames, computed and
@@ -369,13 +375,7 @@ async def _apply_operator_db(
             col_a = quote_identifier(info_a.value_column)
             col_b = quote_identifier(info_b.value_column)
             expr = expression.replace("a.value", col_a).replace("b.value", col_b)
-            result._stats = await execute_for_stats(
-                f"""
-                INSERT INTO {result.table} {proj.insert_cols}
-                SELECT {expr} AS value{proj.inner} FROM {info_a.row_source}
-            """,
-                client=ch_client,
-            )
+            query = await insert(f"SELECT {expr} AS value{proj.inner} FROM {info_a.row_source}")
         else:
             # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
             assert info_a.order_by and info_b.order_by, (
@@ -396,44 +396,28 @@ async def _apply_operator_db(
                     order_b=info_b.order_by,
                     propagate_aai_id_from=aai_id_side,
                 ) as temp_table:
-                    result._stats = await execute_for_stats(
-                        f"""
-                        INSERT INTO {result.table} {proj.insert_cols}
-                        SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}
-                    """,
-                        client=ch_client,
-                    )
+                    query = await insert(f"SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
                 inner_a = proj.inner if aai_id_alias == "a" else ""
                 inner_b = proj.inner if aai_id_alias == "b" else ""
-                result._stats = await execute_for_stats(
+                query = await insert(
                     f"""
-                    INSERT INTO {result.table} {proj.insert_cols}
                     SELECT {expression} AS value{proj.aliased}
                     FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a
                     INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b
                     ON a.rn = b.rn
-                """,
-                    client=ch_client,
+                """
                 )
+    else:
+        # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
+        # Cross-join works for all cases. Row order follows ClickHouse's natural
+        # source order; callers wanting determinism apply .view(order_by=...).
+        query = await insert(
+            f"SELECT {expression} AS value{proj.aliased} FROM {info_a.source} AS a, {info_b.source} AS b"
+        )
 
-        oplog_record_sample(result.table, operator, kwargs=operand_tables)
-        return result
-
-    # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
-    # Cross-join works for all cases. Row order follows ClickHouse's natural
-    # source order; callers wanting determinism apply .view(order_by=...).
-    result._stats = await execute_for_stats(
-        f"""
-        INSERT INTO {result.table} {proj.insert_cols}
-        SELECT {expression} AS value{proj.aliased}
-        FROM {info_a.source} AS a, {info_b.source} AS b
-    """,
-        client=ch_client,
-    )
-
-    oplog_record_sample(result.table, operator, kwargs=operand_tables)
+    oplog_record_sample(result.table, operator, kwargs=operand_tables, sql=query)
     return result
 
 

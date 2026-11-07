@@ -47,5 +47,5 @@ async def emit_result(
     cols = insert_cols if insert_cols is not None else ", ".join(schema.columns)
     result._stats = await execute_for_stats(f"INSERT INTO {result.table} ({cols}) {select_sql}", client=ch_client)
     if oplog_op is not None:
-        oplog_record_sample(result.table, oplog_op, kwargs=oplog_kwargs or {})
+        oplog_record_sample(result.table, oplog_op, kwargs=oplog_kwargs or {}, sql=select_sql)
     return result

@@ -52,7 +52,9 @@ from .errors import Invalid, NotFound
 
 
 async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
-    """Look up per-table stats (row count, size, creation time) in one query.
+    """Look up per-table stats: row count and size from ``system.tables``,
+    creation time from ``table_registry`` (``system.tables`` reports epoch 0
+    for Memory tables).
 
     Returned dict is keyed by table name; each value is a kwargs dict ready to
     spread into ``ObjectView`` / ``object_to_detail`` (``row_count``,
@@ -63,11 +65,19 @@ async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
     names_lit = ", ".join(f"'{t}'" for t in tables)
     ch = get_ch_client()
     result = await ch.query(
-        "SELECT name, total_rows, total_bytes, metadata_modification_time "
+        "SELECT name, total_rows, total_bytes "
         "FROM system.tables "
         f"WHERE database = currentDatabase() AND name IN ({names_lit})"
     )
-    return {row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]} for row in result.result_rows}
+    async with get_sql_session() as session:
+        registry = await session.execute(
+            select(TableRegistry.table_name, TableRegistry.created_at).where(col(TableRegistry.table_name).in_(tables))
+        )
+    created = dict(registry.all())
+    return {
+        row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": created.get(row[0])}
+        for row in result.result_rows
+    }
 
 
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:

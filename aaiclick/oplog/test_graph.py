@@ -49,6 +49,7 @@ async def test_backward_oplog(pipeline):
 
     concat_node = by_table[result_table]
     assert concat_node.operation == "concat"
+    assert concat_node.sql_template is not None and "UNION ALL" in concat_node.sql_template
     assert set(concat_node.kwargs.values()) == {a_table, b_table}
 
     for t in (a_table, b_table):

@@ -286,6 +286,7 @@ async def concat_objects_db(
         result.table,
         "concat",
         kwargs={f"source_{i}": info.base_table for i, info in enumerate(query_infos)},
+        sql=union_query,
     )
     return result
 
