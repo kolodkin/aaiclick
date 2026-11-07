@@ -15,7 +15,6 @@ from collections.abc import Awaitable, Callable, Sequence
 from enum import Enum
 from typing import Any, NamedTuple, Self, TypedDict, Union
 
-from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake import get_snowflake_id
 
 from ..formats import format_for_extension
@@ -910,14 +909,9 @@ class Object:
             >>> await arr.data()  # Returns [1, 2]
         """
         self.checkstale()
-        source_table = self.table
         copy_info = self._get_copy_info()
-        if copy_info.selected_fields:
-            result = await ingest.copy_db_selected_fields(copy_info, self.ch_client, name=name, scope=scope)
-        else:
-            result = await ingest.copy_db(copy_info, self.ch_client, name=name, scope=scope)
-        oplog_record_sample(result.table, "copy", kwargs={"source": source_table})
-        return result
+        copy = ingest.copy_db_selected_fields if copy_info.selected_fields else ingest.copy_db
+        return await copy(copy_info, self.ch_client, name=name, scope=scope, source_table=self.table)
 
     async def concat(
         self,

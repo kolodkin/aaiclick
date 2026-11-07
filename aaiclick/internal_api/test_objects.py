@@ -9,6 +9,7 @@ from aaiclick.data.object_context import (
     list_persistent_objects,
 )
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.snowflake import get_snowflake_id
@@ -45,6 +46,19 @@ async def test_list_objects_populates_row_count_and_size():
     [view] = [o for o in page.items if o.name == "metrics_target"]
     assert view.row_count == 4
     assert view.size_bytes is not None and view.size_bytes > 0
+
+
+async def test_list_objects_created_at_is_registry_time():
+    """Memory tables report epoch 0 in system.tables; created_at must come from the registry."""
+    before = utc_now()
+    await create_object_from_value([1], name="created_target", scope="global")
+
+    page = await objects.list_objects()
+    detail = await objects.get_object("created_target")
+
+    [view] = [o for o in page.items if o.name == "created_target"]
+    assert view.created_at is not None and view.created_at >= before
+    assert detail.created_at == view.created_at
 
 
 async def test_list_objects_prefix_filter():

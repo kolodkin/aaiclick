@@ -27,6 +27,7 @@ async def emit_result(
     scope: NamedScope | None = None,
     oplog_op: str | None = None,
     oplog_kwargs: dict | None = None,
+    oplog_sql: str | None = None,
 ):
     """Create the result table for ``schema`` and fill it from ``select_sql``.
 
@@ -39,6 +40,8 @@ async def emit_result(
         scope: Optional result table scope (forwarded to ``create_object``).
         oplog_op: When set, record an oplog sample for the result under this op.
         oplog_kwargs: kwargs for the oplog sample.
+        oplog_sql: SQL to record instead of ``select_sql`` when the executed
+            statement reads a temp table that will not outlive the call.
 
     Returns:
         The new Object, with ``_stats`` populated from the INSERT.
@@ -47,5 +50,5 @@ async def emit_result(
     cols = insert_cols if insert_cols is not None else ", ".join(schema.columns)
     result._stats = await execute_for_stats(f"INSERT INTO {result.table} ({cols}) {select_sql}", client=ch_client)
     if oplog_op is not None:
-        oplog_record_sample(result.table, oplog_op, kwargs=oplog_kwargs or {})
+        oplog_record_sample(result.table, oplog_op, kwargs=oplog_kwargs or {}, sql=oplog_sql or select_sql)
     return result
