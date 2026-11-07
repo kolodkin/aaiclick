@@ -75,7 +75,6 @@ async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     """Completed lines are readable from task_logs while the task body is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
     task_id, job_id, run_id = 71, 1, 9101
-    mid_run_lines: list[str] = []
     async with capture_task_output(task_id, job_id, run_id):
         print("early line")
         flushed = await until(lambda: read_task_logs(task_id, run_id), timeout=30, what="'early line' in task_logs")
