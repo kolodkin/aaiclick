@@ -14,7 +14,6 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from aaiclick import __version__
 from aaiclick.data.object_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.oplog.lineage import GraphNode, OplogGraph
@@ -246,7 +245,7 @@ async def test_list_graph_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, 
 
 async def test_instructions_carry_the_triage_method(mcp_client):
     """The server instructions name every lineage tool, in the order the agent should use them."""
-    assert mcp_client.initialize_result.serverInfo.version == __version__
+    assert mcp_client.initialize_result.serverInfo.version == "v0"
     instructions = mcp_client.initialize_result.instructions
     order = ["oplog_subgraph", "list_graph_nodes", "get_table_schema", "query_table"]
     positions = [instructions.index(name) for name in order]
