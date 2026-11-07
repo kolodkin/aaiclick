@@ -7,25 +7,25 @@ can answer *how did this value get here?* against the live tables.
 
 # Tools
 
-| Tool                                    | Purpose                                                                                        |
-|-----------------------------------------|------------------------------------------------------------------------------------------------|
-| `oplog_subgraph(target_table)`          | The operation graph behind a table — each node carries its rendered `sql_template`             |
-| `list_graph_nodes(target_table)`        | Every table in that graph with its kind (input / intermediate / target) and whether it is live |
-| `get_table_schema(table, target_table)` | Columns and types for one table in the graph                                                   |
-| `query_table(sql, target_table)`        | A read-only, row-capped `SELECT` scoped to the graph                                           |
+| Tool                                  | Purpose                                                                                        |
+|---------------------------------------|------------------------------------------------------------------------------------------------|
+| `lineage_graph(target_table)`         | The operation graph behind a table — each node carries its rendered `sql_template`             |
+| `lineage_nodes(target_table)`         | Every table in that graph with its kind (input / intermediate / target) and whether it is live |
+| `lineage_schema(table, target_table)` | Columns and types for one table in the graph                                                   |
+| `lineage_query(sql, target_table)`    | A read-only, row-capped `SELECT` scoped to the graph                                           |
 
 All four take `direction` (`"backward"` default, or `"forward"`) and
 `max_depth`. The server's instructions give the agent the triage order:
-graph SQL first, `list_graph_nodes` for dropped tables, `get_table_schema`
-before any query, `query_table` rows as evidence.
+graph SQL first, `lineage_nodes` for dropped tables, `lineage_schema`
+before any query, `lineage_query` rows as evidence.
 
-!!! warning "`query_table` reaches only the target's lineage"
+!!! warning "`lineage_query` reaches only the target's lineage"
     The scope is resolved server-side from `target_table`; a SQL string
     naming any other table, a table function, or a `SETTINGS` clause is
     rejected. Write a CTE as a subquery in `FROM`, and use
     `has(column, value)` rather than `IN` for an array column.
 
-A table that `list_graph_nodes` reports as `live: false` was cleaned up
+A table that `lineage_nodes` reports as `live: false` was cleaned up
 after the run. Re-run the job with `preservation_mode="FULL"` (`run_job`,
 an admin tool — the read-scoped token below cannot call it) and query the
 new run's tables.
