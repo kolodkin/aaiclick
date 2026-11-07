@@ -48,6 +48,15 @@ LIMITS = K8sLimits(max_pending=2, max_pending_total=10, max_pods=None, pending_t
 pytestmark = pytest.mark.usefixtures("fast_poll")
 
 
+_DETACH_AFTER_INTERVALS = loop_mod.DETACH_AFTER_INTERVALS
+
+
+@pytest.fixture
+def outage(cluster, monkeypatch):
+    """The real detach threshold, for the tests that exercise a heartbeat outage."""
+    monkeypatch.setattr(loop_mod, "DETACH_AFTER_INTERVALS", _DETACH_AFTER_INTERVALS)
+
+
 async def _task(task_id: int) -> Task:
     """``get_task`` for a task the test created: never None."""
     task = await get_task(task_id)
@@ -98,9 +107,11 @@ def cluster(monkeypatch):
     monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=kw.RunnerResult(True, native_ref(1), None)))
     monkeypatch.setattr(kw, "follow_vehicle_output", AsyncMock())
     monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=None))
-    # Sub-second heartbeats false-detach on contended SQLite under xdist; 1 s keeps
-    # detach (1.5 s) above a slow but live DB while the detach tests stay short.
+    # 1 s heartbeats keep the outage tests short. A loaded SQLite under xdist
+    # can still stall past the real detach threshold, so only the ``outage``
+    # tests run with it; everything else must never see a false detach.
     monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 1.0)
+    monkeypatch.setattr(loop_mod, "DETACH_AFTER_INTERVALS", float("inf"))
 
     created: list[dict] = []
     deleted: list[str] = []
@@ -337,7 +348,7 @@ async def test_lost_ownership_by_adoption_keeps_pod(orch_ctx, cluster):
     assert (await _task(task.id)).status == TASK_RUNNING
 
 
-async def test_heartbeat_outage_detaches_all(orch_ctx, cluster, monkeypatch):
+async def test_heartbeat_outage_detaches_all(orch_ctx, outage, cluster, monkeypatch):
     (task,) = await _image_job("hb_outage")
     loop = cluster.start(max_empty_polls=100)
     await until(lambda: len(cluster.pods()) == 1)
@@ -541,7 +552,7 @@ def _tracking(cluster, task: Task) -> bool:
     return bool(cluster.watches) and kw._pod_name(task.id, task.run_epoch) in cluster.watch()._futures
 
 
-async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeypatch):
+async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, outage, cluster, monkeypatch):
     """A bounded worker (``max_tasks``) must not exit while detached: its
     in-flight set is empty, but it still owns the Pod it will take back."""
     (task,) = await _image_job("hb_recovery")
@@ -647,7 +658,7 @@ async def test_heartbeat_tick_resyncs_watch(orch_ctx, cluster):
             await loop
 
 
-async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, cluster, monkeypatch):
+async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, outage, cluster, monkeypatch):
     """Detach must come before another worker may adopt (ADOPT_AFTER =
     2 × HEARTBEAT_INTERVAL), even when the heartbeat call hangs."""
 
@@ -697,7 +708,7 @@ async def test_shutdown_before_pod_created_releases_claim(orch_ctx, cluster, mon
     assert cluster.pods() == []
 
 
-async def test_slow_heartbeat_is_not_cancelled(orch_ctx, cluster, monkeypatch):
+async def test_slow_heartbeat_is_not_cancelled(orch_ctx, outage, cluster, monkeypatch):
     """A heartbeat slower than the retry cadence (a loaded DB) is left to
     finish — cancelling it mid-UPDATE would hold locks and read as an outage."""
     outcomes = {"finished": 0, "cancelled": 0}
