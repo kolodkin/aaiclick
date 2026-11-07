@@ -61,6 +61,20 @@ async def test_backward_oplog(pipeline):
     }
 
 
+async def test_view_arithmetic_records_sql_over_live_sources(orch_shared_ctx):
+    """The temp-table operator path must not record SQL against the dropped tmp_ table."""
+    async with task_scope(task_id=3, job_id=1, run_id=102):
+        a = await create_object_from_value([1, 2, 3])
+        b = await create_object_from_value([10, 20, 30])
+        result = await (a.view(order_by="value") + b.view(order_by="value"))
+
+    async with lineage_context():
+        [node] = [n for n in await backward_oplog(result.table) if n.table == result.table]
+
+    assert node.sql_template is not None
+    assert "row_number()" in node.sql_template and "tmp_" not in node.sql_template
+
+
 class DerivedTables(NamedTuple):
     sales: str
     total: str
