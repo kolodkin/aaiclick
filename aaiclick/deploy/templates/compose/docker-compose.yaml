@@ -36,6 +36,9 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+    configs:
+      - source: clickhouse_memory_xml
+        target: /etc/clickhouse-server/config.d/memory.xml
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
       interval: 5s
@@ -155,6 +158,13 @@ volumes:
   buildkit_cache:
 
 configs:
+  clickhouse_memory_xml:
+    # ClickHouse defaults to 90% of host RAM; leave room for Postgres,
+    # buildkitd and task containers sharing the host.
+    content: |
+      <clickhouse>
+        <max_server_memory_usage_to_ram_ratio>0.5</max_server_memory_usage_to_ram_ratio>
+      </clickhouse>
   buildkitd_toml:
     # The scaffold's registry is plain HTTP on the host gateway.
     content: |

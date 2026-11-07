@@ -115,3 +115,15 @@ def test_init_compose_builds_on_rootless_buildkitd(tmp_path):
     assert parsed["services"]["worker"]["environment"]["AAICLICK_BUILDKIT_ADDR"] == "tcp://buildkitd:1234"
     toml = parsed["configs"]["buildkitd_toml"]["content"]
     assert '[registry."host.docker.internal:5000"]' in toml and "http = true" in toml
+
+
+def test_init_compose_caps_clickhouse_memory(tmp_path):
+    """ClickHouse leaves host RAM for the rest of the stack instead of its 90% default."""
+    target = tmp_path / "docker-compose.yaml"
+    init_compose(target, image_tag="v1.0.0")
+    parsed = yaml.safe_load(target.read_text())
+    assert {"source": "clickhouse_memory_xml", "target": "/etc/clickhouse-server/config.d/memory.xml"} in parsed[
+        "services"
+    ]["clickhouse"]["configs"]
+    xml = parsed["configs"]["clickhouse_memory_xml"]["content"]
+    assert "<max_server_memory_usage_to_ram_ratio>0.5</max_server_memory_usage_to_ram_ratio>" in xml
