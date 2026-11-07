@@ -60,6 +60,43 @@ async def test_backward_oplog(pipeline):
     }
 
 
+class DerivedTables(NamedTuple):
+    sales: str
+    total: str
+    joined: str
+
+
+@pytest.fixture(scope="module")
+async def derived(orch_shared_ctx) -> DerivedTables:
+    """group_by and join results, built once so the module-scoped context stays read-only in tests."""
+    async with task_scope(task_id=2, job_id=1, run_id=101):
+        sales = await create_object_from_value({"k": ["a", "b"], "v": [1, 2]})
+        total = await sales.group_by("k").sum("v")
+        joined = await sales.join(total, on="k", how="inner", suffixes=True)
+        return DerivedTables(sales.table, total.table, joined.table)
+
+
+@pytest.mark.parametrize(
+    "target, operation, sources",
+    [
+        pytest.param("total", "group_by", ("sales",), id="group_by"),
+        # join also records ``how`` and the key lists; only table-shaped values become sources
+        pytest.param("joined", "join", ("sales", "total"), id="join"),
+    ],
+)
+async def test_parameters_are_not_lineage_sources(derived, target, operation, sources):
+    target_table = getattr(derived, target)
+    source_tables = {getattr(derived, s) for s in sources}
+
+    async with lineage_context():
+        graph = await oplog_subgraph(target_table, direction="backward")
+
+    assert {(e.source, e.target) for e in graph.edges if e.operation == operation} == {
+        (s, target_table) for s in source_tables
+    }
+    assert graph.sources <= graph.tables and not graph.sources - {derived.sales, derived.total}
+
+
 async def test_forward_oplog(pipeline):
     """forward_oplog includes the seed table plus its downstream consumers."""
     async with lineage_context():

@@ -102,7 +102,7 @@ async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES, attempt: i
     if attempt is None and not runs:
         return TaskLogsView(available=False)
 
-    selected = attempt or len(runs)
+    selected = attempt if attempt is not None else len(runs)
     if not 1 <= selected <= len(runs):
         raise NotFound(f"Task {task_id} has no attempt {attempt}")
 

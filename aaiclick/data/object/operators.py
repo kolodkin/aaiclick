@@ -848,7 +848,15 @@ async def group_by_agg(
         query = f"SELECT {keys_str}, {', '.join(agg_exprs)} FROM {info.source} GROUP BY {keys_str}"
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
-    return await emit_result(schema, query, ch_client, name=name, scope=scope)
+    return await emit_result(
+        schema,
+        query,
+        ch_client,
+        name=name,
+        scope=scope,
+        oplog_op="group_by",
+        oplog_kwargs={"source": info.base_table},
+    )
 
 
 # String/Regex Operators
