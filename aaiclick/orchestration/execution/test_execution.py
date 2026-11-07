@@ -4,7 +4,6 @@
 
 import asyncio
 import inspect
-import time
 
 import pytest
 from pydantic import BaseModel
@@ -73,7 +72,7 @@ from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
 from aaiclick.orchestration.result import TaskResult, task_result, tasks_list
 from aaiclick.orchestration.runner_config import ImageBuild
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.testing import get_task_runs, seed_registry_row
+from aaiclick.testing import get_task_runs, seed_registry_row, until
 
 
 class _SampleModel(BaseModel):
@@ -250,10 +249,8 @@ async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_pat
         return [line.text for line in (await get_task_logs(task.id)).lines]
 
     try:
-        deadline = time.monotonic() + 30
-        while not (mid := await _current_lines()):
-            assert time.monotonic() < deadline, "'first' was never flushed to task_logs"
-            await asyncio.sleep(0.05)
+        await until(_current_lines, timeout=30, what="'first' in task_logs")
+        mid = await _current_lines()
     finally:
         # An assertion failure must not orphan the gate-blocked shell.
         gate.touch()

@@ -21,7 +21,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager, nullcontext
@@ -86,21 +85,24 @@ def gc_leak_check():
 
 
 async def until(
-    predicate: Callable[[], bool | Awaitable[bool]],
+    predicate: Callable[[], object | Awaitable[object]],
     timeout: float = 5.0,
     interval: float = 0.02,
     what: str = "condition",
 ) -> None:
-    """Poll a sync or async predicate until it is true; fail after ``timeout``."""
-    deadline = time.monotonic() + timeout
-    while True:
-        outcome = predicate()
-        if inspect.isawaitable(outcome):
-            outcome = await outcome
-        if outcome:
-            return
-        assert time.monotonic() < deadline, f"{what} not reached in {timeout}s"
-        await asyncio.sleep(interval)
+    """Poll a sync or async predicate until it is true; fail after ``timeout``,
+    which also bounds a predicate stuck on a DB call."""
+    try:
+        async with asyncio.timeout(timeout):
+            while True:
+                outcome = predicate()
+                if inspect.isawaitable(outcome):
+                    outcome = await outcome
+                if outcome:
+                    return
+                await asyncio.sleep(interval)
+    except TimeoutError:
+        raise AssertionError(f"{what} not reached in {timeout}s") from None
 
 
 async def reset_sql_tables() -> None:

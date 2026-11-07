@@ -276,9 +276,11 @@ async def test_local_worker_cancelled_mid_run(orch_ctx):
     loop = asyncio.create_task(
         execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
     )
-    while [r.status for r in await get_task_runs((await _task_row(job.id)).id)] != [TASK_RUNNING]:
-        await asyncio.sleep(0.05)
 
+    async def running() -> bool:
+        return [r.status for r in await get_task_runs((await _task_row(job.id)).id)] == [TASK_RUNNING]
+
+    await until(running, interval=0.05)
     await cancel_job(job.id)
     assert await loop == 0
 
