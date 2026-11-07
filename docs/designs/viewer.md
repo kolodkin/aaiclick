@@ -138,7 +138,7 @@ and `where` with the rules above.
   `POST /dashboards/{name}:run`. Any user may read and run; members and admins save;
   nothing here drops data.
 - **MCP** `aaiclick/server/mcp.py` (viewer section): one tool per verb, each
-  opening `orch_context()`. The lineage-scoped `query_table`
+  opening `orch_context()`. The lineage-scoped `lineage_query`
   stays as is.
 - **CLI** `data query <object> [--scope job:<ref>] [--where EXPR] [--fields
   a,b] [--order-by col:desc]`, `view queries list|save|delete`, `view

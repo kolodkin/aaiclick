@@ -46,12 +46,12 @@ Inputs the agent starts with:
 
 Agent tools:
 
-- `oplog_subgraph` — the graph; each node carries the rendered SQL of the
+- `lineage_graph` — the graph; each node carries the rendered SQL of the
   operation that produced it (`sql_template`)
-- `list_graph_nodes` — all tables in the lineage graph with their node
+- `lineage_nodes` — all tables in the lineage graph with their node
   kind (input / intermediate / target) and liveness
-- `get_table_schema` — columns and types for a table in the graph
-- `query_table` — read-only SQL against any table in the graph
+- `lineage_schema` — columns and types for a table in the graph
+- `lineage_query` — read-only SQL against any table in the graph
 - `request_full_replay` — escalate to Tier 2 (`docs/designs/future.md`)
 
 The loop:
@@ -89,7 +89,7 @@ replay up front. Mechanics:
 3. Wait for the fresh run to complete — every intermediate table is
    now materialized and alive under the new job's id
 4. Build a graph from the new job's oplog
-5. Resume the agent loop; `query_table` now works against every
+5. Resume the agent loop; `lineage_query` now works against every
    intermediate table, not just inputs and target
 6. Agent forms and verifies hypotheses against real intermediate state
 
@@ -137,7 +137,7 @@ The sandbox and graph classification live in `aaiclick/oplog/query_sandbox.py`
 and `aaiclick/oplog/lineage.py` (`OplogGraph.node_kinds`); `request_full_replay`
 is tracked in `docs/designs/future.md`.
 
-All tools are scoped to the job being debugged. `query_table` cannot
+All tools are scoped to the job being debugged. `lineage_query` cannot
 reach tables outside the lineage graph of the current job. ClickHouse
 parses the SQL (`EXPLAIN AST`) and the check reads table position off the
 parse tree, so it is positive: anything in table position that is not a
@@ -147,16 +147,16 @@ Every tool takes `target_table` (plus `direction` / `max_depth`) and
 resolves the scope server-side from its lineage graph:
 
 ```python
-async def oplog_subgraph(target_table: str, ...) -> OplogGraph:
+async def lineage_graph(target_table: str, ...) -> OplogGraph:
     """The graph; each node's `sql_template` is the operation's rendered SQL."""
 
-async def list_graph_nodes(target_table: str, ...) -> list[GraphNode]:
+async def lineage_nodes(target_table: str, ...) -> list[GraphNode]:
     """All tables in the graph with kind + liveness."""
 
-async def get_table_schema(table: str, target_table: str, ...) -> TableSchema:
+async def lineage_schema(table: str, target_table: str, ...) -> TableSchema:
     """Columns and types for a table in the graph."""
 
-async def query_table(sql: str, target_table: str, row_limit: int = 100, ...) -> QueryResult:
+async def lineage_query(sql: str, target_table: str, row_limit: int = 100, ...) -> QueryResult:
     """
     Execute a read-only SELECT against tables in the lineage graph.
     `sql` must reference only tables of the graph. Capped at `row_limit`
@@ -173,7 +173,7 @@ async def request_full_replay(reason: str) -> ReplayHandle:
     """
 ```
 
-Safety rails on `query_table`:
+Safety rails on `lineage_query`:
 
 - Read-only — parser rejects anything that is not `SELECT`
 - Scoped — every table position must name a table known to the graph;
