@@ -39,6 +39,7 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
+from aaiclick import __version__
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.internal_api import jobs as jobs_api
@@ -110,6 +111,7 @@ async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 
 mcp: FastMCP = FastMCP(
     name="aaiclick",
+    version=__version__,
     instructions=(
         "Tools mirror aaiclick's CLI verbs (the lineage tools have none) and run against "
         "the same backends as the REST surface under /api/v0 (docs/designs/api_server.md).\n"

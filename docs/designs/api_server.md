@@ -449,8 +449,8 @@ carries nothing per-user. Design and client behaviour:
 
 # MCP Surface
 
-`aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick")`
-instance. Each tool is a direct wrapper that opens the surrounding context:
+`aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick", version=__version__)`
+instance; `serverInfo.version` reports the package version (setuptools_scm tag) instead of FastMCP's own. Each tool is a direct wrapper that opens the surrounding context:
 
 ```python
 @mcp.tool

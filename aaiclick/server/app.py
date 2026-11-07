@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from aaiclick import __version__
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.backend import is_local
@@ -69,7 +70,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="aaiclick",
     description="REST surface over aaiclick's internal_api. JWT auth + RBAC in distributed mode (see docs/designs/auth.md); open in local mode.",
-    version="0.0.0",
+    version=__version__,
     docs_url=f"{API_PREFIX}/docs",
     redoc_url=f"{API_PREFIX}/redoc",
     openapi_url=f"{API_PREFIX}/openapi.json",
