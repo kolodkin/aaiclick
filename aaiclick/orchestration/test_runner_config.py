@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 import pytest
 from pydantic import ValidationError
 
@@ -8,7 +6,6 @@ from aaiclick.orchestration.runner_config import (
     ImagePrebuilt,
     dump_image_source,
     parse_image_source,
-    parse_quantity,
     validate_image_exclusivity,
     validate_resources,
     validate_task_entry,
@@ -97,41 +94,15 @@ def test_parse_image_source_rejects_unknown_type():
 
 
 @pytest.mark.parametrize(
-    "value, expected",
-    [
-        pytest.param("500m", Decimal("0.5"), id="milli"),
-        pytest.param(".5", Decimal("0.5"), id="leading-dot"),
-        pytest.param(2, Decimal(2), id="json-number"),
-        pytest.param("1.5Gi", Decimal(3 * 512 * 1024**2), id="binary-fraction"),
-        pytest.param("1k", Decimal(1000), id="decimal-kilo"),
-        pytest.param("2E", Decimal(2 * 1000**6), id="exa-not-exponent"),
-        pytest.param("1e3", Decimal(1000), id="exponent"),
-    ],
+    "resources",
+    [pytest.param([{"cpus": "1"}], id="list"), pytest.param("cpus=1", id="string")],
 )
-def test_parse_quantity(value, expected):
-    assert parse_quantity("limits.cpu", value) == expected
-
-
-@pytest.mark.parametrize(
-    "resources, match",
-    [
-        pytest.param({"limits": {"cpu": "fast"}}, "limits.cpu", id="garbage"),
-        pytest.param({"requests": {"memory": "1Xi"}}, "requests.memory", id="bad-suffix"),
-        pytest.param({"limits": {"memory": "-1Gi"}}, "limits.memory", id="negative"),
-        pytest.param({"limits": "2"}, "resources.limits must be a mapping", id="section-not-a-mapping"),
-        pytest.param([{"limits": {}}], "resources must be a mapping", id="not-a-mapping"),
-        pytest.param({"limit": {"cpu": "1"}}, "unknown resources section", id="misspelled-section"),
-        pytest.param({"limits": {"memory": "1e3Ki"}}, "not a valid", id="exponent-and-suffix"),
-        pytest.param({"limits": {"cpu": " 2 "}}, "not a valid", id="whitespace"),
-        pytest.param({"limits": {"memory": "1e1000000"}}, "out of range", id="overflow"),
-        pytest.param({"limits": {"memory": "1e999999999999999999999"}}, "out of range", id="exponent-too-large"),
-    ],
-)
-def test_validate_resources_rejects(resources, match):
-    with pytest.raises(ValueError, match=match):
+def test_validate_resources_rejects_non_mapping(resources):
+    with pytest.raises(ValueError, match="resources must be a mapping"):
         validate_resources(resources)
 
 
-def test_validate_resources_passes_other_keys_through():
-    """GPUs and storage are Kubernetes-only; they are not parsed here."""
-    validate_resources({"limits": {"cpu": "1", "nvidia.com/gpu": 1, "ephemeral-storage": "anything"}})
+def test_validate_resources_accepts_any_mapping():
+    """Contents are the runner's business: docker flags or a Pod dict."""
+    validate_resources({"cpus": "1.5", "memory": "512m"})
+    validate_resources({"limits": {"cpu": "1", "nvidia.com/gpu": 1}})

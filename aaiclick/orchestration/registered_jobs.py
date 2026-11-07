@@ -73,8 +73,8 @@ def _validate_registration_fields(
     resources: dict[str, Any] | None,
 ) -> None:
     """Refuse to store defaults no run would read: build modifiers without
-    ``build``, ``resources`` without an image source or with a malformed
-    quantity, or both sides at once."""
+    ``build``, ``resources`` without an image source or not a mapping, or
+    both sides at once."""
     validate_image_exclusivity(image, git_remote, dockerfile, build=build)
     validate_resources(resources)
     modifiers = [name for name, value in (("git_remote", git_remote), ("dockerfile", dockerfile)) if value is not None]
@@ -155,8 +155,10 @@ async def register_job(
             back to ``git config remote.origin.url`` at submission time.
         dockerfile: Build modifier — default Dockerfile path relative to
             the repo root. ``None`` falls back to ``"Dockerfile"``.
-        resources: Default Kubernetes-style requests/limits for every run's
-            containers (``limits`` map to docker ``--cpus`` / ``--memory``).
+        resources: Default container resources for every run, runner-specific:
+            on docker a flat map of ``docker run`` flags
+            (``{"cpus": "1.5", "memory": "512m"}``), on kubernetes the Pod
+            container ``resources`` dict.
         replace: Overwrite an existing job of the same name instead of
             raising. Every field takes the given value, so omitted ones
             (e.g. ``schedule``) are cleared and ``enabled`` resets.
@@ -378,9 +380,10 @@ async def run_job(
         git_branch: Captured as build-arg metadata; ``None`` means the
             remote's default branch.
         dockerfile: Override the registered job's dockerfile path.
-        resources: Kubernetes-style requests/limits for this run's containers;
-            ``None`` inherits the registration default. Rejected on a
-            subprocess run.
+        resources: Container resources for this run, runner-specific: on docker
+            a flat map of ``docker run`` flags, on kubernetes the Pod container
+            ``resources`` dict. ``None`` inherits the registration default.
+            Rejected on a subprocess run.
 
     Returns:
         Created Job

@@ -35,11 +35,11 @@ def _cmdtask(**kw):
 
 def test_build_docker_create_cmd_sets_io_dir_and_env_file():
     cmd = build_docker_create_cmd(
-        "aaiclick-task-7-2", "img:tag", ["echo", "hi"], {"limits": {"cpu": "500m", "memory": "256Mi"}}, "/tmp/x.env"
+        "aaiclick-task-7-2", "img:tag", ["echo", "hi"], {"cpus": "0.5", "memory": "256m"}, "/tmp/x.env"
     )
     assert cmd[:4] == ["docker", "create", "--name", "aaiclick-task-7-2"]
     assert cmd[cmd.index("--cpus") + 1] == "0.5"
-    assert cmd[cmd.index("--memory") + 1] == str(256 * 1024**2)
+    assert cmd[cmd.index("--memory") + 1] == "256m"
     assert cmd[cmd.index("--env-file") + 1] == "/tmp/x.env"
     assert cmd[cmd.index("-e") + 1] == "AAICLICK_IO_DIR=/aaiclick"
     assert cmd[-3:] == ["img:tag", "echo", "hi"]
@@ -151,17 +151,17 @@ def _docker_dispatch(entry_type: EntryType, resources: dict | None = None) -> Jo
 
 
 async def test_module_container_honours_job_resources(orch_ctx, monkeypatch, tmp_path):
-    """The job's ``resources`` limits reach the real ``docker run`` argv."""
+    """The job's ``resources`` flags reach the real ``docker run`` argv."""
     await dispatch_with_fake_cli(
         monkeypatch,
         tmp_path,
         "AAICLICK_DOCKER_BIN",
         _FAKE_DOCKER,
-        _docker_dispatch(ENTRY_MODULE, {"limits": {"cpu": "500m", "memory": "64Mi"}}),
+        _docker_dispatch(ENTRY_MODULE, {"cpus": "0.5", "memory": "64m"}),
     )
     argv = (tmp_path / "run-argv").read_text().split()
     assert argv[argv.index("--cpus") + 1] == "0.5"
-    assert argv[argv.index("--memory") + 1] == str(64 * 1024**2)
+    assert argv[argv.index("--memory") + 1] == "64m"
 
 
 async def test_module_container_that_registered_its_run_is_left_alone(orch_ctx, monkeypatch, tmp_path):

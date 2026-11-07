@@ -11,7 +11,8 @@ from typing import NamedTuple
 # Cluster settings are worker env, like AAICLICK_REGISTRY: they are the same
 # for every job and bound by the worker's RBAC (cf. Argo workflowDefaults,
 # Airflow AIRFLOW__KUBERNETES__*). The one per-job setting, ``resources``,
-# rides on ``JobDispatch`` since the docker runner honours it too.
+# rides on ``JobDispatch`` and is runner-specific (docs/user_guide/orchestration.md
+# "Resources").
 ENV_NAMESPACE = "AAICLICK_K8S_NAMESPACE"
 ENV_SERVICE_ACCOUNT = "AAICLICK_K8S_SERVICE_ACCOUNT"
 ENV_IMAGE_PULL_SECRET = "AAICLICK_K8S_IMAGE_PULL_SECRET"

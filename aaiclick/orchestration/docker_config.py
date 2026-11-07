@@ -10,11 +10,9 @@ used by the build task and host runner.
 from __future__ import annotations
 
 import hashlib
-import math
 import os
 import posixpath
 import re
-from decimal import Decimal
 from typing import Literal, NamedTuple
 
 from .execution import cli
@@ -27,7 +25,6 @@ from .runner_config import (
     ImagePrebuilt,
     ImageSourceT,
     build_requested,
-    parse_quantity,
 )
 
 BUILD_MODE_REGISTRY = "registry"
@@ -307,23 +304,15 @@ def add_host_flags(env_var: str) -> list[str]:
 
 
 def resource_flags(resources: dict | None) -> list[str]:
-    """``docker run`` flags for a job's ``resources`` limits: ``--cpus``, and
-    ``--memory`` with ``--memory-swap`` pinned equal so, as on Kubernetes, no
-    swap past the limit. ``requests`` are ignored: docker has no scheduler.
-    Zero raises ``ValueError``, since docker reads it as unlimited."""
-    limits = (resources or {}).get("limits") or {}
+    """``docker run`` flags from a job's ``resources``: each ``key: value``
+    becomes ``--key value``, verbatim. Docker validates the values; its error
+    fails the task. A key that is not a bare flag name or a value that is not
+    a scalar raises ``ValueError``."""
     flags: list[str] = []
-    if (cpu := limits.get("cpu")) is not None:
-        cpus = _positive_limit("limits.cpu", cpu)
-        flags.extend(["--cpus", format(cpus.normalize(), "f")])
-    if (memory := limits.get("memory")) is not None:
-        size = str(math.ceil(_positive_limit("limits.memory", memory)))
-        flags.extend(["--memory", size, "--memory-swap", size])
+    for key, value in (resources or {}).items():
+        if not isinstance(key, str) or not key or key.startswith("-") or any(c.isspace() for c in key):
+            raise ValueError(f"resources.{key!r} is not a docker run flag name")
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ValueError(f"resources.{key} {value!r} is not a docker run flag value")
+        flags.extend([f"--{key}", str(value)])
     return flags
-
-
-def _positive_limit(key: str, value: object) -> Decimal:
-    quantity = parse_quantity(key, value)
-    if quantity <= 0:
-        raise ValueError(f"resources.{key} {value!r} must be greater than zero on the docker runner")
-    return quantity
