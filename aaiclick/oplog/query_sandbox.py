@@ -1,7 +1,7 @@
 """
 aaiclick.oplog.query_sandbox - Read-only, graph-scoped SQL for lineage triage.
 
-The MCP ``query_table`` tool runs every ``SELECT`` through this sandbox.
+The MCP ``lineage_query`` tool runs every ``SELECT`` through this sandbox.
 A query is accepted only when it is a single read-only statement and every
 table it reads belongs to the caller's scope — ClickHouse parses the SQL
 and the scope check reads table references off the parse tree. Results are
@@ -215,7 +215,7 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> None:
     (``tuple`` / ``array``), so ``x IN url(...)`` is rejected like ``FROM url(...)``.
 
     A CTE name is a table identifier no graph contains, so ``WITH`` queries are
-    rejected; the ``query_table`` tool description tells the caller to write
+    rejected; the ``lineage_query`` tool description tells the caller to write
     the CTE as a subquery in ``FROM``, which parses to a ``Subquery`` and is
     allowed.
 
