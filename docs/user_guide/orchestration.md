@@ -441,24 +441,22 @@ pull from a worker's daemon.
 For the released `aaiclick` container images and their Docker/Kubernetes
 runtime requirements, see [Container Images](container_images.md).
 
-## Resources (docker / kubernetes)
+## Resources
 
-`resources` is a per-job Kubernetes-style `{"requests": …, "limits": …}` dict
-(`register-job` default, overridable per `run_job`), with Kubernetes quantities
-(`"500m"`, `"2"`, `"512Mi"`, `"1G"`):
-
-| Runner     | `limits`                                                         | `requests`                          |
-|------------|------------------------------------------------------------------|-------------------------------------|
-| kubernetes | Pod container `resources`, verbatim                              | Pod container `resources`, verbatim |
-| docker     | `limits.cpu` → `--cpus`, `limits.memory` → `--memory` (swap off) | ignored                             |
+`resources` is a per-job dict (`register-job` default, overridable per
+`run_job`) whose shape is the deployment's runner. A deployment runs one
+runner; mixed docker / kubernetes fleets are not supported.
 
 ```python
+# AAICLICK_RUNNER=docker — docker run flags, verbatim
+run_job(name, image="python:3.12", resources={"cpus": "1.5", "memory": "512m"})
+
+# AAICLICK_RUNNER=kubernetes — Pod container resources, verbatim
 run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})
 ```
 
-An unknown section or a malformed `cpu` / `memory` quantity is rejected when the
-job is registered or run. On docker a zero limit fails the task, since docker
-reads `0` as unlimited.
+A non-mapping is rejected when the job is registered or run; a value the
+runner does not accept fails the task.
 
 ## Shell tasks
 
