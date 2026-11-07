@@ -15,17 +15,18 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import inspect
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from collections import Counter
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, TypeVar, overload
 from unittest.mock import patch
 
 import pytest
@@ -81,6 +82,31 @@ def gc_leak_check():
 # ---------------------------------------------------------------------------
 # Pure helpers — used inside fixture bodies and optionally by ad-hoc tests.
 # ---------------------------------------------------------------------------
+
+
+T = TypeVar("T")
+
+
+@overload
+async def until(
+    predicate: Callable[[], Awaitable[T]], timeout: float = ..., interval: float = ..., what: str = ...
+) -> T: ...
+@overload
+async def until(predicate: Callable[[], T], timeout: float = ..., interval: float = ..., what: str = ...) -> T: ...
+async def until(predicate, timeout=5.0, interval=0.05, what="condition"):
+    """Poll a sync or async predicate until truthy and return that value;
+    ``timeout`` also bounds a hung await."""
+    try:
+        async with asyncio.timeout(timeout):
+            while True:
+                outcome = predicate()
+                if inspect.isawaitable(outcome):
+                    outcome = await outcome
+                if outcome:
+                    return outcome
+                await asyncio.sleep(interval)
+    except TimeoutError:
+        raise AssertionError(f"{what} not reached in {timeout}s") from None
 
 
 async def reset_sql_tables() -> None:

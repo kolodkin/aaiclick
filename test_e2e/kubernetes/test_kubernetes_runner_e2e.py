@@ -40,7 +40,7 @@ from aaiclick.orchestration.kubernetes_config import ENV_PENDING_TIMEOUT
 from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, TASK_FAILED
 from aaiclick.orchestration.registered_jobs import run_job
-from aaiclick.testing import get_task_runs
+from aaiclick.testing import get_task_runs, until
 
 
 @pytest.mark.kubernetes_e2e
@@ -125,11 +125,10 @@ async def _peak_pod_count(stop: asyncio.Event) -> int:
 
 
 async def _until(predicate, timeout: float = 300.0, what: str = "condition") -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while not await predicate():
-        if asyncio.get_running_loop().time() > deadline:
-            raise TimeoutError(f"{what} not reached within {timeout}s; pods={await _managed_pods()}")
-        await asyncio.sleep(1.0)
+    try:
+        await until(predicate, timeout, interval=1.0, what=what)
+    except AssertionError as e:
+        raise AssertionError(f"{e}; pods={await _managed_pods()}") from None
 
 
 @pytest.mark.kubernetes_e2e
