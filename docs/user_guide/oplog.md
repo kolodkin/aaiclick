@@ -11,7 +11,7 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `run_id`, `created_at` (`DateTime64(3, 'UTC')`, like `task_logs.created_at` and `schema_migrations.applied_at`). ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
-All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops); graph traversal reads only the `p_` / `j_` / `t_` values as tables, so parameters such as a join's `how` may sit beside them.
+All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops). Only `p_`/`j_`/`t_` values count as tables, so a join's `how` can sit beside them.
 
 ## table_registry (SQL)
 

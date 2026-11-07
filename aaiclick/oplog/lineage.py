@@ -84,6 +84,7 @@ _TABLE_PREFIXES = (GLOBAL_PREFIX, JOB_PREFIX, TEMP_PREFIX)
 
 def source_tables(node: OplogNode) -> list[str]:
     """The kwarg values of ``node`` that name tables; parameters (``how``, key lists) are skipped."""
+    # shortcut: a join key column literally named p_*/j_*/t_* passes too; match the full name shapes if that bites
     return [v for v in node.kwargs.values() if v.startswith(_TABLE_PREFIXES)]
 
 
