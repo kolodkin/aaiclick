@@ -75,13 +75,16 @@ docker compose exec server python -m aaiclick run-job my_pipeline --progress
 
 ## Kubernetes mode
 
+Needs [Helm](https://helm.sh/docs/) and a `kubectl` context on the cluster.
+Scaffold and install in one go, then reach the UI through a port-forward:
+
 ```bash
-python -m aaiclick k8s init [--path ./aaiclick-chart]
-helm install aaiclick ./aaiclick-chart
+python -m aaiclick k8s init && helm install aaiclick ./aaiclick-chart
 kubectl port-forward svc/aaiclick-server 5255:5255
 ```
 
-`init` fills `values.yaml` the same way and prints the admin login. The chart
+`init` writes the chart to `./aaiclick-chart` (`--path` to change), fills
+`values.yaml` the same way and prints the admin login. The chart
 ships a server Deployment, a worker Deployment on the `aaiclick-kubectl`
 image with `AAICLICK_RUNNER=kubernetes`, the background worker, `buildkitd`,
 and dev PostgreSQL + ClickHouse under `devDependencies` (no volumes — point
