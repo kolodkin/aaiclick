@@ -227,6 +227,23 @@ drift (row counts, old vs new). Full design: `docs/designs/lineage.md` (Tier 2).
 real questions — a bug whose explanation lives only in an intermediate table
 that cleanup has already dropped.
 
+## Lineage in the UI
+
+Lineage is reachable only over MCP (`lineage_graph`, `lineage_nodes`,
+`lineage_schema`, `lineage_query` in `aaiclick/server/mcp.py`); the UI has no
+view of it. `@data` shows an object's rows but not where they came from.
+
+- A lineage tab on the object (`@data … <object>`): the operation graph from
+  `oplog_subgraph()` rendered like the job graph (same dagre + React Flow
+  stack), one node per table with its operation and rendered `sql_template`,
+  dropped tables greyed out.
+- Click a node to open it in `@data` or `@query` when it is live.
+- Needs a REST route over `oplog_subgraph()` under the same read scope the MCP
+  tools use; the SPA does not speak MCP.
+
+**When to revisit**: when users ask "how did this value get here?" in the UI
+rather than through an agent.
+
 ## ClickHouse ADBC Driver and Arrow-Native Results
 
 **Revisit: 2027-02.** Assessed 2026-10 against ClickHouse's
