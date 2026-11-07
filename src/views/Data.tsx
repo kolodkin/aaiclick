@@ -8,7 +8,7 @@ import { MetaGrid } from "../components/MetaGrid";
 import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, jobScopeLabel, queryPrompt } from "../lib/viewer";
+import { dataPrompt, formatBytes, jobOfScope, jobScopeLabel, queryPrompt } from "../lib/viewer";
 
 export function Data({
   scope,
@@ -69,6 +69,8 @@ function ObjectPreview({
   const columns = rows ? columnNames(rows) : [];
   const colTypes = rows ? columnTypes(rows) : {};
   const scopeText = jobScopeLabel(scope, view?.job_name);
+  // By id, not name: a name resolves to the latest rerun, and `view` may still be loading.
+  const job = jobOfScope(scope);
 
   return (
     <>
@@ -96,7 +98,13 @@ function ObjectPreview({
           ]}
         />
       </div>
-      <Chips chips={[{ label: `← ${scopeText}`, cmd: dataPrompt(scope) }]} onPrompt={onPrompt} />
+      <Chips
+        chips={[
+          { label: `← ${scopeText}`, cmd: job ? `@job ${job}` : dataPrompt(scope) },
+          ...(job ? [{ label: "@data", cmd: dataPrompt(scope) }] : []),
+        ]}
+        onPrompt={onPrompt}
+      />
       {query.isPending && <p className="sub">loading rows…</p>}
       {query.isError && <p className="err">{query.error.message}</p>}
       {rows && (

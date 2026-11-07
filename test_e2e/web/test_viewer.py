@@ -7,6 +7,7 @@ run by ``conftest.py`` before the server starts.
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import unquote_plus
 
 import pytest
 from helpers import open_page
@@ -119,6 +120,10 @@ def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
     page.wait_for_url(lambda url: "raw_sales" in url)
     page.get_by_test_id("object-rows").wait_for(timeout=15000)
     shot("job-objects-opened")
+    page.locator(".chip", has_text="←").last.click()
+    page.wait_for_url(lambda url: "@job " in unquote_plus(url))
+    playwright_api.expect(page.locator("h2").first).to_contain_text(OBJECTS_JOB)
+    shot("job-objects-back")
 
 
 @_spa_built
