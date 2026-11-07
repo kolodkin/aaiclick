@@ -542,8 +542,10 @@ def _tracking(cluster, task: Task) -> bool:
 
 
 async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeypatch):
+    """A bounded worker (``max_tasks``) must not exit while detached: its
+    in-flight set is empty, but it still owns the Pod it will take back."""
     (task,) = await _image_job("hb_recovery")
-    loop = cluster.start(max_empty_polls=100)
+    loop = cluster.start(max_empty_polls=100, max_tasks=1)
     await until(lambda: len(cluster.pods()) == 1)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
 
@@ -555,14 +557,9 @@ async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeyp
 
     cluster.watch().apply(_pod_json(task, {"terminated": {"exitCode": 0}}), deleted=False)
 
-    async def completed() -> bool:
-        return (await _task(task.id)).status == TASK_COMPLETED
-
-    await until(completed)  # the watch is dropped before the result is written
+    assert await loop == 1
     assert not _tracking(cluster, task)
-    loop.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await loop
+    assert (await _task(task.id)).status == TASK_COMPLETED
 
 
 async def test_sweep_deletes_reaped_task_pod(orch_ctx, cluster):

@@ -191,7 +191,9 @@ deletes nothing.
   retried at a quarter interval, each bounded by it) detach every Pod
   coroutine — before `ADOPT_AFTER`, so no adopter overlaps a live driver. The
   next good heartbeat re-lists and takes the worker's own Pods back unless
-  another worker adopted them. This replaces `SELF_STOP_AFTER` on kubernetes.
+  another worker adopted them; a bounded worker (`--max-tasks`) stays up for
+  that even with nothing in flight. This replaces `SELF_STOP_AFTER` on
+  kubernetes.
 - **Shutdown before the Pod exists**: a detached coroutine whose Pod never
   reached the cluster releases the claim (`release_claim`), so a rollout costs
   no attempt.
