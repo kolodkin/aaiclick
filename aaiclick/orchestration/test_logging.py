@@ -78,12 +78,8 @@ async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     mid_run_lines: list[str] = []
     async with capture_task_output(task_id, job_id, run_id):
         print("early line")
-
-        async def flushed() -> bool:
-            return bool(await read_task_logs(task_id, run_id))
-
-        await until(flushed, timeout=30, what="'early line' in task_logs")
-        mid_run_lines = [line.text for line in await read_task_logs(task_id, run_id)]
+        flushed = await until(lambda: read_task_logs(task_id, run_id), timeout=30, what="'early line' in task_logs")
+        mid_run_lines = [line.text for line in flushed]
         print("late line")
     assert mid_run_lines == ["early line"]
     final = [line.text for line in await read_task_logs(task_id, run_id)]

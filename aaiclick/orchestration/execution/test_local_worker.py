@@ -43,8 +43,7 @@ async def _child_step(label: str) -> str:
 
 
 async def _until_heartbeats(n: int) -> None:
-    """Runs in-process, so it sees the test's patched heartbeat; returns once
-    it has been awaited ``n`` more times since the task started."""
+    """Runs in-process, so it sees the test's patched heartbeat."""
     target = ew.execution_worker_heartbeat.await_count + n
     await until(lambda: ew.execution_worker_heartbeat.await_count >= target, what="in-task heartbeats")
 
@@ -280,7 +279,7 @@ async def test_local_worker_cancelled_mid_run(orch_ctx):
     async def running() -> bool:
         return [r.status for r in await get_task_runs((await _task_row(job.id)).id)] == [TASK_RUNNING]
 
-    await until(running, interval=0.05)
+    await until(running)
     await cancel_job(job.id)
     assert await loop == 0
 

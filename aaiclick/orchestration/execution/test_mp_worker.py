@@ -122,7 +122,7 @@ async def test_mp_worker_kills_cancelled_module_task(orch_ctx_no_ch):
     async def running() -> bool:
         return [r.status for r in await get_task_runs((await _task_row(job.id)).id)] == [TASK_RUNNING]
 
-    await until(running, timeout=15, interval=0.05)
+    await until(running, timeout=15)
 
     await cancel_job(job.id)
     await asyncio.wait_for(loop, timeout=15)

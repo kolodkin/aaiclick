@@ -24,7 +24,6 @@ from ..orch_context import get_sql_session
 from . import (
     STATE_LISTENING,
     EventBus,
-    SignalTransport,
     event_bus,
     get_event_bus,
     get_transport,
@@ -127,10 +126,6 @@ def test_statement_touches_watched(sql, expected):
     assert statement_touches_watched(sql) is expected
 
 
-async def _wait_listening(transport: SignalTransport, timeout: float = 10.0) -> None:
-    await until(lambda: transport.state == STATE_LISTENING, timeout, what="listening")
-
-
 def test_register_session_hooks_is_idempotent():
     register_session_hooks()
     register_session_hooks()
@@ -228,7 +223,7 @@ async def live_bus() -> AsyncIterator[EventBus]:
     transport = get_transport()
     with event_bus(bus), signal_transport(transport):
         feed = asyncio.create_task(transport.feed(bus, stop=stop))
-        await _wait_listening(transport)
+        await until(lambda: transport.state == STATE_LISTENING, timeout=10, what="listening")
         yield bus
     stop.set()
     await feed

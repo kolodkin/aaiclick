@@ -549,9 +549,9 @@ async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, cluster, monkeyp
 
     real = loop_mod.execution_worker_heartbeat
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", AsyncMock(side_effect=RuntimeError("db down")))
-    await until(lambda: not _tracking(cluster, task), timeout=5.0)
+    await until(lambda: not _tracking(cluster, task))
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", real)
-    await until(lambda: _tracking(cluster, task), timeout=5.0)
+    await until(lambda: _tracking(cluster, task))
 
     cluster.watch().apply(_pod_json(task, {"terminated": {"exitCode": 0}}), deleted=False)
 
@@ -664,7 +664,7 @@ async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, cluster, m
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", hanging_heartbeat)
     started = time.monotonic()
 
-    await until(lambda: not _tracking(cluster, task), timeout=5.0)
+    await until(lambda: not _tracking(cluster, task))
 
     assert time.monotonic() - started < 2 * ew.HEARTBEAT_INTERVAL + 0.3  # detach lands before ADOPT_AFTER
     assert cluster.deleted == []

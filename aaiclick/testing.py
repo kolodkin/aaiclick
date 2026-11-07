@@ -26,7 +26,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, TypeVar, overload
 from unittest.mock import patch
 
 import pytest
@@ -84,14 +84,18 @@ def gc_leak_check():
 # ---------------------------------------------------------------------------
 
 
+T = TypeVar("T")
+
+
+@overload
 async def until(
-    predicate: Callable[[], object | Awaitable[object]],
-    timeout: float = 5.0,
-    interval: float = 0.02,
-    what: str = "condition",
-) -> None:
-    """Poll a sync or async predicate until it is true; fail after ``timeout``,
-    which also bounds a predicate stuck on a DB call."""
+    predicate: Callable[[], Awaitable[T]], timeout: float = ..., interval: float = ..., what: str = ...
+) -> T: ...
+@overload
+async def until(predicate: Callable[[], T], timeout: float = ..., interval: float = ..., what: str = ...) -> T: ...
+async def until(predicate, timeout=5.0, interval=0.05, what="condition"):
+    """Poll a sync or async predicate until truthy and return that value;
+    ``timeout`` also bounds a hung await."""
     try:
         async with asyncio.timeout(timeout):
             while True:
@@ -99,7 +103,7 @@ async def until(
                 if inspect.isawaitable(outcome):
                     outcome = await outcome
                 if outcome:
-                    return
+                    return outcome
                 await asyncio.sleep(interval)
     except TimeoutError:
         raise AssertionError(f"{what} not reached in {timeout}s") from None

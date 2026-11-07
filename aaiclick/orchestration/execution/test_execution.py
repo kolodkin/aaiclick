@@ -249,8 +249,7 @@ async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_pat
         return [line.text for line in (await get_task_logs(task.id)).lines]
 
     try:
-        await until(_current_lines, timeout=30, what="'first' in task_logs")
-        mid = await _current_lines()
+        mid = await until(_current_lines, timeout=30, what="'first' in task_logs")
     finally:
         # An assertion failure must not orphan the gate-blocked shell.
         gate.touch()
