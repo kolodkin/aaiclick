@@ -86,6 +86,7 @@ nav:
     - Lineage: user_guide/lineage.md
     - Example Projects: user_guide/example_projects.md
     - Object API: user_guide/object.md
+    - Ingest: user_guide/ingest.md
     - ObjectContext: user_guide/object_context.md
   - Examples:
     - Orchestration Basics: examples/orchestration_basic.md

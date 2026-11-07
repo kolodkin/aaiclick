@@ -11,51 +11,52 @@ The `Object` class (`aaiclick/data/object/object.py`) wraps a ClickHouse table. 
 - Support for scalars, arrays, and dictionaries
 - Element-wise operations on arrays
 
-See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment modes.
+See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment modes, and
+[Ingest](ingest.md) for loading, combining and joining data.
 
 # API Quick Reference
 
-| API                                              | Category         | Description                                   | Section                                                              |
-|--------------------------------------------------|------------------|-----------------------------------------------|----------------------------------------------------------------------|
-| `+`, `-`, `*`, `/`, `//`, `%`, `**`              | Arithmetic       | Element-wise arithmetic                       | [Operator Support](#operator-support)                                |
-| `==`, `!=`, `<`, `<=`, `>`, `>=`                 | Comparison       | Element-wise comparison                       | [Operator Support](#operator-support)                                |
-| `&`, `\|`, `^`                                   | Bitwise          | Bitwise AND / OR / XOR                        | [Operator Support](#operator-support)                                |
-| `.min()`, `.max()`, `.sum()`, `.mean()`          | Aggregation      | Reduce array to scalar                        | [Aggregation Operators](#aggregation-operators)                      |
-| `.std()`, `.var()`, `.count()`, `.quantile(q)`   | Aggregation      | Statistical reduction                         | [Aggregation Operators](#aggregation-operators)                      |
-| `.count_if(condition)`                           | Aggregation      | Count rows matching condition(s)              | [Aggregation Operators](#aggregation-operators)                      |
-| `.unique()`                                      | Unique           | Deduplicate values via GROUP BY               | [Unique](#unique)                                                    |
-| `.nunique()`                                     | Unique           | Count distinct values (fused)                 | [Unique](#unique)                                                    |
-| `.isin(other)`                                   | Membership       | IN subquery test (returns UInt8 mask)         | [Membership Operator](#membership-operator-isin)                    |
-| `.match(p)`, `.like(p)`, `.ilike(p)`             | String / Regex   | Pattern matching (returns UInt8 mask)         | [String/Regex Operators](#stringregex-operators)                     |
-| `.extract(p)`, `.replace(p, r)`                  | String / Regex   | Capture group extraction, regex replace       | [String/Regex Operators](#stringregex-operators)                     |
-| `.year()`, `.month()`, `.day_of_week()`          | Unary Transforms | Date/time extraction → new Object             | [Unary Transform Operators](#unary-transform-operators)              |
-| `.lower()`, `.upper()`, `.length()`, `.trim()`   | Unary Transforms | String transforms → new Object                | [Unary Transform Operators](#unary-transform-operators)              |
-| `.abs()`, `.log2()`, `.sqrt()`                   | Unary Transforms | Math functions → new Object                   | [Unary Transform Operators](#unary-transform-operators)              |
-| `.group_by(keys).sum(col)` etc.                  | Group By         | Aggregation with GROUP BY + optional HAVING   | [Group By Operations](#group-by-operations)                          |
-| `.group_by(keys).agg({col: spec})`               | Group By         | Multiple aggregations (multi-agg per column)  | [Group By Operations](#group-by-operations)                          |
-| `.group_by(keys).any(col)`                       | Group By         | Arbitrary non-NULL value per group            | [Group By Operations](#group-by-operations)                          |
-| `.group_by(keys).group_array_distinct(col)`      | Group By         | Distinct values → Array per group             | [Group By Operations](#group-by-operations)                          |
-| `.view(where, limit, offset, order_by)`          | Views            | Read-only View with optional filters          | [Views](#views)                                                      |
-| `.select_sql(columns, order_by, limit, offset)`  | Views            | The SELECT text the object reads with; Views include their constraints | [Views](#views)                                     |
-| `.where(cond)` / `.or_where(cond)`               | Views            | Fluent WHERE chaining (AND / OR)              | [Chained WHERE Clauses](#chained-where-clauses)                      |
-| `obj[key]` / `obj[[keys]]`                       | Views            | Select column(s) from dict Object → View      | [Column Selection](#column-selection)                                |
-| `.with_columns({name: Computed(type, expr)})`    | Views            | Add SQL expression columns → View             | [Computed Column Expansion](#computed-column-expansion-with_columns) |
-| `literal(value, ch_type)`                        | Helpers          | Constant column (`Computed` with SQL literal)  | [Computed Column Expansion](#computed-column-expansion-with_columns) |
-| `.with_year(col)`, `.with_month(col)` …          | Views            | Named shortcuts for common computed columns   | [Domain Helpers](#domain-helpers)                                    |
-| `.with_split_by_char(col, sep)`                  | Views            | Split String column by separator → Array      | [Domain Helpers](#domain-helpers)                                    |
-| `.with_isin(col, other)`                         | Views            | IN subquery computed column → UInt8           | [Domain Helpers](#domain-helpers)                                    |
-| `.rename({old: new})`                            | Views            | Alias column names in a View                  | [Column Renaming](#column-renaming-rename)                           |
-| `.explode(*columns, left=False)`                 | Views            | Flatten Array column(s) into rows → View      | [Explode](#explode)                                                  |
-| `.copy()`                                        | Copy             | Materialize Object / View to new Object       | [copy()](#the-copy-method)                                           |
-| `.insert(*sources)`                              | Ingest           | Insert data from Objects / scalars / lists    | [insert()](#insert)                                                  |
-| `.insert_from_url(url)`                          | Ingest           | Insert rows from a remote URL                 | [insert_from_url()](#insert_from_url)                                |
-| `.concat(*sources)` / `concat(a, b, …)`          | Ingest           | Concatenate sources into a new Object         | [concat()](#concat)                                                  |
-| `.join(other, on, how)`                          | Join             | Join two Objects on key columns → dict Object | [join()](#join)                                                      |
-| `.data(orient=…)`                                | Data Retrieval   | Fetch results to Python (scalar / list / dict)| [data()](#data)                                                      |
-| `.markdown(truncate=…)`                          | Data Retrieval   | Render data as markdown table                 | [markdown()](#markdown)                                              |
-| `.execute(order_by, limit, offset)`              | Data Retrieval   | Run full query, discard rows → `QueryStats`   | [execute()](#execute)                                                |
-| `await .stats()`                                 | Data Retrieval   | `QueryStats` of the query that made this Object| [stats()](#stats)                                                    |
-| `.export(path)`                                  | Export           | Stream data to a file (extension → format)    | [export()](#export)                                                  |
+| API                                             | Category         | Description                                                            | Section                                                              |
+|-------------------------------------------------|------------------|------------------------------------------------------------------------|----------------------------------------------------------------------|
+| `+`, `-`, `*`, `/`, `//`, `%`, `**`             | Arithmetic       | Element-wise arithmetic                                                | [Operator Support](#operator-support)                                |
+| `==`, `!=`, `<`, `<=`, `>`, `>=`                | Comparison       | Element-wise comparison                                                | [Operator Support](#operator-support)                                |
+| `&`, `\|`, `^`                                  | Bitwise          | Bitwise AND / OR / XOR                                                 | [Operator Support](#operator-support)                                |
+| `.min()`, `.max()`, `.sum()`, `.mean()`         | Aggregation      | Reduce array to scalar                                                 | [Aggregation Operators](#aggregation-operators)                      |
+| `.std()`, `.var()`, `.count()`, `.quantile(q)`  | Aggregation      | Statistical reduction                                                  | [Aggregation Operators](#aggregation-operators)                      |
+| `.count_if(condition)`                          | Aggregation      | Count rows matching condition(s)                                       | [Aggregation Operators](#aggregation-operators)                      |
+| `.unique()`                                     | Unique           | Deduplicate values via GROUP BY                                        | [Unique](#unique)                                                    |
+| `.nunique()`                                    | Unique           | Count distinct values (fused)                                          | [Unique](#unique)                                                    |
+| `.isin(other)`                                  | Membership       | IN subquery test (returns UInt8 mask)                                  | [Membership Operator](#membership-operator-isin)                     |
+| `.match(p)`, `.like(p)`, `.ilike(p)`            | String / Regex   | Pattern matching (returns UInt8 mask)                                  | [String/Regex Operators](#stringregex-operators)                     |
+| `.extract(p)`, `.replace(p, r)`                 | String / Regex   | Capture group extraction, regex replace                                | [String/Regex Operators](#stringregex-operators)                     |
+| `.year()`, `.month()`, `.day_of_week()`         | Unary Transforms | Date/time extraction → new Object                                      | [Unary Transform Operators](#unary-transform-operators)              |
+| `.lower()`, `.upper()`, `.length()`, `.trim()`  | Unary Transforms | String transforms → new Object                                         | [Unary Transform Operators](#unary-transform-operators)              |
+| `.abs()`, `.log2()`, `.sqrt()`                  | Unary Transforms | Math functions → new Object                                            | [Unary Transform Operators](#unary-transform-operators)              |
+| `.group_by(keys).sum(col)` etc.                 | Group By         | Aggregation with GROUP BY + optional HAVING                            | [Group By Operations](#group-by-operations)                          |
+| `.group_by(keys).agg({col: spec})`              | Group By         | Multiple aggregations (multi-agg per column)                           | [Group By Operations](#group-by-operations)                          |
+| `.group_by(keys).any(col)`                      | Group By         | Arbitrary non-NULL value per group                                     | [Group By Operations](#group-by-operations)                          |
+| `.group_by(keys).group_array_distinct(col)`     | Group By         | Distinct values → Array per group                                      | [Group By Operations](#group-by-operations)                          |
+| `.view(where, limit, offset, order_by)`         | Views            | Read-only View with optional filters                                   | [Views](#views)                                                      |
+| `.select_sql(columns, order_by, limit, offset)` | Views            | The SELECT text the object reads with; Views include their constraints | [Views](#views)                                                      |
+| `.where(cond)` / `.or_where(cond)`              | Views            | Fluent WHERE chaining (AND / OR)                                       | [Chained WHERE Clauses](#chained-where-clauses)                      |
+| `obj[key]` / `obj[[keys]]`                      | Views            | Select column(s) from dict Object → View                               | [Column Selection](#column-selection)                                |
+| `.with_columns({name: Computed(type, expr)})`   | Views            | Add SQL expression columns → View                                      | [Computed Column Expansion](#computed-column-expansion-with_columns) |
+| `literal(value, ch_type)`                       | Helpers          | Constant column (`Computed` with SQL literal)                          | [Computed Column Expansion](#computed-column-expansion-with_columns) |
+| `.with_year(col)`, `.with_month(col)` …         | Views            | Named shortcuts for common computed columns                            | [Domain Helpers](#domain-helpers)                                    |
+| `.with_split_by_char(col, sep)`                 | Views            | Split String column by separator → Array                               | [Domain Helpers](#domain-helpers)                                    |
+| `.with_isin(col, other)`                        | Views            | IN subquery computed column → UInt8                                    | [Domain Helpers](#domain-helpers)                                    |
+| `.rename({old: new})`                           | Views            | Alias column names in a View                                           | [Column Renaming](#column-renaming-rename)                           |
+| `.explode(*columns, left=False)`                | Views            | Flatten Array column(s) into rows → View                               | [Explode](#explode)                                                  |
+| `.copy()`                                       | Copy             | Materialize Object / View to new Object                                | [copy()](#the-copy-method)                                           |
+| `.insert(*sources)`                             | Ingest           | Insert data from Objects / scalars / lists                             | [insert()](ingest.md#insert)                                         |
+| `.insert_from_url(url)`                         | Ingest           | Insert rows from a remote URL                                          | [insert_from_url()](ingest.md#insert_from_url)                       |
+| `.concat(*sources)` / `concat(a, b, …)`         | Ingest           | Concatenate sources into a new Object                                  | [concat()](ingest.md#concat)                                         |
+| `.join(other, on, how)`                         | Join             | Join two Objects on key columns → dict Object                          | [join()](ingest.md#join)                                             |
+| `.data(orient=…)`                               | Data Retrieval   | Fetch results to Python (scalar / list / dict)                         | [data()](#data)                                                      |
+| `.markdown(truncate=…)`                         | Data Retrieval   | Render data as markdown table                                          | [markdown()](#markdown)                                              |
+| `.execute(order_by, limit, offset)`             | Data Retrieval   | Run full query, discard rows → `QueryStats`                            | [execute()](#execute)                                                |
+| `await .stats()`                                | Data Retrieval   | `QueryStats` of the query that made this Object                        | [stats()](#stats)                                                    |
+| `.export(path)`                                 | Export           | Stream data to a file (extension → format)                             | [export()](#export)                                                  |
 
 # Operator Support
 
@@ -63,117 +64,6 @@ All operators work element-wise on scalar and array data, creating new Object ta
 
 !!! tip "Scalar broadcast"
     Python scalars work on either side: `obj * 2` and `2 * obj` both work. The scalar is inlined into the operator SQL as a typed literal — it never gets a table of its own.
-
-## Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
-
-Every value-column operator returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
-
-| Family            | Methods                                                                                                                     |
-|-------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| Binary            | `+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `\|`, `^`                                        |
-| Aggregation       | `.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`, `.var()`, `.count()`, `.count_if()`, `.quantile()`, `.unique()`, `.nunique()` |
-| Unary transform   | `.year()`, `.month()`, `.day_of_week()`, `.lower()`, `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`      |
-| String / regex    | `.match()`, `.like()`, `.ilike()`, `.extract()`, `.replace()`                                                               |
-| Membership / null | `.isin()`, `.is_null()`, `.is_not_null()`, `.coalesce()`                                                                    |
-| Element-wise      | `.array_map()`                                                                                                              |
-
-```python
-# 1. Build a plan — pure Python, no DB call
-plan = a + b                                       # LazyOperator (no table yet)
-total = a.sum()                                    # also a LazyOperator
-
-# 2. Read rows / scalars — async methods auto-materialize
-rows = await (a + b).data()                        # creates t_<id>, reads rows
-value = await a.sum().data()                       # one await — materialize + read
-
-# 3. Get the materialized Object (for .table, legacy APIs, etc.)
-obj = await (a + b)                                # table = t_<id>
-scalar_obj = await a.sum()                         # table = t_<id> with one row
-
-# 4. Control the table name — use .as_()
-revenue = await (prices * quantities).as_("revenue")            # t_revenue_<id>
-daily_total = await orders.sum().as_("daily_total")             # t_daily_total_<id>
-
-# 5. Persist beyond the current context
-daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_daily
-yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
-```
-
-`await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining further operators (`(a + b) + c`, `obj.abs().sum()`) doesn't require an explicit `await` of the intermediate — the lazy passes through.
-
-### `.as_(name, scope=...)`
-
-Names the result table and chooses its lifetime. Returns a new `LazyOperator` (the receiver is unchanged):
-
-| `scope` | Table name | Lifetime |
-|---|---|---|
-| `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context |
-| `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
-| `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
-
-### `name` / `scope` on always-materializing ops
-
-`.copy()`, `.concat()`, `.join()`, and every `GroupByQuery` aggregation
-(`.sum()`, `.mean()`, `.min()`, `.max()`, `.count()`, `.std()`, `.var()`,
-`.any()`, `.group_array_distinct()`, `.agg()`) accept the same `name` /
-`scope` kwargs with identical semantics to `.as_()` above. These ops
-always create a new table — no lazy chain to elide — so the kwargs land
-directly on the existing async methods instead of going through
-`LazyOperator`:
-
-```python
-enriched = await a.join(b, on="user_id", name="enriched", scope="job")
-# → j_<job_id>_enriched
-
-totals = await orders.group_by("category").sum("amount", name="totals", scope="global")
-# → p_totals
-```
-
-`LazyOperator`'s overrides forward `name` / `scope` to the materialized
-delegate, so `(a + b).copy(name=..., scope=...)` and
-`(a + b).join(b, name=..., scope=...)` work as expected.
-
-### Invariants
-
-- **No DB writes until awaited.** Creating a `LazyOperator` is pure-Python. A lazy that's never awaited never creates a table.
-- **Sync `.table` raises pre-materialize.** Reading `.table` (or any property derived from it — `.scope`, `.persistent`, `.order_by`) on an unawaited LazyOperator raises `RuntimeError`. `.schema` works (it's precomputed).
-- **Async methods auto-materialize.** `.data()`, `.sum()`, etc. first `await self` (materializes once, cached) then delegate.
-- **`.as_()` is immutable.** Calling it returns a new LazyOperator; the receiver keeps its (None, None) name/scope.
-- **Re-await is idempotent (single-task).** `_materialized` cache ensures sequential awaits of the same lazy produce one table.
-
-### Chained operators
-
-`(a + b) + c` builds a tree:
-
-```
-LazyOperator(op="+", lhs=LazyOperator(op="+", lhs=a, rhs=b), rhs=c)
-```
-
-When awaited, each `LazyOperator` node materializes into its own table — no fusion. `await ((a + b) + c).as_("outer")` writes **two** tables: an unnamed temp for the inner `a + b` and a `t_outer_<id>` for the outer. A LazyOperator that's been materialized once is reused if it appears in multiple expressions.
-
-Aggregations and unary transforms stack the same way. `obj.abs().sum()` builds:
-
-```
-LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
-```
-
-`await (a + b).sum().as_("total", scope="job")` writes one unnamed temp for the inner `+` and `j_<job_id>_total` for the outer `sum`. Aggregations always materialize their input first — there is no SQL-level fusion across the chain.
-
-### Avoid: concurrent await of the same instance
-
-`asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
-
-??? note "Arithmetic Operators"
-
-    | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
-    |-----------------|----------------|-----------------------|-----------------|-------------------|
-    | `+`             | Addition       | `+`                   | `__add__`       | `__radd__`        |
-    | `-`             | Subtraction    | `-`                   | `__sub__`       | `__rsub__`        |
-    | `*`             | Multiplication | `*`                   | `__mul__`       | `__rmul__`        |
-    | `/`             | Division       | `/`                   | `__truediv__`   | `__rtruediv__`    |
-    | `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | `__rfloordiv__`   |
-    | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
-    | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
 ## Arithmetic Type Promotion
 
@@ -330,231 +220,116 @@ Multiple group keys, View support, and chained `.having()`/`.or_having()` for po
 
 For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_sort`, `max_bytes_in_join`, `join_algorithm`.
 
-# Ingest
+# Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
 
-## concat()
+Every value-column operator returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
 
-Unions multiple sources into a new Object. Also available as standalone `concat(a, b, ...)`. Self must be array; args can be Objects, scalars, or lists.
-
-- **Union**: row order is undefined (see "Row Order"); source `aai_id` values are copied, so reads of an `aai_id` result follow creation order and `concat(obj, obj)` duplicates ids
-- **Variadic**: `obj.concat(a, b, c)` — any number of sources in one call
-- **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
-- **Compatible types**: all sources must have matching column names and compatible ClickHouse types
-
-## insert()
-
-Inserts data from one or more sources into an existing Object. Target must be array; sources can be Objects, scalars, or lists. Missing columns get ClickHouse defaults.
-
-- **Variadic**: `obj.insert(a, b, c)` — any number of sources in one call
-- **Subset columns**: sources don't need all target columns
-- **View support**: sources can be Views with `where()`, `with_columns()`, field selection, etc.
-- **Type casting**: source column types are `CAST` to target column types
-
-## insert_from_url()
-
-Insert data from a URL into an existing Object. For `create_object_from_url()`, see [ObjectContext](object_context.md).
-
-### Supported URL input formats
-
-`create_object_from_url()` and `insert_from_url()` accept any format ClickHouse
-can read via the `url()` table function. Pass the format name explicitly with
-`format=...`; the file extension is not consulted. Headerless formats expose
-columns as `c1`, `c2`, … because there are no names to bind.
-
-| Format                      | Notes                                                      |
-|-----------------------------|------------------------------------------------------------|
-| `Parquet`                   | columnar, type-rich (default)                              |
-| `ORC`                       | Apache ORC columnar                                        |
-| `Arrow`                     | reading not supported — use Parquet/ORC                    |
-| `Avro`                      | container file with embedded schema                        |
-| `CSV`                       | no header — columns must be `c1`, `c2`, …                  |
-| `CSVWithNames`              | header row provides column names                           |
-| `CSVWithNamesAndTypes`      | header + types row — DESCRIBE returns full types           |
-| `TSV`                       | no header — `c1`, `c2`, …                                  |
-| `TSVWithNames`              | header row                                                 |
-| `TSVWithNamesAndTypes`      | header + types row                                         |
-| `JSON`                      | full ClickHouse JSON envelope (`{meta, data, rows}`)       |
-| `JSONEachRow`               | newline-delimited JSON objects                             |
-| `JSONCompactEachRow`        | newline-delimited JSON arrays — `c1`, `c2`, …              |
-| `RawBLOB` / `JSONAsString`  | JSON-blob mode for nested API responses (see below)        |
+| Family            | Methods                                                                                                                     |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Binary            | `+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `\|`, `^`                                        |
+| Aggregation       | `.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`, `.var()`, `.count()`, `.count_if()`, `.quantile()`, `.unique()`, `.nunique()` |
+| Unary transform   | `.year()`, `.month()`, `.day_of_week()`, `.lower()`, `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`      |
+| String / regex    | `.match()`, `.like()`, `.ilike()`, `.extract()`, `.replace()`                                                               |
+| Membership / null | `.isin()`, `.is_null()`, `.is_not_null()`, `.coalesce()`                                                                    |
+| Element-wise      | `.array_map()`                                                                                                              |
 
 ```python
-# Tabular formats
-await create_object_from_url(
-    "https://example.com/data.parquet",
-    columns=["id", "price", "name"],
-    format="Parquet",
-)
+# 1. Build a plan — pure Python, no DB call
+plan = a + b                                       # LazyOperator (no table yet)
+total = a.sum()                                    # also a LazyOperator
 
-# Headerless CSV — bind to positional column names
-await create_object_from_url(
-    "https://example.com/raw.csv",
-    columns=["c1", "c2", "c3"],
-    format="CSV",
-)
+# 2. Read rows / scalars — async methods auto-materialize
+rows = await (a + b).data()                        # creates t_<id>, reads rows
+value = await a.sum().data()                       # one await — materialize + read
 
-# Avro container with embedded schema
-await create_object_from_url(
-    "https://example.com/events.avro",
-    columns=["id", "ts", "payload"],
-    format="Avro",
-)
+# 3. Get the materialized Object (for .table, legacy APIs, etc.)
+obj = await (a + b)                                # table = t_<id>
+scalar_obj = await a.sum()                         # table = t_<id> with one row
+
+# 4. Control the table name — use .as_()
+revenue = await (prices * quantities).as_("revenue")            # t_revenue_<id>
+daily_total = await orders.sum().as_("daily_total")             # t_daily_total_<id>
+
+# 5. Persist beyond the current context
+daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_daily
+yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
 ```
 
-### JSON-blob mode
+`await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining further operators (`(a + b) + c`, `obj.abs().sum()`) doesn't require an explicit `await` of the intermediate — the lazy passes through.
 
-For nested JSON APIs that wrap rows inside an envelope (e.g.
-`{"vulnerabilities": [...]}`), pass `RawBLOB` or `JSONAsString` plus
-`json_path` and `json_columns`. ClickHouse loads the whole document as a
-single string and applies `JSONExtract` per field. Dots walk nesting in
-both parameters — `json_path="result.vulnerabilities"` reaches an array
-inside an envelope, `"cve.id"` a nested field of each element (keys
-literally containing `.` are not addressable). Dotted keys become
-dot-notation columns that `data()` re-nests — see
-[Nested Data Flattening](#nested-data-flattening):
+## `.as_(name, scope=...)`
+
+Names the result table and chooses its lifetime. Returns a new `LazyOperator` (the receiver is unchanged):
+
+| `scope` | Table name | Lifetime |
+|---|---|---|
+| `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context |
+| `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
+| `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
+
+## `name` / `scope` on always-materializing ops
+
+`.copy()`, `.concat()`, `.join()`, and every `GroupByQuery` aggregation
+(`.sum()`, `.mean()`, `.min()`, `.max()`, `.count()`, `.std()`, `.var()`,
+`.any()`, `.group_array_distinct()`, `.agg()`) accept the same `name` /
+`scope` kwargs with identical semantics to `.as_()` above. These ops
+always create a new table — no lazy chain to elide — so the kwargs land
+directly on the existing async methods instead of going through
+`LazyOperator`:
 
 ```python
-await create_object_from_url(
-    "https://services.nvd.nist.gov/rest/json/cves/2.0",
-    format="JSONAsString",
-    json_path="vulnerabilities",
-    json_columns={
-        "cve.id":               ColumnInfo("String"),
-        "cve.published":        ColumnInfo("DateTime64(3)"),
-        "cve.descriptions":     ColumnInfo("String", array=True),
-    },
-)
+enriched = await a.join(b, on="user_id", name="enriched", scope="job")
+# → j_<job_id>_enriched
+
+totals = await orders.group_by("category").sum("amount", name="totals", scope="global")
+# → p_totals
 ```
 
-### Type inference
+`LazyOperator`'s overrides forward `name` / `scope` to the materialized
+delegate, so `(a + b).copy(name=..., scope=...)` and
+`(a + b).join(b, name=..., scope=...)` work as expected.
 
-By default the loader runs `DESCRIBE (SELECT … FROM url(…) LIMIT 0)` to
-discover column types. Pass `column_types=` to skip the DESCRIBE round-trip
-— useful for headerless CSV/TSV where ClickHouse may fail to infer numeric
-types from a sample of zero rows.
+## Invariants
 
-??? note "Shared insert mechanics"
+- **No DB writes until awaited.** Creating a `LazyOperator` is pure-Python. A lazy that's never awaited never creates a table.
+- **Sync `.table` raises pre-materialize.** Reading `.table` (or any property derived from it — `.scope`, `.persistent`, `.order_by`) on an unawaited LazyOperator raises `RuntimeError`. `.schema` works (it's precomputed).
+- **Async methods auto-materialize.** `.data()`, `.sum()`, etc. first `await self` (materializes once, cached) then delegate.
+- **`.as_()` is immutable.** Calling it returns a new LazyOperator; the receiver keeps its (None, None) name/scope.
+- **Re-await is idempotent (single-task).** `_materialized` cache ensures sequential awaits of the same lazy produce one table.
 
-    `insert()` runs one `INSERT INTO ... SELECT CAST(...) FROM source` per source; `concat()` builds a single `UNION ALL` INSERT (`aaiclick/data/object/ingest.py`). Both are unions: row order is undefined (see "Row Order"), and a source's `aai_id` values are copied, so reads of an `aai_id` result follow creation order, not argument order.
+## Chained operators
 
-## Row Order
+`(a + b) + c` builds a tree:
 
-Array Objects have no implicit row order. Reads return rows in ClickHouse's natural source order — stable within a process but not portable across runs. For deterministic order, name the column you want to sort on:
-
-```python
-obj = await create_object_from_value([3, 1, 2])
-
-await obj.data()                      # → [3, 1, 2] or [1, 2, 3] etc. (undefined)
-await obj.data(order_by="value")      # → [1, 2, 3]
-await obj.view(order_by="value").data()  # equivalent
+```
+LazyOperator(op="+", lhs=LazyOperator(op="+", lhs=a, rhs=b), rhs=c)
 ```
 
-Binary elementwise ops between two array Objects from **different tables** require `order_by` on both sides — the join uses it as the row-pairing key:
+When awaited, each `LazyOperator` node materializes into its own table — no fusion. `await ((a + b) + c).as_("outer")` writes **two** tables: an unnamed temp for the inner `a + b` and a `t_outer_<id>` for the outer. A LazyOperator that's been materialized once is reused if it appears in multiple expressions.
 
-```python
-a = await create_object_from_value([1, 2, 3])
-b = await create_object_from_value([10, 20, 30])
+Aggregations and unary transforms stack the same way. `obj.abs().sum()` builds:
 
-# a + b   ← TypeError: cross-table op without explicit row order
-result = await (a.view(order_by="value") + b.view(order_by="value"))
-print(await result.data(order_by="value"))  # → [11, 22, 33]
+```
+LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 ```
 
-Ops over the same rows (`a + a`, `v['x'] + v['y']`), scalar broadcast (`a + 10`), and aggregations skip the contract — they align naturally. Fields of two different Views of one table (e.g. a `with_columns()` View and its source) still need it.
+`await (a + b).sum().as_("total", scope="job")` writes one unnamed temp for the inner `+` and `j_<job_id>_total` for the outer `sum`. Aggregations always materialize their input first — there is no SQL-level fusion across the chain.
 
-!!! warning "Cross-table array ops need `order_by`"
-    `a + b` between two array Objects from different tables raises `TypeError` unless both sides are wrapped with `.view(order_by=...)`. Row order is opt-in, not implicit.
+## Avoid: concurrent await of the same instance
 
-# Join
+`asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
 
-## join()
+??? note "Arithmetic Operators"
 
-Joins two Objects on one or more key columns into a new dict Object.
-
-```python
-async def join(
-    self,
-    other: Object,
-    *,
-    on: str | list[str] | None = None,
-    left_on: str | list[str] | None = None,
-    right_on: str | list[str] | None = None,
-    how: Literal["inner", "left", "right", "full", "cross"] = "inner",
-    suffixes: tuple[str, str] | None = None,
-) -> Object
-```
-
-| Argument   | Purpose                                                                          |
-|------------|----------------------------------------------------------------------------------|
-| `other`    | Right-hand Object.                                                               |
-| `on`       | Key column name(s) present under the same name in both Objects.                  |
-| `left_on`  | Left-side key(s) when names differ. Requires matching-length `right_on`.         |
-| `right_on` | Right-side key(s) when names differ.                                             |
-| `how`      | Join type. Default `"inner"`.                                                    |
-| `suffixes` | Suffix handling for non-key column collisions. `True` → default `("_l", "_r")`; a tuple picks custom suffixes; `None` / `False` → collision raises `ValueError`. |
-
-Exactly one of `{on}` or `{left_on, right_on}` must be set, except `how="cross"` which forbids all three.
-
-### Join types
-
-| `how`    | ClickHouse keyword | Left cols nullable? | Right cols nullable? |
-|----------|--------------------|---------------------|----------------------|
-| `inner`  | `INNER JOIN`       | no                  | no                   |
-| `left`   | `LEFT JOIN`        | no                  | yes (promoted)       |
-| `right`  | `RIGHT JOIN`       | yes (promoted)      | no                   |
-| `full`   | `FULL OUTER JOIN`  | yes (promoted)      | yes (promoted)       |
-| `cross`  | `CROSS JOIN`       | no                  | no                   |
-
-Outer-join SQL is emitted with `SETTINGS join_use_nulls = 1` so misses materialize as `NULL` instead of the outer-side type's default.
-
-### Column semantics
-
-- **Key dedup**: under `on=` the key appears once under its original name; under `left_on`/`right_on` both key columns survive. `FULL` joins with `on=` coalesce the merged key across sides.
-- **Collisions**: non-key columns that appear on both sides raise `ValueError` unless `suffixes=True` (shorthand for `("_l", "_r")`) or a custom `suffixes=("_x", "_y")` tuple is passed. Both sides get a suffix — empty suffixes are rejected.
-- **Key types**: compared via the same type-compatibility rule as `concat` (`String` ↔ `FixedString` OK, `String` ↔ `Int64` not).
-- **LowCardinality / Array**: preserved; `LowCardinality(String)` on the outer side becomes `LowCardinality(Nullable(String))`. Join keys themselves must be scalar.
-- **Order**: join output has no intrinsic order. Pass `data(order_by=...)` (or `.view(order_by=...)`) if deterministic order is required.
-
-### Examples
-
-```python
-# Inner join on a shared key
-users  = await create_object_from_value({"id":  [1, 2, 3], "name": ["A", "B", "C"]})
-orders = await create_object_from_value({"id":  [1, 1, 4], "total": [9.5, 14.0, 2.0]})
-
-joined = await users.join(orders, on="id")
-await joined.data(orient="records")
-# → [{"id": 1, "name": "A", "total": 9.5}, {"id": 1, "name": "A", "total": 14.0}]
-
-# Left join — unmatched rows keep left, right columns become NULL
-enriched = await users.join(orders, on="id", how="left")
-# → rows for id=2, 3 have total=None; schema marks 'total' Nullable(Float64)
-
-# left_on / right_on when key names differ — both keys survive
-orders2 = await create_object_from_value({"user_id": [1, 2], "total": [9.5, 3.0]})
-await users.join(orders2, left_on="id", right_on="user_id")
-# → rows include both 'id' and 'user_id'
-
-# Suffixes on non-key collision — True picks the default ("_l", "_r")
-a = await create_object_from_value({"id": [1, 2], "score": [10, 20]})
-b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
-merged = await a.join(b, on="id", suffixes=True)
-# → columns: id, score_l, score_r
-
-# Or supply a custom tuple:
-merged = await a.join(b, on="id", suffixes=("_old", "_new"))
-
-# Cross join — Cartesian product
-colors = await create_object_from_value({"c": ["red", "blue"]})
-sizes  = await create_object_from_value({"s": ["S", "M"]})
-skus   = await colors.join(sizes, how="cross")  # 4 rows
-```
-
-### Distributed considerations
-
-The default chdb backend is single-shard, so the naive `JOIN` suffices. For a future sharded backend, `GLOBAL JOIN` and `join_algorithm` hints (`parallel_hash`, `partial_merge`, `grace_hash`) are the next levers. Nothing in the v1 API precludes a later `strategy=` kwarg.
-
-Semi / anti / asof joins are deferred: each has semantic nuance (left-only output schema, required `order_by`, tolerance) worth its own mini-spec.
+    | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
+    |-----------------|----------------|-----------------------|-----------------|-------------------|
+    | `+`             | Addition       | `+`                   | `__add__`       | `__radd__`        |
+    | `-`             | Subtraction    | `-`                   | `__sub__`       | `__rsub__`        |
+    | `*`             | Multiplication | `*`                   | `__mul__`       | `__rmul__`        |
+    | `/`             | Division       | `/`                   | `__truediv__`   | `__rtruediv__`    |
+    | `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | `__rfloordiv__`   |
+    | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
+    | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
 # Data Retrieval
 
@@ -622,7 +397,7 @@ print(stats.written_rows)   # how many rows the copy wrote (HTTP)
 print(stats.read_rows)      # how many it scanned to produce them
 ```
 
-## export()
+# Export
 
 Export data to a local file. The format is picked from the file extension
 and the data streams directly from ClickHouse — no Python round-trip, so
@@ -635,7 +410,7 @@ await obj.export("/tmp/data.parquet")
 await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 ```
 
-### Supported extensions
+## Supported extensions
 
 | Extension                       | ClickHouse format | Notes                                  |
 |---------------------------------|-------------------|----------------------------------------|
@@ -650,7 +425,7 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 | `.xml`                          | `XML`             | one `<row>` element per record         |
 | `.sql`                          | `SQLInsert`       | `INSERT INTO table VALUES (...)`       |
 
-### Compression
+## Compression
 
 Append `.gz` or `.xz` and the writer compresses automatically:
 
@@ -660,7 +435,7 @@ await obj.export("/tmp/data.parquet.gz")
 await obj.export("/tmp/data.json.xz")
 ```
 
-### Backend behavior
+## Backend behavior
 
 - **chdb (embedded):** `INSERT INTO FUNCTION file('path', fmt)` — the
   embedded engine streams directly to disk and picks the compression codec
@@ -670,46 +445,6 @@ await obj.export("/tmp/data.json.xz")
   (on a worker thread) and wrapped through `gzip` / `lzma` if the path
   asks for it. `INSERT INTO FUNCTION file()` cannot be used here because it
   would write to the *server's* `user_files_path`, not the client.
-
-# Nested Data Flattening
-
-Nested dicts and lists-of-dicts flatten to standalone columns — better
-compression, skipping indexes, and `LowCardinality` than ClickHouse
-`Map`/`Tuple`/`JSON`. pyarrow infers the schema from all records in C++
-(no sampling, no per-item Python work); `data()` reconstructs the nesting
-by name-parsing the column names.
-
-| Notation | Input shape                | Cardinality | Type effect                |
-|----------|----------------------------|-------------|----------------------------|
-| `.`      | dict value (nested object) | 1:1         | none — extends name only   |
-| `.*.`    | list-of-dicts value        | 1:N         | adds one `Array()` wrapper |
-
-Stars stack: each extra list level around a dict adds another `*` segment
-and another `Array()` wrapper.
-
-```python
-obj = await create_object_from_value({"x": {"y": {"z": 1}}})
-# → column x.y.z (Int64)
-await obj.data()            # {"x": {"y": {"z": 1}}}
-
-obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
-# → columns b.*.c (Array(Array(Int64))), b.*.d (Array(Int64))
-
-obj = await create_object_from_value({"a": [[{"x": 1}], [{"x": 2}]]})
-# → column a.*.*.x (Array(Array(Int64)))
-```
-
-Ingest raises `ValueError` for anything that cannot round-trip: mismatched
-keys across records or items, non-dict items in a list of dicts, type
-conflicts, dotted keys, and empty dicts. Columns marked `FieldSpec(nullable=True)` are
-exempt at the leaf level — missing or `None` values ingest as NULL and
-read back as `None`; a `None` dict or list item still raises. All-`None`
-values infer as `Nullable(String)` and round-trip as `None`. Name-parsing applies to any
-dict-shaped read — explicit `Schema` columns, imports, and Views with
-dotted column names reconstruct the same way; a plain column colliding
-with a dotted prefix (`x` next to `x.y`) raises rather than dropping data.
-
-**Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/object_context/test_arrow_ingest.py`.
 
 # Views
 
@@ -759,11 +494,9 @@ await obj[["x", "y"]].with_columns(s).data()  # {'x': [...], 'y': [...], 's': [.
 
 `with_columns()` adds derived columns (SQL expressions) as a lightweight View — no new table, no data copy.
 
-### API
-
 Synchronous (no `await`). Works on both Object and View; preserves existing constraints. Uses `Computed(type, expression)` from `aaiclick.data.models`.
 
-### `literal()` Helper
+## `literal()` Helper
 
 Convenience wrapper for constant columns — handles SQL quoting:
 
