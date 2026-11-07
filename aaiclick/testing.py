@@ -15,13 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import inspect
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections import Counter
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,6 +83,24 @@ def gc_leak_check():
 # ---------------------------------------------------------------------------
 # Pure helpers — used inside fixture bodies and optionally by ad-hoc tests.
 # ---------------------------------------------------------------------------
+
+
+async def until(
+    predicate: Callable[[], bool | Awaitable[bool]],
+    timeout: float = 5.0,
+    interval: float = 0.02,
+    what: str = "condition",
+) -> None:
+    """Poll a sync or async predicate until it is true; fail after ``timeout``."""
+    deadline = time.monotonic() + timeout
+    while True:
+        outcome = predicate()
+        if inspect.isawaitable(outcome):
+            outcome = await outcome
+        if outcome:
+            return
+        assert time.monotonic() < deadline, f"{what} not reached in {timeout}s"
+        await asyncio.sleep(interval)
 
 
 async def reset_sql_tables() -> None:

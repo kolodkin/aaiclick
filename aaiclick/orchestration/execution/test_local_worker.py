@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import select
 
-from aaiclick.testing import get_task_runs, set_task_image_source
+from aaiclick.testing import get_task_runs, set_task_image_source, until
 
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..decorators import job, task
@@ -46,9 +46,7 @@ async def _until_heartbeats(n: int) -> None:
     """Runs in-process, so it sees the test's patched heartbeat; returns once
     it has been awaited ``n`` more times since the task started."""
     target = ew.execution_worker_heartbeat.await_count + n
-    async with asyncio.timeout(5):  # a missing heartbeat fails the task instead of hanging
-        while ew.execution_worker_heartbeat.await_count < target:
-            await asyncio.sleep(0.01)
+    await until(lambda: ew.execution_worker_heartbeat.await_count >= target, what="in-task heartbeats")
 
 
 @job("test_local_dynamic_list")
@@ -168,16 +166,10 @@ async def test_local_worker_no_tasks(orch_ctx):
 
 
 async def _wait_for_status(task_id: int, status: str) -> None:
-    """Poll until the task reaches ``status``."""
+    async def reached() -> bool:
+        return (task := await get_task(task_id)) is not None and task.status == status
 
-    async def poll():
-        while True:
-            task = await get_task(task_id)
-            if task is not None and task.status == status:
-                return
-            await asyncio.sleep(0.05)
-
-    await asyncio.wait_for(poll(), timeout=5)
+    await until(reached, what=status)
 
 
 async def test_local_worker_dispatch_exception_fails_task(orch_ctx):
