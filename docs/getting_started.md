@@ -120,16 +120,10 @@ path: `run-job my_pipeline.my_pipeline`.
 Browse to <http://127.0.0.1:5255> to see the job, its task graph and logs.
 The REST API docs are at <http://127.0.0.1:5255/api/v0/docs>.
 
-# Environment Variables
-
-| Variable                | Default                                    | Description                                                              |
-|-------------------------|--------------------------------------------|--------------------------------------------------------------------------|
-| `AAICLICK_CH_URL`       | `chdb:///~/.aaiclick/chdb_data`            | ClickHouse connection — `chdb://` for embedded, `clickhouse://` for remote |
-| `AAICLICK_SQL_URL`      | `sqlite+aiosqlite:///~/.aaiclick/local.db` | Orchestration DB — SQLite (local) or PostgreSQL (distributed)            |
-
 # Next Steps
 
 - [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
+- [Deployment](user_guide/deployment.md) — local vs distributed backends, environment variables, scaffolds
 - [Object API](user_guide/object.md) — operators, aggregations, views, group by
 - [ObjectContext](user_guide/object_context.md) — lifecycle, persistent objects, data operations without orchestration
 - [Container images](user_guide/container_images.md) — published `aaiclick`, `aaiclick-docker`, `aaiclick-kubectl` images and their Kubernetes/Docker runtime requirements

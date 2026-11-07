@@ -27,7 +27,7 @@ async def main():
 `AAICLICK_CH_URL` selects the ClickHouse backend — embedded chdb by default, a
 ClickHouse server in distributed mode. Both satisfy the `ChClient` protocol, so
 all Object operations work identically. URLs and setup:
-[Orchestration — Deployment Modes](orchestration.md#deployment-modes).
+[Deployment — Deployment Modes](deployment.md#deployment-modes).
 
 # Object Lifecycle and Staleness
 

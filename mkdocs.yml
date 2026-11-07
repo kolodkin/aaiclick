@@ -75,12 +75,12 @@ nav:
     - Orchestration: tutorial/orchestration.md
   - User Guide:
     - Orchestration: user_guide/orchestration.md
+    - Deployment: user_guide/deployment.md
     - Task API: user_guide/task_api.md
     - Task API (Python): user_guide/task_api_python.md
     - Task API (Java): user_guide/task_api_java.md
     - Task Interface: user_guide/task_interface.md
     - Container Images: user_guide/container_images.md
-    - Deployment: user_guide/deployment.md
     - DNS Rebinding: user_guide/dns_rebinding.md
     - Sandbox: user_guide/sandbox.md
     - Lineage: user_guide/lineage.md

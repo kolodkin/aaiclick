@@ -4,7 +4,7 @@ Example Projects
 End-to-end projects demonstrating aaiclick orchestration with real-world data.
 Each project lives in `example_projects/<name>/` and includes a shell
 script as the single entry point. Each script runs in exactly one
-[deployment mode](orchestration.md#deployment-modes):
+[deployment mode](deployment.md#deployment-modes):
 
 | Project            | Mode        |
 |--------------------|-------------|
