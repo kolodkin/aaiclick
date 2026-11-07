@@ -89,20 +89,25 @@ nav:
     - Ingest: user_guide/ingest.md
     - ObjectContext: user_guide/object_context.md
   - Examples:
-    - Orchestration Basics: examples/orchestration_basic.md
-    - Orchestration Dynamic: examples/orchestration_dynamic.md
-    - Orchestration Groups: examples/orchestration_groups.md
-    - Orchestration Operators: examples/orchestration_operators.md
-    - Basic Operators: examples/basic_operators.md
-    - Array Operators: examples/array_operators.md
-    - Transforms: examples/transforms.md
-    - Statistics: examples/statistics.md
-    - Group By: examples/group_by.md
-    - Aggregation Table: examples/aggregation_table.md
-    - Views: examples/views.md
-    - Selectors: examples/selectors.md
-    - Data Manipulation: examples/data_manipulation.md
-    - Explode: examples/explode.md
-    - Nested Arrays: examples/nested_arrays.md
-    - Nullable Columns: examples/nullable.md
+    - Data:
+      - Basic Operators: examples/basic_operators.md
+      - Array Operators: examples/array_operators.md
+      - Transforms: examples/transforms.md
+      - Statistics: examples/statistics.md
+      - Group By: examples/group_by.md
+      - Aggregation Table: examples/aggregation_table.md
+      - Views: examples/views.md
+      - Selectors: examples/selectors.md
+      - Data Manipulation: examples/data_manipulation.md
+      - Explode: examples/explode.md
+      - Nested Arrays: examples/nested_arrays.md
+      - Nullable Columns: examples/nullable.md
+      - Join: examples/basic_join.md
+      - Membership (isin): examples/isin.md
+      - Row Order: examples/order_by.md
+    - Orchestration:
+      - Basics: examples/orchestration_basic.md
+      - Dynamic Tasks: examples/orchestration_dynamic.md
+      - Groups: examples/orchestration_groups.md
+      - Operators: examples/orchestration_operators.md
   - License: LICENSE.md
