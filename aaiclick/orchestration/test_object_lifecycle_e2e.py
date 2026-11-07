@@ -16,6 +16,7 @@ from sqlmodel import select
 
 from aaiclick.data.object import Object
 from aaiclick.data.object_context import create_object_from_value, get_data_lifecycle
+from aaiclick.data.object_context.ch_client import _ch_client_var
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
@@ -226,13 +227,13 @@ def _pin_inserts(events: list[RefEvent]) -> list[RefEvent]:
 
 
 async def _run_cleanup():
-    engine = _sql_engine_var.get()
-    assert engine is not None
     worker = BackgroundWorker()
-    worker._engine = engine
     worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
-    await worker._cleanup_unreferenced_tables()
+    ch_token = _ch_client_var.set(AsyncMock())
+    try:
+        await worker._cleanup_unreferenced_tables()
+    finally:
+        _ch_client_var.reset(ch_token)
 
 
 async def _run_and_verify(pipeline_fn):

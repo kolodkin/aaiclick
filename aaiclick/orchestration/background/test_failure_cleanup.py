@@ -16,10 +16,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aaiclick.data.object_context.ch_client import _ch_client_var
 from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY, BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
-from aaiclick.orchestration.env import get_db_url
-from aaiclick.orchestration.sql_context import create_sql_engine
 
 from ...datetime_utils import utc_now
 from .conftest import (
@@ -71,17 +70,16 @@ async def _get_job_status(engine, job_id):
 async def run_cleanup_pass(pass_fn: Callable[[BackgroundWorker], Awaitable[None]]) -> None:
     """Run one BackgroundWorker pass against the current orch_context DB.
 
-    Test helper that creates a temporary BackgroundWorker pointed at the
-    same SQL database, e.g. ``run_cleanup_pass(BackgroundWorker._process_failure_cleanup)``.
+    Test helper that runs a temporary BackgroundWorker with a mocked
+    ClickHouse client, e.g. ``run_cleanup_pass(BackgroundWorker._process_failure_cleanup)``.
     """
     worker = BackgroundWorker(poll_interval=0)
-    worker._engine = create_sql_engine(get_db_url())
     worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    ch_token = _ch_client_var.set(AsyncMock())
     try:
         await pass_fn(worker)
     finally:
-        await worker._engine.dispose()
+        _ch_client_var.reset(ch_token)
 
 
 async def run_failure_cleanup() -> None:
@@ -105,7 +103,7 @@ async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
     await insert_task_run(bg_db, 111, 100)
     await insert_run_ref(bg_db, "t_intermediate", "111")
 
-    await make_worker(bg_db)._process_failure_cleanup()
+    await make_worker()._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after, error, execution_worker_id, completed_at = row
@@ -132,7 +130,7 @@ async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
     await insert_task_run(bg_db, 111, 100)
     await insert_run_ref(bg_db, "t_table", "111")
 
-    await make_worker(bg_db)._process_failure_cleanup()
+    await make_worker()._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after, error, execution_worker_id, completed_at = row
@@ -166,7 +164,7 @@ async def test_failure_cleanup_pin_refs(bg_db, max_retries, expected_pins):
     await insert_pin_ref(bg_db, "t_other_data", 100)
     await insert_pin_ref(bg_db, "t_upstream_data", 200)
 
-    await make_worker(bg_db)._process_failure_cleanup()
+    await make_worker()._process_failure_cleanup()
 
     assert await _get_pin_refs(bg_db, 100) == expected_pins
     assert await _get_pin_refs(bg_db, 200) == {"t_upstream_data"}
@@ -187,7 +185,7 @@ async def test_failure_cleanup_completes_job_when_all_failed(bg_db):
     )
     await insert_task_run(bg_db, 222, 101)
 
-    await make_worker(bg_db)._process_failure_cleanup()
+    await make_worker()._process_failure_cleanup()
 
     assert await _get_job_status(bg_db, 1000) == "FAILED"
 
@@ -206,7 +204,7 @@ async def test_failure_cleanup_does_not_complete_job_with_retries(bg_db):
     )
     await insert_task_run(bg_db, 111, 100)
 
-    await make_worker(bg_db)._process_failure_cleanup()
+    await make_worker()._process_failure_cleanup()
 
     assert await _get_job_status(bg_db, 1000) == "RUNNING"
 
@@ -227,7 +225,7 @@ async def test_failure_cleanup_retry_backoff(bg_db):
     await insert_task_run(bg_db, 222, 100)
 
     before = utc_now()
-    await make_worker(bg_db)._process_failure_cleanup()
+    await make_worker()._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after_str, error, execution_worker_id, completed_at = row
@@ -266,7 +264,7 @@ async def test_failure_cleanup_bumps_run_epoch(bg_db, max_retries, expected_stat
     await insert_task_run(bg_db, 111, 100)
     assert await _get_run_epoch(bg_db, 100) == 0
 
-    await make_worker(bg_db)._process_failure_cleanup()
+    await make_worker()._process_failure_cleanup()
 
     assert (await _get_task_status(bg_db, 100))[0] == expected_status
     assert await _get_run_epoch(bg_db, 100) == 1
@@ -278,7 +276,7 @@ async def test_dead_worker_sweep_leaves_its_running_task(bg_db):
     await insert_job(bg_db, 1000)
     await insert_worker(bg_db, WORKER_ID, stale_by=timedelta(hours=1))
     await insert_task(bg_db, 100, 1000, status="RUNNING", execution_worker_id=WORKER_ID)
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._cleanup_dead_workers()
     await worker._release_expired_claims()
@@ -308,8 +306,8 @@ async def test_dead_worker_sweep_closes_run_once(bg_db):
     await insert_task_run(bg_db, 222, 100, status="RUNNING")
     await insert_task(bg_db, 101, 1000, status="RUNNING", execution_worker_id=WORKER_ID)
 
-    await make_worker(bg_db)._release_expired_claims()
-    await make_worker(bg_db)._release_expired_claims()
+    await make_worker()._release_expired_claims()
+    await make_worker()._release_expired_claims()
 
     status, _, _, error, _, _ = await _get_task_status(bg_db, 100)
     assert (status, error) == ("PENDING_FAILURE_CLEANUP", "Task claim expired (worker lost)")

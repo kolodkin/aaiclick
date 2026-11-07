@@ -1,7 +1,6 @@
 """Tests for scheduled job creation in BackgroundWorker."""
 
 import json
-import os
 from datetime import datetime, timedelta
 
 import pytest
@@ -11,15 +10,8 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.models import PRESERVATION_FULL
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
-from aaiclick.orchestration.sql_context import create_sql_engine
 
 from ...datetime_utils import utc_now
-
-
-async def _get_engine(orch_ctx):
-    """Create a standalone async engine matching the test DB."""
-    url = os.environ["AAICLICK_SQL_URL"]
-    return create_sql_engine(url)
 
 
 async def test_check_schedules_creates_job(orch_ctx):
@@ -42,10 +34,7 @@ async def test_check_schedules_creates_job(orch_ctx):
         )
         await session.commit()
 
-    # Create a BackgroundWorker with our test engine
     worker = BackgroundWorker()
-    worker._engine = await _get_engine(orch_ctx)
-    worker._ch_client = None
 
     await worker._check_schedules()
 
@@ -94,8 +83,6 @@ async def test_check_schedules_creates_job(orch_ctx):
     new_next_run = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
     assert new_next_run > utc_now() - timedelta(seconds=5)
 
-    await worker._engine.dispose()
-
 
 async def test_check_schedules_optimistic_lock_prevents_duplicates(orch_ctx):
     """Running _check_schedules twice should not create duplicate jobs."""
@@ -113,8 +100,6 @@ async def test_check_schedules_optimistic_lock_prevents_duplicates(orch_ctx):
         await session.commit()
 
     worker = BackgroundWorker()
-    worker._engine = await _get_engine(orch_ctx)
-    worker._ch_client = None
 
     # Run twice
     await worker._check_schedules()
@@ -129,8 +114,6 @@ async def test_check_schedules_optimistic_lock_prevents_duplicates(orch_ctx):
         count = result.scalar_one()
 
     assert count == 1
-
-    await worker._engine.dispose()
 
 
 @pytest.mark.parametrize(
@@ -148,8 +131,6 @@ async def test_check_schedules_skips_unschedulable_jobs(orch_ctx, registration):
     reg = await register_job(**registration)
 
     worker = BackgroundWorker()
-    worker._engine = await _get_engine(orch_ctx)
-    worker._ch_client = None
 
     await worker._check_schedules()
 
@@ -161,5 +142,3 @@ async def test_check_schedules_skips_unschedulable_jobs(orch_ctx, registration):
         count = result.scalar_one()
 
     assert count == 0
-
-    await worker._engine.dispose()

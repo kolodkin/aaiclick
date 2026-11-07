@@ -151,13 +151,14 @@ async def start_background(poll_interval: float = 10.0) -> None:
             "Use 'local start' for local mode (chdb + SQLite) — it includes background cleanup."
         )
     configure_logging()
-    cleanup = BackgroundWorker(poll_interval=poll_interval)
-    await cleanup.start()
-    shutdown = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, shutdown.set)
-    logger.info("Background cleanup worker started (poll_interval=%ss)", poll_interval)
-    await shutdown.wait()
-    logger.info("Shutting down background cleanup worker...")
-    await cleanup.stop()
+    async with orch_context():
+        cleanup = BackgroundWorker(poll_interval=poll_interval)
+        await cleanup.start()
+        shutdown = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, shutdown.set)
+        logger.info("Background cleanup worker started (poll_interval=%ss)", poll_interval)
+        await shutdown.wait()
+        logger.info("Shutting down background cleanup worker...")
+        await cleanup.stop()

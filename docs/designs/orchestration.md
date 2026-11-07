@@ -551,6 +551,12 @@ Five operations per poll:
 
 Config: `poll_interval` (default 10s); the sweep cutoff is `WORKER_TIMEOUT` (10 min).
 
+Runs inside the caller's `orch_context` and uses its SQL engine and CH client,
+owning neither: `local_runtime` starts it in the server's context, so a local
+process holds one connection pool on `local.db`; `background start` wraps the
+standalone worker in its own `orch_context`. The scheduled-run and sandbox-run
+passes nest a short `orch_context` that reuses the outer one.
+
 ## View Lifecycle
 
 Views share the underlying ClickHouse table with their source Object. This interacts with `table_run_refs` in a non-obvious way.

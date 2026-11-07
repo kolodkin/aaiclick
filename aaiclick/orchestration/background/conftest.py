@@ -1,7 +1,8 @@
 """Shared fixtures and helpers for background worker tests.
 
 ``bg_db`` gives each test its own SQLite engine, separate from ``orch_ctx``,
-for the ``BackgroundWorker`` built by ``make_worker``.
+as the active ``orch_context`` engine for the ``BackgroundWorker`` built by
+``make_worker``.
 """
 
 from __future__ import annotations
@@ -16,11 +17,11 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aaiclick.data.object_context import ChClient
+from aaiclick.data.object_context.ch_client import _ch_client_var, get_ch_client
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.models import SQLModel
-from aaiclick.orchestration.sql_context import create_sql_engine
+from aaiclick.orchestration.sql_context import _sql_engine_var, create_sql_engine
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
@@ -35,24 +36,31 @@ async def bg_db():
     SQLModel.metadata.create_all(sync_engine)
     sync_engine.dispose()
     engine = create_sql_engine(f"sqlite+aiosqlite:///{db_path}")
-    yield engine
-    await engine.dispose()
-    shutil.rmtree(tmpdir, ignore_errors=True)
+    sql_token = _sql_engine_var.set(engine)
+    # A mocked ClickHouse client unless the test also takes ``orch_ctx``, whose real one it keeps.
+    ch_token = _ch_client_var.set(AsyncMock()) if _ch_client_var.get() is None else None
+    try:
+        yield engine
+    finally:
+        if ch_token is not None:
+            _ch_client_var.reset(ch_token)
+        _sql_engine_var.reset(sql_token)
+        await engine.dispose()
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def make_worker(engine, ch_client: ChClient | None = None) -> BackgroundWorker:
-    """A BackgroundWorker on ``engine`` with ``ch_client``, or a mocked ClickHouse client."""
+def make_worker() -> BackgroundWorker:
+    """A BackgroundWorker with the SQLite handler, on the ``bg_db`` engine and client."""
     worker = BackgroundWorker()
-    worker._engine = engine
     worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = ch_client if ch_client is not None else AsyncMock()
     return worker
 
 
-def mock_ch(worker: BackgroundWorker) -> AsyncMock:
-    """The mocked ClickHouse client ``make_worker`` gave ``worker``."""
-    assert isinstance(worker._ch_client, AsyncMock)
-    return worker._ch_client
+def mock_ch() -> AsyncMock:
+    """The mocked ClickHouse client ``bg_db`` set."""
+    client = get_ch_client()
+    assert isinstance(client, AsyncMock)
+    return client
 
 
 async def insert_job(engine, job_id, *, status="RUNNING", preservation_mode="NONE"):
