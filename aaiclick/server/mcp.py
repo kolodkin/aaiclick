@@ -115,11 +115,11 @@ mcp: FastMCP = FastMCP(
         "Tools mirror aaiclick's CLI verbs (the lineage tools have none) and run against "
         "the same backends as the REST surface under /api/v0 (docs/designs/api_server.md).\n"
         "\n"
-        "Lineage triage (why does table X look wrong?), in this order: oplog_subgraph — "
+        "Lineage triage (why does table X look wrong?), in this order: lineage_graph — "
         "read each node's sql_template and form a hypothesis before querying; "
-        "list_graph_nodes — a table with live=false cannot be queried: say so and stop, "
-        "or re-run the job with full preservation (run_job) and retry; get_table_schema "
-        "before querying any table, using only the column names it returns; query_table "
+        "lineage_nodes — a table with live=false cannot be queried: say so and stop, "
+        "or re-run the job with full preservation (run_job) and retry; lineage_schema "
+        "before querying any table, using only the column names it returns; lineage_query "
         "for evidence, citing the rows it returns."
     ),
     lifespan=_mcp_lifespan,
@@ -293,7 +293,7 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 
 
 @mcp.tool(tags={TAG_READ})
-async def oplog_subgraph(
+async def lineage_graph(
     target_table: str,
     direction: LineageDirection = "backward",
     max_depth: int = DEFAULT_MAX_DEPTH,
@@ -304,7 +304,7 @@ async def oplog_subgraph(
 
 
 @mcp.tool(tags={TAG_READ})
-async def list_graph_nodes(
+async def lineage_nodes(
     target_table: str,
     direction: LineageDirection = "backward",
     max_depth: int = DEFAULT_MAX_DEPTH,
@@ -315,7 +315,7 @@ async def list_graph_nodes(
 
 
 @mcp.tool(tags={TAG_READ})
-async def query_table(
+async def lineage_query(
     sql: str,
     target_table: str,
     row_limit: int = DEFAULT_ROW_LIMIT,
@@ -324,7 +324,7 @@ async def query_table(
 ) -> QueryResult:
     """Run a sandboxed read-only SELECT against the lineage graph of ``target_table``.
 
-    The scope is the graph ``oplog_subgraph`` returns for the same arguments;
+    The scope is the graph ``lineage_graph`` returns for the same arguments;
     it is looked up server-side. Rejects DDL/DML, SETTINGS clauses, table
     functions, and any table outside the graph. Write a CTE as a subquery in
     FROM, and use has(column, value) rather than IN for an array column.
@@ -337,7 +337,7 @@ async def query_table(
 
 
 @mcp.tool(tags={TAG_READ})
-async def get_table_schema(
+async def lineage_schema(
     table: str,
     target_table: str,
     direction: LineageDirection = "backward",

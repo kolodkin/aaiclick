@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlmodel import col
 
 from aaiclick.backend import is_postgres
+from aaiclick.testing import until
 
 from ..background.handler import COMPLETE_JOB_SQL
 from ..execution.claiming import cancel_job, complete_task_and_roll_up, update_task_status
@@ -126,14 +127,8 @@ def test_statement_touches_watched(sql, expected):
     assert statement_touches_watched(sql) is expected
 
 
-async def _wait_listening(transport: SignalTransport, timeout: float = 10.0) -> None:
-    """Poll until the transport reports it is listening."""
-
-    async def poll() -> None:
-        while transport.state != STATE_LISTENING:
-            await asyncio.sleep(0.01)
-
-    await asyncio.wait_for(poll(), timeout)
+async def _wait_listening(transport: SignalTransport) -> None:
+    await until(lambda: transport.state == STATE_LISTENING, timeout=10, what="listening")
 
 
 def test_register_session_hooks_is_idempotent():

@@ -64,10 +64,10 @@ EXPECTED_TOOLS = {
     "get_object",
     "delete_object",
     "purge_objects",
-    "oplog_subgraph",
-    "list_graph_nodes",
-    "query_table",
-    "get_table_schema",
+    "lineage_graph",
+    "lineage_nodes",
+    "lineage_query",
+    "lineage_schema",
     "setup",
     "migrate",
     "query_object",
@@ -220,14 +220,14 @@ async def test_get_object_returns_detail(orch_ctx, mcp_client):
     assert detail.name == "mcp_obj_detail"
 
 
-async def test_oplog_subgraph_returns_graph(orch_ctx, mcp_client):
+async def test_lineage_graph_returns_graph(orch_ctx, mcp_client):
     async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2])
         b = await create_object_from_value([3])
         concat = await a.concat(b)
 
     result = await mcp_client.call_tool(
-        "oplog_subgraph",
+        "lineage_graph",
         {"target_table": concat.table, "direction": "backward"},
     )
 
@@ -235,8 +235,8 @@ async def test_oplog_subgraph_returns_graph(orch_ctx, mcp_client):
     assert {n.table for n in parsed.nodes} == {a.table, b.table, concat.table}
 
 
-async def test_list_graph_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, revenue_lineage):
-    result = await mcp_client.call_tool("list_graph_nodes", {"target_table": "p_mcp_revenue"})
+async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, revenue_lineage):
+    result = await mcp_client.call_tool("lineage_nodes", {"target_table": "p_mcp_revenue"})
 
     nodes = [GraphNode.model_validate(n) for n in result.structured_content["result"]]
     assert {n.table for n in nodes} >= {"p_mcp_revenue"}
@@ -247,14 +247,14 @@ async def test_instructions_carry_the_triage_method(mcp_client):
     """The server instructions name every lineage tool, in the order the agent should use them."""
     assert mcp_client.initialize_result.serverInfo.version == "v0"
     instructions = mcp_client.initialize_result.instructions
-    order = ["oplog_subgraph", "list_graph_nodes", "get_table_schema", "query_table"]
+    order = ["lineage_graph", "lineage_nodes", "lineage_schema", "lineage_query"]
     positions = [instructions.index(name) for name in order]
     assert positions == sorted(positions)
 
 
-async def test_query_table_returns_query_result(orch_ctx, mcp_client, revenue_lineage):
+async def test_lineage_query_returns_query_result(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
-        "query_table",
+        "lineage_query",
         {"sql": "SELECT id, val FROM p_mcp_revenue ORDER BY id", "target_table": "p_mcp_revenue"},
     )
 
@@ -263,7 +263,7 @@ async def test_query_table_returns_query_result(orch_ctx, mcp_client, revenue_li
     assert parsed.rows == [[1, 10.0], [2, 20.0]]
 
 
-async def test_query_table_rejects_out_of_scope(orch_ctx, mcp_client, revenue_lineage):
+async def test_lineage_query_rejects_out_of_scope(orch_ctx, mcp_client, revenue_lineage):
     """Invalid from internal_api surfaces as an MCP ToolError.
 
     Validation itself (scope / DDL rules) is covered in
@@ -272,14 +272,14 @@ async def test_query_table_rejects_out_of_scope(orch_ctx, mcp_client, revenue_li
     """
     with pytest.raises(ToolError):
         await mcp_client.call_tool(
-            "query_table",
+            "lineage_query",
             {"sql": "SELECT * FROM p_secret", "target_table": "p_mcp_revenue"},
         )
 
 
-async def test_get_table_schema_returns_columns(orch_ctx, mcp_client, revenue_lineage):
+async def test_lineage_schema_returns_columns(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
-        "get_table_schema",
+        "lineage_schema",
         {"table": "p_mcp_revenue", "target_table": "p_mcp_revenue"},
     )
 
