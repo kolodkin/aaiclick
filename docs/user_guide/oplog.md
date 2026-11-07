@@ -41,6 +41,7 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 | `object_context.create_object_from_value()` | `"create_from_value"`  | `{}`                                                          |
 | `operators._apply_operator_db()`            | `"add"`, `"sub"`, etc. | `{"left": left.table, "right": right.table}`                  |
 | `operators._apply_aggregation()`            | `"sum"`, `"mean"`, etc.| `{"source": source.table}`                                    |
+| `operators.group_by_agg()`                  | `"group_by"`           | `{"source": source.table, "keys": "k1,k2"}`                   |
 | `ingest.concat_objects_db()`                | `"concat"`             | `{"source_0": s0.table, "source_1": s1.table, ...}`          |
 | `ingest.insert_objects_db()`                | `"insert"`             | `{"source": src.table, "target": tgt.table}`                  |
 | `object.Object.copy()`                      | `"copy"`               | `{"source": self.table}`                                      |

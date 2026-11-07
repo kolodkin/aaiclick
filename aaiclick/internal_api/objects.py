@@ -142,21 +142,31 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
 async def open_scoped(name: str, job: RefId | None = None) -> Object:
     """Open the persistent object ``name`` — of ``job`` (id or name) when given,
     else of the global tier. Raises ``NotFound`` for a missing object or job."""
+    resolved = await jobs_api.resolve_job(job) if job is not None else None
+    return await _open_in(name, resolved)
+
+
+async def _open_in(name: str, job: Job | None) -> Object:
     try:
         if job is None:
             return await open_object(name, scope=SCOPE_GLOBAL)
-        resolved = await jobs_api.resolve_job(job)
-        return await open_object(name, scope=SCOPE_JOB, job_id=resolved.id)
+        return await open_object(name, scope=SCOPE_JOB, job_id=job.id)
     except (ObjectNotFoundError, ValueError) as exc:
         raise NotFound(f"Object not found: {name}") from exc
 
 
 async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
     """Return full object detail including its schema (see ``open_scoped``)."""
-    obj = await open_scoped(name, job)
+    resolved = await jobs_api.resolve_job(job) if job is not None else None
+    obj = await _open_in(name, resolved)
 
     metadata = await _fetch_table_metadata([obj.table])
-    return object_to_detail(obj, **metadata.get(obj.table, {}))
+    return object_to_detail(
+        obj,
+        job_id=resolved.id if resolved is not None else None,
+        job_name=resolved.name if resolved is not None else None,
+        **metadata.get(obj.table, {}),
+    )
 
 
 async def delete_object(name: str) -> Deleted:

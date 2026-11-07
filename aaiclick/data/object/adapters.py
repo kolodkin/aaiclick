@@ -17,6 +17,8 @@ from .object import Object
 def object_to_detail(
     obj: Object,
     *,
+    job_id: int | None = None,
+    job_name: str | None = None,
     row_count: int | None = None,
     size_bytes: int | None = None,
     created_at: datetime | None = None,
@@ -33,6 +35,8 @@ def object_to_detail(
         table=obj.table,
         scope=scope_of(obj.table),
         persistent=obj.persistent,
+        job_id=job_id,
+        job_name=job_name,
         row_count=row_count,
         size_bytes=size_bytes,
         created_at=created_at,

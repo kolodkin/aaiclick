@@ -60,6 +60,21 @@ async def test_backward_oplog(pipeline):
     }
 
 
+async def test_group_by_records_lineage(orch_shared_ctx):
+    """A GROUP BY result is reachable backward from its source like any other operator."""
+    async with task_scope(task_id=2, job_id=1, run_id=101):
+        sales = await create_object_from_value({"k": ["a", "b"], "v": [1, 2]})
+        total = await sales.group_by("k").sum("v")
+
+    async with lineage_context():
+        nodes = await backward_oplog(total.table)
+
+    by_table = {n.table: n for n in nodes}
+    assert set(by_table) == {total.table, sales.table}
+    assert by_table[total.table].operation == "group_by"
+    assert by_table[total.table].kwargs == {"source": sales.table, "keys": "k"}
+
+
 async def test_forward_oplog(pipeline):
     """forward_oplog includes the seed table plus its downstream consumers."""
     async with lineage_context():

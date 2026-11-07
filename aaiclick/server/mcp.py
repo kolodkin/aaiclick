@@ -46,6 +46,7 @@ from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import viewer as viewer_api
+from aaiclick.log_models import MAX_TASK_LOG_LINES
 from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, GraphNode, LineageDirection, OplogGraph
 from aaiclick.oplog.query_sandbox import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.orchestration.orch_context import orch_context
@@ -57,6 +58,7 @@ from aaiclick.orchestration.view_models import (
     JobView,
     RegisteredJobView,
     TaskDetail,
+    TaskLogsView,
     TaskView,
 )
 from aaiclick.view_models import (
@@ -208,6 +210,13 @@ async def get_task(task_id: int) -> TaskDetail:
     """Return full task detail by numeric ID."""
     async with orch_context():
         return await tasks_api.get_task(task_id)
+
+
+@mcp.tool(tags={TAG_READ})
+async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES, attempt: int | None = None) -> TaskLogsView:
+    """Return the last ``tail`` captured log lines of one run of a task (latest run by default)."""
+    async with orch_context():
+        return await tasks_api.get_task_logs(task_id, tail=tail, attempt=attempt)
 
 
 @mcp.tool(tags={TAG_ADMIN})

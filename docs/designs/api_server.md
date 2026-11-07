@@ -277,6 +277,7 @@ All REST paths share a common `/api/v0` prefix — see
 | `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
 | `task list`                | `list_tasks(filter)`               | `GET /tasks`                       | `list_tasks`              |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
+| *(new)* task logs          | `get_task_logs(id, tail, attempt)` | `GET /tasks/{id}/logs`             | `get_task_logs`           |
 
 `job wait <ref>` and `run-job --progress` have no row: they are CLI-only
 compositions over `job_stats`. Blocking a request for up to 600s is not a
