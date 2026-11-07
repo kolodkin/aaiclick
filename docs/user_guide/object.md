@@ -60,10 +60,10 @@ See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment mo
 
 # Operator Support
 
-All operators work element-wise on scalar and array data, creating new Object tables. See `examples/basic_operators.py`.
-
-!!! tip "Scalar broadcast"
-    Python scalars work on either side: `obj * 2` and `2 * obj` both work. The scalar is inlined into the operator SQL as a typed literal — it never gets a table of its own.
+All operators work element-wise on scalar and array data, creating new Object
+tables. Python scalars work on either side (`obj * 2`, `2 * obj`) and are
+inlined into the SQL as typed literals, never given a table of their own. Full
+script: [Examples: Basic Operators](../examples/basic_operators.md).
 
 ## Arithmetic Type Promotion
 

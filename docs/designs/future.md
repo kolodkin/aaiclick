@@ -3,8 +3,6 @@ Future Plans
 
 Planned work across aaiclick, ordered by priority.
 
----
-
 # Blob Storage Support
 
 Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's
@@ -12,8 +10,6 @@ object-store table engines, plus `export` to a bucket; the MergeTree default
 is unchanged. External parquet is queried in place without ingestion, and a
 job's exported result is opened by the next job on any cluster. Full design:
 `docs/drafts/blob_storage_support.md`.
-
----
 
 # Coverage Reporting
 
@@ -24,13 +20,9 @@ unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
 Bring it back as one nightly job that publishes the report where it is read
 (HTML artifact or a coverage service with PR diffs), outside the per-PR jobs.
 
----
-
 # Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
-
----
 
 # Deferred
 
