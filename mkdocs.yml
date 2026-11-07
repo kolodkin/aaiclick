@@ -39,6 +39,7 @@ plugins:
 
 exclude_docs: |
   designs/
+  drafts/
 
 markdown_extensions:
   - admonition

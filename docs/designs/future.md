@@ -11,7 +11,7 @@ Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's
 object-store table engines, plus `export` to a bucket; the MergeTree default
 is unchanged. External parquet is queried in place without ingestion, and a
 job's exported result is opened by the next job on any cluster. Full design:
-`docs/designs/blob_storage_support.md`.
+`docs/drafts/blob_storage_support.md`.
 
 ---
 
@@ -122,7 +122,7 @@ An installation carries no tenant state — see `docs/designs/auth.md` for
 the RBAC it does carry. Tenancy is a Kubernetes-only feature; there is no
 Compose or local-mode equivalent.
 
-Full design: `docs/designs/tenants_draft.md`.
+Full design: `docs/drafts/tenants.md`.
 
 **When to revisit**: when a deployment must serve mutually-distrusting
 parties. The earlier metadata-level scheme filtered one shared database by

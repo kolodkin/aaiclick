@@ -1,6 +1,8 @@
 Blob Storage Support
 ---
 
+Not implemented. Indexed from `docs/designs/future.md`.
+
 An `Object` can be backed by files in object storage — S3, GCS, Azure Blob —
 instead of a ClickHouse MergeTree table. ClickHouse's object-store table
 engines do the work: the Object keeps its table name, operators and views
