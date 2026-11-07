@@ -303,15 +303,41 @@ def add_host_flags(env_var: str) -> list[str]:
     return flags
 
 
+# ``docker run`` resource-constraint flags a job may set. An allowlist, not a
+# shape check: any other flag (``--privileged``, ``--volume``, ``--pid``) would
+# hand an API admin the worker host.
+DOCKER_RESOURCE_FLAGS = frozenset(
+    {
+        "cpus",
+        "cpu-shares",
+        "cpu-period",
+        "cpu-quota",
+        "cpuset-cpus",
+        "cpuset-mems",
+        "memory",
+        "memory-swap",
+        "memory-reservation",
+        "memory-swappiness",
+        "pids-limit",
+        "shm-size",
+        "gpus",
+        "ulimit",
+        "blkio-weight",
+    }
+)
+
+
 def resource_flags(resources: dict | None) -> list[str]:
     """``docker run`` flags from a job's ``resources``: each ``key: value``
-    becomes ``--key value``, verbatim. Docker validates the values; its error
-    fails the task. A key that is not a bare flag name or a value that is not
-    a scalar raises ``ValueError``."""
+    becomes ``--key value``, verbatim, for keys in ``DOCKER_RESOURCE_FLAGS``.
+    Docker validates the values; its error fails the task. Any other key, or
+    a non-scalar value, raises ``ValueError``."""
     flags: list[str] = []
     for key, value in (resources or {}).items():
-        if not isinstance(key, str) or not key or key.startswith("-") or any(c.isspace() for c in key):
-            raise ValueError(f"resources.{key!r} is not a docker run flag name")
+        if key not in DOCKER_RESOURCE_FLAGS:
+            raise ValueError(
+                f"resources.{key!r} is not a docker resource flag; expected one of {sorted(DOCKER_RESOURCE_FLAGS)}"
+            )
         if isinstance(value, bool) or not isinstance(value, (str, int, float)):
             raise ValueError(f"resources.{key} {value!r} is not a docker run flag value")
         flags.extend([f"--{key}", str(value)])

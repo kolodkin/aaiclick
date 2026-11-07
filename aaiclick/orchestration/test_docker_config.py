@@ -235,6 +235,8 @@ def test_resource_flags(resources, expected):
         pytest.param({"--cpus": "1"}, "resources.'--cpus'", id="leading-dashes"),
         pytest.param({"": "1"}, "resources.''", id="empty-key"),
         pytest.param({"cpu shares": "1"}, "resources.'cpu shares'", id="space-in-key"),
+        pytest.param({"privileged=true": "x"}, "resources.'privileged=true'", id="self-contained-flag"),
+        pytest.param({"volume": "/:/host"}, "resources.'volume'", id="not-a-resource-flag"),
     ],
 )
 def test_resource_flags_rejects(resources, match):
