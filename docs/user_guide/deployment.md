@@ -47,13 +47,15 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 
 ## Docker Compose mode
 
+Needs [Docker Compose](https://docs.docker.com/compose/). Scaffold and start
+in one go:
+
 ```bash
-python -m aaiclick compose init [--path docker-compose.yaml]
-docker compose up
+python -m aaiclick compose init && docker compose up
 ```
 
-`init` writes the file with every credential filled with a random value and
-prints the admin login once:
+`init` writes `docker-compose.yaml` (`--path` to change) with every credential
+filled with a random value and prints the admin login once:
 
 ```text
 Wrote /path/to/docker-compose.yaml
