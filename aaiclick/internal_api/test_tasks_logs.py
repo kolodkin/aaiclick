@@ -106,6 +106,7 @@ async def test_logs_attempts_carry_times(orch_ctx):
     "run_ids, attempt",
     [
         pytest.param([1, 2], 3, id="past_last_run"),
+        pytest.param([1, 2], 0, id="zero_is_not_latest"),
         pytest.param([], 1, id="never_ran"),
     ],
 )

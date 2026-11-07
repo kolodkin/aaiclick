@@ -14,7 +14,7 @@ target the ``global`` tier only.
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import Any
 
 from sqlalchemy import String, and_, case, cast, func, or_
 from sqlmodel import col, select
@@ -139,35 +139,28 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     return Page[ObjectView](items=items, total=total)
 
 
-class ScopedObject(NamedTuple):
-    object: Object
-    job: Job | None  # the owning job when opened in job scope
-
-
-async def open_scoped(name: str, job: RefId | None = None) -> ScopedObject:
+async def open_scoped(name: str, job: RefId | None = None) -> Object:
     """Open the persistent object ``name`` — of ``job`` (id or name) when given,
     else of the global tier. Raises ``NotFound`` for a missing object or job."""
-    resolved = await jobs_api.resolve_job(job) if job is not None else None
     try:
-        if resolved is None:
-            obj = await open_object(name, scope=SCOPE_GLOBAL)
-        else:
-            obj = await open_object(name, scope=SCOPE_JOB, job_id=resolved.id)
+        if job is None:
+            return await open_object(name, scope=SCOPE_GLOBAL)
+        resolved = await jobs_api.resolve_job(job)
+        return await open_object(name, scope=SCOPE_JOB, job_id=resolved.id)
     except (ObjectNotFoundError, ValueError) as exc:
         raise NotFound(f"Object not found: {name}") from exc
-    return ScopedObject(obj, resolved)
 
 
 async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
     """Return full object detail including its schema (see ``open_scoped``)."""
-    scoped = await open_scoped(name, job)
-    obj = scoped.object
+    owner = await jobs_api.resolve_job(job) if job is not None else None
+    obj = await open_scoped(name, owner.id if owner else None)
 
     metadata = await _fetch_table_metadata([obj.table])
     return object_to_detail(
         obj,
-        job_id=scoped.job.id if scoped.job is not None else None,
-        job_name=scoped.job.name if scoped.job is not None else None,
+        job_id=owner.id if owner else None,
+        job_name=owner.name if owner else None,
         **metadata.get(obj.table, {}),
     )
 

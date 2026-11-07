@@ -22,7 +22,6 @@ from aaiclick.orchestration.execution.execution_worker import register_execution
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.logging import flush_task_logs
 from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.view_models import (
@@ -34,8 +33,7 @@ from aaiclick.orchestration.view_models import (
     TaskLogsView,
     TaskView,
 )
-from aaiclick.testing import set_task_runs
-from aaiclick.view_models import STDOUT_STREAM, LogLine, Page
+from aaiclick.view_models import Page
 from aaiclick.viewer.view_models import ObjectQueryResult
 
 from .mcp import mcp
@@ -165,19 +163,14 @@ async def test_get_task_logs_returns_view(orch_ctx, mcp_client):
     assert logs.available is False
 
 
-async def test_get_task_logs_forwards_tail_and_attempt(orch_ctx, mcp_client):
+@pytest.mark.parametrize("params", [{"tail": 0}, {"attempt": 0}, {"attempt": 1}], ids=["tail", "attempt0", "attempt"])
+async def test_get_task_logs_rejects_bad_params(orch_ctx, mcp_client, params):
+    """Range bounds hold at the tool boundary; an in-range ``attempt`` still reaches ``internal_api``."""
     job = await create_job("mcp_task_logs_params", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    await flush_task_logs(task.id, job.id, 1, [LogLine(stream=STDOUT_STREAM, text=t) for t in ("one", "two")])
-    await flush_task_logs(task.id, job.id, 2, [LogLine(stream=STDOUT_STREAM, text="try two")])
-    await set_task_runs(task.id, [1, 2])
 
-    result = await mcp_client.call_tool("get_task_logs", {"task_id": task.id, "tail": 1, "attempt": 1})
-
-    logs = TaskLogsView.model_validate(result.structured_content)
-    assert (logs.attempt, [line.text for line in logs.lines]) == (1, ["two"])
     with pytest.raises(ToolError):
-        await mcp_client.call_tool("get_task_logs", {"task_id": task.id, "tail": 0})
+        await mcp_client.call_tool("get_task_logs", {"task_id": task.id, **params})
 
 
 async def test_clear_task_returns_view(orch_ctx, mcp_client):

@@ -13,7 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from aaiclick.data.object_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
-from aaiclick.data.scope import GLOBAL_PREFIX
+from aaiclick.data.scope import GLOBAL_PREFIX, JOB_PREFIX, TEMP_PREFIX
 from aaiclick.data.sql_utils import quote_sql_literal
 
 LineageDirection = Literal["backward", "forward"]
@@ -79,6 +79,14 @@ class GraphNode(BaseModel):
     job_id: int | None = None
 
 
+_TABLE_PREFIXES = (GLOBAL_PREFIX, JOB_PREFIX, TEMP_PREFIX)
+
+
+def source_tables(node: OplogNode) -> list[str]:
+    """The kwarg values of ``node`` that name tables; parameters (``how``, key lists) are skipped."""
+    return [v for v in node.kwargs.values() if v.startswith(_TABLE_PREFIXES)]
+
+
 class OplogGraph(BaseModel):
     nodes: list[OplogNode] = Field(default_factory=list)
     edges: list[OplogEdge] = Field(default_factory=list)
@@ -90,8 +98,8 @@ class OplogGraph(BaseModel):
 
     @property
     def sources(self) -> set[str]:
-        """Tables a node of the graph read (its kwarg values)."""
-        return {src for n in self.nodes for src in n.kwargs.values() if src}
+        """Tables a node of the graph read (its table-shaped kwarg values)."""
+        return {src for n in self.nodes for src in source_tables(n)}
 
     @property
     def tables(self) -> set[str]:
@@ -259,7 +267,7 @@ async def oplog_subgraph(
 
     edges: list[OplogEdge] = []
     for node in nodes:
-        for src in node.kwargs.values():
+        for src in source_tables(node):
             edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 
     return OplogGraph(nodes=nodes, edges=edges)

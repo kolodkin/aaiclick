@@ -34,8 +34,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastmcp import FastMCP
+from pydantic import Field
 
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import execution_workers as execution_workers_api
@@ -213,8 +215,12 @@ async def get_task(task_id: int) -> TaskDetail:
 
 
 @mcp.tool(tags={TAG_READ})
-async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES, attempt: int | None = None) -> TaskLogsView:
-    """Return the last ``tail`` captured log lines of one run of a task (latest run by default)."""
+async def get_task_logs(
+    task_id: int,
+    tail: Annotated[int, Field(ge=1, le=MAX_TASK_LOG_LINES)] = MAX_TASK_LOG_LINES,
+    attempt: Annotated[int | None, Field(ge=1)] = None,
+) -> TaskLogsView:
+    """Return the last ``tail`` captured log lines of one run of a task (1-based ``attempt``, latest by default)."""
     async with orch_context():
         return await tasks_api.get_task_logs(task_id, tail=tail, attempt=attempt)
 

@@ -28,7 +28,7 @@ from aaiclick.orchestration.view_models import (
 )
 from aaiclick.view_models import Page, TaskListFilter
 
-from .errors import Invalid, NotFound
+from .errors import NotFound
 from .jobs import resolve_job
 from .pagination import name_like, paginate
 
@@ -84,11 +84,9 @@ async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES, attempt: i
     rows and defaults to the latest run. Returns ``available=False`` when the
     task has not run yet or the chosen run produced no output.
 
-    Raises ``Invalid`` for a non-positive ``tail``, ``NotFound`` if no task
-    matches ``task_id`` or ``attempt`` is outside the task's recorded runs.
+    Raises ``NotFound`` if no task matches ``task_id``, or ``attempt`` is
+    outside the task's recorded runs.
     """
-    if tail < 1:
-        raise Invalid(f"tail must be >= 1, got {tail}")
     await _require_visible_task(task_id)
     async with get_sql_session() as session:
         runs = (
