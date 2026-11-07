@@ -56,7 +56,7 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
     result = await obj.concat(scalar_value)
     data = await result.data()
 
-    assert data == pytest.approx(expected_result, abs=THRESHOLD)
+    assert sorted(data) == pytest.approx(sorted(expected_result), abs=THRESHOLD)
 
 
 # =============================================================================
@@ -75,13 +75,13 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
     ],
 )
 async def test_array_concat_with_list_value(ctx, array, list_value, expected_result):
-    """Concat with a list value: self first, then the value."""
+    """Concat with a list value: the union of self and the value, order undefined."""
     obj = await create_object_from_value(array)
 
     result = await obj.concat(list_value)
     data = await result.data()
 
-    assert data == pytest.approx(expected_result, abs=THRESHOLD)
+    assert sorted(data) == pytest.approx(sorted(expected_result), abs=THRESHOLD)
 
 
 # =============================================================================

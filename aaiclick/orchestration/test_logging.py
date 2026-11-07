@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import sys
-import time
 from datetime import timedelta
 
 import pytest
@@ -15,6 +13,7 @@ from aaiclick.orchestration.logging import (
     last_task_log_time,
     read_task_logs,
 )
+from aaiclick.testing import until
 
 
 def test_sink_tags_lines_with_their_stream():
@@ -76,13 +75,10 @@ async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     """Completed lines are readable from task_logs while the task body is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
     task_id, job_id, run_id = 71, 1, 9101
-    mid_run_lines: list[str] = []
     async with capture_task_output(task_id, job_id, run_id):
         print("early line")
-        deadline = time.monotonic() + 30
-        while not (mid_run_lines := [line.text for line in await read_task_logs(task_id, run_id)]):
-            assert time.monotonic() < deadline, "'early line' was never flushed to task_logs"
-            await asyncio.sleep(0.05)
+        flushed = await until(lambda: read_task_logs(task_id, run_id), timeout=30, what="'early line' in task_logs")
+        mid_run_lines = [line.text for line in flushed]
         print("late line")
     assert mid_run_lines == ["early line"]
     final = [line.text for line in await read_task_logs(task_id, run_id)]

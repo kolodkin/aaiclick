@@ -84,6 +84,7 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._queue: asyncio.Queue[DBLifecycleMessage] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._deferred_decrefs: list[str] = []
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -95,13 +96,14 @@ class OrchLifecycleHandler(LifecycleHandler):
             self._loop.call_soon_threadsafe(self._queue.put_nowait, msg)
 
     async def stop(self) -> None:
-        """Drain the lifecycle queue.
+        """Release every run ref this task took, then drain the queue.
 
-        Non-pinned objects are deterministically decreffed at task_scope exit
-        before this method is called, so their task-scoped refs are already at
-        zero.  Pinned tables keep their job-scoped ref; the background worker
-        handles actual table drops once all refs reach zero.
+        Pinned tables keep their pin refs; the background worker drops a
+        table once all refs reach zero.
         """
+        for table_name in self._deferred_decrefs:
+            self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
+        self._deferred_decrefs.clear()
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.SHUTDOWN))
         if self._task:
             await self._task
@@ -132,7 +134,10 @@ class OrchLifecycleHandler(LifecycleHandler):
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
 
     def decref(self, table_name: str) -> None:
-        self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
+        """Deferred to ``stop()``: a run ref lasts the whole task. A parent
+        drops its children's tables on return, before their pins are
+        written; releasing the ref right then lets the sweep drop them."""
+        self._deferred_decrefs.append(table_name)
 
     def pin(self, table_name: str) -> None:
         """Pin a table for all downstream consumer tasks.
@@ -474,10 +479,8 @@ async def task_scope(
     finally:
         _task_registry_var.reset(registry_token)
 
-        # Decref all live objects (deletes this run_id from table_run_refs).
-        # Pinned tables are protected by their job_id marker in
-        # table_context_refs — the background worker skips tables with
-        # non-NULL job_id even when no run refs remain.
+        # Decref all live objects; stop() then releases this run's refs
+        # (collected objects' included). Pin refs protect handed-on tables.
         for obj_ref in objects.values():
             obj = obj_ref()
             if obj is not None:
