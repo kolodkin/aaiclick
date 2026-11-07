@@ -7,6 +7,7 @@ incref/decref activity on the junction tables, then verifies the
 audit trail matches expectations.
 """
 
+import gc
 from typing import NamedTuple
 from unittest.mock import AsyncMock
 
@@ -14,14 +15,14 @@ from sqlalchemy import event, text
 from sqlmodel import select
 
 from aaiclick.data.object import Object
-from aaiclick.data.object_context import create_object_from_value
+from aaiclick.data.object_context import create_object_from_value, get_data_lifecycle
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import JOB_COMPLETED, Group, Job
 from aaiclick.orchestration.operators import map
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.orch_context import get_sql_session, task_scope
 from aaiclick.orchestration.sql_context import _sql_engine_var
 from aaiclick.snowflake import get_snowflake_id
 
@@ -366,3 +367,18 @@ async def test_map_children_pinned(orch_ctx):
     """One pin for produce → expander, source and output pins for the single child, and the finalize output pin."""
     events = await _run_and_verify(map_pipeline)
     assert len(_pin_inserts(events)) == 4
+
+
+async def test_run_ref_outlives_collected_object(orch_ctx):
+    """A table its task no longer references keeps the run ref until task_scope
+    exit. A parent hands its children tables it drops on return; the run ref
+    must bridge the gap until the children's pins land, or the sweep drops the
+    table in between (race window: no e2e can time it)."""
+    async with task_scope(task_id=1, job_id=1, run_id=7):
+        table = (await create_object_from_value([1, 2, 3])).table
+        gc.collect()
+        await get_data_lifecycle().flush()
+        async with get_sql_session() as session:
+            assert (table, "7") in await _get_run_refs(session)
+    async with get_sql_session() as session:
+        assert (table, "7") not in await _get_run_refs(session)
