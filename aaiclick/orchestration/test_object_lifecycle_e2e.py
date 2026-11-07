@@ -377,7 +377,9 @@ async def test_run_ref_outlives_collected_object(orch_ctx):
     async with task_scope(task_id=1, job_id=1, run_id=7):
         table = (await create_object_from_value([1, 2, 3])).table
         gc.collect()
-        await get_data_lifecycle().flush()
+        lifecycle = get_data_lifecycle()
+        assert lifecycle is not None
+        await lifecycle.flush()
         async with get_sql_session() as session:
             assert (table, "7") in await _get_run_refs(session)
     async with get_sql_session() as session:
