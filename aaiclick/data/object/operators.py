@@ -94,7 +94,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import NamedTuple, cast
 
-from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake import get_snowflake_id
 
 from ..models import (
@@ -357,13 +356,13 @@ async def _apply_operator_db(
     b_is_array = info_b.fieldtype == FIELDTYPE_ARRAY
     aai_id_alias = aai_id_side or "a"  # "a" default is ignored when propagate=False
     proj = _aai_id_proj(aai_id_side is not None, alias=aai_id_alias)
-    result = await create_object(schema, name=name, scope=scope)
-    operand_tables = _operand_tables(left=info_a.base_table, right=info_b.base_table)
-
-    async def insert(select_sql: str) -> None:
-        result._stats = await execute_for_stats(
-            f"INSERT INTO {result.table} {proj.insert_cols} {select_sql}", client=ch_client
-        )
+    emit = {
+        "insert_cols": proj.insert_cols.strip("()"),
+        "name": name,
+        "scope": scope,
+        "oplog_op": operator,
+        "oplog_kwargs": _operand_tables(left=info_a.base_table, right=info_b.base_table),
+    }
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
@@ -375,50 +374,51 @@ async def _apply_operator_db(
             col_b = quote_identifier(info_b.value_column)
             expr = expression.replace("a.value", col_a).replace("b.value", col_b)
             query = f"SELECT {expr} AS value{proj.inner} FROM {info_a.row_source}"
-            await insert(query)
-        else:
-            # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
-            assert info_a.order_by and info_b.order_by, (
-                "cross-table elementwise op reached operator SQL without order_by "
-                "on both sides — the contract check in _apply_operator should have rejected it"
-            )
-            either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
-            inner_a = proj.inner if aai_id_alias == "a" else ""
-            inner_b = proj.inner if aai_id_alias == "b" else ""
-            query = (
-                f"SELECT {expression} AS value{proj.aliased} "
-                f"FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a "
-                f"INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b "
-                "ON a.rn = b.rn"
+            return await emit_result(schema, query, ch_client, **emit)
+
+        # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
+        assert info_a.order_by and info_b.order_by, (
+            "cross-table elementwise op reached operator SQL without order_by "
+            "on both sides — the contract check in _apply_operator should have rejected it"
+        )
+        inner_a = proj.inner if aai_id_alias == "a" else ""
+        inner_b = proj.inner if aai_id_alias == "b" else ""
+        query = (
+            f"SELECT {expression} AS value{proj.aliased} "
+            f"FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a "
+            f"INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b "
+            "ON a.rn = b.rn"
+        )
+        if not (info_a.source.startswith("(") or info_b.source.startswith("(")):
+            await _validate_array_lengths(info_a.source, info_b.source, ch_client)
+            return await emit_result(schema, query, ch_client, **emit)
+
+        # Same join, materialized through a temp table that is dropped on
+        # exit; ``query`` stays the recorded lineage SQL over live sources.
+        temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
+        async with _array_join_temp(
+            info_a.source,
+            info_a.value_type,
+            info_b.source,
+            info_b.value_type,
+            ch_client,
+            order_a=info_a.order_by,
+            order_b=info_b.order_by,
+            propagate_aai_id_from=aai_id_side,
+        ) as temp_table:
+            return await emit_result(
+                schema,
+                f"SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}",
+                ch_client,
+                oplog_sql=query,
+                **emit,
             )
 
-            if either_is_view:
-                # Same join, materialized through a temp table that is dropped on
-                # exit; ``query`` stays the recorded lineage SQL over live sources.
-                temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
-                async with _array_join_temp(
-                    info_a.source,
-                    info_a.value_type,
-                    info_b.source,
-                    info_b.value_type,
-                    ch_client,
-                    order_a=info_a.order_by,
-                    order_b=info_b.order_by,
-                    propagate_aai_id_from=aai_id_side,
-                ) as temp_table:
-                    await insert(f"SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}")
-            else:
-                await _validate_array_lengths(info_a.source, info_b.source, ch_client)
-                await insert(query)
-    else:
-        # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
-        # Cross-join works for all cases. Row order follows ClickHouse's natural
-        # source order; callers wanting determinism apply .view(order_by=...).
-        query = f"SELECT {expression} AS value{proj.aliased} FROM {info_a.source} AS a, {info_b.source} AS b"
-        await insert(query)
-
-    oplog_record_sample(result.table, operator, kwargs=operand_tables, sql=query)
-    return result
+    # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
+    # Cross-join works for all cases. Row order follows ClickHouse's natural
+    # source order; callers wanting determinism apply .view(order_by=...).
+    query = f"SELECT {expression} AS value{proj.aliased} FROM {info_a.source} AS a, {info_b.source} AS b"
+    return await emit_result(schema, query, ch_client, **emit)
 
 
 # ``AGGREGATION_FUNCTIONS``, ``UNARY_TRANSFORMS``, and

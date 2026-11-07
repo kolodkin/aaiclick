@@ -99,6 +99,7 @@ async def copy_db(
     *,
     name: str | None = None,
     scope: NamedScope | None = None,
+    source_table: str,
 ):
     """Copy data into a new Object using a database-internal INSERT...SELECT.
 
@@ -110,6 +111,7 @@ async def copy_db(
         ch_client: Active ClickHouse client instance.
         name: Optional result table name (forwarded to ``create_object``).
         scope: Optional result table scope (forwarded to ``create_object``).
+        source_table: Base table of the source, recorded as the copy's lineage.
 
     Returns:
         Object: New Object containing the copied data.
@@ -125,6 +127,8 @@ async def copy_db(
         insert_cols=cols_str,
         name=name,
         scope=scope,
+        oplog_op="copy",
+        oplog_kwargs={"source": source_table},
     )
 
 
@@ -134,6 +138,7 @@ async def copy_db_selected_fields(
     *,
     name: str | None = None,
     scope: NamedScope | None = None,
+    source_table: str,
 ):
     """
     Copy selected fields from a dict Object to a new Object at database level.
@@ -146,6 +151,7 @@ async def copy_db_selected_fields(
         ch_client: ClickHouse client instance
         name: Optional result table name (forwarded to ``create_object``).
         scope: Optional result table scope (forwarded to ``create_object``).
+        source_table: Base table of the source, recorded as the copy's lineage.
 
     Returns:
         Object: New Object instance with copied data
@@ -165,7 +171,14 @@ async def copy_db_selected_fields(
         insert_cols = fields_str
 
     return await emit_result(
-        copy_info.target_schema(), select_query, ch_client, insert_cols=insert_cols, name=name, scope=scope
+        copy_info.target_schema(),
+        select_query,
+        ch_client,
+        insert_cols=insert_cols,
+        name=name,
+        scope=scope,
+        oplog_op="copy",
+        oplog_kwargs={"source": source_table},
     )
 
 
@@ -320,7 +333,6 @@ async def insert_objects_db(
 
     target_columns = target_info.columns
 
-    selects = []
     advisory_id = await load_advisory_id(target_info.base_table)
     async with table_insert_lock(advisory_id):
         for i, info in enumerate(source_infos):
@@ -345,12 +357,9 @@ async def insert_objects_db(
                 i,
                 ch_client,
             )
-            selects.append(select)
-
-    for info, select in zip(source_infos, selects, strict=True):
-        oplog_record_sample(
-            target_info.base_table,
-            "insert",
-            kwargs={"source": info.base_table, "target": target_info.base_table},
-            sql=select,
-        )
+            oplog_record_sample(
+                target_info.base_table,
+                "insert",
+                kwargs={"source": info.base_table, "target": target_info.base_table},
+                sql=select,
+            )
