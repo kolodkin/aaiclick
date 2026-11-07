@@ -890,4 +890,4 @@ The result carries the `INSERT … SELECT` stats — `result = await obj.copy()`
 
 # Operation Provenance (Oplog)
 
-All Object operations are instrumented to record provenance via `OplogCollector`. See `docs/user_guide/oplog.md`.
+Every Object operation is recorded for lineage tracing — see [Lineage via MCP](lineage.md).

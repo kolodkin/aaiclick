@@ -590,7 +590,7 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 # Operation Provenance (Oplog)
 
-All Object operations within a task are automatically logged when `object_context(oplog=...)` is active. See `docs/user_guide/oplog.md` for the full specification.
+All Object operations within a task are automatically logged when `object_context(oplog=...)` is active. See `docs/designs/oplog.md` for the full specification.
 
 # Configuration
 

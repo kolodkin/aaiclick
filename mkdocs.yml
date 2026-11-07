@@ -84,7 +84,6 @@ nav:
     - DNS Rebinding: user_guide/dns_rebinding.md
     - Sandbox: user_guide/sandbox.md
     - Lineage: user_guide/lineage.md
-    - Operation Log: user_guide/oplog.md
     - Example Projects: user_guide/example_projects.md
     - Object API: user_guide/object.md
     - ObjectContext: user_guide/object_context.md
