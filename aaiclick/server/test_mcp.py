@@ -33,7 +33,7 @@ from aaiclick.orchestration.view_models import (
     TaskLogsView,
     TaskView,
 )
-from aaiclick.view_models import Page
+from aaiclick.view_models import API_VERSION, Page
 from aaiclick.viewer.view_models import ObjectQueryResult
 
 from .mcp import mcp
@@ -245,7 +245,7 @@ async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, rev
 
 async def test_instructions_carry_the_triage_method(mcp_client):
     """The server instructions name every lineage tool, in the order the agent should use them."""
-    assert mcp_client.initialize_result.serverInfo.version == "v0"
+    assert mcp_client.initialize_result.serverInfo.version == API_VERSION
     instructions = mcp_client.initialize_result.instructions
     order = ["lineage_graph", "lineage_nodes", "lineage_schema", "lineage_query"]
     positions = [instructions.index(name) for name in order]

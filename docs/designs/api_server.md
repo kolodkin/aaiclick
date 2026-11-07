@@ -104,12 +104,26 @@ aaiclick/
 ```
 
 All HTTP routes are mounted under a single versioned prefix —
-**`/api/v0`** — declared once in `server/app.py` as `API_PREFIX` and passed to
+**`/api/v0`** — built in `server/app.py` from `API_VERSION` (`aaiclick/view_models.py`) and passed to
 `include_router(..., prefix=API_PREFIX)`. Individual router files declare
 paths *relative* to the prefix (`/jobs`, `/execution-workers`, ...) so the version lives
 in exactly one place. The `v0` segment is deliberate: the schema is still
 experimental and may break; the number advances to `v1` once the contract
 stabilises.
+
+## Contract version
+
+`API_VERSION` is the contract version of every surface, not the package build:
+it is the REST prefix, the OpenAPI `info.version`, and the MCP `serverInfo.version`.
+A breaking change to a route or a tool schema bumps all three together. Rejected:
+
+- **Package version in `serverInfo`**: it names a build, not a contract, and no
+  MCP client (Claude Code, Cursor, VS Code, Codex) displays or acts on the field.
+- **`/mcp/v0`**: clients store the full URL, so a path change breaks every
+  configured agent; shipped servers (GitHub, Cloudflare, Sentry, Linear, Notion,
+  Slack, Supabase) all serve an unversioned `/mcp`.
+- **Per-tool versions**: not in the MCP spec. Tool names stay stable; a replaced
+  tool is deprecated in its description before removal.
 
 # View Model Catalogue
 
@@ -317,9 +331,9 @@ a single versioned prefix — declared once and reused by every router:
 
 ```python
 # aaiclick/server/app.py
-API_PREFIX = "/api/v0"                 # pre-1.0 — the contract may still churn
+API_PREFIX = f"/api/{API_VERSION}"     # API_VERSION = "v0": pre-1.0, the contract may still churn
 
-app = FastAPI(title="aaiclick")
+app = FastAPI(title="aaiclick", version=API_VERSION)
 app.include_router(jobs.router,             prefix=API_PREFIX)
 app.include_router(registered_jobs.router,  prefix=API_PREFIX)
 app.include_router(tasks.router,            prefix=API_PREFIX)
@@ -450,7 +464,8 @@ carries nothing per-user. Design and client behaviour:
 # MCP Surface
 
 `aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick", version="v0")`
-instance; `serverInfo.version` is the tool-contract version, bumped together with `/api/v0`, not the package build. Each tool is a direct wrapper that opens the surrounding context:
+instance; `version` is `API_VERSION` (see [Contract version](#contract-version)).
+Each tool is a direct wrapper that opens the surrounding context:
 
 ```python
 @mcp.tool

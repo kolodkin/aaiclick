@@ -13,6 +13,7 @@ from aaiclick.backend import is_local
 from aaiclick.deploy.placeholders import require_no_placeholder_credentials
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.view_models import API_VERSION
 
 from .audit import AuditMiddleware
 from .auth import AllowedHostMiddleware, PrincipalAuthMiddleware, require_principal, warn_if_open
@@ -26,7 +27,6 @@ from .routers import execution_workers, jobs, objects, registered_jobs, sandbox,
 from .routers import invites as invites_router
 from .routers import users as users_router
 
-API_VERSION = "v0"
 API_PREFIX = f"/api/{API_VERSION}"
 MCP_PATH = "/mcp"
 STATIC_DIR = Path(__file__).parent / "static"

@@ -64,6 +64,7 @@ from aaiclick.orchestration.view_models import (
     TaskView,
 )
 from aaiclick.view_models import (
+    API_VERSION,
     Deleted,
     ExecutionWorkerFilter,
     JobListFilter,
@@ -110,7 +111,7 @@ async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 
 mcp: FastMCP = FastMCP(
     name="aaiclick",
-    version="v0",  # tool-contract version, bumped with /api/v0 — not the package build
+    version=API_VERSION,
     instructions=(
         "Tools mirror aaiclick's CLI verbs (the lineage tools have none) and run against "
         "the same backends as the REST surface under /api/v0 (docs/designs/api_server.md).\n"
