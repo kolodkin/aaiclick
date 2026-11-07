@@ -11,7 +11,7 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `run_id`, `created_at` (`DateTime64(3, 'UTC')`, like `task_logs.created_at` and `schema_migrations.applied_at`). ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
-All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops).
+All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops). Only `p_`/`j_`/`t_` values count as tables, so a join's `how` can sit beside them.
 
 ## table_registry (SQL)
 
@@ -41,6 +41,7 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 | `object_context.create_object_from_value()` | `"create_from_value"`  | `{}`                                                          |
 | `operators._apply_operator_db()`            | `"add"`, `"sub"`, etc. | `{"left": left.table, "right": right.table}`                  |
 | `operators._apply_aggregation()`            | `"sum"`, `"mean"`, etc.| `{"source": source.table}`                                    |
+| `operators.group_by_agg()`                  | `"group_by"`           | `{"source": source.table}`                                    |
 | `ingest.concat_objects_db()`                | `"concat"`             | `{"source_0": s0.table, "source_1": s1.table, ...}`          |
 | `ingest.insert_objects_db()`                | `"insert"`             | `{"source": src.table, "target": tgt.table}`                  |
 | `object.Object.copy()`                      | `"copy"`               | `{"source": self.table}`                                      |
