@@ -21,11 +21,15 @@ _sql_engine_var: ContextVar[AsyncEngine | None] = ContextVar("sql_engine", defau
 def _enable_sqlite_foreign_keys(dbapi_connection, _record) -> None:
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    # WAL: a commit no longer waits for readers to finish, so a writer and a
+    # read-then-write session (shutdown vs a background pass) cannot deadlock
+    # into "database is locked" after the busy timeout.
+    cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
 
 
 def create_sql_engine(url: str) -> AsyncEngine:
-    """Async engine for ``url``; on SQLite, turns on ``PRAGMA foreign_keys`` per connection."""
+    """Async engine for ``url``; on SQLite, turns on ``PRAGMA foreign_keys`` and WAL per connection."""
     engine = create_async_engine(url, echo=False)
     if engine.dialect.name == "sqlite":
         event.listen(engine.sync_engine, "connect", _enable_sqlite_foreign_keys)

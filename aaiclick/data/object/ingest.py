@@ -99,6 +99,7 @@ async def copy_db(
     *,
     name: str | None = None,
     scope: NamedScope | None = None,
+    source_table: str,
 ):
     """Copy data into a new Object using a database-internal INSERT...SELECT.
 
@@ -110,6 +111,7 @@ async def copy_db(
         ch_client: Active ClickHouse client instance.
         name: Optional result table name (forwarded to ``create_object``).
         scope: Optional result table scope (forwarded to ``create_object``).
+        source_table: Base table of the source, recorded as the copy's lineage.
 
     Returns:
         Object: New Object containing the copied data.
@@ -125,6 +127,8 @@ async def copy_db(
         insert_cols=cols_str,
         name=name,
         scope=scope,
+        oplog_op="copy",
+        oplog_kwargs={"source": source_table},
     )
 
 
@@ -134,6 +138,7 @@ async def copy_db_selected_fields(
     *,
     name: str | None = None,
     scope: NamedScope | None = None,
+    source_table: str,
 ):
     """
     Copy selected fields from a dict Object to a new Object at database level.
@@ -146,6 +151,7 @@ async def copy_db_selected_fields(
         ch_client: ClickHouse client instance
         name: Optional result table name (forwarded to ``create_object``).
         scope: Optional result table scope (forwarded to ``create_object``).
+        source_table: Base table of the source, recorded as the copy's lineage.
 
     Returns:
         Object: New Object instance with copied data
@@ -165,7 +171,14 @@ async def copy_db_selected_fields(
         insert_cols = fields_str
 
     return await emit_result(
-        copy_info.target_schema(), select_query, ch_client, insert_cols=insert_cols, name=name, scope=scope
+        copy_info.target_schema(),
+        select_query,
+        ch_client,
+        insert_cols=insert_cols,
+        name=name,
+        scope=scope,
+        oplog_op="copy",
+        oplog_kwargs={"source": source_table},
     )
 
 
@@ -182,8 +195,8 @@ async def _insert_source(
     target_types: dict[str, ColumnInfo],
     alias_index: int,
     ch_client,
-) -> None:
-    """Insert a single source into a target table.
+) -> str:
+    """Insert a single source into a target table; returns the SELECT it ran.
 
     Args:
         target_table: Destination table name.
@@ -199,10 +212,8 @@ async def _insert_source(
     insert_cols = ", ".join(quote_identifier(col) for col in col_names)
     select = f"SELECT {cast_exprs} FROM {info.source}{alias}"
 
-    await ch_client.command(f"""
-    INSERT INTO {target_table} ({insert_cols})
-    {select}
-    """)
+    await ch_client.command(f"INSERT INTO {target_table} ({insert_cols}) {select}")
+    return select
 
 
 async def concat_objects_db(
@@ -286,6 +297,7 @@ async def concat_objects_db(
         result.table,
         "concat",
         kwargs={f"source_{i}": info.base_table for i, info in enumerate(query_infos)},
+        sql=union_query,
     )
     return result
 
@@ -338,17 +350,16 @@ async def insert_objects_db(
                     )
 
             source_target_types = {col: target_columns[col] for col in col_names}
-            await _insert_source(
+            select = await _insert_source(
                 target_info.base_table,
                 info,
                 source_target_types,
                 i,
                 ch_client,
             )
-
-    for info in source_infos:
-        oplog_record_sample(
-            target_info.base_table,
-            "insert",
-            kwargs={"source": info.base_table, "target": target_info.base_table},
-        )
+            oplog_record_sample(
+                target_info.base_table,
+                "insert",
+                kwargs={"source": info.base_table, "target": target_info.base_table},
+                sql=select,
+            )

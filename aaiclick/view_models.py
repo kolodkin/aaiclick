@@ -46,6 +46,10 @@ EntryType = Literal["module", "shell"]
 
 T = TypeVar("T")
 
+# Contract version of every surface: the REST prefix, the OpenAPI info.version and
+# the MCP serverInfo.version. Bumped together on a breaking route or tool change.
+API_VERSION = "v0"
+
 RefId = int | str
 """Reference to an entity by numeric ID or human-readable name."""
 

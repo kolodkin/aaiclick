@@ -166,9 +166,23 @@ async def cmd_job_list(args):
 
 **Implementation**: `aaiclick/server/app.py`
 
-All resource routes mount under one versioned prefix, `API_PREFIX = "/api/v0"`, declared once in `app.py` and passed to every `include_router(..., prefix=API_PREFIX)`. Routers declare paths **relative** to it (`/jobs`, `/execution-workers`, …), so the version lives in one place and bumping to `/api/v1` is a one-line edit.
+All resource routes mount under one versioned prefix, `API_PREFIX = f"/api/{API_VERSION}"` (`API_VERSION = "v0"` in `aaiclick/view_models.py`), built once in `app.py` and passed to every `include_router(..., prefix=API_PREFIX)`. Routers declare paths **relative** to it (`/jobs`, `/execution-workers`, …), so the version lives in one place and bumping to `/api/v1` is a one-line edit.
 
 **Why `v0`?** View models, error envelope and URL layout are still evolving; `v0` tells downstream UIs and SDK generators "experimental, may break". It graduates to `v1` once the schema settles and external callers exist.
+
+## Contract version
+
+`API_VERSION` is the contract version of every surface, not the package build:
+it is the REST prefix, the OpenAPI `info.version`, and the MCP `serverInfo.version`.
+A breaking change to a route or a tool schema bumps all three together. Rejected:
+
+- **Package version in `serverInfo`**: it names a build, not a contract, and no
+  MCP client (Claude Code, Cursor, VS Code, Codex) displays or acts on the field.
+- **`/mcp/v0`**: clients store the full URL, so a path change breaks every
+  configured agent; shipped servers (GitHub, Cloudflare, Sentry, Linear, Notion,
+  Slack, Supabase) all serve an unversioned `/mcp`.
+- **Per-tool versions**: not in the MCP spec. Tool names stay stable; a replaced
+  tool is deprecated in its description before removal.
 
 Each router is a thin wrapper running inside a request-scoped `orch_context()` via the `orch_scope` dependency, so the contextvar getters inside `internal_api` see the session/client for the call:
 
@@ -238,7 +252,7 @@ A `text/event-stream` of payload-free `changed` events, fed by Postgres `LISTEN`
 
 **Implementation**: `aaiclick/server/mcp.py`
 
-A module-level `mcp = FastMCP("aaiclick")`; each tool wraps one internal API call inside its context:
+A module-level `mcp = FastMCP("aaiclick", version=API_VERSION)` (see [Contract version](#contract-version)); each tool wraps one internal API call inside its context:
 
 ```python
 @mcp.tool(tags={TAG_READ})

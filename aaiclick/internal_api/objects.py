@@ -52,22 +52,23 @@ from .errors import Invalid, NotFound
 
 
 async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
-    """Look up per-table stats (row count, size, creation time) in one query.
+    """Look up per-table row count and size in one ``system.tables`` query.
 
     Returned dict is keyed by table name; each value is a kwargs dict ready to
     spread into ``ObjectView`` / ``object_to_detail`` (``row_count``,
-    ``size_bytes``, ``created_at``).
+    ``size_bytes``). ``created_at`` comes from ``table_registry`` instead:
+    ``system.tables`` reports epoch 0 for Memory tables.
     """
     if not tables:
         return {}
     names_lit = ", ".join(f"'{t}'" for t in tables)
     ch = get_ch_client()
     result = await ch.query(
-        "SELECT name, total_rows, total_bytes, metadata_modification_time "
+        "SELECT name, total_rows, total_bytes "
         "FROM system.tables "
         f"WHERE database = currentDatabase() AND name IN ({names_lit})"
     )
-    return {row[0]: {"row_count": row[1], "size_bytes": row[2], "created_at": row[3]} for row in result.result_rows}
+    return {row[0]: {"row_count": row[1], "size_bytes": row[2]} for row in result.result_rows}
 
 
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
@@ -110,18 +111,18 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     async with get_sql_session() as session:
         total = (await session.execute(select(func.count()).select_from(TableRegistry).where(clause))).scalar_one()
         result = await session.execute(
-            select(name_col, table_col, job_id_col, Job.name)
+            select(name_col, table_col, job_id_col, Job.name, TableRegistry.created_at)
             .outerjoin(Job, col(Job.id) == job_id_col)
             .where(clause)
             .order_by(name_col, table_col)
             .limit(filter.limit)
         )
-    paged = [(row[0], row[1], row[2], row[3]) for row in result.all()]
+    paged = [(row[0], row[1], row[2], row[3], row[4]) for row in result.all()]
 
-    metadata = await _fetch_table_metadata([table for _, table, _, _ in paged])
+    metadata = await _fetch_table_metadata([table for _, table, _, _, _ in paged])
 
     items = []
-    for name, table, job_id, job_name in paged:
+    for name, table, job_id, job_name, created_at in paged:
         scope = scope_of(table)
         # A p_* table created inside a job still has a job_id; only j_* belong to one.
         owned = scope == SCOPE_JOB
@@ -133,6 +134,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
                 persistent=True,
                 job_id=job_id if owned else None,
                 job_name=job_name if owned else None,
+                created_at=created_at,
                 **metadata.get(table, {}),
             )
         )
@@ -157,10 +159,13 @@ async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
     obj = await open_scoped(name, owner.id if owner else None)
 
     metadata = await _fetch_table_metadata([obj.table])
+    async with get_sql_session() as session:
+        created_at = await session.scalar(select(TableRegistry.created_at).where(TableRegistry.table_name == obj.table))
     return object_to_detail(
         obj,
         job_id=owner.id if owner else None,
         job_name=owner.name if owner else None,
+        created_at=created_at,
         **metadata.get(obj.table, {}),
     )
 
