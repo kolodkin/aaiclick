@@ -3,14 +3,12 @@ UI Specification
 
 **Implementation**: `src/App.tsx`
 
-Single-screen, prompt-driven dashboard for aaiclick operators. SPA served by
-the FastAPI backend; views refresh when an SSE `changed` signal invalidates the
-query cache, falling back to 2 s polling only while that stream is down. Tech
-stack, build details, and the live-update chain: `docs/designs/frontend.md`.
+Single-screen, prompt-driven dashboard for aaiclick operators, served by the
+FastAPI backend. Every view refreshes when an SSE `changed` signal invalidates
+the query cache, falling back to 2 s polling only while that stream is down.
+Tech stack, build, and the live-update chain: `docs/designs/frontend.md`.
 
 # Layout
-
-All modes share a fixed layout:
 
 ```
 ┌──────────────────────────────────────────┐
@@ -22,12 +20,9 @@ All modes share a fixed layout:
 └──────────────────────────────────────────┘
 ```
 
-- **Header**: always visible, contains app logo and editable prompt input
-- **Content area**: fills remaining viewport, updates reactively based on prompt value
-
 # Navigation
 
-Clicking interactive elements updates the prompt, which drives what is displayed:
+Clicks update the prompt, and the prompt drives the view:
 
 ```
 (empty prompt)  ──────▶  Help / command reference
@@ -76,44 +71,30 @@ The input edits a draft; the view follows only the committed prompt.
 
 **Prompt**: _(empty)_ or `help`
 
-Displays a help/command reference showing available commands and their descriptions.
-In local mode (auth disabled) the Account and Administration groups are greyed out and marked "(Distributed mode only)".
+Command reference. In local mode (auth disabled) the Account and Administration groups are greyed out and marked "(Distributed mode only)"; the dropdown labels those commands the same way.
 
-One registry, `src/components/commands.ts`, feeds Home, the prompt dropdown and the "Unknown command" chips. The dropdown labels distributed-only commands "Distributed mode only".
+One registry, `src/components/commands.ts`, feeds Home, the prompt dropdown and the "Unknown command" chips.
 
 ## Jobs List (`@jobs`)
 
 **Implementation**: `src/views/Jobs.tsx`
 
-**Prompt**: `@jobs`
+Jobs, newest `created_at` first.
 
-Table of jobs sorted by `created_at` descending. Auto-refreshes on the SSE `changed` signal.
+| Column   | Source field | Notes                                    |
+|----------|--------------|------------------------------------------|
+| Name     | `name`       | Clickable — sets prompt to `@job <name>` |
+| Status   | `status`     | Colored badge                            |
+| Progress | computed     | `completed_tasks / total_tasks`          |
+| Created  | `created_at` | Relative time (e.g., "2m ago")           |
+| Duration | computed     | `started_at` to `completed_at` or now    |
 
-| Column     | Source field    | Notes                           |
-|------------|----------------|---------------------------------|
-| Name       | `name`         | Clickable — sets prompt to `@job <name>` |
-| Status     | `status`       | Colored badge                   |
-| Progress   | computed       | `completed_tasks / total_tasks` |
-| Created    | `created_at`   | Relative time (e.g., "2m ago")  |
-| Duration   | computed       | `started_at` to `completed_at` or now |
-
-### Status badges
-
-| Status      | Color  |
-|-------------|--------|
-| `PENDING`   | gray   |
-| `RUNNING`   | blue   |
-| `COMPLETED` | green  |
-| `FAILED`    | red    |
-| `CANCELLED` | yellow |
+Status badges, shared by jobs and tasks: `PENDING` gray, `RUNNING` blue,
+`COMPLETED` green, `FAILED` red, `CANCELLED` yellow.
 
 ## Job Detail (`@job <name>`)
 
 **Implementation**: `src/views/JobDetail.tsx`
-
-**Prompt**: `@job <name>`
-
-Header with job info, followed by a table of tasks. Auto-refreshes on the SSE `changed` signal.
 
 **Job header**: name, status badge, created/started/completed times, error (if any).
 
@@ -126,34 +107,32 @@ links to `@data job <id> <object>`.
 
 **Tasks table**:
 
-| Column     | Source field    | Notes                           |
-|------------|----------------|---------------------------------|
-| Name       | `name`         | Clickable — sets prompt to `@task <id>` |
-| Status     | `status`       | Colored badge                   |
-| Entrypoint | `entrypoint`   |                                 |
-| Attempt    | `attempt`      | `attempt / max_retries`         |
-| Started    | `started_at`   | Relative time                   |
-| Duration   | computed       | `started_at` to `completed_at` or now |
+| Column     | Source field | Notes                                   |
+|------------|--------------|-----------------------------------------|
+| Name       | `name`       | Clickable — sets prompt to `@task <id>` |
+| Status     | `status`     | Colored badge                           |
+| Entrypoint | `entrypoint` |                                         |
+| Attempt    | `attempt`    | `attempt / max_retries`                 |
+| Started    | `started_at` | Relative time                           |
+| Duration   | computed     | `started_at` to `completed_at` or now   |
 
 A Table / Graph / Timings / Duration toggle switches the body. The prompt
 carries the mode — `@job <name> graph`, `timings`, `duration` — so the view
 stays shareable as a URL.
 
-One edge is drawn per dependency, so a `Group` dependency is a single edge
-on the group's container — every member waits, as the scheduler enforces
-(`successor_task_ids`). dagre cannot anchor an edge on a container, so
-`layout_edges` carries each group edge expanded onto its direct members, for
-positioning only. Node colour follows task status; image-build tasks and
+**Graph**: one edge per dependency, so a `Group` dependency is a single edge
+on the group's container — every member waits, as the scheduler enforces.
+dagre cannot anchor an edge on a container, so the response's `layout_edges`
+carry each group edge expanded onto its direct members, for positioning
+only. Node colour follows task status; image-build tasks and
 their edges are styled distinctly.
 
 Groups render as nested containers around their members: `"group"` nodes with
 a status rolled up server-side from every task beneath them (activity outranks
-outcome — see `rollup_status`) and timing spanning the earliest member start
+outcome) and timing spanning the earliest member start
 to the latest finish. Empty groups are omitted. Containers are dagre clusters
 drawn as React Flow subflows; clicking one does nothing, since only tasks have
 a detail view.
-
-Task statuses use the same color scheme as job statuses.
 
 **Timings** (`src/components/timings/`) is a Gantt view from
 `GET /jobs/{ref}/timings`: one row per task in start order, one bar per
@@ -173,11 +152,9 @@ tick every second while the job is active, so running bars grow.
 
 **Implementation**: `src/views/TaskDetail.tsx`
 
-**Prompt**: `@task <id>`
-
 **Top section**: status bar with task metadata — name, status badge, entrypoint, job name, worker ID, attempt info, timestamps, error (if any).
 
-**Main section**: log viewer filling the remaining screen with vertical scroll. Logs refresh on the same `changed` signal as every other view. Lines come from the ClickHouse `task_logs` stream for one run of the task, so they resolve regardless of which host ran the task. A retried task gets an Airflow-style "Task tries" row: one button per run, colored by how it ended; the latest is selected and polled. A failed run's log ends with its traceback on stderr (shell: `error: exit N`); the header shows only the latest error and clears on success. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by keyword (`src/lib/logTone.ts`), stderr lines carry a marker bar, and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
+**Main section**: scrolling log viewer filling the rest of the screen. Lines come from ClickHouse `task_logs` for one run of the task, so they resolve whichever host ran it. A retried task gets an Airflow-style "Task tries" row: one button per run, colored by how it ended; the latest is selected and polled. A failed run's log ends with its traceback on stderr (shell: `error: exit N`); the header shows only the latest error and clears on success. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by keyword (`src/lib/logTone.ts`), stderr lines carry a marker bar, and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
 ## Data (`@data [persistent | job <ref>] [<object>]`)
 
@@ -199,8 +176,8 @@ views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 
 **Prompt**: same forms as `@data`
 
-The scope tree plus an object picker (entries read `<name> (<scope>)`); with an object chosen, the query
-panel: a `where` expression, limit / offset paging, the kernel's field and
+The scope tree plus an object picker (entries read `<name> (<scope>)`); with
+an object chosen, the query panel: a `where` expression, limit / offset paging, the kernel's field and
 order-by pickers (fed from `GET /objects/{name}[?job=…]`), static `params:` dropdowns,
 the cell-view YAML modal, a saved-query dropdown (Save / Delete), and CSV
 download. Saved queries persist through `PUT /viewer/queries/{name}`.
@@ -208,8 +185,6 @@ download. Saved queries persist through `PUT /viewer/queries/{name}`.
 ## Dashboard (`@dashboard [name]`)
 
 **Implementation**: `src/views/Dashboard.tsx`
-
-**Prompt**: `@dashboard`, `@dashboard <name>`
 
 A dashboard picker, a Refresh button, and the dashboard's HTML in a
 sandboxed iframe with the panel results exposed as `window.queries`
@@ -221,13 +196,13 @@ CLI (`view dashboards save`).
 Prompt-driven like the rest of the UI; flows and the role matrix are in
 `docs/designs/auth.md` — SPA.
 
-| Prompt          | View                                          | Implementation                 |
-|-----------------|-----------------------------------------------|--------------------------------|
-| `@account`      | Change password, MFA setup / disable          | `src/views/Account.tsx`        |
-| `@tokens`       | List / create / revoke the caller's API tokens | `src/views/Tokens.tsx`        |
-| `@users`        | Admin user table                              | `src/views/Users.tsx`          |
-| `@invite`       | Invite a user — admin only                    | `src/views/Invite.tsx`         |
-| `@audit`        | Admin audit-log table with filters            | `src/views/Audit.tsx`          |
+| Prompt          | View                                             | Implementation                |
+|-----------------|--------------------------------------------------|-------------------------------|
+| `@account`      | Change password, MFA setup / disable             | `src/views/Account.tsx`       |
+| `@tokens`       | List / create / revoke the caller's API tokens   | `src/views/Tokens.tsx`        |
+| `@users`        | Admin user table                                 | `src/views/Users.tsx`         |
+| `@invite`       | Invite a user — admin only                       | `src/views/Invite.tsx`        |
+| `@audit`        | Admin audit-log table with filters               | `src/views/Audit.tsx`         |
 | `reset <token>` | New-password form from a reset link (no session) | `src/views/ResetPassword.tsx` |
 
 `src/components/Header.tsx` shows the signed-in username (opens `@account`)

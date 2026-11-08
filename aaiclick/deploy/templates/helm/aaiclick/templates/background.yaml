@@ -36,8 +36,8 @@ spec:
           command: ["python", "-m", "aaiclick", "background", "start"]
           env:
             - name: AAICLICK_SQL_URL
-              value: {{ .Values.env.sqlUrl | quote }}
+              value: {{ include "aaiclick.sqlUrl" . | quote }}
             - name: AAICLICK_CH_URL
-              value: {{ .Values.env.chUrl | quote }}
+              value: {{ include "aaiclick.chUrl" . | quote }}
           resources:
             {{- toYaml .Values.background.resources | nindent 12 }}

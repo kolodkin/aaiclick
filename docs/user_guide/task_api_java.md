@@ -47,5 +47,3 @@ via Jackson; `void` / `null` → no result.
 `dependsOn(tasks…)`.
 
 More: [Container Images](container_images.md) for the image layout.
-
-**Implementation**: `java/aaiclick-task-api/src/main/java/io/github/kolodkin/aaiclick/task/`

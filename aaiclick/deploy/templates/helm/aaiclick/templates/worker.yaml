@@ -46,9 +46,9 @@ spec:
           command: ["python", "-m", "aaiclick", "execution-worker", "start"]
           env:
             - name: AAICLICK_SQL_URL
-              value: {{ .Values.env.sqlUrl | quote }}
+              value: {{ include "aaiclick.sqlUrl" . | quote }}
             - name: AAICLICK_CH_URL
-              value: {{ .Values.env.chUrl | quote }}
+              value: {{ include "aaiclick.chUrl" . | quote }}
             - name: AAICLICK_RUNNER
               value: "kubernetes"
             - name: AAICLICK_K8S_NAMESPACE

@@ -1,10 +1,9 @@
 Aggregations
 ---
 
-Aggregations reduce a column to a single value — `min`, `max`, `sum`, `mean`,
-`std`. Like operators, they return an Object; call `.data()` to get the number.
-The reduction runs in ClickHouse, so it works the same on ten rows or ten
-billion.
+Aggregations — `min`, `max`, `sum`, `mean`, `std` — reduce a column to one
+value. Like operators they return an Object; `.data()` gets the number. The
+reduction runs in ClickHouse, so ten rows or ten billion work the same.
 
 # Basic statistics
 

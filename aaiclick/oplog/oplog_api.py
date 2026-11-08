@@ -1,7 +1,7 @@
 """
 aaiclick.oplog.oplog_api - Oplog recording via the lifecycle handler.
 
-See docs/user_guide/oplog.md — "OplogCollector".
+See docs/designs/oplog.md — "Recording".
 
 Module-level functions delegate to the active LifecycleHandler.
 In local mode (object_context), the handler's oplog methods are no-ops.

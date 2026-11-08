@@ -1,7 +1,7 @@
 Frontend Architecture
 ---
 
-Technical spec for the aaiclick web UI: framework, build, data layer, and
+Technical spec for the aaiclick web UI: framework, build, data layer and
 real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 
 # Tech stack
@@ -18,54 +18,41 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 
 ??? info "Why React Flow + dagre for the graph"
     [React Flow](https://reactflow.dev) renders nodes as React components, so
-    `StatusBadge` and the status CSS variables are reused directly; Cytoscape.js scales better but
-    draws to canvas, forcing the visual language to be rebuilt in its own
-    stylesheet language. React Flow ships no layout algorithm, so an engine is
-    needed either way — d3 cannot supply one (`d3-hierarchy` is trees only and
-    tasks fan in, which is why `d3-dag` exists separately).
+    `StatusBadge` and the status CSS variables are reused directly; Cytoscape.js
+    scales better but draws to canvas, forcing the visual language to be rebuilt
+    in its own stylesheet language. React Flow ships no layout algorithm, so an
+    engine is needed either way — d3 cannot supply one (`d3-hierarchy` is trees
+    only and tasks fan in, which is why `d3-dag` exists separately).
 
     The maintained dagre package is `@dagrejs/dagre`; the unscoped `dagre` has
-    not shipped since 2022.
-
-    The graph hides React Flow's corner attribution
+    not shipped since 2022. The graph hides React Flow's corner attribution
     (`proOptions.hideAttribution`); this credit replaces it.
 
-    dagre is imported only by `layout()` in `src/lib/graphLayout.ts`. Group
-    containers use its compound mode, which pads a cluster symmetrically and
-    ignores label size, so `layout()` carves header room itself by shifting
-    everything below each container's top edge down by a fixed gap.
+    dagre is imported only by `src/lib/graphLayout.ts`. Group containers use its
+    compound mode, which pads a cluster symmetrically and ignores label size, so
+    the layout carves header room itself by shifting everything below each
+    container's top edge down by a fixed gap.
 
 # Project layout
 
-`package.json` lives at the repo root alongside the Python package.
-TypeScript source lives at `src/` (Vite default).
+`package.json`, `vite.config.ts`, `tsconfig.json` and `index.html` live at the
+repo root alongside the Python package; TypeScript source lives at `src/` (Vite
+default).
 
 ```
-package.json, vite.config.ts, tsconfig.json, index.html   ← repo root
-src/                            ← SPA TypeScript source
-  main.tsx, App.tsx             ← providers + prompt router
-  prompt.ts                     ← URL ↔ route parser
-  api/                          ← typed REST client + React Query hooks
-    schema.ts                   ← generated from the OpenAPI schema (do not edit)
-    types.ts                    ← ergonomic re-exports over schema.ts
-    client.ts                   ← fetchJSON / postJSON + ApiError
-    hooks.ts                    ← useJobs, useJob, useTask, useTaskLogs, …
-  views/                        ← one file per UI mode
-  components/                   ← StatusBadge, ProgressBar, LogViewer, …
-  lib/viewer.ts                 ← scope keys, OrderBy pair ↔ kernel OrderCol, result adapters
-  queryview-core/               ← verbatim QueryView kernel, imported as @qv/core (docs/designs/viewer.md)
-  styles/globals.css            ← Tailwind import + ported mockup theme
-  styles/queryview-core.css     ← the glass-* classes the kernel's markup uses
-
-aaiclick/
-  server/
-    static/                     ← Vite build output (gitignored)
-
-node_modules/                   ← gitignored
+src/
+  main.tsx, App.tsx       ← providers + prompt router
+  prompt.ts               ← URL ↔ route parser
+  api/                    ← typed REST client, generated types, React Query hooks, SSE
+  views/                  ← one file per UI mode
+  components/             ← StatusBadge, ProgressBar, LogViewer, …
+  lib/                    ← viewer adapters, graph layout, formatting
+  queryview-core/         ← verbatim QueryView kernel, imported as @qv/core (docs/designs/viewer.md)
+  styles/                 ← Tailwind import + mockup theme; the kernel's glass-* classes
+aaiclick/server/static/   ← Vite build output (gitignored)
 ```
 
-Python tooling (`ruff`, `pyright`, `pytest`) is configured to skip `src/`
-and `node_modules/`.
+Python tooling (`ruff`, `pyright`, `pytest`) skips `src/` and `node_modules/`.
 
 # Build & dev workflow
 
@@ -76,11 +63,11 @@ and `node_modules/`.
 | `npm run check`        | `tsc --noEmit` only (CI gate)                                             |
 | `npm run format`       | Prettier over `src/**/*.{ts,tsx}`; config in `.prettierrc`                |
 | `npm run format:check` | Same files, fails on drift (CI gate)                                      |
+| `npm run gen-types`    | Regenerates `src/api/schema.ts` — see [API types](#api-types)             |
 | `npm test`             | `vitest run` — the kernel's tests, `prompt.test.ts`, `lib/viewer.test.ts` |
 
-In production, FastAPI mounts `aaiclick/server/static/` and serves
-`index.html` for unknown routes (SPA fallback). One process, one port,
-no CORS.
+In production FastAPI mounts `aaiclick/server/static/` and serves `index.html`
+for unknown routes (SPA fallback): one process, one port, no CORS.
 
 !!! warning "Build output is gitignored"
     `aaiclick/server/static/` is regenerated by `npm run build`.
@@ -89,53 +76,44 @@ no CORS.
 # Data layer
 
 REST is the sole source of truth. Hooks refetch when the server signals a
-change over `/api/v0/events` (see Live updates), and fall back to a 2 s
-`refetchInterval` only while that stream is down.
+change over `/api/v0/events` (see [Live updates](#live-updates)), and fall back
+to a 2 s `refetchInterval` only while that stream is down.
 
-- **Typed REST client**: `src/api/client.ts` — `fetchJSON` / `postJSON` + `ApiError`.
-- **TypeScript types**: `npm run gen-types` generates `src/api/schema.ts` from the server's OpenAPI
-  schema (`app.openapi()` → `openapi-typescript`); `src/api/types.ts` re-exports ergonomic names
-  (`JobView`, `TaskDetail`, `Page<T>`, …) over it. CI fails on drift, so types always match the
-  server — never hand-edit `schema.ts`.
-- **React Query hooks**: `src/api/hooks.ts` — `useJobs()`, `useJob(ref)`, `useTask(id)`,
-  `useTaskLogs(id)`, `useRegisteredJobs()`, plus mutation hooks for run / cancel / register.
-- **No global store**: the URL query param `?p=` drives which view mounts;
-  React Query owns server state; component state holds only UI ephemera.
+No global store: the `?p=` URL param drives which view mounts, React Query owns
+server state, and component state holds only UI ephemera.
 
-**Backend endpoints consumed**:
+**Backend endpoints consumed** (routers in `aaiclick/server/routers/`):
 
-| Hook                                                       | Endpoint                                             | Router                                       |
-|------------------------------------------------------------|------------------------------------------------------|----------------------------------------------|
-| `useJobs`                                                  | `GET /api/v0/jobs`                                   | `aaiclick/server/routers/jobs.py`            |
-| `useJob`                                                   | `GET /api/v0/jobs/{ref}`                             | `aaiclick/server/routers/jobs.py`            |
-| `useJobGraph`                                              | `GET /api/v0/jobs/{ref}/graph`                       | `aaiclick/server/routers/jobs.py`            |
-| `useTask`                                                  | `GET /api/v0/tasks/{id}`                             | `aaiclick/server/routers/tasks.py`           |
-| `useTaskLogs`                                              | `GET /api/v0/tasks/{id}/logs`                        | `aaiclick/server/routers/tasks.py`           |
-| `useRegisteredJobs`                                        | `GET /api/v0/registered-jobs`                        | `aaiclick/server/routers/registered_jobs.py` |
-| `useRunJob`                                                | `POST /api/v0/jobs:run`                              | `aaiclick/server/routers/jobs.py`            |
-| `useCancelJob`                                             | `POST /api/v0/jobs/{ref}/cancel`                     | `aaiclick/server/routers/jobs.py`            |
-| `useRegisterJob`                                           | `POST /api/v0/registered-jobs`                       | `aaiclick/server/routers/registered_jobs.py` |
-| `useObjects`                                               | `GET /api/v0/objects`                                | `aaiclick/server/routers/objects.py`         |
-| `useObject`                                                | `GET /api/v0/objects/{name}[?job=…]`                 | `aaiclick/server/routers/objects.py`         |
-| `useObjectRows` / `useQueryObject` / `useQueryObjectCsv`   | `POST /api/v0/viewer/query` (raw JSONCompact or CSV) | `aaiclick/server/routers/viewer.py`          |
-| `useQueryObject`                                           | `POST /api/v0/viewer/query`                          | `aaiclick/server/routers/viewer.py`          |
-| `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]`                    | `aaiclick/server/routers/viewer.py`          |
-| `useDashboards` / `useDashboard` / `useRunDashboard`       | `/api/v0/viewer/dashboards[/{name}[:run]]`           | `aaiclick/server/routers/viewer.py`          |
+| Hook                                                       | Endpoint                                             |
+|------------------------------------------------------------|------------------------------------------------------|
+| `useJobs`                                                  | `GET /api/v0/jobs`                                   |
+| `useJob`                                                   | `GET /api/v0/jobs/{ref}`                             |
+| `useJobGraph`                                              | `GET /api/v0/jobs/{ref}/graph`                       |
+| `useTask`                                                  | `GET /api/v0/tasks/{id}`                             |
+| `useTaskLogs`                                              | `GET /api/v0/tasks/{id}/logs`                        |
+| `useRegisteredJobs`                                        | `GET /api/v0/registered-jobs`                        |
+| `useRunJob`                                                | `POST /api/v0/jobs:run`                              |
+| `useCancelJob`                                             | `POST /api/v0/jobs/{ref}/cancel`                     |
+| `useRegisterJob`                                           | `POST /api/v0/registered-jobs`                       |
+| `useObjects`                                               | `GET /api/v0/objects`                                |
+| `useObject`                                                | `GET /api/v0/objects/{name}[?job=…]`                 |
+| `useObjectRows` / `useQueryObject` / `useQueryObjectCsv`   | `POST /api/v0/viewer/query` (raw JSONCompact or CSV) |
+| `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]`                    |
+| `useDashboards` / `useDashboard` / `useRunDashboard`       | `/api/v0/viewer/dashboards[/{name}[:run]]`           |
 
 ## API types
 
-Two files, created two different ways:
+Two files, made two different ways:
 
 - **`src/api/schema.ts`** — generated, never hand-edited. `npm run gen-types`
   pipes the server's schema (`python -m aaiclick.server.dump_openapi`, which
   prints `app.openapi()`) through `openapi-typescript`. It mirrors the *entire*
-  API — every path, operation, and model. Treat it like a lockfile: machine-
-  owned, not meant to be read. Defaulted fields are required in responses and
-  optional in requests — see `docs/designs/api_server.md` — "Required fields
-  on the wire".
-- **`src/api/types.ts`** — hand-written, ~30 lines. It holds no field
-  definitions; it re-exports the handful of models the SPA uses under ergonomic
-  names, borrowing their shapes from `schema.ts`:
+  API; treat it like a lockfile. Defaulted fields are required in responses and
+  optional in requests — see `docs/designs/api_server.md` — "Required fields on
+  the wire".
+- **`src/api/types.ts`** — hand-written, ~30 lines, no field definitions: it
+  re-exports the models the SPA uses under ergonomic names, borrowing their
+  shapes from `schema.ts`:
 
 ```ts
 import type { components } from "./schema";
@@ -144,12 +122,11 @@ export type JobView = S["JobView"];
 export type TaskLogs = S["TaskLogsView"];   // bridge a server name diff
 ```
 
-The real shapes have to live somewhere; generating them keeps `types.ts` in
-lock-step with the server (it used to be hand-typed and drifted silently).
-Generated types are erased at build time, so `schema.ts`'s size costs nothing
-in the bundle. The shim also absorbs what codegen can't express: the `TaskLogs
-→ TaskLogsView` rename and the `Page<T>` generic (FastAPI emits a concrete
-`Page_JobView_`, … per instantiation).
+Generating the shapes keeps `types.ts` in lock-step with the server (it used to
+be hand-typed and drifted silently). Generated types are erased at build time,
+so `schema.ts`'s size costs nothing in the bundle. The shim also absorbs what
+codegen can't express: the `TaskLogs → TaskLogsView` rename and the `Page<T>`
+generic (FastAPI emits a concrete `Page_JobView_`, … per instantiation).
 
 When the server adds a model, run `npm run gen-types` and add one re-export
 line. **CI runs `gen-types` and fails on any diff**, so the types can't fall
@@ -158,19 +135,21 @@ behind the server.
 ## Timestamps
 
 The server returns every datetime as naive UTC: ISO with no `Z` or offset.
-`new Date()` reads that as local time, so parse with `parseUtc` in
-`src/lib/format.ts`. New server datetime fields must stay naive UTC.
+`new Date()` reads that as local time, so parse with `parseUtc`
+(`src/lib/format.ts`). New server datetime fields must stay naive UTC.
 
 # Live updates
 
-One SSE connection per UI session carries a single event kind, `changed`,
-with no payload. The client invalidates its whole React Query cache on each
-frame and REST supplies authoritative state — events are signals, not data.
+**Implementation**: `aaiclick/orchestration/events/`
 
-The signal itself is not a UI concept: it means "a `jobs`, `tasks`,
-`groups` or `task_runs` row committed". The SSE stream is its first consumer, not its only
-one — see Consumers below. Layers 1-3 are shared; layers 4-7 are the
-browser's path through them.
+One SSE connection per UI session carries a single event kind, `changed`, with
+no payload. The client invalidates its React Query cache on each frame and REST
+supplies authoritative state — events are signals, not data.
+
+The signal is not a UI concept: it means "a `jobs`, `tasks`, `groups` or
+`task_runs` row committed". The SSE stream is its first consumer, not its only
+one — see [Consumers](#consumers). Layers 1-3 are shared; 4-7 are the browser's
+path.
 
 ## Layers
 
@@ -181,44 +160,44 @@ DB commit ─▶ change signal ─▶ EventBus ─▶ SSE frame ─▶ browser �
 Each hop has its own protocol and one handler that speaks it. Nothing on the
 path carries job or user data; only the final REST refetch does.
 
-| Layer            | Protocol                                                                        | Producer → consumer                                 | Handler                                                                                                                                          |
-|------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` / `task_runs` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit                                                     |
-| 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `events/postgres.py` — `PostgresTransport.before_commit` notifies; `feed` holds one `LISTEN` connection per consuming process, `state` tracks it |
-| 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each subscriber                         | `events/bus.py` — `EventBus.publish` / `close`, `EventBus.subscription()` → `Subscription.wait()`                                                |
-| 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                      | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns bus + listener per lifespan                                    |
-| 5. Browser       | `fetch` + `ReadableStream`, bearer header                                       | response body → frame parser                        | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                                    |
-| 6. Query cache   | TanStack Query invalidation                                                     | `changed` / (re)connect → every active query        | `useLiveUpdates` → `queryClient.invalidateQueries()`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected                    |
-| 7. REST refetch  | existing JSON endpoints                                                         | hooks → `/jobs`, `/jobs/{ref}`, `/tasks/{id}`, …    | `src/api/hooks.ts` (unchanged)                                                                                                                   |
+| Layer            | Protocol                                                                        | Producer → consumer                                               | Handler                                                                                      |
+|------------------|---------------------------------------------------------------------------------|-------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` / `task_runs` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit |
+| 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection                    | `events/postgres.py` — notifies before commit; one `LISTEN` connection per consuming process |
+| 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each subscriber                                       | `events/bus.py`                                                                              |
+| 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                                    | `aaiclick/server/events.py` — owns bus + listener per server lifespan                        |
+| 5. Browser       | `fetch` + `ReadableStream`, bearer header                                       | response body → frame parser                                      | `src/api/events.ts` — reconnect backoff 1 s → 30 s                                           |
+| 6. Query cache   | TanStack Query invalidation                                                     | `changed` / (re)connect → every live query                        | `src/api/events.ts`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected |
+| 7. REST refetch  | existing JSON endpoints                                                         | hooks → `/jobs`, `/jobs/{ref}`, `/tasks/{id}`, …                  | `src/api/hooks.ts` (unchanged)                                                               |
 
 ## Consumers
 
 Two subscribe to the bus in-process; anything else reads Postgres directly.
 
-| Consumer                        | Subscribes via                             | Falls back to                                   | Notes                                              |
-|---------------------------------|--------------------------------------------|-------------------------------------------------|----------------------------------------------------|
-| SSE stream (`server/events.py`) | `EventBus.subscription()` per open request | nothing — the browser polls instead, 2 s        | Runs inside the server, so it always has a fed bus |
-| `cli_wait.wait_for_job`         | same, plus it runs `feed` itself           | 10 s safety poll while listening, 1 s otherwise | Only where `cross_process` is true                 |
+| Consumer                        | Subscribes via                      | Falls back to                                   | Notes                                              |
+|---------------------------------|-------------------------------------|-------------------------------------------------|----------------------------------------------------|
+| SSE stream (`server/events.py`) | a bus subscription per open request | nothing — the browser polls instead, 2 s        | Runs inside the server, so it always has a fed bus |
+| `cli_wait.wait_for_job`         | same, plus it runs the feed itself  | 10 s safety poll while listening, 1 s otherwise | Only where `cross_process` is true                 |
 
-- **A CLI waiter owns the whole pipeline** for one wait: scopes a bus, runs
-  `feed` as a task, tears it down in a `finally`. Its subscription opens
-  *before* the first stats read — the mailbox is depth-1, so a commit landing
-  mid-fetch is queued rather than lost.
-- **`cross_process` decides whether it bothers**, and `state` cannot:
+- **A CLI waiter owns the whole pipeline** for one wait: scopes a bus, runs the
+  feed as a task, tears it down in a `finally`. Its subscription opens *before*
+  the first stats read — the mailbox is depth-1, so a commit landing mid-fetch
+  is queued rather than lost.
+- **`cross_process` decides whether it bothers**; the transport `state` cannot:
   `LocalTransport` reports `listening` unconditionally, since a direct
   in-process call can neither connect nor drop. Only `cross_process` says
   whether signals committed *elsewhere* arrive.
-- **No MCP or REST waiter, deliberately.** MCP exposes `job_stats` and REST
-  the stream itself; neither should hold a call open for a job's lifetime,
-  and agents re-trigger on their own scheduled events. `cli_wait` therefore
-  stays in the CLI layer — it is not a promotion candidate.
+- **No MCP or REST waiter, deliberately.** MCP exposes `job_stats` and REST the
+  stream itself; neither should hold a call open for a job's lifetime, and
+  agents re-trigger on their own scheduled events. `cli_wait` therefore stays
+  in the CLI layer — it is not a promotion candidate.
 - **External tools** in distributed mode can `LISTEN aaiclick_events` on
   Postgres directly, with no aaiclick code in the path.
 
 ## What the signal does not do
 
-It is an observation layer, not a scheduling one. Nothing that performs work
-is woken by it.
+It is an observation layer, not a scheduling one. Nothing that performs work is
+woken by it.
 
 | Wait                                  | Driven by                     | Why not the signal                                                                                                 |
 |---------------------------------------|-------------------------------|--------------------------------------------------------------------------------------------------------------------|
@@ -229,99 +208,96 @@ is woken by it.
 
 ## Local mode vs distributed mode
 
-Layer 2 is the only backend-specific layer. It sits behind the
-`SignalTransport` protocol (`aaiclick/orchestration/events/transport.py`):
-`before_commit` / `after_commit` on the writer side, `feed` on the server
-side, and a `state` property (`idle` / `listening` / `reconnecting`).
-The instance lives in a `ContextVar`: `live_events` scopes the one it feeds
-from, the same way `event_bus()` scopes the bus, and tests inject a
+Layer 2 is the only backend-specific layer. It sits behind a transport protocol
+(`events/transport.py`): `before_commit` / `after_commit` on the writer side,
+`feed` on the server side, and a `state` (`idle` / `listening` /
+`reconnecting`). The instance lives in a `ContextVar`: the server lifespan
+scopes the one it feeds from, the same way the bus is scoped, and tests inject a
 recording transport. An unscoped caller (a worker's commit hook) gets a
-throwaway, which is fine because the hooks need no instance state. `get_transport()` picks the implementation from `AAICLICK_SQL_URL`, so
-neither the session hooks nor `live_events` branch on the backend. Layers
-3 → 7 are identical in both modes.
+throwaway, which is fine because the hooks need no instance state. The
+implementation is picked from `AAICLICK_SQL_URL`, so neither the session hooks
+nor the server branch on the backend. Layers 3 → 7 are identical in both modes.
 
-| Aspect              | Local mode (chdb + SQLite)                                                               | Distributed mode (Postgres)                                                                                |
-|---------------------|------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| Processes           | API server, execution worker and background worker share one process (`local_runtime`)   | API hosts, execution workers and the background worker are separate processes, often separate hosts        |
-| Transport           | `LocalTransport` (`events/local.py`)                                                     | `PostgresTransport` (`events/postgres.py`)                                                                 |
-| Commit hook         | `after_commit` → `get_event_bus().publish()` — a direct call, nothing leaves the process | `before_commit` → `SELECT pg_notify('aaiclick_events', '')` inside the committing transaction              |
-| Who feeds the bus   | the committing session itself                                                            | `PostgresTransport.feed`: one autocommit `LISTEN` connection per API host, forwarding each `NOTIFY`        |
-| Writers seen        | only this process — by design, since the chdb file lock already forbids a second one     | every writer anywhere; Postgres fans each `NOTIFY` out to all listeners                                    |
-| `cross_process`     | `False` — a waiter in another process never hears these signals and must poll            | `True` — any process holding a `LISTEN` connection hears every writer                                      |
-| Failure mode        | none: no network hop                                                                     | `feed` reconnects with backoff and publishes one resync signal, since NOTIFYs sent during the gap are lost |
-| Extra configuration | none                                                                                     | none: the listener reuses `AAICLICK_SQL_URL`                                                               |
+| Aspect              | Local mode (chdb + SQLite)                                                             | Distributed mode (Postgres)                                                                                |
+|---------------------|----------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| Processes           | API server, execution worker and background worker share one process (`local_runtime`) | API hosts, execution workers and the background worker are separate processes, often separate hosts        |
+| Transport           | `LocalTransport` (`events/local.py`)                                                   | `PostgresTransport` (`events/postgres.py`)                                                                 |
+| Commit hook         | `after_commit` → publish onto the bus — a direct call, nothing leaves the process      | `before_commit` → `SELECT pg_notify('aaiclick_events', '')` inside the committing transaction              |
+| Who feeds the bus   | the committing session itself                                                          | `feed`: one autocommit `LISTEN` connection per API host, forwarding each `NOTIFY`                          |
+| Writers seen        | only this process — by design, since the chdb file lock already forbids a second one   | every writer anywhere; Postgres fans each `NOTIFY` out to all listeners                                    |
+| `cross_process`     | `False` — a waiter in another process never hears these signals and must poll          | `True` — any process holding a `LISTEN` connection hears every writer                                      |
+| Failure mode        | none: no network hop                                                                   | `feed` reconnects with backoff and publishes one resync signal, since NOTIFYs sent during the gap are lost |
+| Extra configuration | none                                                                                   | none: the listener reuses `AAICLICK_SQL_URL`                                                               |
 
-**Layer 1 — why a session hook.** Roughly twenty call sites mutate the
-watched tables, many through raw SQL. Hooking the `Session` catches ORM
-flushes (`before_flush`), Core DML like `update(Task)` and raw `text()`
-statements (`do_orm_execute`) in one place, and covers sites not written
-yet. A textual or Core write flags only when it changed rows, so an idle
-worker's empty claim (every second on Postgres) does not signal. The flag
-lives in `session.info`; `after_rollback` discards it. The
-listeners are process-global, so `register_session_hooks()` (idempotent) is
-called explicitly from the two entry points every writer passes through:
-`orch_context()` and `BackgroundWorker.start()`.
+**Layer 1 — why a session hook.** Roughly twenty call sites mutate the watched
+tables, many through raw SQL. Hooking the `Session` catches ORM flushes
+(`before_flush`), Core DML like `update(Task)` and raw `text()` statements
+(`do_orm_execute`) in one place, and covers sites not written yet. A textual or
+Core write flags only when it changed rows, so an idle worker's empty claim
+(every second on Postgres) does not signal. The flag lives in `session.info`;
+`after_rollback` discards it. The listeners are process-global, so their
+(idempotent) registration is called explicitly from the two entry points every
+writer passes through: `orch_context()` and the background worker's start.
 
 **Layer 2 — why the two commit hooks.**
 
-- **Distributed mode (Postgres)** — `before_commit` runs `pg_notify` inside
-  the transaction.
+- **Distributed (Postgres)** — `before_commit` runs `pg_notify` inside the
+  transaction:
     - `pg_notify` only queues; Postgres releases at commit. Rollback sends
-      nothing, a committed write is never left unannounced.
+      nothing, and a committed write is never left unannounced.
     - `after_commit` cannot emit SQL through the session (SQLAlchemy: session
       is in the `committed` state).
     - The workaround, a second pooled connection in `after_commit`, is about
       0.4 ms slower per write and deadlocks on a single-connection pool.
     - One `NOTIFY` reaches every `LISTEN` connection: N API hosts, N
       connections, no broker.
-- **Local mode (SQLite)** — `after_commit` publishes straight onto the
-  in-process bus. The workers run inside the server process, so a direct
-  call reaches the streams with no network hop; it must run after the
-  commit so a subscriber that refetches immediately sees the row.
+- **Local (SQLite)** — `after_commit` publishes straight onto the in-process
+  bus. The workers run inside the server process, so a direct call reaches the
+  streams with no network hop; it must run after the commit so a subscriber
+  that refetches immediately sees the row.
 
-**Layer 2 — how a dead listener is noticed.** A `LISTEN` connection carries
-no traffic, so a dead link looks exactly like an idle one and nothing raises
-on its own.
+**Layer 2 — how a dead listener is noticed.** A `LISTEN` connection carries no
+traffic, so a dead link looks exactly like an idle one and nothing raises on
+its own.
 
-- `_keep_alive` pings `SELECT 1` every `PING_INTERVAL`, purely to make a dead
+- The listener pings `SELECT 1` every `PING_INTERVAL`, purely to make a dead
   socket raise instead of hanging.
-- That raise drives `_back_off` and the one resync publish in `_connected`,
-  since `NOTIFY` has no replay.
+- That raise drives the reconnect backoff and the one resync publish on
+  reconnect, since `NOTIFY` has no replay.
 - Without it, a listener killed by a blip, an idle-connection reaper or a
-  restart keeps reporting `listening` while dropping every signal — and its
-  SSE streams stay open, so the browser never falls back to polling and
-  freezes on stale state with nothing logged.
+  restart keeps reporting `listening` while dropping every signal — and its SSE
+  streams stay open, so the browser never falls back to polling and freezes on
+  stale state with nothing logged.
 
 !!! warning "Not the SSE keepalive"
     Layer 4's `: keepalive` stops proxies reaping the browser's stream. This
     ping keeps the server's own Postgres link honest.
 
 **Layer 4 — why no `EventSource`.** The browser API cannot send the bearer
-header, so the stream is read through the same `fetch`
-chokepoint as every other request, including its silent 401 refresh.
+header, so the stream is read through the same `fetch` chokepoint as every other
+request, including its silent 401 refresh.
 
-**Fallback.** `isLiveConnected()` feeds the QueryClient default
-`refetchInterval`, which returns `false` while the stream is up and `2000`
-otherwise, so a proxy that buffers SSE degrades to polling rather than a
-frozen UI. The interval function is re-read only when a query settles, so the
-invalidation on every (re)connect does double duty: it catches up on anything
-missed *and* applies the mode switch at once rather than a tick later.
+**Fallback.** The QueryClient's default `refetchInterval` returns `false` while
+the stream is up and `2000` otherwise, so a proxy that buffers SSE degrades to
+polling rather than a frozen UI. The interval function is re-read only when a
+query settles, so the invalidation on every (re)connect does double duty: it
+catches up on anything missed *and* applies the mode switch at once rather than
+a tick later.
 
-**Showing it.** `LiveStatus` (`src/components/LiveStatus.tsx`) renders the
-refresh mode plus `updated Ns ago`. Both halves are needed: the mode makes a
-dead stream visible instead of letting it degrade silently, and the timestamp
-distinguishes a stream that is connected but delivering nothing from an idle
-one. `connected` is a plain module variable read from a non-React closure, so
-the component subscribes through `useSyncExternalStore` (`subscribeLive`). The
-age text re-renders on a timer matched to its own resolution — one render per
-visible change, and no requests.
+**Showing it.** The `LiveStatus` badge renders the refresh mode plus `updated Ns
+ago`. Both halves are needed: the mode makes a dead stream visible instead of
+letting it degrade silently, and the timestamp distinguishes a stream that is
+connected but delivering nothing from an idle one. The connection flag is a
+plain module variable read from a non-React closure, so the badge subscribes
+through `useSyncExternalStore`. The age text re-renders on a timer matched to
+its own resolution — one render per visible change, and no requests.
 
-A badge reports one query: the call site names the key, and `refreshMode`
-(`src/api/events.ts`) answers with the cadence, derived from `LIVE_KEYS` rather
-than restated — so no caller can claim a mode its query does not run in, and a
-key dropped from the stream cannot leave a badge still saying "live". Freshness
-is that query's own `dataUpdatedAt`; a borrowed one would lie. Every query the
-UI has, and each view's one badge for the query backing what is on screen:
+A badge reports one query: the call site names the key, and the badge derives
+the cadence from `LIVE_KEYS` (`src/api/events.ts`) rather than restating it — so
+no caller can claim a mode its query does not run in, and a key dropped from the
+stream cannot leave a badge still saying "live". Freshness is that query's own
+`dataUpdatedAt`; a borrowed one would lie. Every query the UI has, and each
+view's one badge for the query backing what is on screen:
 
 | View / panel                      | Query key                         | Kept current by                                 | Badge    |
 |-----------------------------------|-----------------------------------|-------------------------------------------------|----------|
@@ -334,34 +310,32 @@ UI has, and each view's one badge for the query backing what is on screen:
 | Data, Query                       | `["objects", …]`, `["object", …]` | the reader, through the badge's refresh control | `manual` |
 | Dashboard                         | `["dashboard-results", name]`     | its own Refresh button                          | —        |
 
-The first four are `LIVE_KEYS` in `src/api/events.ts` — the only keys a
-`changed` frame invalidates. While the stream is down they fall back to the 2 s
-`refetchInterval` and their badge says `polling`; the rest are unaffected by the
-stream either way and never claim otherwise. In graph view the job-detail header
-suppresses its own badge, since `JobGraph` renders one for `["job-graph"]` a
-line below.
+The first four are `LIVE_KEYS` — the only keys a `changed` frame invalidates.
+While the stream is down they fall back to the 2 s `refetchInterval` and their
+badge says `polling`; the rest are unaffected by the stream either way and never
+claim otherwise. In graph view the job-detail header suppresses its own badge,
+since the graph renders one for `["job-graph"]` a line below.
 
 **Manual is not stale-by-accident.** A `manual` badge carries a refresh
-control, because nothing else will move that data: the object views read
-what jobs have written, so they go stale with no event to say so. Putting
-the control next to the age means the reader who notices the staleness has
-the fix in the same place. It invalidates by key *prefix*, so a compound key
-(`["object", scope, name]`) refreshes along with its list.
+control, because nothing else will move that data: the object views read what
+jobs have written, so they go stale with no event to say so. The control sits
+next to the age, so the reader who notices the staleness has the fix in the same
+place. It invalidates by key *prefix*, so a compound key (`["object", scope,
+name]`) refreshes along with its list.
 
 **Task logs.** Lines reach ClickHouse from the task process on its own flush
 cadence, never through a SQL commit, so no signal marks a new line. The policy
-lives in `useTaskLogs`: poll at 2 s only while the task is running. A
-`PENDING` task cannot have produced output, so it is not fetched at
-all and the panel says so — the status change that starts it arrives over
-`/events` and switches polling on. Going terminal stops the timer and
-triggers one final fetch — this key is not in `LIVE_KEYS`, so nothing else
-would ever collect what the task wrote since the last poll. A finished task's
-logs are immutable, so its query opts out with `false` rather than
-`undefined`, which would inherit the stream's 2 s fallback. Retiring the poll
-for a pushed per-line envelope would need a change source `/events` does not
-have, and only pays off once a running task's log volume makes the 2 s fetch
-expensive. Earlier attempts of a retried task are kept in ClickHouse but not
-yet reachable from the UI — see `future.md`.
+lives in `useTaskLogs`: poll at 2 s only while the task is running. A `PENDING`
+task cannot have produced output, so it is not fetched at all and the panel
+says so — the status change that starts it arrives over `/events` and switches
+polling on. Going terminal stops the timer and triggers one final fetch — this
+key is not in `LIVE_KEYS`, so nothing else would collect what the task wrote
+since the last poll. A finished task's logs are immutable, so its query opts out
+with `false` rather than `undefined`, which would inherit the stream's 2 s
+fallback. Retiring the poll for a pushed per-line envelope would need a change
+source `/events` does not have, and only pays off once a running task's log
+volume makes the 2 s fetch expensive. Earlier attempts of a retried task are
+kept in ClickHouse but not yet reachable from the UI — see `future.md`.
 
 # Testing
 
@@ -372,27 +346,26 @@ yet reachable from the UI — see `future.md`.
 | Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
 | Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
 | Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
-| End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest                                      |
+| End-to-end (browser) | Playwright (Python) | `test_e2e/web/`, pytest                                                   |
 
 **One test body, both modes.** Tests create jobs in-process through the
-orchestration API (`helpers.submit_job`, the same pattern as `seed.py`),
-never through REST: no credentials are needed under distributed-mode auth,
-and whichever worker the mode runs executes the job. The live-update tests
-therefore run against both transports — `LocalTransport` locally, Postgres
-`LISTEN`/`NOTIFY` in the `UI e2e dist` job — and the distributed run is the
-only place the full chain `pg_notify` → SSE frame → browser DOM is exercised
-end to end.
+orchestration API (the same pattern as `seed.py`), never through REST: no
+credentials are needed under distributed-mode auth, and whichever worker the
+mode runs executes the job. The live-update tests therefore run against both
+transports — `LocalTransport` locally, Postgres `LISTEN`/`NOTIFY` in the `UI e2e
+dist` job — and the distributed run is the only place the full chain
+`pg_notify` → SSE frame → browser DOM is exercised end to end.
 
-`shot("name")` saves a numbered full-page PNG to `test-results/shots/`
-(reset per run, gitignored).
+`shot("name")` saves a numbered full-page PNG to `test-results/shots/` (reset
+per run, gitignored).
 
 **Why Playwright Python**: an e2e test exercises the browser, FastAPI,
-orchestrator, and DB together. `test_e2e/web/` shares the pytest harness
-with `test_e2e/docker/` rather than running a parallel Node runner.
+orchestrator and DB together. `test_e2e/web/` shares the pytest harness with
+`test_e2e/docker/` rather than running a parallel Node runner.
 
 !!! warning "E2E suites don't run in default `pytest`"
-    `test_e2e/<suite>/` is excluded from the default `pytest` testpaths
-    and only runs when the path is passed explicitly or in a dedicated
-    CI workflow. The `UI e2e dist` job in
-    `.github/workflows/_test-reusable.yaml` runs `test_e2e/web/` on every
-    PR against the distributed (Postgres + ClickHouse) backend.
+    `test_e2e/<suite>/` is excluded from the default `pytest` testpaths and
+    only runs when the path is passed explicitly or in a dedicated CI workflow.
+    The `UI e2e dist` job in `.github/workflows/_test-reusable.yaml` runs
+    `test_e2e/web/` on every PR against the distributed (Postgres + ClickHouse)
+    backend.
