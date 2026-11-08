@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.data.object_context.ch_client import _ch_client_var
 from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY, BackgroundWorker
-from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 
 from ...datetime_utils import utc_now
 from .conftest import (
@@ -73,8 +72,7 @@ async def run_cleanup_pass(pass_fn: Callable[[BackgroundWorker], Awaitable[None]
     Test helper that runs a temporary BackgroundWorker with a mocked
     ClickHouse client, e.g. ``run_cleanup_pass(BackgroundWorker._process_failure_cleanup)``.
     """
-    worker = BackgroundWorker(poll_interval=0)
-    worker._handler = SqliteBackgroundHandler()
+    worker = make_worker()
     ch_token = _ch_client_var.set(AsyncMock())
     try:
         await pass_fn(worker)

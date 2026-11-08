@@ -555,7 +555,8 @@ Runs inside the caller's `orch_context` and uses its SQL engine and CH client,
 owning neither: `local_runtime` starts it in the server's context, so a local
 process holds one connection pool on `local.db`; `background start` wraps the
 standalone worker in its own `orch_context`. The scheduled-run and sandbox-run
-passes nest a short `orch_context` that reuses the outer one.
+passes nest a short `orch_context` that reuses the outer resources but gives
+their `run_job` calls a fresh task registry.
 
 ## View Lifecycle
 

@@ -9,7 +9,7 @@ helper's only production caller.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -82,16 +82,10 @@ async def test_local_runtime_opens_one_sql_engine(monkeypatch):
     monkeypatch.setattr(lr, "execution_worker_main_loop", _idle_forever)
     # Its first poll would run on teardown against the shared test DB.
     monkeypatch.setattr(lr.BackgroundWorker, "_do_cleanup", AsyncMock())
-    create_async_engine = sql_context.create_async_engine
-    engines = []
-
-    def counting_create(url, **kwargs):
-        engines.append(create_async_engine(url, **kwargs))
-        return engines[-1]
-
-    monkeypatch.setattr(sql_context, "create_async_engine", counting_create)
+    spy = Mock(wraps=sql_context.create_async_engine)
+    monkeypatch.setattr(sql_context, "create_async_engine", spy)
 
     async with lr.local_runtime():
         pass
 
-    assert len(engines) == 1
+    assert spy.call_count == 1

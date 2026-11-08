@@ -16,8 +16,9 @@ traces to a job_id via table_registry (SQL). Resources without a job_id
 
 Runs inside the caller's ``orch_context`` and uses its SQL engine and CH
 client — in local mode the server's own, so one process holds one connection
-pool. Scheduled-run and sandbox-run creation enter a nested ``orch_context``
-so they take the same ``run_job`` path as a manual submission.
+pool. Scheduled-run and sandbox-run creation nest an ``orch_context`` that
+reuses the outer resources but gives each batch of ``run_job`` calls a fresh
+task registry.
 """
 
 from __future__ import annotations

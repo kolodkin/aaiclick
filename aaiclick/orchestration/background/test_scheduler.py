@@ -34,9 +34,7 @@ async def test_check_schedules_creates_job(orch_ctx):
         )
         await session.commit()
 
-    worker = BackgroundWorker()
-
-    await worker._check_schedules()
+    await BackgroundWorker()._check_schedules()
 
     # Verify Job was created
     async with get_sql_session() as session:
@@ -130,9 +128,7 @@ async def test_check_schedules_skips_unschedulable_jobs(orch_ctx, registration):
     """Disabled registered jobs and ones without a schedule should not create runs."""
     reg = await register_job(**registration)
 
-    worker = BackgroundWorker()
-
-    await worker._check_schedules()
+    await BackgroundWorker()._check_schedules()
 
     async with get_sql_session() as session:
         result = await session.execute(
