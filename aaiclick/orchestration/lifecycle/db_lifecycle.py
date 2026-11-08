@@ -1,7 +1,7 @@
 """
 aaiclick.orchestration.db_lifecycle - Database models for distributed lifecycle tracking.
 
-See docs/user_guide/oplog.md — "table_registry (SQL)".
+See docs/designs/oplog.md — "table_registry (SQL)".
 
 DBLifecycleOp, DBLifecycleMessage, and TableContextRef define the data structures
 used by OrchLifecycleHandler (in context.py) for distributed table reference counting

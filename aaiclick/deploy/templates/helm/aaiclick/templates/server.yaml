@@ -28,9 +28,9 @@ spec:
           command: ["python", "-m", "aaiclick", "migrate", "upgrade", "head"]
           env:
             - name: AAICLICK_SQL_URL
-              value: {{ .Values.env.sqlUrl | quote }}
+              value: {{ include "aaiclick.sqlUrl" . | quote }}
             - name: AAICLICK_CH_URL
-              value: {{ .Values.env.chUrl | quote }}
+              value: {{ include "aaiclick.chUrl" . | quote }}
       containers:
         - name: server
           image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
@@ -38,9 +38,9 @@ spec:
             - containerPort: 5255
           env:
             - name: AAICLICK_SQL_URL
-              value: {{ .Values.env.sqlUrl | quote }}
+              value: {{ include "aaiclick.sqlUrl" . | quote }}
             - name: AAICLICK_CH_URL
-              value: {{ .Values.env.chUrl | quote }}
+              value: {{ include "aaiclick.chUrl" . | quote }}
             - name: AAICLICK_JWT_SECRET
               value: {{ .Values.auth.jwtSecret | quote }}
             - name: AAICLICK_ADMIN_PASSWORD

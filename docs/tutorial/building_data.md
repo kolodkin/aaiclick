@@ -1,14 +1,13 @@
 Building & Combining Data
 ---
 
-Two ways to grow a dataset: `concat()` builds a new Object and leaves the
-originals untouched, while `insert()` appends rows to the existing table in
-place. `copy()` materializes an independent duplicate.
+Duplicate a dataset with `copy()`, or grow it with `concat()` (new Object) or
+`insert()` (in place).
 
 # Copy
 
-`copy()` creates a new table with the same data — a different `Object` backed
-by a different table:
+`copy()` materializes an independent duplicate — a new `Object` backed by a new
+table:
 
 ```python
 --8<-- "aaiclick/data/examples/data_manipulation.py:copy"

@@ -12,6 +12,7 @@ from .compose_scaffold import IMAGE_TAG_TOKEN
 from .k8s_scaffold import HelmChartExists, init_helm
 
 EXPECTED_TEMPLATES = {
+    "_helpers.tpl",
     "server.yaml",
     "worker.yaml",
     "background.yaml",

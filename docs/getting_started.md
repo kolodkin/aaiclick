@@ -85,8 +85,8 @@ if __name__ == "__main__":
     job_test(my_pipeline, a=5)  # runs all tasks in-process for debugging
 ```
 
-`python my_pipeline.py` runs it in-process, no server needed. The next steps run
-it on a local server instead.
+`python my_pipeline.py` runs it in-process, no server needed. The next steps use
+a local server.
 
 ## 3. Start the server
 
@@ -111,26 +111,20 @@ python -m aaiclick run-job my_pipeline --set a=5 --progress
 | double      | COMPLETED | 58ms  | 23ms  |
 ```
 
-Registering adds the job to the catalog so you can run it by name, set a
-`--schedule`, or launch it from the UI. To skip registration, pass the dotted
-path: `run-job my_pipeline.my_pipeline`.
+Registering catalogs the job so you can run it by name, set a `--schedule`, or
+launch it from the UI. To skip it, pass the dotted path:
+`run-job my_pipeline.my_pipeline`.
 
 ## 5. Open the UI
 
 Browse to <http://127.0.0.1:5255> to see the job, its task graph and logs.
 The REST API docs are at <http://127.0.0.1:5255/api/v0/docs>.
 
-# Environment Variables
-
-| Variable                | Default                                    | Description                                                              |
-|-------------------------|--------------------------------------------|--------------------------------------------------------------------------|
-| `AAICLICK_CH_URL`       | `chdb:///~/.aaiclick/chdb_data`            | ClickHouse connection — `chdb://` for embedded, `clickhouse://` for remote |
-| `AAICLICK_SQL_URL`      | `sqlite+aiosqlite:///~/.aaiclick/local.db` | Orchestration DB — SQLite (local) or PostgreSQL (distributed)            |
-
 # Next Steps
 
 - [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
+- [Deployment](user_guide/deployment.md) — local vs distributed backends, environment variables, scaffolds
 - [Object API](user_guide/object.md) — operators, aggregations, views, group by
 - [ObjectContext](user_guide/object_context.md) — lifecycle, persistent objects, data operations without orchestration
-- [Container images](user_guide/container_images.md) — published `aaiclick`, `aaiclick-docker`, `aaiclick-kubectl` images and their Kubernetes/Docker runtime requirements
+- [Container images](user_guide/container_images.md) — published images and their Docker/Kubernetes requirements
 - [Examples](examples/orchestration_basic.md) — runnable scripts for every feature

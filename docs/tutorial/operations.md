@@ -3,11 +3,11 @@ Operations
 
 Operators on Objects build new Objects. They are lazy: an expression like
 `a + b` records the operation but issues no query. ClickHouse runs the
-computation only when you call `.data()` (or another terminal method). That
-lets you chain several steps and have them execute as a single query.
+computation only when you call `.data()` (or another terminal method), so
+chained steps execute as a single query.
 
-Each operation below uses two source Objects created with `aai_id=True`, which
-gives each its own table so they can be combined.
+The sources below are created with `aai_id=True`, giving each its own table so
+they can be combined.
 
 # Arithmetic
 

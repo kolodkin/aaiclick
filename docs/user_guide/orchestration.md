@@ -3,7 +3,8 @@ Orchestration
 
 Define pipelines with `@task` and `@job`, run them locally with zero
 infrastructure, and scale the same code to distributed workers that execute
-tasks in subprocesses, Docker containers, or Kubernetes Pods.
+tasks in subprocesses, Docker containers, or Kubernetes Pods. Backends,
+worker commands and environment variables: [Deployment](deployment.md).
 
 # Quick Start
 
@@ -27,24 +28,23 @@ def pipeline(x: int, y: int):
 job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
 ```
 
-Passing one task's result as another task's argument creates the dependency
-automatically. See [Examples: Orchestration Basics](../examples/orchestration_basic.md)
-for the complete runnable script and the
-[tutorial chapter](../tutorial/orchestration.md) for a guided walk-through.
+Passing one task's result as another task's argument creates the dependency.
+Full script: [Examples: Orchestration Basics](../examples/orchestration_basic.md);
+guided walk-through: [tutorial chapter](../tutorial/orchestration.md).
 
 # Defining Tasks and Jobs
 
 ## @task
 
-Wraps an async function into a task. Parameters:
+Wraps an async function into a task.
 
 | Parameter     | Default       | Description                                            |
 |---------------|---------------|--------------------------------------------------------|
 | `name`        | function name | Task display name                                      |
 | `max_retries` | `0`           | Failed runs are retried this many times before failing |
 
-A task can return a plain value or an `Object`/`View` — data results are
-serialized automatically and handed to downstream tasks.
+A task may return a plain value or an `Object`/`View`; data results are
+serialized and handed to downstream tasks.
 
 ## @job
 
@@ -105,74 +105,9 @@ See [Examples: Orchestration Groups](../examples/orchestration_groups.md).
 ## Testing jobs
 
 `job_test(j)` (sync) and `await ajob_test(j)` (async) execute every task of a
-job in dependency order in the current process — ideal for developing and
-debugging a pipeline before handing it to workers. Both also accept the `@job`
-function itself, plus its kwargs, and create the job first:
-`job_test(pipeline, x=3, y=4)`. Both return the executed `Job`.
-
-# Deployment Modes
-
-Two deployment modes, selected by two environment variables:
-
-| Aspect                 | Local (default)                            | Distributed                                                   |
-|------------------------|--------------------------------------------|---------------------------------------------------------------|
-| **Data backend**       | chdb (embedded ClickHouse)                 | ClickHouse server                                             |
-| **SQL backend**        | SQLite via aiosqlite                       | PostgreSQL via asyncpg                                        |
-| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`            | `clickhouse://user:pass@host:8123/database`                   |
-| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database`           |
-| **Setup**              | `python -m aaiclick setup`                 | Provision servers + `python -m aaiclick migrate upgrade head` |
-
-Percent-encode reserved characters in a URL's user or password (`@` → `%40`, `:` → `%3A`, `/` → `%2F`).
-
-## Local mode
-
-Single process, no infrastructure required. `local start` runs the combined
-REST + MCP server with the background and execution workers built in —
-auto-runs setup if needed:
-
-```bash
-python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
-# Stop with Ctrl+C / SIGTERM.
-```
-
-`--host` defaults to `127.0.0.1`.
-
-!!! warning "`--host 0.0.0.0` opens the server with no auth"
-    Local mode has auth off: anyone who can reach the port is admin. Use
-    distributed mode for per-user logins. To block DNS rebinding the server
-    answers only loopback `Host` headers, so list the names browsers use in
-    `AAICLICK_ALLOWED_HOSTS` — see [DNS Rebinding](dns_rebinding.md).
-
-    ```bash
-    AAICLICK_ALLOWED_HOSTS=203.0.113.7,aaiclick.lan \
-      python -m aaiclick local start --host 0.0.0.0 --port 80
-    ```
-
-## Distributed mode
-
-Independent worker processes claim tasks from the shared PostgreSQL queue and
-execute each in a child process for isolation:
-
-```bash
-python -m aaiclick execution-worker start [--max-tasks N]
-python -m aaiclick execution-worker stop <execution_worker_id>
-python -m aaiclick execution-worker list
-python -m aaiclick background start        # scheduler + cleanup
-```
-
-!!! warning "`execution-worker start`/`background start` require distributed backends"
-    In local mode, use `local start` instead.
-
-## Worker logs
-
-Every long-running command (`local start`, `execution-worker start`,
-`background start`) writes timestamped `INFO` lines to stderr. The execution
-worker logs `executing task` before each task and `completed task` (or the
-failure state) after it, so a slow task shows up as a gap between its two
-lines. Local mode also logs `chdb session ready in Ns` when the embedded
-engine starts. The first task after a start is still slower than the rest: the
-engine's first DDL and first insert fault more of its ~540 MB library into
-memory.
+job in dependency order in the current process, for debugging before handing it
+to workers. Both also accept the `@job` function plus its kwargs and create the
+job first (`job_test(pipeline, x=3, y=4)`), and return the executed `Job`.
 
 # Running Jobs
 
@@ -238,13 +173,14 @@ python -m aaiclick job wait crawl --timeout 900
 ```
 
 Both re-print the task table whenever the status counts change and exit
-**non-zero** on failure, cancellation, or timeout (default 600s), so `set -e`
-scripts and CI stop on a failed run. Failures print the failing task's full error
+**non-zero** on failure, cancellation, or timeout (`--timeout`, default
+`AAICLICK_JOB_WAIT_TIMEOUT`, 3600 s — a timeout stops watching while the job
+keeps running), so `set -e` scripts and CI stop on a failed run. Failures print the failing task's full error
 and its `task get` command; `--json` emits the final stats as one parseable
 document, with diagnostics on stderr.
 
-Registration is not a prerequisite: the wait follows the job id the run
-returns, so a dotted entrypoint blocks and reports the same way.
+The wait follows the returned job id, so an unregistered dotted entrypoint
+blocks and reports the same way.
 
 ```bash
 python -m aaiclick run-job myapp.pipelines.crawl --set depth=3 --progress
@@ -257,7 +193,7 @@ python -m aaiclick job wait crawl
     With no `crawl` registration, `run-job crawl` falls back to the name itself
     as the entrypoint and the task fails on the worker with `Invalid entrypoint
     format: crawl. Expected 'module.function'`. `--progress` surfaces that in
-    the same command instead of leaving a failed job to discover later.
+    the same command.
 
 ## Register a job
 
@@ -348,17 +284,16 @@ clears the schedule, and `enabled` resets to true.
 
 ## Cron scheduling
 
-A registered job with a `schedule` (standard cron expression) and
-`enabled=True` is launched automatically by the background worker when its
-next run time is due. Scheduled runs use the registration's `default_kwargs`
-and defaults; manual `run_job()` calls can override them per run.
+The background worker launches a registered job with a `schedule` (standard
+cron expression) and `enabled=True` when its next run is due, using the
+registration's `default_kwargs` and defaults; manual `run_job()` calls can
+override them per run.
 
 ## Preservation modes
 
 `preservation_mode` controls whether a job's intermediate tables are kept
-after the run — see
-[ObjectContext — Preservation Modes](object_context.md#preservation-modes) for the
-two modes' semantics. The effective mode resolves through a precedence chain:
+after the run ([ObjectContext — Preservation Modes](object_context.md#preservation-modes)).
+The effective mode resolves by precedence:
 
 | Level | Source                                       | Wins when                            |
 |-------|----------------------------------------------|--------------------------------------|
@@ -383,10 +318,9 @@ Two independent dials control how a task runs:
 | **docker**               | Container via the worker's Docker daemon | Docker daemon + CLI (`AAICLICK_DOCKER_BIN`)            |
 | **kubernetes**           | Pod in a cluster                         | `kubectl` (+ Docker & `AAICLICK_REGISTRY` for `build`) |
 
-The `docker` and `kubernetes` modes require the distributed backends — a
-container or Pod reaches shared ClickHouse + PostgreSQL over the network, but
-embedded chdb and a local SQLite file cannot be shared into it. `subprocess`
-works in either deployment mode.
+`docker` and `kubernetes` require the distributed backends: a container or Pod
+reaches shared ClickHouse + PostgreSQL over the network, but embedded chdb and a
+local SQLite file cannot be shared into it. `subprocess` works in either mode.
 
 ## Image source (docker / kubernetes)
 
@@ -421,10 +355,9 @@ commit. The working tree is read only when no remote is given or registered.
 Image fields require a docker or kubernetes job, and kubernetes settings a
 kubernetes job; setting either on another runner is an error, not a no-op.
 
-Each distinct image gets one `build-image` task in the job that every task on
-that image depends on; it appears in the job graph like any other task
-(retries, logs, UI included). The worker running it picks one of two
-mutually exclusive build modes:
+Each distinct image gets one `build-image` task that every task on that image
+depends on; it is an ordinary task in the job graph (retries, logs, UI). The
+worker running it picks one of two mutually exclusive build modes:
 
 | Env var                    | Mode     | What the build task does                                                              |
 |----------------------------|----------|---------------------------------------------------------------------------------------|
@@ -464,8 +397,8 @@ run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory"
 ## Shell tasks
 
 A `shell` task runs a literal argv (`command`, a list) instead of importing a
-Python entrypoint. Success is **exit code 0**. stdout/stderr lands in the
-normal per-task log, so logs surface uniformly. The command reads its kwargs
+Python entrypoint. Success is **exit code 0**; stdout/stderr land in the normal
+per-task log. The command reads its kwargs
 from `$AAICLICK_IO_DIR/in.json` and may write a result — or child tasks — to
 `out.json`: see [Task Interface](task_interface.md).
 
@@ -486,7 +419,7 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 # Parallel Operators
 
 `map`, `foreach` and `reduce` fan a computation out over partitions of an
-`Object` (`aaiclick/orchestration/operators.py`):
+`Object`:
 
 - `map(cbk, obj, partition=5000)` — partitions the Object and creates one
   child task per partition; `cbk(row, *args, **kwargs)` is applied to each row
@@ -597,34 +530,28 @@ untouched, and a finished job is reactivated.
 
 # Task Logs
 
-Task stdout/stderr is streamed into the ClickHouse `task_logs` table while the
-task runs (flushed every ~2 s), so a long-running task can be tailed live and
-logs are readable from one place no matter which host, container, or Pod ran
-the task. Only stdout/stderr are captured: `logging` records appear only
+Task stdout/stderr streams into the ClickHouse `task_logs` table while the
+task runs (flushed every ~2 s), so a long task can be tailed live, from one
+place, whichever host, container, or Pod ran it. Only stdout/stderr are captured: `logging` records appear only
 when their handler writes to stdout/stderr (e.g. `logging.basicConfig()`
 inside the task). The UI colors lines by keyword — `error` / `exception` /
 `traceback` red, `warn` yellow, `debug` dim. Logs share
 the job's retention lifecycle. Fetch them via
 `GET /api/v0/tasks/<task_id>/logs?tail=100`.
 
-# Configuration
+## Worker logs
 
-| Variable                             | Default                               | Description                                                                                                                                                             |
-|--------------------------------------|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AAICLICK_LOCAL_ROOT`                | `~/.aaiclick`                         | Base directory for all local-mode state                                                                                                                                 |
-| `AAICLICK_SQL_URL`                   | `sqlite+aiosqlite:///{root}/local.db` | SQLAlchemy async URL for orchestration DB                                                                                                                               |
-| `AAICLICK_CH_URL`                    | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops                                                                                                                                  |
-| `AAICLICK_DEFAULT_PRESERVATION_MODE` | unset                                 | Level-3 preservation-mode default                                                                                                                                       |
-| `AAICLICK_JOB_WAIT_TIMEOUT`          | `3600`                                | Seconds `job wait` / `run-job --progress` watch a job before giving up. Bounds the wait, not the job — a timeout stops watching and exits 1 while the job keeps running |
-| `AAICLICK_DOCKER_BIN`                | `docker`                              | Docker CLI used by the docker runner                                                                                                                                    |
-| `AAICLICK_REGISTRY`                  | unset                                 | Registry build mode for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build`                            |
-| `AAICLICK_LOCAL_BUILD`               | unset                                 | Local build mode for `build` images — kept in the worker's Docker daemon, never pushed; mutually exclusive with `AAICLICK_REGISTRY`                                     |
-| `AAICLICK_BUILDKIT_ADDR`             | unset                                 | buildkitd address for `build` images (e.g. `tcp://buildkitd:1234`); required to build                                                                                   |
-| `AAICLICK_CHILD_BUILD_REMOTES`       | unset                                 | Comma-separated remote prefixes a shell/jvm task's children may build from, besides its own repo                                                                        |
+Every long-running command (`local start`, `execution-worker start`,
+`background start`) writes timestamped `INFO` lines to stderr. The execution
+worker logs `executing task` before each task and `completed task` (or the
+failure state) after it, so a slow task shows up as a gap between its two
+lines. Local mode also logs `chdb session ready in Ns` when the embedded
+engine starts. The first task after a start is still slower than the rest: the
+engine's first DDL and first insert fault more of its ~540 MB library into
+memory.
 
 # Internal Design
 
-How the scheduler, task claiming, table lifecycle, and runner plumbing work
-internally is documented in the
-[orchestration design reference](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md)
+Scheduler, task claiming, table lifecycle, and runner plumbing are covered in
+the [orchestration design reference](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md)
 (not part of this site).

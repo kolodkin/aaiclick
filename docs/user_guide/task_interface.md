@@ -3,8 +3,8 @@ Task Interface
 
 Write a task in any language: a process that reads its inputs from one JSON
 file, writes its result to another, and can spawn more tasks by describing
-them as JSON. No aaiclick library, no database access. The
-[Task API](task_api.md) packages sit on top of this contract.
+them as JSON. No aaiclick library, no database access. The typed
+[Task API](task_api.md) packages for Python and Java write these files for you.
 
 Design: [task_interface.md](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/task_interface.md).
 
@@ -120,13 +120,9 @@ upstream returned one.
 Inside a container the process sees only `command_env` and
 `AAICLICK_IO_DIR` — never aaiclick's own database credentials.
 
-# Python and Java
-
-Typed packages that write these files for you: [Task API](task_api.md).
-
 # Kubernetes requirements
 
 Shell and jvm Pods move `in.json` / `out.json` through two small helper
 containers (`busybox:1.36`; set `AAICLICK_K8S_IO_IMAGE` on an air-gapped
-cluster), so the worker's Role needs `pods/exec` in addition to the verbs in
+cluster), which is why the worker's Role needs `pods/exec` — see
 [Container Images](container_images.md#kubernetes-dispatching-worker).
