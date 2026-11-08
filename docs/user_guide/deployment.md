@@ -24,17 +24,16 @@ Compose and Kubernetes are the distributed modes:
 - Both scaffolds fill every credential with a random value. The raw templates
   spell them `change-me-...`, and the server refuses to start while any is
   still a placeholder.
-- Database passwords appear twice — on the database service and in every URL
-  that dials it — so change both together, percent-encoding `@`, `:` and `/`
-  in the URL (`p@ss` → `p%40ss`).
+- Each secret is set in one place — compose's `.env`, the chart's
+  `values.yaml` — and the connection URLs are built from it.
 - The seed admin (`admin`, or `AAICLICK_ADMIN_USERNAME`) is inserted only on
   first startup while the users table is empty; change its password later in
   the UI, not the env var.
 
 !!! warning "The signing secret is what forges tokens"
     Anyone holding `AAICLICK_JWT_SECRET` can mint an admin token for your
-    deployment. Keep the generated value out of version control — a compose
-    `env_file` kept out of git, `helm install --set-file`, or an external
+    deployment. Keep the generated value out of version control — the
+    compose `.env` kept out of git, `helm install --set-file`, or an external
     secret manager.
 
 ## Local mode
@@ -77,11 +76,13 @@ Needs [Docker Compose](https://docs.docker.com/compose/). Scaffold and start:
 python -m aaiclick compose init && docker compose up
 ```
 
-`init` writes `docker-compose.yaml` (`--path` to change) with every credential
-filled with a random value and prints the admin login once:
+`init` writes `docker-compose.yaml` (`--path` to change) and a `.env` beside
+it holding every credential as a random value, then prints the admin login
+once. The compose file only references the `.env`, so it can be committed;
+`up` without the `.env` fails naming the missing variable.
 
 ```text
-Wrote /path/to/docker-compose.yaml
+Wrote /path/to/docker-compose.yaml and its .env (credentials; keep it out of git)
 Admin login: admin / <generated> (change it after first login)
 ```
 
@@ -96,14 +97,14 @@ docker compose exec server python -m aaiclick register-job my_pipeline.my_pipeli
 docker compose exec server python -m aaiclick run-job my_pipeline --progress
 ```
 
-**Configure** (keys in `docker-compose.yaml`):
+**Configure** (secrets in `.env`, the rest in `docker-compose.yaml`):
 
 | Key                                                         | Purpose                                                                                                                   |
 |-------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| `server.AAICLICK_JWT_SECRET`                                | Token signing secret                                                                                                      |
-| `server.AAICLICK_ADMIN_PASSWORD`                            | Seed admin password                                                                                                       |
-| `postgres.POSTGRES_PASSWORD` + every `AAICLICK_SQL_URL`     | PostgreSQL password, both sides                                                                                           |
-| `clickhouse.CLICKHOUSE_PASSWORD` + every `AAICLICK_CH_URL`  | ClickHouse password, both sides                                                                                           |
+| `.env`: `AAICLICK_JWT_SECRET`                               | Token signing secret                                                                                                      |
+| `.env`: `AAICLICK_ADMIN_PASSWORD`                           | Seed admin password                                                                                                       |
+| `.env`: `AAICLICK_PG_PASSWORD`                              | PostgreSQL password, read by the service and every URL — use URL-safe characters (letters, digits, `-`, `_`)              |
+| `.env`: `AAICLICK_CH_PASSWORD`                              | ClickHouse password, same rule                                                                                            |
 | `worker.AAICLICK_REGISTRY`, `worker.AAICLICK_BUILDKIT_ADDR` | Preset to the stack's registry and rootless `buildkitd` — [Image source](orchestration.md#image-source-docker-kubernetes) |
 | `server.AAICLICK_SANDBOX`                                   | Git remote that enables the [sandbox](sandbox.md) page                                                                    |
 
@@ -116,7 +117,7 @@ Needs [Helm](https://helm.sh/docs/) and a `kubectl` context on the cluster.
 Scaffold, install, then reach the UI through a port-forward:
 
 ```bash
-python -m aaiclick k8s init && helm install aaiclick ./aaiclick-chart
+python -m aaiclick k8s init && helm install aaiclick ./aaiclick-chart --set devDependencies.enabled=true
 kubectl port-forward svc/aaiclick-server 5255:5255
 ```
 
@@ -124,9 +125,9 @@ kubectl port-forward svc/aaiclick-server 5255:5255
 `values.yaml` the same way and prints the admin login. The chart
 ships a server Deployment, a worker Deployment on the `aaiclick-kubectl`
 image with `AAICLICK_RUNNER=kubernetes`, the background worker, `buildkitd`,
-and dev PostgreSQL + ClickHouse under `devDependencies` (no volumes — point
-`env.sqlUrl` / `env.chUrl` at managed databases and set
-`devDependencies.enabled=false` for anything real).
+and dev PostgreSQL + ClickHouse under `devDependencies`, off by default and
+switched on above for evaluation. They keep no volumes: for anything real,
+leave them off and point `env.sqlUrl` / `env.chUrl` at managed databases.
 
 One worker replica drives many Pods at once, bounded by what the cluster
 schedules: it stops claiming while a job has `AAICLICK_K8S_MAX_PENDING` (10)
@@ -144,10 +145,10 @@ call returns 403 — see [Container Images](container_images.md). Run jobs with
 
 | Key                                                                               | Purpose                                                                         |
 |-----------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
-| `env.sqlUrl`, `env.chUrl`                                                         | Shared PostgreSQL and ClickHouse — point at managed databases for anything real |
+| `env.sqlUrl`, `env.chUrl`                                                         | Full URLs for managed databases; empty builds them from `devDependencies`       |
 | `env.registry`                                                                    | Registry the worker pushes `--build` images to; empty disables building         |
 | `auth.jwtSecret`, `auth.adminPassword`                                            | Token signing secret and seed admin password                                    |
-| `devDependencies.enabled` + `.postgres` / `.clickhouse`                           | In-chart dev databases without volumes; passwords must match the URLs above     |
+| `devDependencies.enabled` + `.postgres` / `.clickhouse`                           | In-chart dev databases without volumes; their passwords also feed the URLs      |
 | `images.*`, `imagePullSecrets`                                                    | Image repositories and tags, pull secret for private registries                 |
 | `worker.replicas`, `server.replicas`                                              | Availability, not throughput — one worker already drives many Pods              |
 | `rbac.create`, `serviceAccount.name`                                              | The worker's Pod permissions                                                    |
