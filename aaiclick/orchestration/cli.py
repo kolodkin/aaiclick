@@ -136,7 +136,7 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
 
 
 async def start_background(poll_interval: float = 10.0) -> None:
-    """Start a standalone background cleanup worker.
+    """Start a standalone background worker: cleanup, job scheduling and sandbox runs.
 
     Runs until SIGTERM or SIGINT is received.
 
@@ -149,19 +149,19 @@ async def start_background(poll_interval: float = 10.0) -> None:
     if is_local():
         raise RuntimeError(
             "'background start' requires distributed backends (ClickHouse server + PostgreSQL). "
-            "Use 'local start' for local mode (chdb + SQLite) — it includes background cleanup."
+            "Use 'local start' for local mode (chdb + SQLite) — it includes the background worker."
         )
     configure_logging()
     async with orch_context():
         # The context's client connects lazily; probe it so a bad AAICLICK_CH_URL fails at startup.
         await get_ch_client().command("SELECT 1")
-        cleanup = BackgroundWorker(poll_interval=poll_interval)
-        await cleanup.start()
+        background = BackgroundWorker(poll_interval=poll_interval)
+        await background.start()
         shutdown = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, shutdown.set)
-        logger.info("Background cleanup worker started (poll_interval=%ss)", poll_interval)
+        logger.info("Background worker started (poll_interval=%ss)", poll_interval)
         await shutdown.wait()
-        logger.info("Shutting down background cleanup worker...")
-        await cleanup.stop()
+        logger.info("Shutting down background worker...")
+        await background.stop()
