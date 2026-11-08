@@ -3,13 +3,10 @@ Object
 
 # Overview
 
-The `Object` class (`aaiclick/data/object/object.py`) wraps a ClickHouse table. Each instance corresponds to one table; operator overloading creates new tables with results.
-
-**Key Features:**
-- Operator overloading for arithmetic, comparison, and bitwise operations
-- Immutable structure — no in-place schema changes; `insert()` appends data but never mutates structure
-- Support for scalars, arrays, and dictionaries
-- Element-wise operations on arrays
+An `Object` wraps one ClickHouse table holding a scalar, an array, or a dict.
+Arithmetic, comparison, and bitwise operators work element-wise and write results
+to new tables. Structure is immutable: `insert()` appends data but never changes
+the schema.
 
 See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment modes, and
 [Ingest](ingest.md) for loading, combining and joining data.
@@ -67,7 +64,19 @@ script: [Examples: Basic Operators](../examples/basic_operators.md).
 
 ## Arithmetic Type Promotion
 
-Result types match ClickHouse's native promotion rules. See `_result_value_type()` in `aaiclick/data/object/schema_compute.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
+Result types match ClickHouse's native promotion rules, verified against `SELECT toTypeName()`.
+
+??? note "Arithmetic Operators"
+
+    | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
+    |-----------------|----------------|-----------------------|-----------------|-------------------|
+    | `+`             | Addition       | `+`                   | `__add__`       | `__radd__`        |
+    | `-`             | Subtraction    | `-`                   | `__sub__`       | `__rsub__`        |
+    | `*`             | Multiplication | `*`                   | `__mul__`       | `__rmul__`        |
+    | `/`             | Division       | `/`                   | `__truediv__`   | `__rtruediv__`    |
+    | `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | `__rfloordiv__`   |
+    | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
+    | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
 ??? note "Comparison Operators"
 
@@ -94,36 +103,36 @@ Result types match ClickHouse's native promotion rules. See `_result_value_type(
 
 Reduce an array to a scalar Object.
 
-| Method         | ClickHouse Function | Notes                |
-|----------------|---------------------|----------------------|
-| `.min()`       | `min()`             |                      |
-| `.max()`       | `max()`             |                      |
-| `.sum()`       | `sum()`             |                      |
-| `.mean()`      | `avg()`             |                      |
-| `.std()`       | `stddevPop()`       |                      |
-| `.var()`       | `varPop()`          |                      |
-| `.count()`     | `count()`           |                      |
-| `.quantile(q)` | `quantile(q)()`     | Approximate          |
-| `.count_if(cond)` | `countIf()`      | Scalar (str) or dict Object (dict of conditions) |
+| Method            | ClickHouse Function | Notes                                            |
+|-------------------|---------------------|--------------------------------------------------|
+| `.min()`          | `min()`             |                                                  |
+| `.max()`          | `max()`             |                                                  |
+| `.sum()`          | `sum()`             |                                                  |
+| `.mean()`         | `avg()`             |                                                  |
+| `.std()`          | `stddevPop()`       |                                                  |
+| `.var()`          | `varPop()`          |                                                  |
+| `.count()`        | `count()`           |                                                  |
+| `.quantile(q)`    | `quantile(q)()`     | Approximate                                      |
+| `.count_if(cond)` | `countIf()`         | Scalar (str) or dict Object (dict of conditions) |
 
 ## Unique
 
-| Method       | ClickHouse Implementation                         | Notes                          |
-|--------------|---------------------------------------------------|--------------------------------|
-| `.unique()`  | `GROUP BY`                                        | Order not guaranteed           |
-| `.nunique()` | `SELECT count() FROM (... GROUP BY value)`        | Fused count distinct           |
+| Method       | ClickHouse Implementation                  | Notes                |
+|--------------|--------------------------------------------|----------------------|
+| `.unique()`  | `GROUP BY`                                 | Order not guaranteed |
+| `.nunique()` | `SELECT count() FROM (... GROUP BY value)` | Fused count distinct |
 
 ## String/Regex Operators
 
 Pattern matching on String columns. Each method takes a `str` pattern and returns a [`LazyOperator`](#lazy-operator-results-a--b-and-asum-are-plans-not-tables) — chainable, and nameable with `.as_(name, scope=...)`.
 
-| Method              | ClickHouse Function          | Result Type | Description                        |
-|---------------------|------------------------------|-------------|------------------------------------|
-| `.match(p)`         | `match(val, p)`              | UInt8       | RE2 regex match (0 or 1)          |
-| `.like(p)`          | `val LIKE p`                 | UInt8       | SQL LIKE (`%`, `_` wildcards)     |
-| `.ilike(p)`         | `val ILIKE p`                | UInt8       | Case-insensitive LIKE             |
-| `.extract(p)`       | `extract(val, p)`            | String      | Extract first capture group        |
-| `.replace(p, r)`    | `replaceRegexpAll(val, p, r)`| String      | Replace all regex matches          |
+| Method           | ClickHouse Function           | Result Type | Description                   |
+|------------------|-------------------------------|-------------|-------------------------------|
+| `.match(p)`      | `match(val, p)`               | UInt8       | RE2 regex match (0 or 1)      |
+| `.like(p)`       | `val LIKE p`                  | UInt8       | SQL LIKE (`%`, `_` wildcards) |
+| `.ilike(p)`      | `val ILIKE p`                 | UInt8       | Case-insensitive LIKE         |
+| `.extract(p)`    | `extract(val, p)`             | String      | Extract first capture group   |
+| `.replace(p, r)` | `replaceRegexpAll(val, p, r)` | String      | Replace all regex matches     |
 
 ```python
 obj = await create_object_from_value(["apple", "banana", "avocado"])
@@ -133,19 +142,13 @@ hits = await obj.like("a%").as_("hits")                        # t_hits_<id>
 count = await obj.extract("(an)").match("^an$").sum().data()   # 1 — chain stays lazy
 ```
 
-**Note**: ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
-
-**Tests**: `aaiclick/data/object/test_string_regex.py`.
+ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
 
 ## Membership Operator: `isin()`
 
-UInt8 membership mask via ClickHouse `IN` subquery — all data stays in the database.
-
-| Method       | ClickHouse Equivalent                          | Result Type |
-|--------------|-------------------------------------------------|-------------|
-| `.isin(other)` | `value IN (SELECT value FROM other_table)`    | UInt8       |
-
-Returns a `LazyOperator`. Accepts an `Object` or a Python `list`.
+`.isin(other)` returns a `LazyOperator` UInt8 mask computed as
+`value IN (SELECT value FROM other_table)` — all data stays in the database.
+`other` is an `Object` or a Python `list`.
 
 ```python
 obj = await create_object_from_value(["a", "b", "c", "d"])
@@ -160,13 +163,11 @@ obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2,
 mask = await obj["category"].isin(allowed)
 ```
 
-A Python list is inlined as literals (`arrayJoin([...])`) rather than loaded into a table; lists longer than `LITERAL_LIST_MAX` (`aaiclick/data/object/literals.py`) fall back to a table.
-
-**Tests**: `aaiclick/data/object/test_isin.py`. For runnable examples, see `examples/isin.py`.
+A Python list is inlined as literals (`arrayJoin([...])`) rather than loaded into a table; lists longer than `LITERAL_LIST_MAX` (1000) fall back to a table. Runnable examples: `examples/isin.py`.
 
 ## Unary Transform Operators
 
-Apply a ClickHouse function element-wise to the value column, returning a new Object. Object-level equivalents of [Domain Helpers](#domain-helpers) which operate on Views.
+Apply a ClickHouse function element-wise to the value column, returning a new Object — the Object-level counterparts of the View [Domain Helpers](#domain-helpers).
 
 | Method          | ClickHouse Function | Result Type | Category  |
 |-----------------|---------------------|-------------|-----------|
@@ -181,36 +182,32 @@ Apply a ClickHouse function element-wise to the value column, returning a new Ob
 | `.log2()`       | `log2()`            | Float64     | Math      |
 | `.sqrt()`       | `sqrt()`            | Float64     | Math      |
 
-Results are full Objects — chainable with any operator (e.g., `await obj.year().unique()`).
-
-**Tests**: `aaiclick/data/object/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
+Results chain with any operator (e.g., `await obj.year().unique()`). Runnable examples: `examples/transforms.py`.
 
 ## Group By Operations
 
-Pandas-style two-step: `obj.group_by('key').sum('col')`. See `GroupByQuery` class in `aaiclick/data/object/object.py`.
+Pandas-style two-step: `obj.group_by('key')` returns a `GroupByQuery`, then `.sum('col')` etc.
 
-| Method             | Description                  | Result Column Type                     |
-|--------------------|------------------------------|----------------------------------------|
-| `.sum(col)`        | Sum per group                | Preserves int types, Float64 for float |
-| `.mean(col)`       | Average per group            | Float64                                |
-| `.min(col)`        | Minimum per group            | Preserves source type                  |
-| `.max(col)`        | Maximum per group            | Preserves source type                  |
-| `.count()`         | Count rows per group         | UInt64 (column named `_count`)         |
-| `.std(col)`        | Standard deviation per group | Float64                                |
-| `.var(col)`        | Variance per group           | Float64                                |
-| `.any(col)`        | Arbitrary non-NULL per group | Preserves source type                  |
-| `.group_array_distinct(col)` | Distinct values → Array per group | `Array(T)` where T is source type |
-| `.agg({col: op})`  | Multiple aggregations        | Per-function type rules                |
+| Method                       | Description                       | Result Column Type                     |
+|------------------------------|-----------------------------------|----------------------------------------|
+| `.sum(col)`                  | Sum per group                     | Preserves int types, Float64 for float |
+| `.mean(col)`                 | Average per group                 | Float64                                |
+| `.min(col)`                  | Minimum per group                 | Preserves source type                  |
+| `.max(col)`                  | Maximum per group                 | Preserves source type                  |
+| `.count()`                   | Count rows per group              | UInt64 (column named `_count`)         |
+| `.std(col)`                  | Standard deviation per group      | Float64                                |
+| `.var(col)`                  | Variance per group                | Float64                                |
+| `.any(col)`                  | Arbitrary non-NULL per group      | Preserves source type                  |
+| `.group_array_distinct(col)` | Distinct values → Array per group | `Array(T)` where T is source type      |
+| `.agg({col: op})`            | Multiple aggregations             | Per-function type rules                |
 
-**`agg()` spec formats** — the dict value (per source column) accepts three forms:
+**`agg()` spec formats** — each dict value accepts three forms, mixable in one call:
 
 | Form                       | Example                                                              | Behavior                              |
 |----------------------------|----------------------------------------------------------------------|---------------------------------------|
 | `str`                      | `{'amount': GB_SUM}`                                                 | Alias = column name (backward compat) |
 | `Agg(op, alias)`           | `{'amount': Agg(GB_SUM, 'total')}`                                   | Single op with explicit alias         |
 | `[Agg(op, alias), ...]`    | `{'amount': [Agg(GB_SUM, 'amt_sum'), Agg(GB_MEAN, 'amt_avg')]}`      | Multiple ops on the same column       |
-
-All three forms can be mixed in a single `agg()` call.
 
 Multiple group keys, View support, and chained `.having()`/`.or_having()` for post-aggregation filtering (same AND/OR pattern as WHERE). `.or_having()` requires a prior `.having()`. Result is a normal dict Object. See `examples/group_by.py`.
 
@@ -222,7 +219,7 @@ For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_
 
 # Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
 
-Every value-column operator returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
+Every value-column operator returns a `LazyOperator` — an `Object` subclass that captures the plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. `CREATE TABLE` + `INSERT INTO ... SELECT` run when it is awaited.
 
 | Family            | Methods                                                                                                                     |
 |-------------------|-----------------------------------------------------------------------------------------------------------------------------|
@@ -255,27 +252,24 @@ daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_dai
 yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
 ```
 
-`await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining further operators (`(a + b) + c`, `obj.abs().sum()`) doesn't require an explicit `await` of the intermediate — the lazy passes through.
+`await` is only needed to get the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining operators (`(a + b) + c`, `obj.abs().sum()`) needs no `await` of the intermediate.
 
 ## `.as_(name, scope=...)`
 
 Names the result table and chooses its lifetime. Returns a new `LazyOperator` (the receiver is unchanged):
 
-| `scope` | Table name | Lifetime |
-|---|---|---|
-| `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context |
-| `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
-| `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
+| `scope`                  | Table name             | Lifetime                                                               |
+|--------------------------|------------------------|------------------------------------------------------------------------|
+| `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context                                                 |
+| `"job"`                  | `j_<job_id>_<name>`    | Lives until the active orch job expires                                |
+| `"global"`               | `p_<name>`             | Persists; remove with `delete_persistent_object(name, scope="global")` |
 
 ## `name` / `scope` on always-materializing ops
 
 `.copy()`, `.concat()`, `.join()`, and every `GroupByQuery` aggregation
 (`.sum()`, `.mean()`, `.min()`, `.max()`, `.count()`, `.std()`, `.var()`,
-`.any()`, `.group_array_distinct()`, `.agg()`) accept the same `name` /
-`scope` kwargs with identical semantics to `.as_()` above. These ops
-always create a new table — no lazy chain to elide — so the kwargs land
-directly on the existing async methods instead of going through
-`LazyOperator`:
+`.any()`, `.group_array_distinct()`, `.agg()`) always create a new table, so
+they take the same `name` / `scope` kwargs as `.as_()` directly:
 
 ```python
 enriched = await a.join(b, on="user_id", name="enriched", scope="job")
@@ -285,9 +279,8 @@ totals = await orders.group_by("category").sum("amount", name="totals", scope="g
 # → p_totals
 ```
 
-`LazyOperator`'s overrides forward `name` / `scope` to the materialized
-delegate, so `(a + b).copy(name=..., scope=...)` and
-`(a + b).join(b, name=..., scope=...)` work as expected.
+On a `LazyOperator` they forward to the materialized delegate, so
+`(a + b).copy(name=..., scope=...)` and `(a + b).join(b, name=..., scope=...)` work.
 
 ## Invariants
 
@@ -305,7 +298,7 @@ delegate, so `(a + b).copy(name=..., scope=...)` and
 LazyOperator(op="+", lhs=LazyOperator(op="+", lhs=a, rhs=b), rhs=c)
 ```
 
-When awaited, each `LazyOperator` node materializes into its own table — no fusion. `await ((a + b) + c).as_("outer")` writes **two** tables: an unnamed temp for the inner `a + b` and a `t_outer_<id>` for the outer. A LazyOperator that's been materialized once is reused if it appears in multiple expressions.
+Each awaited node materializes into its own table — no fusion. `await ((a + b) + c).as_("outer")` writes **two** tables: an unnamed temp for the inner `a + b` and a `t_outer_<id>` for the outer. A LazyOperator that's been materialized once is reused if it appears in multiple expressions.
 
 Aggregations and unary transforms stack the same way. `obj.abs().sum()` builds:
 
@@ -313,23 +306,11 @@ Aggregations and unary transforms stack the same way. `obj.abs().sum()` builds:
 LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 ```
 
-`await (a + b).sum().as_("total", scope="job")` writes one unnamed temp for the inner `+` and `j_<job_id>_total` for the outer `sum`. Aggregations always materialize their input first — there is no SQL-level fusion across the chain.
+`await (a + b).sum().as_("total", scope="job")` writes one unnamed temp for the inner `+` and `j_<job_id>_total` for the outer `sum` — aggregations always materialize their input first.
 
 ## Avoid: concurrent await of the same instance
 
 `asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
-
-??? note "Arithmetic Operators"
-
-    | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
-    |-----------------|----------------|-----------------------|-----------------|-------------------|
-    | `+`             | Addition       | `+`                   | `__add__`       | `__radd__`        |
-    | `-`             | Subtraction    | `-`                   | `__sub__`       | `__rsub__`        |
-    | `*`             | Multiplication | `*`                   | `__mul__`       | `__rmul__`        |
-    | `/`             | Division       | `/`                   | `__truediv__`   | `__rtruediv__`    |
-    | `//`            | Floor Division | `intDiv()`            | `__floordiv__`  | `__rfloordiv__`   |
-    | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
-    | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
 # Data Retrieval
 
@@ -344,19 +325,13 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
 | `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
 
-**Tests**: `aaiclick/data/object/test_data.py`
-
 ## markdown()
 
 Returns data as a plain-text markdown table with auto-sized columns. Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
 
-**Tests**: `aaiclick/data/object/test_markdown.py`
-
 ## execute()
 
-Runs the query this Object/View describes, discards every row server-side (`FORMAT Null`), and returns a `QueryStats`. Forces full compute without paying for transport — benchmark a View, warm caches, or assert a query *runs* without checking its output.
-
-Rebuilds the same SELECT `.data()` would issue (honoring `where`, `order_by`, `limit`, `offset`, computed columns, renames, field selection), so a View's `execute()` measures its projection. Per-call `order_by` / `limit` / `offset` mirror `.data()`. No safety row cap applies — the whole pipeline runs unless you pass `limit`.
+Runs the same SELECT `.data()` would issue (honoring `where`, `order_by`, `limit`, `offset`, computed columns, renames, field selection), discards every row server-side (`FORMAT Null`), and returns a `QueryStats`. Use it to benchmark a View, warm caches, or assert a query *runs* without paying for transport. Per-call `order_by` / `limit` / `offset` mirror `.data()`. No safety row cap applies — the whole pipeline runs unless you pass `limit`.
 
 ```python
 view = obj.view(where="score > 10").rename({"score": "s"})
@@ -377,11 +352,9 @@ print(stats.elapsed_s)   # server-side wall time
 | `written_rows`  | rows written by an INSERT                | summary                   | `None`              |
 | `written_bytes` | bytes written by an INSERT               | summary                   | `None`              |
 
-**Tests**: `aaiclick/data/object/test_execute_stats.py`
-
 ## stats()
 
-`async`, returns `QueryStats | None`. Populated on objects **born from a server-side query**; `None` everywhere else. Async (not a property) because awaiting it on an un-awaited `LazyOperator` first materializes it — same terminal semantics as `.data()`.
+Returns `QueryStats | None`: populated on objects **born from a server-side query**, `None` otherwise. It is async (not a property) because on an un-awaited `LazyOperator` it first materializes it, like `.data()`.
 
 | Object origin                                                  | `await .stats()`               |
 |----------------------------------------------------------------|--------------------------------|
@@ -399,10 +372,10 @@ print(stats.read_rows)      # how many it scanned to produce them
 
 # Export
 
-Export data to a local file. The format is picked from the file extension
-and the data streams directly from ClickHouse — no Python round-trip, so
-multi-million-row exports stay memory-bounded. View constraints (`where`,
-`limit`, `order_by`) are honored. Returns the absolute path written.
+Export data to a local file, in the format its extension names. Data streams
+straight from ClickHouse with no Python round-trip, so multi-million-row exports
+stay memory-bounded. View constraints (`where`, `limit`, `order_by`) are
+honored. Returns the absolute path written.
 
 ```python
 await obj.export("/tmp/data.csv")
@@ -437,13 +410,11 @@ await obj.export("/tmp/data.json.xz")
 
 ## Backend behavior
 
-- **chdb (embedded):** `INSERT INTO FUNCTION file('path', fmt)` — the
-  embedded engine streams directly to disk and picks the compression codec
-  from the path suffix.
-- **clickhouse-connect (remote):** `raw_stream(query, fmt=fmt)` returns
-  uncompressed bytes, which are copied to the local file in 64 KB chunks
-  (on a worker thread) and wrapped through `gzip` / `lzma` if the path
-  asks for it. `INSERT INTO FUNCTION file()` cannot be used here because it
+- **chdb (embedded):** `INSERT INTO FUNCTION file('path', fmt)` streams
+  straight to disk, with the codec picked from the path suffix.
+- **clickhouse-connect (remote):** `raw_stream(query, fmt=fmt)` bytes are
+  copied to the local file in 64 KB chunks on a worker thread, through
+  `gzip` / `lzma` if the path asks for it. `INSERT INTO FUNCTION file()`
   would write to the *server's* `user_files_path`, not the client.
 
 # Views
@@ -459,8 +430,6 @@ Read-only filtered projection of an Object — same table, no data copy. Created
 !!! warning "`or_where()` requires a prior `where()`"
     Calling `or_where()` without a preceding `where()` raises `ValueError`.
     Same applies to `or_having()` on `GroupByQuery`.
-
-**Tests**: `aaiclick/data/object/test_where.py`
 
 ## Column Selection
 
@@ -488,13 +457,15 @@ await obj.with_columns(s)[["x", "y"]].data()  # {'x': [...], 'y': [...]}
 await obj[["x", "y"]].with_columns(s).data()  # {'x': [...], 'y': [...], 's': [...]}
 ```
 
-**Tests**: `aaiclick/data/object/test_column_selection.py`
-
 ## Computed Column Expansion: `with_columns()`
 
-`with_columns()` adds derived columns (SQL expressions) as a lightweight View — no new table, no data copy.
+`with_columns({name: Computed(type, expression)})` adds SQL-expression columns as a View — no new table, no data copy. `Computed` comes from `aaiclick.data.models`.
 
-Synchronous (no `await`). Works on both Object and View; preserves existing constraints. Uses `Computed(type, expression)` from `aaiclick.data.models`.
+- Synchronous (no `await`). Works on Objects and Views; preserves existing constraints.
+- Always returns a dict-like View: array sources promote to dict; scalar sources raise `ValueError`.
+- Adds, never replaces — a column name collision raises `ValueError`.
+- Expressions pass verbatim to ClickHouse. Basic validation rejects semicolons and `SELECT`; type mismatches surface from ClickHouse at query time.
+- Chains with every View operation: `group_by()`, `where()`, column selection, further (additive) `with_columns()`, and operators on selected columns.
 
 ## `literal()` Helper
 
@@ -513,24 +484,6 @@ obj.with_columns({"weight": literal(1.0, "Float64")})
 ```
 
 Supported types: `str` (quoted), `int`/`float` (bare), `bool` (`true`/`false`).
-
-**Tests**: `aaiclick/data/object/test_with_columns.py`
-
-## Explode
-
-Flattens Array column(s) into individual rows (scalar columns duplicated). Returns a **View** — downstream operators fuse into a single query. Exploded columns change from `Array(T)` to `T`. See `aaiclick/data/examples/explode.py`.
-
-**Tests**: `aaiclick/data/object/test_explode.py`
-
-## Chaining
-
-`with_columns()` returns a View, so all View operations work: `group_by()`, `where()`, column selection, further `with_columns()` calls (additive), and operators on selected columns.
-
-??? note "with_columns() internals"
-
-    Result is always a View with dict-like schema. Array sources promote to dict; scalar sources raise `ValueError`. Column name collisions raise `ValueError` — `with_columns()` adds, never replaces.
-
-    SQL expressions are passed verbatim to ClickHouse. Basic validation rejects semicolons and `SELECT`. Type mismatches are caught by ClickHouse at query time.
 
 ## Domain Helpers
 
@@ -566,9 +519,6 @@ or an expression.
     ClickHouse rejects a bare numeric column with `Illegal type Int64 of argument (condition)`.
     Write `is_member = 1`, not `is_member`.
 
-`with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
-
-**Tests**: `aaiclick/data/object/test_domain_helpers.py`
 
 ## Column Renaming: `rename()`
 
@@ -590,7 +540,9 @@ await consolidated.insert(kev_view)
 
 Chainable with `with_columns()`, `where()`, and other View operations. New names must not collide with non-renamed columns.
 
-**Tests**: `aaiclick/data/object/test_rename.py`
+## Explode
+
+`.explode(*columns, left=False)` flattens Array column(s) into rows, duplicating scalar columns; exploded columns change from `Array(T)` to `T`. Returns a **View**, so downstream operators fuse into a single query. See `aaiclick/data/examples/explode.py`.
 
 # The copy() Method
 
@@ -609,17 +561,15 @@ sorted_copy = await obj.view(order_by="amount DESC").copy()
 await sorted_copy.data()  # returns rows sorted by amount DESC
 ```
 
-The result carries the `INSERT … SELECT` stats — `result = await obj.copy()` then `(await result.stats()).read_rows` tells you how much it scanned. See [stats()](#stats).
+The result carries the `INSERT … SELECT` [stats()](#stats).
 
-`Schema` = "what a table is" and `ViewSchema` = "how to read it", and the registry can never see the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](object_context.md#schema-storage).
+`Schema` = "what a table is" and `ViewSchema` = "how to read it"; the registry never sees the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](object_context.md#schema-storage).
 
 !!! warning "`copy()` is not serialized across workers"
     Unlike `insert()` and `concat()`, `copy()` does not take a per-table
     advisory lock. Two concurrent `copy()` calls into the same named
     destination will interleave their rows non-deterministically. Structure
     your pipeline so a named destination has a single writer.
-
-**Tests**: `aaiclick/data/object/test_copy_parametrized.py`
 
 # Operation Provenance (Oplog)
 

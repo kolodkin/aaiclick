@@ -2,8 +2,8 @@ Views & Filters
 ---
 
 A `View` is a read-only window over a table's data, defined by query
-constraints — `where`, `order_by`, `limit`, `offset`. A view copies nothing;
-it just records the constraints and applies them when you read it.
+constraints — `where`, `order_by`, `limit`, `offset`. It copies nothing; the
+constraints apply when you read it.
 
 # Filter with `where`
 

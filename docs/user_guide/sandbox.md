@@ -63,8 +63,8 @@ def hello_job():
 2. The background worker claims the row (`running`) and submits one job per
    `@job`, named `sb_<ts>_<name>.<function>` and pinned to that commit. The
    row turns `submitted` with links to the jobs, or `failed` with the message.
-3. The build task clones the commit onto the default Dockerfile (Container
-   Images), so the file imports as `YYYYMMDD.sb_<ts>_<name>`. A digits-only
+3. The build task clones the commit onto the default Dockerfile
+   ([Runner base](container_images.md#runner-base)), so the file imports as `YYYYMMDD.sb_<ts>_<name>`. A digits-only
    directory is fine: entrypoints resolve through importlib, not an `import`
    statement.
 
@@ -73,6 +73,7 @@ Click a submission's name to read its source.
 # Limits
 
 - A `requirements.txt` (or `pyproject.toml` / `uv.lock`) checked into the
-  sandbox repo is installed into the default image — see Container Images
-  "Runner base". Without one, only `aaiclick[all]` is importable.
+  sandbox repo is installed into the default image — see
+  [Runner base](container_images.md#runner-base).
+  Without one, only `aaiclick[all]` is importable.
 - A submission runs once; submit again to re-run.

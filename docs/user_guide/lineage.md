@@ -1,8 +1,9 @@
 Lineage via MCP
 ---
 
-The MCP server exposes the operation log and a read-only SQL sandbox over it, so your coding agent — Claude Code, Codex, any MCP client —
-can answer *how did this value get here?* against the live tables.
+The MCP server exposes the operation log and a read-only SQL sandbox over it, so
+your coding agent — Claude Code, Codex, any MCP client — can answer *how did
+this value get here?* against the live tables.
 
 # What is recorded
 

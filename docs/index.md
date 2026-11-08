@@ -1,7 +1,7 @@
 aaiclick
 ---
 
-A data orchestration framework built to make distributed computing easy, with five principles in mind:
+A data orchestration framework that makes distributed computing easy, built on five principles:
 
 1. **Simplicity** — Plain Python, no SQL. Decorate functions into tasks and jobs, run with zero setup on your laptop, scale out unchanged.
 2. **Dynamic Graphs** — Tasks spawn tasks. The pipeline shapes itself to the data while it runs instead of being declared up front.
@@ -64,8 +64,8 @@ python -m aaiclick setup
 
 # Without Orchestration
 
-The Object API also runs standalone, without tasks or jobs — wrap the code in
-`object_context()`. See [ObjectContext](user_guide/object_context.md).
+The Object API also runs standalone — wrap the code in `object_context()`. See
+[ObjectContext](user_guide/object_context.md).
 
 ```python
 import asyncio

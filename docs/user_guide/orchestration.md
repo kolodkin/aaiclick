@@ -28,24 +28,23 @@ def pipeline(x: int, y: int):
 job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
 ```
 
-Passing one task's result as another task's argument creates the dependency
-automatically. See [Examples: Orchestration Basics](../examples/orchestration_basic.md)
-for the complete runnable script and the
-[tutorial chapter](../tutorial/orchestration.md) for a guided walk-through.
+Passing one task's result as another task's argument creates the dependency.
+Full script: [Examples: Orchestration Basics](../examples/orchestration_basic.md);
+guided walk-through: [tutorial chapter](../tutorial/orchestration.md).
 
 # Defining Tasks and Jobs
 
 ## @task
 
-Wraps an async function into a task. Parameters:
+Wraps an async function into a task.
 
 | Parameter     | Default       | Description                                            |
 |---------------|---------------|--------------------------------------------------------|
 | `name`        | function name | Task display name                                      |
 | `max_retries` | `0`           | Failed runs are retried this many times before failing |
 
-A task can return a plain value or an `Object`/`View` — data results are
-serialized automatically and handed to downstream tasks.
+A task may return a plain value or an `Object`/`View`; data results are
+serialized and handed to downstream tasks.
 
 ## @job
 
@@ -106,10 +105,9 @@ See [Examples: Orchestration Groups](../examples/orchestration_groups.md).
 ## Testing jobs
 
 `job_test(j)` (sync) and `await ajob_test(j)` (async) execute every task of a
-job in dependency order in the current process — ideal for developing and
-debugging a pipeline before handing it to workers. Both also accept the `@job`
-function itself, plus its kwargs, and create the job first:
-`job_test(pipeline, x=3, y=4)`. Both return the executed `Job`.
+job in dependency order in the current process, for debugging before handing it
+to workers. Both also accept the `@job` function plus its kwargs and create the
+job first (`job_test(pipeline, x=3, y=4)`), and return the executed `Job`.
 
 # Running Jobs
 
@@ -175,14 +173,14 @@ python -m aaiclick job wait crawl --timeout 900
 ```
 
 Both re-print the task table whenever the status counts change and exit
-**non-zero** on failure, cancellation, or timeout (`--timeout`, defaulting to `AAICLICK_JOB_WAIT_TIMEOUT`,
-3600 s — a timeout stops watching while the job keeps running), so `set -e`
-scripts and CI stop on a failed run. Failures print the failing task's full error
+**non-zero** on failure, cancellation, or timeout (`--timeout`, default
+`AAICLICK_JOB_WAIT_TIMEOUT`, 3600 s — a timeout stops watching while the job
+keeps running), so `set -e` scripts and CI stop on a failed run. Failures print the failing task's full error
 and its `task get` command; `--json` emits the final stats as one parseable
 document, with diagnostics on stderr.
 
-Registration is not a prerequisite: the wait follows the job id the run
-returns, so a dotted entrypoint blocks and reports the same way.
+The wait follows the returned job id, so an unregistered dotted entrypoint
+blocks and reports the same way.
 
 ```bash
 python -m aaiclick run-job myapp.pipelines.crawl --set depth=3 --progress
@@ -195,7 +193,7 @@ python -m aaiclick job wait crawl
     With no `crawl` registration, `run-job crawl` falls back to the name itself
     as the entrypoint and the task fails on the worker with `Invalid entrypoint
     format: crawl. Expected 'module.function'`. `--progress` surfaces that in
-    the same command instead of leaving a failed job to discover later.
+    the same command.
 
 ## Register a job
 
@@ -286,17 +284,16 @@ clears the schedule, and `enabled` resets to true.
 
 ## Cron scheduling
 
-A registered job with a `schedule` (standard cron expression) and
-`enabled=True` is launched automatically by the background worker when its
-next run time is due. Scheduled runs use the registration's `default_kwargs`
-and defaults; manual `run_job()` calls can override them per run.
+The background worker launches a registered job with a `schedule` (standard
+cron expression) and `enabled=True` when its next run is due, using the
+registration's `default_kwargs` and defaults; manual `run_job()` calls can
+override them per run.
 
 ## Preservation modes
 
 `preservation_mode` controls whether a job's intermediate tables are kept
-after the run — see
-[ObjectContext — Preservation Modes](object_context.md#preservation-modes) for the
-two modes' semantics. The effective mode resolves through a precedence chain:
+after the run ([ObjectContext — Preservation Modes](object_context.md#preservation-modes)).
+The effective mode resolves by precedence:
 
 | Level | Source                                       | Wins when                            |
 |-------|----------------------------------------------|--------------------------------------|
@@ -321,10 +318,9 @@ Two independent dials control how a task runs:
 | **docker**               | Container via the worker's Docker daemon | Docker daemon + CLI (`AAICLICK_DOCKER_BIN`)            |
 | **kubernetes**           | Pod in a cluster                         | `kubectl` (+ Docker & `AAICLICK_REGISTRY` for `build`) |
 
-The `docker` and `kubernetes` modes require the distributed backends — a
-container or Pod reaches shared ClickHouse + PostgreSQL over the network, but
-embedded chdb and a local SQLite file cannot be shared into it. `subprocess`
-works in either deployment mode.
+`docker` and `kubernetes` require the distributed backends: a container or Pod
+reaches shared ClickHouse + PostgreSQL over the network, but embedded chdb and a
+local SQLite file cannot be shared into it. `subprocess` works in either mode.
 
 ## Image source (docker / kubernetes)
 
@@ -359,10 +355,9 @@ commit. The working tree is read only when no remote is given or registered.
 Image fields require a docker or kubernetes job, and kubernetes settings a
 kubernetes job; setting either on another runner is an error, not a no-op.
 
-Each distinct image gets one `build-image` task in the job that every task on
-that image depends on; it appears in the job graph like any other task
-(retries, logs, UI included). The worker running it picks one of two
-mutually exclusive build modes:
+Each distinct image gets one `build-image` task that every task on that image
+depends on; it is an ordinary task in the job graph (retries, logs, UI). The
+worker running it picks one of two mutually exclusive build modes:
 
 | Env var                    | Mode     | What the build task does                                                              |
 |----------------------------|----------|---------------------------------------------------------------------------------------|
@@ -401,8 +396,8 @@ reads `0` as unlimited.
 ## Shell tasks
 
 A `shell` task runs a literal argv (`command`, a list) instead of importing a
-Python entrypoint. Success is **exit code 0**. stdout/stderr lands in the
-normal per-task log, so logs surface uniformly. The command reads its kwargs
+Python entrypoint. Success is **exit code 0**; stdout/stderr land in the normal
+per-task log. The command reads its kwargs
 from `$AAICLICK_IO_DIR/in.json` and may write a result — or child tasks — to
 `out.json`: see [Task Interface](task_interface.md).
 
@@ -423,7 +418,7 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 # Parallel Operators
 
 `map`, `foreach` and `reduce` fan a computation out over partitions of an
-`Object` (`aaiclick/orchestration/operators.py`):
+`Object`:
 
 - `map(cbk, obj, partition=5000)` — partitions the Object and creates one
   child task per partition; `cbk(row, *args, **kwargs)` is applied to each row
@@ -534,10 +529,9 @@ untouched, and a finished job is reactivated.
 
 # Task Logs
 
-Task stdout/stderr is streamed into the ClickHouse `task_logs` table while the
-task runs (flushed every ~2 s), so a long-running task can be tailed live and
-logs are readable from one place no matter which host, container, or Pod ran
-the task. Only stdout/stderr are captured: `logging` records appear only
+Task stdout/stderr streams into the ClickHouse `task_logs` table while the
+task runs (flushed every ~2 s), so a long task can be tailed live, from one
+place, whichever host, container, or Pod ran it. Only stdout/stderr are captured: `logging` records appear only
 when their handler writes to stdout/stderr (e.g. `logging.basicConfig()`
 inside the task). The UI colors lines by keyword — `error` / `exception` /
 `traceback` red, `warn` yellow, `debug` dim. Logs share
@@ -557,7 +551,6 @@ memory.
 
 # Internal Design
 
-How the scheduler, task claiming, table lifecycle, and runner plumbing work
-internally is documented in the
-[orchestration design reference](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md)
+Scheduler, task claiming, table lifecycle, and runner plumbing are covered in
+the [orchestration design reference](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md)
 (not part of this site).
