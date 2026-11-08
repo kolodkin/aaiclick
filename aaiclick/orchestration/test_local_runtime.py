@@ -9,6 +9,7 @@ helper's only production caller.
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -79,6 +80,8 @@ async def test_local_runtime_opens_one_sql_engine(monkeypatch):
     monkeypatch.setattr(lr, "missing_local_tables", lambda: [])
     monkeypatch.setattr(lr, "stale_local_db_reason", lambda: None)
     monkeypatch.setattr(lr, "execution_worker_main_loop", _idle_forever)
+    # Its first poll would run on teardown against the shared test DB.
+    monkeypatch.setattr(lr.BackgroundWorker, "_do_cleanup", AsyncMock())
     create_async_engine = sql_context.create_async_engine
     engines = []
 

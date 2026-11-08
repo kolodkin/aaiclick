@@ -28,13 +28,18 @@ from ...datetime_utils import utc_now
 
 
 @pytest.fixture
-async def bg_db():
+async def bg_db(request):
     """Yield an async engine on a temp SQLite DB with the full schema, as the
     active ``orch_context`` engine; dispose and delete it after.
 
-    Request it after ``orch_ctx``, whose per-test reset must run on the real
-    engine, not this one.
+    ClickHouse is mocked unless the test also takes ``orch_ctx``, whose real
+    client it keeps. ``orch_ctx`` must come first: its per-test reset has to
+    run on the real engine, not this one.
     """
+    names = request.fixturenames
+    with_orch_ctx = "orch_ctx" in names
+    if with_orch_ctx and names.index("orch_ctx") > names.index("bg_db"):
+        raise RuntimeError("request orch_ctx before bg_db")
     tmpdir = tempfile.mkdtemp(prefix="aaiclick_bgtest_")
     db_path = os.path.join(tmpdir, "test.db")
     sync_engine = create_engine(f"sqlite:///{db_path}")
@@ -42,8 +47,7 @@ async def bg_db():
     sync_engine.dispose()
     engine = create_sql_engine(f"sqlite+aiosqlite:///{db_path}")
     sql_token = _sql_engine_var.set(engine)
-    # A mocked ClickHouse client unless the test also takes ``orch_ctx``, whose real one it keeps.
-    ch_token = _ch_client_var.set(AsyncMock()) if _ch_client_var.get() is None else None
+    ch_token = None if with_orch_ctx else _ch_client_var.set(AsyncMock())
     try:
         yield engine
     finally:

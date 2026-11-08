@@ -36,11 +36,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from aaiclick.async_wait import wait_or_timeout
-from aaiclick.data.object_context.ch_client import ChClient, get_ch_client
+from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.oplog.cleanup import drop_tables
 
 from ...datetime_utils import utc_now
 from ...sandbox.paths import module_parts
+from ..execution.db_handler import get_db_handler
 from ..models import (
     JOB_CANCELLED,
     JOB_COMPLETED,
@@ -59,7 +60,6 @@ from ..models import (
 )
 from ..orch_context import get_sql_session, orch_context
 from ..registered_jobs import run_job
-from ..sql_context import _sql_engine_var
 from ..sql_utils import IN_BATCH_SIZE, batched, in_clause
 from .handler import BackgroundHandler, CleanupTask, create_background_handler, try_complete_job
 
@@ -127,19 +127,13 @@ class BackgroundWorker:
         self._handler: BackgroundHandler = create_background_handler()
 
     async def start(self) -> None:
-        # Fail here, not once per pass in the loop's error log.
-        if _sql_engine_var.get() is None:
-            raise RuntimeError("BackgroundWorker.start() needs an active orch_context")
+        get_db_handler()  # raises outside an orch_context: fail here, not once per pass
         self._task = asyncio.create_task(self._cleanup_loop())
 
     async def stop(self) -> None:
         self._shutdown.set()
         if self._task:
             await self._task
-
-    @property
-    def _ch(self) -> ChClient:
-        return get_ch_client()
 
     async def _cleanup_loop(self) -> None:
         while not self._shutdown.is_set():
@@ -293,7 +287,7 @@ class BackgroundWorker:
             if not table_names:
                 return
 
-            dropped_tables = await drop_tables(self._ch, table_names)
+            dropped_tables = await drop_tables(get_ch_client(), table_names)
             await _delete_table_refs(session, dropped_tables)
             await _delete_registry_rows(session, dropped_tables)
             await session.commit()
@@ -357,7 +351,7 @@ class BackgroundWorker:
             # 2. Drop all non-global CH tables (includes samples registered in
             #    table_registry). Forget the ones that are gone; keep the job
             #    until the rest drop, so nothing is orphaned behind a failure.
-            dropped_tables = await drop_tables(self._ch, table_names)
+            dropped_tables = await drop_tables(get_ch_client(), table_names)
             if len(dropped_tables) < len(table_names):
                 await _delete_registry_rows(session, dropped_tables)
                 await session.commit()
@@ -369,7 +363,7 @@ class BackgroundWorker:
             #    mutations_sync=2 waits for the mutation on every replica, so a
             #    failure raises here, not later in system.mutations.
             for log_table in ("operation_log", "task_logs"):
-                await self._ch.command(
+                await get_ch_client().command(
                     f"ALTER TABLE {log_table} DELETE WHERE job_id = {job_id}",
                     settings={"mutations_sync": 2},
                 )
@@ -433,13 +427,13 @@ class BackgroundWorker:
             )
             orphan_tables = [row[0] for row in result.fetchall()]
 
-            dropped_tables = await drop_tables(self._ch, orphan_tables)
+            dropped_tables = await drop_tables(get_ch_client(), orphan_tables)
             await _delete_registry_rows(session, dropped_tables)
             await session.commit()
 
         # operation_log still lives on CH — prune orphaned rows there.
         try:
-            await self._ch.command(
+            await get_ch_client().command(
                 "ALTER TABLE operation_log DELETE "
                 "WHERE job_id IS NULL "
                 f"AND created_at < now() - INTERVAL {ttl_days} DAY"

@@ -18,6 +18,7 @@ import logging.config
 import signal
 
 from aaiclick.backend import LOOPBACK_HOSTS, is_local
+from aaiclick.data.object_context.ch_client import get_ch_client
 
 from .background import BackgroundWorker
 from .execution import k8s_worker_main_loop, mp_worker_main_loop
@@ -152,6 +153,8 @@ async def start_background(poll_interval: float = 10.0) -> None:
         )
     configure_logging()
     async with orch_context():
+        # The context's client connects lazily; probe it so a bad AAICLICK_CH_URL fails at startup.
+        await get_ch_client().command("SELECT 1")
         cleanup = BackgroundWorker(poll_interval=poll_interval)
         await cleanup.start()
         shutdown = asyncio.Event()
