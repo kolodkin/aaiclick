@@ -1,9 +1,18 @@
 Lineage via MCP
 ---
 
-The MCP server exposes the [operation log](oplog.md) and a read-only SQL
-sandbox over it, so your coding agent — Claude Code, Codex, any MCP client —
-can answer *how did this value get here?* against the live tables.
+The MCP server exposes the operation log and a read-only SQL sandbox over it, so
+your coding agent — Claude Code, Codex, any MCP client — can answer *how did
+this value get here?* against the live tables.
+
+# What is recorded
+
+Every Object operation — creation, operators, aggregations, `group_by`,
+`concat`, `insert`, `copy` — is appended to an operation log in ClickHouse
+with its SQL template, input tables and the job, task and run that produced
+it. Records live as long as their job: the background worker deletes them,
+with the job's tables, `AAICLICK_JOB_TTL_DAYS` (90) days after the job
+completes.
 
 # Tools
 

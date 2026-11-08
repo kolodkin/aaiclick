@@ -5,15 +5,14 @@ Every `vX.Y.Z` release publishes three container images to GHCR, built for
 `linux/amd64` and `linux/arm64`. Each is tagged with the exact version and, for
 non-pre-releases, `latest`.
 
-| Image                             | Bundles              | Role                                              |
-|-----------------------------------|----------------------|---------------------------------------------------|
-| `ghcr.io/kolodkin/aaiclick`         | wheel only           | API server (default), task base, local/mp worker  |
-| `ghcr.io/kolodkin/aaiclick-docker`  | `+ docker` CLI       | Docker-dispatching worker                         |
-| `ghcr.io/kolodkin/aaiclick-kubectl` | `+ docker + kubectl` | Kubernetes-dispatching worker                     |
+| Image                               | Bundles              | Role                                             |
+|-------------------------------------|----------------------|--------------------------------------------------|
+| `ghcr.io/kolodkin/aaiclick`         | wheel only           | API server (default), task base, local/mp worker |
+| `ghcr.io/kolodkin/aaiclick-docker`  | `+ docker` CLI       | Docker-dispatching worker                        |
+| `ghcr.io/kolodkin/aaiclick-kubectl` | `+ docker + kubectl` | Kubernetes-dispatching worker                    |
 
-The images layer as a chain — `aaiclick` → `aaiclick-docker` → `aaiclick-kubectl`
-— so each variant shares all the layers below it. Only the dispatching-worker
-roles need the CLIs; the API server and task-leaf roles never shell out.
+Each image builds on the one above it in the table, sharing its layers. Only
+dispatching workers need the CLIs; the API server and task leaves never shell out.
 
 # API server
 
@@ -37,16 +36,19 @@ RUN pip install --no-cache-dir /src
 ```
 
 A git build (`--build`) whose repo has no `Dockerfile` gets this layer by
-default, pinned to the worker's aaiclick version, with `WORKDIR /src` instead of
-`pip install` — entrypoints resolve from the copied tree, so a job in
-`jobs/my_job.py` is `jobs.my_job.entry` and every directory on the path must be
-an importable package name (`abc-123` or `2026-10-09` cannot be imported). Set
-`AAICLICK_BASE_IMAGE` on the worker to use another base: an rc tag, or a locally
-built image when the worker runs from a git checkout — a developer's machine, or
-CI running the e2e from source (its version, `0.0.1.dev50+g...`, has no
-published image; the tag rule drops the `+...` segment so the reference stays
-valid). Check in a `Dockerfile` (`python -m aaiclick docker init` scaffolds one)
-to customize; an explicit `dockerfile=` path that is missing still fails.
+default, pinned to the worker's aaiclick version:
+
+- It sets `WORKDIR /src` instead of running `pip install`, so entrypoints
+  resolve from the copied tree: `jobs/my_job.py` is `jobs.my_job.entry`, and
+  every directory on the path must be an importable package name (`abc-123` or
+  `2026-10-09` cannot be imported).
+- `AAICLICK_BASE_IMAGE` on the worker picks another base: an rc tag, or a
+  locally built image when the worker runs from a git checkout (a developer's
+  machine, or CI running the e2e from source). Such a version,
+  `0.0.1.dev50+g...`, has no published image; the tag rule drops the `+...`
+  segment so the reference stays valid.
+- To customize, check in a `Dockerfile` (`python -m aaiclick docker init`
+  scaffolds one). An explicit `dockerfile=` path that is missing still fails.
 
 The default honours a dependency manifest at the repo root:
 
@@ -59,12 +61,11 @@ The default honours a dependency manifest at the repo root:
 | `pom.xml`, no Python manifest                        | jvm      | `mvn package`, SDK shim as `ENTRYPOINT`                             |
 | `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                                |
 
-`uv` runs on the worker's `PIP_*` index settings with the checkout mounted as its
+`uv` uses the worker's `PIP_*` index settings with the checkout mounted as its
 working directory, so `-r` / `-c` includes, path and workspace dependencies
-resolve. Packages the base image ships — aaiclick and everything it depends
-on — keep the base image's version whatever the manifest pins, so a user lock
-cannot downgrade aaiclick or swap the dependencies it was tested with. The
-project itself is never `pip install .`-ed. Limits:
+resolve. aaiclick and its dependencies keep the base image's versions whatever
+the manifest pins, so a user lock cannot downgrade them. The project itself is
+never `pip install .`-ed. Limits:
 
 - Installs from the checkout must be non-editable: the mount is gone at
   runtime, so `-e .` points nowhere (a `uv.lock` export already skips the
@@ -99,14 +100,13 @@ Beyond these, check in a `Dockerfile`.
 Run `aaiclick-kubectl` as a pod with `AAICLICK_RUNNER=kubernetes`: container
 tasks become Pods, tasks without an image run in-place. Pod namespace, service
 account and imagePullSecret come from `AAICLICK_K8S_NAMESPACE`,
-`AAICLICK_K8S_SERVICE_ACCOUNT`, `AAICLICK_K8S_IMAGE_PULL_SECRET`. Inside a pod,
-`kubectl` uses **in-cluster
-config** automatically — it reads the API address from the injected
-`KUBERNETES_SERVICE_HOST` / `_PORT`, the token from
-`/var/run/secrets/kubernetes.io/serviceaccount/token`, and the CA from the
-sibling `ca.crt`. No kubeconfig mount is needed; the worker calls plain
-`kubectl apply/delete/logs -n <namespace>` (see
-`aaiclick/orchestration/execution/kubernetes_worker.py`).
+`AAICLICK_K8S_SERVICE_ACCOUNT`, `AAICLICK_K8S_IMAGE_PULL_SECRET`.
+
+Inside a pod, `kubectl` uses **in-cluster config**: the API address from the
+injected `KUBERNETES_SERVICE_HOST` / `_PORT`, the token from
+`/var/run/secrets/kubernetes.io/serviceaccount/token`, the CA from the sibling
+`ca.crt`. No kubeconfig mount is needed; the worker calls plain
+`kubectl apply/delete/logs -n <namespace>`.
 
 !!! warning "A ServiceAccount + RBAC is required, or every `kubectl` call returns 403"
     `kubectl` connects fine via in-cluster config, but the API rejects it until
@@ -158,8 +158,7 @@ or using a private image, need the Role widened to that namespace and
     buildkitd and the cluster reach. With prebuilt images, submit with `image=`
     and no build runs.
 
-Out-of-cluster use (talking to a remote cluster) instead mounts a kubeconfig and
-sets `KUBECONFIG`.
+Out of cluster (a remote cluster), mount a kubeconfig and set `KUBECONFIG`.
 
 # Docker dispatching worker
 
@@ -178,8 +177,8 @@ docker run \
 
 A dispatching worker needs a ClickHouse server; with chdb it refuses to start.
 
-The image runs as the non-root `aaiclick` user, so it needs access to the mounted
-socket — add the container to the socket's group (or run with `--user root`).
+The image runs as non-root `aaiclick`: add the container to the socket's group
+(or run with `--user root`).
 
 !!! warning "Mounting the docker socket grants host-daemon control"
     A container with `/var/run/docker.sock` can start, stop, and inspect any

@@ -52,7 +52,7 @@ _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
 # Detection harness: when set, force a full GC at every test boundary so
 # aiohttp connection leaks surface as deterministic failures (see
-# gc_leak_check below and docs/designs/technical_debt.md). The nightly dist job sets
+# gc_leak_check below). The nightly dist job sets
 # it; the per-PR suite leaves it off because the per-test collect is slow.
 _GC_LEAK_CHECK = bool(os.environ.get("AAICLICK_GC_LEAK_CHECK"))
 

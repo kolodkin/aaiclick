@@ -40,5 +40,3 @@ Kwargs arrive deserialized: upstream results as values, `Object` / `View` /
 else → `native`.
 
 More: [Orchestration](orchestration.md).
-
-**Implementation**: `aaiclick/orchestration/`

@@ -630,7 +630,7 @@ def _run_compose_init(args: argparse.Namespace) -> None:
     except ComposeFileExists as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
-    print(f"Wrote {scaffold.path}")
+    print(f"Wrote {scaffold.path} and its .env (credentials; keep it out of git)")
     print(f"Admin login: admin / {scaffold.admin_password} (change it after first login)")
 
 

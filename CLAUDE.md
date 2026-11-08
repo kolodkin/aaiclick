@@ -200,6 +200,8 @@ Use the `generate-migration` skill. Never hand-write migration files.
 
 `docs/designs/future.md` is the single source of truth for unimplemented features. Move planned work there instead of marking it `⚠️ NOT YET IMPLEMENTED` inline. Spec docs may briefly reference it. Remove items when implemented.
 
+`docs/designs/` describes shipped code only. A full design for an unbuilt feature lives in `docs/drafts/`, linked from its `future.md` entry; move it to `docs/designs/` when it lands.
+
 # Specification-Driven Development
 
 **Write detailed specifications BEFORE implementing complex features.**

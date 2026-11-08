@@ -52,6 +52,16 @@ def test_init_compose_refuses_overwrite(tmp_path):
     assert target.read_text() == "# user's own compose file\n"
 
 
+def test_init_compose_refuses_to_overwrite_an_existing_env(tmp_path):
+    (tmp_path / ".env").write_text("MINE=1\n")
+
+    with pytest.raises(ComposeFileExists, match=".env already exists"):
+        init_compose(tmp_path / "docker-compose.yaml")
+
+    assert (tmp_path / ".env").read_text() == "MINE=1\n"
+    assert not (tmp_path / "docker-compose.yaml").exists()
+
+
 def test_init_compose_force_overwrites(tmp_path):
     target = tmp_path / "docker-compose.yaml"
     target.write_text("# stale\n")

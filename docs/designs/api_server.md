@@ -1,52 +1,26 @@
 API Server: Shared Pydantic I/O Layer
 ---
 
-Single source of truth for the **input/output schemas** and **internal API**
-that power three surfaces of aaiclick:
-
-1. **CLI** (`python -m aaiclick ...`)
-2. **REST API** (FastAPI — future orchestration UI backend)
-3. **MCP** (FastMCP — AI agent tool surface)
-
-All three are thin renderers over one internal API whose signatures are typed
-with pydantic view models. The CLI keeps its current human output and gains
-`--json` for free. The REST and MCP surfaces derive from the same types, so
-their schemas, docs, and client SDKs cannot drift from the CLI.
-
-All of view models, `internal_api`, REST, MCP, JWT auth + RBAC (see
-[Authentication](#authentication)), and `start_execution_worker` are implemented.
+One set of **input/output schemas** and one **internal API** power three surfaces: the **CLI** (`python -m aaiclick ...`), the **REST API** (FastAPI, backs the UI) and **MCP** (FastMCP, the AI agent tool surface).
 
 # Motivation
 
-Today, CLI-backing logic is scattered across domain modules
-(`aaiclick/data/object/cli.py`, helpers inside `aaiclick/__main__.py`, etc.)
-and mixes business logic with `print()` calls and `argparse` parsing. Adding a
-REST API or MCP server would require re-implementing the same verbs against
-the same domain entities — and keeping three implementations in sync.
+Each surface is a thin renderer over one internal API typed with pydantic view models, so:
 
-A shared I/O layer lets us:
-
-- Write each command **once**, in `aaiclick/internal_api/`, returning a typed
-  view model.
-- Render it three ways (CLI text, CLI `--json`, HTTP JSON, MCP tool result)
-  without duplicating logic.
-- Generate an OpenAPI spec directly from pydantic models.
-- Keep database models (`SQLModel`) and wire models (`pydantic`) independent
-  so DB schema changes don't ripple into REST clients.
+- Each command is written **once**, in `aaiclick/internal_api/`, returning a typed view model.
+- It renders as CLI text, CLI `--json`, HTTP JSON or an MCP tool result without duplicated logic; the CLI gets `--json` for free.
+- The OpenAPI spec, docs and client SDKs come straight from the pydantic models, so REST and MCP schemas cannot drift from the CLI.
+- Database models (`SQLModel`) and wire models (`pydantic`) stay independent, so DB schema changes don't ripple into REST clients.
 
 # Architecture
 
 ```
-         ┌───────── aaiclick/internal_api/ (typed domain functions) ─────────┐
-         │   list_jobs(filter)         → Page[JobView]                       │
-         │   get_job(ref)              → JobDetail                           │
-         │   run_job(req)              → JobView                             │
-         │   cancel_job(ref)           → JobView                             │
-         │   list_execution_workers(filter)      → Page[ExecutionWorkerView]                    │
-         │   list_objects(filter)      → Page[ObjectView]                    │
-         │   get_object(ref)           → ObjectDetail                        │
-         │   ...                                                             │
-         └───────────────────────────────┬───────────────────────────────────┘
+         ┌──────── aaiclick/internal_api/ (typed domain functions) ────────┐
+         │   list_jobs(filter)  → Page[JobView]                            │
+         │   get_job(ref)       → JobDetail                                │
+         │   run_job(req)       → JobView                                  │
+         │   ...                                                           │
+         └───────────────────────────────┬─────────────────────────────────┘
                                          │
              ┌───────────────────────────┼───────────────────────────┐
              ▼                           ▼                           ▼
@@ -55,61 +29,146 @@ A shared I/O layer lets us:
       aaiclick/__main__.py     aaiclick/server/routers/      aaiclick/server/mcp.py
 ```
 
-**Key property**: every command is written in exactly one place. The three
-surfaces do nothing but parse input, call `internal_api.*`, and render the
-result in their native format.
+**Key property**: every command lives in exactly one place. The surfaces only parse input, call `internal_api.*` and render the result natively.
 
 # Package Layout
 
-```
-aaiclick/
-  view_models.py                   ← shared view models (cross-domain)
-                                     Page[T], Problem, RefId, *Request, *Filter
-  orchestration/
-    view_models.py                 ← orchestration domain
-                                     JobView, JobDetail, JobStatsView,
-                                     TaskView, TaskDetail,
-                                     ExecutionWorkerView, RegisteredJobView
-                                     + to_view() adapters (SQLModel → View)
-  data/
-    view_models.py                 ← data domain
-                                     ObjectView, ObjectDetail,
-                                     SchemaView, ColumnView
-                                     + to_view() adapters
-  internal_api/                    ← business logic relocated from per-module cli.py
-    __init__.py                    (public re-exports)
-    errors.py                      NotFound, Conflict, Invalid
-    jobs.py                        list_jobs, get_job, job_stats, cancel_job, run_job
-    registered_jobs.py             list_registered_jobs, register_job,
-                                   enable_job, disable_job
-    tasks.py                       list_tasks, get_task
-    execution_workers.py                     list_execution_workers, start_execution_worker, stop_execution_worker
-    objects.py                     list_objects, get_object, delete_object, purge_objects
-    setup.py                       setup, migrate
-  __main__.py                      ← argparse + text/JSON renderers only
-                                     (zero business logic)
-  server/                          ← FastAPI + FastMCP (optional extra)
-    __init__.py
-    app.py                         FastAPI app instance; mounts routers + MCP
-    deps.py                        AsyncSession / ChClient dependency providers
-    errors.py                      internal_api.errors.* → HTTP Problem mapper
-    routers/
-      jobs.py                      /jobs, /jobs/{id}, /jobs/{id}/stats,
-                                   /jobs/{id}/cancel
-      registered_jobs.py           /registered-jobs, enable/disable, run
-      tasks.py                     /tasks/{id}
-      execution_workers.py                   /execution-workers, /execution-workers/{id}/stop
-      objects.py                   /objects, /objects/{name}
-    mcp.py                         FastMCP server; tools wrap internal_api.*
+| Path                                    | Holds                                                                          |
+|-----------------------------------------|--------------------------------------------------------------------------------|
+| `aaiclick/view_models.py`               | Cross-domain wire models: `Page[T]`, `Problem`, `RefId`, `*Request`, `*Filter` |
+| `aaiclick/orchestration/view_models.py` | Orchestration views + `to_view()` adapters (SQLModel → View)                   |
+| `aaiclick/data/view_models.py`          | Data (Object) views + adapters                                                 |
+| `aaiclick/internal_api/`                | Business logic, one module per resource; `errors.py` holds the error types     |
+| `aaiclick/__main__.py`                  | argparse + text/JSON renderers only, zero business logic                       |
+| `aaiclick/server/`                      | FastAPI app, `routers/`, `mcp.py`, error mapper (optional `server` extra)      |
+
+# View Model Catalogue
+
+## Shared (`aaiclick/view_models.py`)
+
+| Model                     | Purpose                                                                                             |
+|---------------------------|-----------------------------------------------------------------------------------------------------|
+| `Page[T]`                 | Generic paged list: `items`, `total`, `next_cursor`                                                 |
+| `Problem`                 | Error shape: `title`, `status`, `detail`, `code`                                                    |
+| `RefId`                   | `int \| str` — numeric id or human-readable name                                                    |
+| `SnowflakeId`             | `int` serialized as a JSON **string** (`when_used="json"`)                                          |
+| `PageLimit`, `PageOffset` | Bounds on every `*Filter`: `1 ≤ limit ≤ MAX_PAGE_LIMIT` (1000), `offset ≥ 0`; out of range is `422` |
+| `UtcDateTime`             | Request datetimes (`since`, `expires_at`, …) normalized to naive UTC                                |
+
+Inputs are `*Request` models (`RunJobRequest`, `RegisterJobRequest`, …) and one `*Filter` per list endpoint. Viewer models (`ObjectQueryRequest`, `SavedQueryIn`, `DashboardIn`, their filters and results) live in `aaiclick/viewer/view_models.py`; see `docs/designs/viewer.md`.
+
+**Snowflake ids on the wire**: every 64-bit id field (`id`, `job_id`, `execution_worker_id`, …) is a `SnowflakeId`, serialized as a JSON *string* so JavaScript keeps it exact instead of rounding past `Number.MAX_SAFE_INTEGER` (2^53-1). It is serialization-only: the Python attribute and `model_dump()` stay `int`, and request paths/bodies accept the numeric string and coerce it back. The generated SPA types (`src/api/schema.ts`) declare these fields `string`.
+
+## Domain views
+
+Orchestration (`aaiclick/orchestration/view_models.py`: jobs, tasks, workers, registered jobs) and data (`aaiclick/data/view_models.py`: Objects) define the resource views. Status fields reuse the `Literal` types from `aaiclick/orchestration/models.py`; views never embed SQLModel classes — the `to_view()` adapters convert rows.
+
+## View vs Detail
+
+- **View** — returned by *list* endpoints. Small, no nested collections, safe to render in a table.
+- **Detail** — returned by *get* endpoints. Extends the View with nested collections (`tasks`), derived fields (`duration_ms`) and expensive lookups the list omits.
+
+This keeps list payloads compact without a model family per surface.
+
+## Required fields on the wire
+
+**Implementation**: `aaiclick/api_model.py`
+
+Every model in the OpenAPI schema extends `ApiModel`, not `BaseModel`. It sets `json_schema_serialization_defaults_required=True`, so a field with a default reads as optional going in and required coming out.
+
+Pydantic builds two JSON schemas per model, and FastAPI picks one per role:
+
+| Role                      | Schema mode   | Field with a default | Without `ApiModel` |
+|---------------------------|---------------|----------------------|--------------------|
+| Request body, query model | validation    | optional             | optional           |
+| Response model            | serialization | required             | optional           |
+
+The response side is true on the wire: the server always serializes every field (no route uses `exclude_none` / `exclude_unset`). The generated SPA types follow — `JobView.total_tasks` is `number`, not `number | undefined` — and `openapi-typescript --default-non-nullable false` keeps defaulted request fields optional (`RegisterJobRequest.replace?`).
+
+A model used in both roles gets two schemas, `Name-Input` and `Name-Output` (today only `ObjectQuery`); code reading `components["schemas"]` must pick the right one.
+
+The option affects schema generation only — validation and `model_dump()` behave as with `BaseModel`. Pydantic config is per class with no global default, so nested models need it too, hence the shared base.
+
+!!! warning "New API models must extend `ApiModel`"
+    A plain `BaseModel` still works at runtime, but its defaulted response
+    fields regress to optional in `src/api/schema.ts`. A server test walks every
+    response schema and fails on such a field.
+
+# Internal API Contract
+
+Every function in `aaiclick/internal_api/` has one shape:
+
+```python
+async def list_jobs(filter: JobListFilter = JobListFilter()) -> Page[JobView]: ...
 ```
 
-All HTTP routes are mounted under a single versioned prefix —
-**`/api/v0`** — built in `server/app.py` from `API_VERSION` (`aaiclick/view_models.py`) and passed to
-`include_router(..., prefix=API_PREFIX)`. Individual router files declare
-paths *relative* to the prefix (`/jobs`, `/execution-workers`, ...) so the version lives
-in exactly one place. The `v0` segment is deliberate: the schema is still
-experimental and may break; the number advances to `v1` once the contract
-stabilises.
+- **Input**: primitives or `*Request` / `*Filter` view models.
+- **Output**: a view model (`JobView`, `Page[JobView]`, `JobDetail`, ...).
+- **Contexts arrive via ContextVars, not parameters**: every function runs inside an active `orch_context()` or `object_context()` and reads resources through the getters (`get_sql_session()`, `get_ch_client()`), like decorators, execution and CRUD helpers do, so callers don't thread resources through. CLI wrappers, request handlers and MCP tools each enter the context once per invocation.
+- **Errors** raise `internal_api.errors.*`. The CLI formats them, FastAPI maps them to `Problem` + HTTP status (see [REST Surface](#rest-surface)), FastMCP surfaces them as tool errors.
+- **No I/O side effects** — no `print`, no `sys.exit`, no argparse.
+
+## CLI verb → internal_api → REST → MCP
+
+| CLI                          | Internal API                       | REST (under `/api/v0`)               | MCP tool                 |
+|------------------------------|------------------------------------|--------------------------------------|--------------------------|
+| `job list`                   | `list_jobs(filter)`                | `GET /jobs`                          | `list_jobs`              |
+| `job get <ref>`              | `get_job(ref)`                     | `GET /jobs/{ref}`                    | `get_job`                |
+| `job stats <ref>`            | `job_stats(ref)`                   | `GET /jobs/{ref}/stats`              | `job_stats`              |
+| `job cancel <ref>`           | `cancel_job(ref)`                  | `POST /jobs/{ref}/cancel`            | `cancel_job`             |
+| `run-job <name>`             | `run_job(RunJobRequest)`           | `POST /jobs:run`                     | `run_job`                |
+| `register-job <entry>`       | `register_job(RegisterJobRequest)` | `POST /registered-jobs`              | `register_job`           |
+| `registered-job list`        | `list_registered_jobs(filter)`     | `GET /registered-jobs`               | `list_registered_jobs`   |
+| `job enable <name>`          | `enable_job(name)`                 | `POST /registered-jobs/{n}/enable`   | `enable_job`             |
+| `job disable <name>`         | `disable_job(name)`                | `POST /registered-jobs/{n}/disable`  | `disable_job`            |
+| `execution-worker list`      | `list_execution_workers(filter)`   | `GET /execution-workers`             | `list_execution_workers` |
+| `execution-worker start`     | `start_execution_worker()`         | `POST /execution-workers`            | `start_execution_worker` |
+| `execution-worker stop <id>` | `stop_execution_worker(id)`        | `POST /execution-workers/{id}/stop`  | `stop_execution_worker`  |
+| `data list`                  | `list_objects(filter)`             | `GET /objects`                       | `list_objects`           |
+| `data get <name>`            | `get_object(name)`                 | `GET /objects/{name}`                | `get_object`             |
+| `data delete <name>`         | `delete_object(name)`              | `DELETE /objects/{name}`             | `delete_object`          |
+| `data purge`                 | `purge_objects(filter)`            | `POST /objects:purge`                | `purge_objects`          |
+| `data query <object>`        | `query_object(request)`            | `POST /viewer/query`                 | `query_object`           |
+| `view queries list`          | `list_saved_queries(filter)`       | `GET /viewer/queries`                | `list_saved_queries`     |
+| `view queries save`          | `save_query(query)`                | `PUT /viewer/queries/{name}`         | `save_query`             |
+| `view queries delete`        | `delete_saved_query(name)`         | `DELETE /viewer/queries/{name}`      | `delete_saved_query`     |
+| `view dashboards list`       | `list_dashboards()`                | `GET /viewer/dashboards`             | `list_dashboards`        |
+| `view dashboards get`        | `get_dashboard(name)`              | `GET /viewer/dashboards/{name}`      | `get_dashboard`          |
+| `view dashboards save`       | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`      | `save_dashboard`         |
+| `view dashboards delete`     | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}`   | `delete_dashboard`       |
+| `view dashboards run`        | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`          |
+| `task list`                  | `list_tasks(filter)`               | `GET /tasks`                         | `list_tasks`             |
+| —                            | `get_task(id)`                     | `GET /tasks/{id}`                    | `get_task`               |
+| —                            | `get_task_logs(id, tail, attempt)` | `GET /tasks/{id}/logs`               | `get_task_logs`          |
+
+- `job wait <ref>` and `run-job --progress` have no row: they are CLI-only compositions over `job_stats`. Blocking a request for up to 600s is not a valid server shape, so REST clients poll `GET /jobs/{ref}/stats`.
+- The lineage primitives (`internal_api.lineage`) have no CLI verb: MCP exposes them and the calling agent composes them — see `docs/user_guide/lineage.md`.
+
+# CLI Rendering Contract
+
+`aaiclick/__main__.py` holds argparse wiring and two renderers, nothing else:
+
+```python
+async def cmd_job_list(args):
+    async with orch_context():
+        page = await internal_api.list_jobs(_filter_from_args(args))
+    if args.json:
+        print(page.model_dump_json())
+    else:
+        _render_jobs_table(page.items)
+```
+
+- **Default output**: human tables and one-line summaries, read off the view model — never DB rows — so table columns and JSON fields cannot drift.
+- **`--json`**: `print(model.model_dump_json())`, on every command group for symmetry with REST.
+- **Exit codes** are owned by `__main__.py`; `internal_api` signals outcomes through return values and exceptions.
+
+# REST Surface
+
+**Implementation**: `aaiclick/server/app.py`
+
+All resource routes mount under one versioned prefix, `API_PREFIX = f"/api/{API_VERSION}"` (`API_VERSION = "v0"` in `aaiclick/view_models.py`), built once in `app.py` and passed to every `include_router(..., prefix=API_PREFIX)`. Routers declare paths **relative** to it (`/jobs`, `/execution-workers`, …), so the version lives in one place and bumping to `/api/v1` is a one-line edit.
+
+**Why `v0`?** View models, error envelope and URL layout are still evolving; `v0` tells downstream UIs and SDK generators "experimental, may break". It graduates to `v1` once the schema settles and external callers exist.
 
 ## Contract version
 
@@ -125,312 +184,57 @@ A breaking change to a route or a tool schema bumps all three together. Rejected
 - **Per-tool versions**: not in the MCP spec. Tool names stay stable; a replaced
   tool is deprecated in its description before removal.
 
-# View Model Catalogue
-
-Auth + worker-spawn add `StartWorkerRequest` and expand `ProblemCode` — see
-[Spawning workers](#spawning-workers--post-apiv0workers) and
-[Authentication](#authentication).
-
-## Shared (`aaiclick/view_models.py`)
-
-| Model                     | Purpose                                                                                             |
-|---------------------------|-----------------------------------------------------------------------------------------------------|
-| `Page[T]`                 | Generic paged list: `items`, `total`, `next_cursor`                                                 |
-| `Problem`                 | Error shape: `title`, `status`, `detail`, `code`                                                    |
-| `RefId`                   | `int \| str` — numeric id or human-readable name                                                    |
-| `SnowflakeId`             | `int` serialized as a JSON **string** (`when_used="json"`)                                          |
-| `PageLimit`, `PageOffset` | Bounds on every `*Filter`: `1 ≤ limit ≤ MAX_PAGE_LIMIT` (1000), `offset ≥ 0`; out of range is `422` |
-| `UtcDateTime`             | Request datetimes (`since`, `expires_at`, …) normalized to naive UTC                                |
-
-**Snowflake ids on the wire**: every 64-bit id field (`id`, `job_id`,
-`execution_worker_id`, …) is typed `SnowflakeId`, so it serializes to a JSON *string*.
-This keeps ids exact in JavaScript, which would otherwise round integers past
-`Number.MAX_SAFE_INTEGER` (2^53-1). It is serialization-only — the Python
-attribute and `model_dump()` stay `int`, and request paths/bodies still accept
-the numeric string and coerce it back to `int`. The generated SPA types
-(`src/api/schema.ts`) follow, declaring these fields `string`.
-| `RunJobRequest`        | `name`, `kwargs`, `preservation_mode`                        |
-| `RegisterJobRequest`   | `entrypoint`, `schedule`, `defaults`                         |
-| `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |
-| `RegisteredJobFilter`  | `enabled`, `name`, `limit`, `cursor`                         |
-| `ExecutionWorkerFilter`         | `status`, `limit`                                            |
-| `ObjectFilter`         | `prefix`, `scope`, `job`, `limit`, `cursor`                  |
-
-Viewer request models (`ObjectQueryRequest`, `SavedQueryIn`, `DashboardIn`, their filters and results) live in `aaiclick/viewer/view_models.py`; see `docs/designs/viewer.md`.
-
-## Orchestration (`aaiclick/orchestration/view_models.py`)
-
-| Model                 | Populated fields                                                                            |
-|-----------------------|---------------------------------------------------------------------------------------------|
-| `JobView`             | `id`, `name`, `status`, `created_at`, `started_at`, `completed_at`, `error`                 |
-| `JobDetail`           | everything in `JobView` + `tasks: list[TaskView]`, `duration_ms` (computed)                 |
-| `JobStatsView`        | `job_id`, `job_name`, `status_counts`, `wall_time_ms`, `exec_time_ms`, `tasks`              |
-| `TaskView`            | `id`, `job_id`, `entrypoint`, `status`, `attempt`, `started_at`, `completed_at`             |
-| `TaskDetail`          | everything in `TaskView` + `kwargs`, `result`, `execution_worker_id`, `max_retries`, `runs` |
-| `ExecutionWorkerView` | `id`, `status`, `started_at`, `last_heartbeat`, `tasks_completed`, `tasks_failed`           |
-| `RegisteredJobView`   | `name`, `entrypoint`, `schedule`, `enabled`, `defaults`                                     |
-
-## Data (`aaiclick/data/view_models.py`)
-
-| Model          | Populated fields                                                                 |
-|----------------|----------------------------------------------------------------------------------|
-| `ColumnView`   | `name`, `type`, `nullable`, `array_depth`, `low_cardinality`                     |
-| `SchemaView`   | `columns: list[ColumnView]`, `order_by`, `engine`                                |
-| `ObjectView`   | `name`, `table`, `scope`, `persistent`, `row_count`, `size_bytes`, `created_at`  |
-| `ObjectDetail` | everything in `ObjectView` + `table_schema: SchemaView`, `lineage_summary`       |
-
-## Enums
-
-Reuse existing enums from `aaiclick/orchestration/models.py`:
-`JobStatus`, `TaskStatus`, `ExecutionWorkerStatus`, `RunType`, `PreservationMode`.
-View models import **enums only**, never SQLModel classes.
-
-## View vs Detail
-
-- **View** — the shape returned by *list* endpoints. Small, no nested
-  collections, safe to render in a table.
-- **Detail** — the shape returned by *get* endpoints. Extends the View with
-  nested collections (`tasks`), derived fields (`duration_ms`), and any
-  expensive lookups the list form omits.
-
-Split keeps list payloads compact without forking into three-per-surface
-model families.
-
-## Required fields on the wire
-
-**Implementation**: `aaiclick/api_model.py`
-
-Every model that appears in the OpenAPI schema extends `ApiModel`, not
-`BaseModel`. It sets one Pydantic option,
-`json_schema_serialization_defaults_required=True`, so a field with a default
-reads as optional going in and required coming out.
-
-Pydantic builds two JSON schemas per model, and FastAPI picks one per role:
-
-| Role                      | Schema mode   | Field with a default | Without `ApiModel` |
-|---------------------------|---------------|----------------------|--------------------|
-| Request body, query model | validation    | optional             | optional           |
-| Response model            | serialization | required             | optional           |
-
-The response side is true on the wire: the server always serializes every
-field (no route uses `exclude_none` / `exclude_unset`). The generated SPA types
-follow — `JobView.total_tasks` is `number`, not `number | undefined` — and
-`openapi-typescript --default-non-nullable false` keeps defaulted request
-fields optional (`RegisterJobRequest.replace?`).
-
-A model used in both roles gets two schemas, `Name-Input` and `Name-Output`
-(today only `ObjectQuery`). Code that reads `components["schemas"]` must pick
-the right one.
-
-The option affects schema generation only — validation and `model_dump()`
-behave as with `BaseModel`. Pydantic config is per class with no global
-default, so nested models need it too, hence the shared base.
-
-!!! warning "New API models must extend `ApiModel`"
-    A plain `BaseModel` still works at runtime, but its defaulted response
-    fields regress to optional in `src/api/schema.ts`. A server test walks every
-    response schema and fails on such a field.
-
-# Internal API Contract
-
-Every function in `aaiclick/internal_api/` follows one shape:
+Each router is a thin wrapper running inside a request-scoped `orch_context()` via the `orch_scope` dependency, so the contextvar getters inside `internal_api` see the session/client for the call:
 
 ```python
-async def list_jobs(filter: JobListFilter = JobListFilter()) -> Page[JobView]: ...
-
-async def list_objects(filter: ObjectFilter = ObjectFilter()) -> Page[ObjectView]: ...
-```
-
-Rules:
-
-- **Input**: primitives or `*Request` / `*Filter` view models.
-- **Output**: a view model (`JobView`, `Page[JobView]`, `JobDetail`, ...).
-- **Contexts arrive via ContextVars, not parameters**: every function runs
-  inside an active `orch_context()` (orchestration) or `object_context()`
-  (data) and reads SQL/CH resources through the getters
-  (`get_sql_session()`, `get_ch_client()`). This matches the rest of the
-  codebase — decorators, execution, CRUD helpers — so callers do not have
-  to thread resources through. CLI wrappers, FastAPI request handlers, and
-  MCP tools each establish the surrounding context once per invocation.
-- **Errors** raise `internal_api.errors.*` (`NotFound`, `Conflict`, `Invalid`).
-  CLI formats them; FastAPI maps them to `Problem` + HTTP status; FastMCP
-  surfaces them as tool errors.
-- **No side effects on I/O** — no `print`, no `sys.exit`, no argparse.
-
-## CLI verb → internal_api → REST → MCP
-
-All REST paths share a common `/api/v0` prefix — see
-[REST Surface](#rest-surface) for the rationale.
-
-| CLI today                  | Internal API                       | REST (under `/api/v0`)             | MCP tool                  |
-|----------------------------|------------------------------------|------------------------------------|---------------------------|
-| `job list`                 | `list_jobs(filter)`                | `GET /jobs`                        | `list_jobs`               |
-| `job get <ref>`            | `get_job(ref)`                     | `GET /jobs/{ref}`                  | `get_job`                 |
-| `job stats <ref>`          | `job_stats(ref)`                   | `GET /jobs/{ref}/stats`            | `job_stats`               |
-| `job cancel <ref>`         | `cancel_job(ref)`                  | `POST /jobs/{ref}/cancel`          | `cancel_job`              |
-| `run-job <name>`           | `run_job(RunJobRequest)`           | `POST /jobs:run`                   | `run_job`                 |
-| `register-job <entry>`     | `register_job(RegisterJobRequest)` | `POST /registered-jobs`            | `register_job`            |
-| `registered-job list`      | `list_registered_jobs(filter)`     | `GET /registered-jobs`             | `list_registered_jobs`    |
-| `job enable <name>`        | `enable_job(name)`                 | `POST /registered-jobs/{n}/enable` | `enable_job`              |
-| `job disable <name>`       | `disable_job(name)`                | `POST /registered-jobs/{n}/disable`| `disable_job`             |
-| `execution-worker list`              | `list_execution_workers(filter)`             | `GET /execution-workers`                     | `list_execution_workers`            |
-| `execution-worker start`             | `start_execution_worker()`                   | `POST /execution-workers`                    | `start_execution_worker`            |
-| `execution-worker stop <id>`         | `stop_execution_worker(id)`                  | `POST /execution-workers/{id}/stop`          | `stop_execution_worker`             |
-| `data list`                | `list_objects(filter)`             | `GET /objects`                     | `list_objects`            |
-| `data get <name>`          | `get_object(name)`                 | `GET /objects/{name}`              | `get_object`              |
-| `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
-| `data purge`               | `purge_objects(filter)`            | `POST /objects:purge`              | `purge_objects`           |
-| `data query <object>`      | `query_object(request)`            | `POST /viewer/query`               | `query_object`            |
-| `view queries list`        | `list_saved_queries(filter)`       | `GET /viewer/queries`              | `list_saved_queries`      |
-| `view queries save`        | `save_query(query)`                | `PUT /viewer/queries/{name}`       | `save_query`              |
-| `view queries delete`      | `delete_saved_query(name)`         | `DELETE /viewer/queries/{name}`    | `delete_saved_query`      |
-| `view dashboards list`     | `list_dashboards()`                | `GET /viewer/dashboards`           | `list_dashboards`         |
-| `view dashboards get`      | `get_dashboard(name)`              | `GET /viewer/dashboards/{name}`    | `get_dashboard`           |
-| `view dashboards save`     | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`    | `save_dashboard`          |
-| `view dashboards delete`   | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}` | `delete_dashboard`        |
-| `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
-| `task list`                | `list_tasks(filter)`               | `GET /tasks`                       | `list_tasks`              |
-| *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
-| *(new)* task logs          | `get_task_logs(id, tail, attempt)` | `GET /tasks/{id}/logs`             | `get_task_logs`           |
-
-`job wait <ref>` and `run-job --progress` have no row: they are CLI-only
-compositions over `job_stats`. Blocking a request for up to 600s is not a
-valid server shape — REST clients poll `GET /jobs/{ref}/stats` instead.
-
-The lineage primitives (`internal_api.lineage`) have no CLI verb: MCP
-exposes them and the calling agent composes them itself — see
-`docs/user_guide/lineage.md`.
-
-
-# CLI Rendering Contract
-
-`aaiclick/__main__.py` holds argparse wiring and two renderers — nothing else:
-
-```python
-async def cmd_job_list(args):
-    async with orch_context():
-        page = await internal_api.list_jobs(_filter_from_args(args))
-    if args.json:
-        print(page.model_dump_json())
-    else:
-        _render_jobs_table(page.items)
-```
-
-- **Default output**: the same human tables and single-line summaries the CLI
-  prints today. The renderer reads fields off the view model — never from DB
-  rows — so table columns and JSON fields cannot drift.
-- **`--json` flag**: `print(model.model_dump_json())`. Available on every
-  command group for symmetry with REST.
-- **Exit codes**: owned by `__main__.py`. `internal_api` signals outcomes
-  through return values and exceptions.
-
-# REST Surface
-
-`aaiclick/server/app.py` exposes a FastAPI app. All resource routes mount under
-a single versioned prefix — declared once and reused by every router:
-
-```python
-# aaiclick/server/app.py
-API_PREFIX = f"/api/{API_VERSION}"     # API_VERSION = "v0": pre-1.0, the contract may still churn
-
-app = FastAPI(title="aaiclick", version=API_VERSION)
-app.include_router(jobs.router,             prefix=API_PREFIX)
-app.include_router(registered_jobs.router,  prefix=API_PREFIX)
-app.include_router(tasks.router,            prefix=API_PREFIX)
-app.include_router(workers.router,          prefix=API_PREFIX)
-app.include_router(objects.router,          prefix=API_PREFIX)
-```
-
-Individual routers declare paths **relative** to the prefix — `/jobs`,
-`/registered-jobs`, etc. — so the version lives in exactly one place and can be
-bumped to `/api/v1` with a single-line edit.
-
-Each router is a thin wrapper that runs inside an `orch_context()` (or
-`object_context()` for data routes) scoped to the request:
-
-```python
-# aaiclick/server/routers/jobs.py
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(orch_scope)])
 
 @router.get("", response_model=Page[JobView])
-async def list_jobs(filter: JobListFilter = Depends(), _=Depends(orch_scope)):
-    return await internal_api.list_jobs(filter)
+async def list_jobs(filter: JobListFilter = Depends()) -> Page[JobView]:
+    return await jobs_api.list_jobs(filter)          # → GET /api/v0/jobs
 ```
 
-The resulting route is `GET /api/v0/jobs`.
+**Error mapping** — one exception handler maps each `internal_api.errors` type to a `Problem` with a stable `ProblemCode`. `ExecutionWorkerSpawnFailed` subclasses `Conflict`, so `except Conflict` still catches it, but it maps to its own status and code.
 
-`orch_scope` is a FastAPI dependency that enters `orch_context()`
-on request start and exits on response — the contextvar getters inside
-`internal_api` see the session/client for the duration of the call.
+| Error                        | HTTP |
+|------------------------------|------|
+| `NotFound`                   | 404  |
+| `Conflict`                   | 409  |
+| `Invalid`                    | 422  |
+| `Unauthorized`               | 401  |
+| `Forbidden`                  | 403  |
+| `ExecutionWorkerSpawnFailed` | 503  |
 
-**Why `/api/v0`?** The shape of the view models, error envelope, and URL layout
-are still evolving. The `v0` segment signals "experimental,
-subject to breaking change" to downstream UIs / SDK generators; we graduate to
-`/api/v1` once the schema has settled and external callers exist.
-
-- **Error mapping**: one exception handler turns `internal_api.errors.NotFound`
-  into `404 Problem`, `Conflict` into `409`, `Invalid` into `422`,
-  `Unauthorized` into `401`.
-- **OpenAPI**: derived automatically from view models; served at
-  `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
-- **Logs**: `GET /tasks/{id}/logs` returns a `TaskLogsView` whose `lines` are
-  `LogLine` objects (`stream` = `stdout`/`stderr`, `text`) read from the
-  ClickHouse `task_logs` stream (host-independent); optional `?tail=N` bounds the
-  response to the last N lines. `?attempt=N` (1-based, default latest, 404 if
-  out of range) picks the run; `attempts` lists every run with its status.
+- **OpenAPI** — derived from the view models; served at `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
+- **Logs** — `GET /tasks/{id}/logs` returns a `TaskLogsView` whose `lines` carry `stream` (`stdout`/`stderr`) and `text`, read from the host-independent ClickHouse `task_logs` stream. `?tail=N` keeps the last N lines; `?attempt=N` (1-based, default latest, 404 if out of range) picks the run; `attempts` lists every run with its status.
 
 ## Spawning workers — `POST /api/v0/execution-workers`
 
 **Implementation**: `aaiclick/server/routers/execution_workers.py`
 
-The CLI's `execution-worker start` is a blocking process loop that runs until
-SIGTERM — it does not fit the request/response pattern. The REST
-endpoint spawns a **detached subprocess** and returns `202 Accepted`
-once the fork/exec has succeeded. The caller polls `GET /api/v0/execution-workers`
-if it wants to see the new row:
+The CLI's `execution-worker start` is a blocking loop that runs until SIGTERM, which does not fit request/response. The endpoint instead spawns a **detached subprocess** and returns `202 Accepted` once fork/exec succeeds:
 
 ```
 POST /api/v0/execution-workers
 Content-Type: application/json
 
-{ "max_tasks": 100 }          # all fields optional → unlimited if omitted
+{ "max_tasks": 100 }          # optional → unlimited if omitted
 ```
 
-Request body maps to `StartWorkerRequest` (new shared view model). The
-handler flow:
+1. `start_execution_worker` refuses in local mode (`Invalid`), as the CLI does.
+2. It spawns `python -m aaiclick execution-worker start [--max-tasks N]` with `start_new_session=True`, so the child survives the request. POSIX-only, matching the project's Linux / macOS scope.
+3. An exec failure (missing binary, no permission) becomes `ExecutionWorkerSpawnFailed` → `503`.
+4. The router returns `202` with `Location: /api/v0/execution-workers` and an empty body.
 
-1. `internal_api.execution_workers.start_execution_worker(request)` refuses in local mode
-   (`is_local() → raise Invalid`) — same constraint as the CLI.
-2. Spawn `python -m aaiclick execution-worker start [--max-tasks N]` with
-   `asyncio.create_subprocess_exec(..., start_new_session=True)` so the
-   child survives the HTTP request. POSIX-only, matching the project's
-   Linux / macOS scope; Windows is not a supported deployment target.
-3. If exec raises (`FileNotFoundError`, `PermissionError`), translate
-   to `ExecutionWorkerSpawnFailed` (a `Conflict` subclass) → `503`. Otherwise
-   return `None`.
-4. Router returns `202 Accepted` with header
-   `Location: /api/v0/execution-workers` and an empty body.
+The caller polls `GET /api/v0/execution-workers` for the new row; whether the child has registered (or already crashed) is an orchestration concern, not an HTTP one. This keeps the endpoint idempotent in intent ("ensure one more worker is running"), avoids a new DB column, and sidesteps two concurrent spawns both claiming "the next id".
 
-The caller polls `GET /api/v0/execution-workers` to observe the new worker row;
-whether the child has finished registering (or has already crashed) is
-an orchestration-layer concern, not an HTTP concern. This keeps the
-endpoint idempotent in intent ("ensure one more worker is running"),
-avoids a new DB column, and sidesteps the race where two concurrent
-spawns would both claim "the next id."
-
-Failure modes:
-
-| Scenario                                | HTTP | `Problem.code`        |
-|-----------------------------------------|------|-----------------------|
-| Local mode (chdb + SQLite)              | 422  | `invalid`             |
+| Scenario                                | HTTP | `Problem.code`                  |
+|-----------------------------------------|------|---------------------------------|
+| Local mode (chdb + SQLite)              | 422  | `invalid`                       |
 | Subprocess exec raises (missing binary) | 503  | `execution_worker_spawn_failed` |
-| Insufficient scope (post-scope rollout) | 403  | `forbidden`           |
+| Caller lacks the admin scope            | 403  | `forbidden`                     |
 
-The server does **not** track child PIDs — shutdown uses the existing
-cooperative `stop_execution_worker` path, which writes a stop signal to SQL and
-relies on the worker's own polling loop to exit. Orphan reaping remains
-the orchestration layer's responsibility, identical to CLI-spawned
-workers.
+The server does **not** track child PIDs: shutdown uses the cooperative `stop_execution_worker` path (a stop signal in SQL that the worker's own loop polls). Orphan reaping stays with the orchestration layer, as for CLI-spawned workers.
 
 !!! warning "`start_execution_worker` requires distributed backends"
     The endpoint raises `422 Invalid` in local mode (chdb + SQLite),
@@ -438,88 +242,45 @@ workers.
     would deadlock on the file lock. Use the CLI's `local start` verb in
     local mode — it runs worker + background in a single process.
 
-## New / changed view models
-
-| Model                 | Where                          | Purpose                                                       |
-|-----------------------|--------------------------------|---------------------------------------------------------------|
-| `StartWorkerRequest`  | `aaiclick/view_models.py`      | `max_tasks: int \| None`                                      |
-| `Unauthorized`        | `aaiclick/internal_api/errors` | Missing / invalid bearer token                                |
-| `Forbidden`           | `aaiclick/internal_api/errors` | Reserved for scope rollout; unused in v0                      |
-| `ExecutionWorkerSpawnFailed`   | `aaiclick/internal_api/errors` | Detached worker exec failed; `Conflict` subclass → `503`      |
-| `Problem.code`        | `aaiclick/view_models.py`      | Extend `ProblemCode` with `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED` |
-
-`Forbidden` ships in v0 so the error-mapping table is stable; no route
-raises it until scopes land.
-
 ## Live updates — `GET /api/v0/events`
 
 **Implementation**: `aaiclick/server/events.py`
 
-A `text/event-stream` of `changed` events (no payload) fed by Postgres
-`LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode.
-Requires a principal like every other resource route; the signal itself
-carries nothing per-user. Design and client behaviour:
-`docs/designs/frontend.md` — Live updates.
+A `text/event-stream` of payload-free `changed` events, fed by Postgres `LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode. It requires a principal like every resource route, though the signal carries nothing per-user. Design and client behaviour: `docs/designs/frontend.md` — Live updates.
 
 # MCP Surface
 
-`aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick", version="v0")`
-instance; `version` is `API_VERSION` (see [Contract version](#contract-version)).
-Each tool is a direct wrapper that opens the surrounding context:
+**Implementation**: `aaiclick/server/mcp.py`
+
+A module-level `mcp = FastMCP("aaiclick", version=API_VERSION)` (see [Contract version](#contract-version)); each tool wraps one internal API call inside its context:
 
 ```python
-@mcp.tool
-async def run_job(request: RunJobRequest) -> JobView:
+@mcp.tool(tags={TAG_READ})
+async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     async with orch_context():
-        return await internal_api.run_job(request)
+        return await jobs_api.list_jobs(filter)
 ```
 
-The server mounts it on the main FastAPI app under `/mcp`:
+The app mounts it at `/mcp` and chains `mcp.http_app()`'s lifespan into its own. FastMCP generates tool schemas from the pydantic types, so inputs and outputs match REST.
+
+**Testing**: FastMCP's in-process client against the same `mcp` instance — no HTTP, no uvicorn. Internal-API errors surface as `fastmcp.exceptions.ToolError`:
 
 ```python
-# aaiclick/server/app.py
-_mcp_app = mcp.http_app(path="/")
-app = FastAPI(..., lifespan=_mcp_app.lifespan)
-app.mount("/mcp", _mcp_app)
-```
-
-FastMCP generates tool schemas from the pydantic types — identical inputs
-and outputs to the REST surface.
-
-**Testing**: use FastMCP's in-process client against the same module-level
-`mcp` instance — no HTTP round-trip, no uvicorn:
-
-```python
-from fastmcp import Client
-from aaiclick.server.mcp import mcp
-
 async with Client(mcp) as client:
     result = await client.call_tool("list_jobs", {})
     page = Page[JobView].model_validate(result.structured_content)
 ```
 
-Internal-API errors (`NotFound` / `Conflict` / `Invalid`) surface as
-`fastmcp.exceptions.ToolError` on the client.
-
 # Running the server
 
-The app is exposed as a module-level `app = FastAPI(...)` in
-`aaiclick/server/app.py` — no factory, no wrapper module. Run with
-uvicorn directly:
+`aaiclick/server/app.py` exposes a module-level `app` — no factory, no wrapper — run directly by uvicorn:
 
 ```bash
 pip install 'aaiclick[server]'
 uvicorn aaiclick.server.app:app
 ```
 
-In **local mode** (`chdb` + `sqlite`) the lifespan auto-starts the
-`BackgroundWorker` and the execution worker — submitting a job via
-the REST or MCP surface picks it up and runs it in the same process.
-There is no separate worker process to launch. Both workers and every request
-share the lifespan's `orch_context` (see `aaiclick/server/deps.py`), so a request
-nests into it instead of opening its own engine on `local.db`.
-
-For convenience, the CLI exposes the same flow:
+In **local mode** (chdb + SQLite) the lifespan starts the `BackgroundWorker` and the execution worker, so a job submitted over REST or MCP runs in the same process; there is no worker process to launch. Both workers and every request share the lifespan's `orch_context` (see `aaiclick/server/deps.py`), so a request nests into it instead of opening its own engine on `local.db`. The CLI wraps this:
 
 ```bash
 python -m aaiclick local start            # workers + REST + MCP on 127.0.0.1:5255
@@ -527,75 +288,45 @@ python -m aaiclick local start --port 9000
 python -m aaiclick local start --reload   # auto-restart on code change (dev)
 ```
 
-In **distributed mode** (PostgreSQL + ClickHouse) the lifespan is a
-no-op and the worker / background processes run separately:
+In **distributed mode** (PostgreSQL + ClickHouse) the lifespan starts no workers; they run separately:
 
 ```bash
-uvicorn aaiclick.server.app:app           # serves REST + MCP
-python -m aaiclick execution-worker start           # one or more worker processes
-python -m aaiclick background start       # one cleanup process
+uvicorn aaiclick.server.app:app                   # serves REST + MCP
+python -m aaiclick execution-worker start         # one or more worker processes
+python -m aaiclick background start               # one cleanup process
 ```
 
-Host, port, workers, reload, TLS, etc. are uvicorn's standard flags and
-env vars (`UVICORN_HOST`, `UVICORN_PORT`, …); aaiclick does not invent a
-parallel `AAICLICK_SERVER_*` namespace.
+Host, port, workers, reload, TLS etc. are uvicorn's own flags and env vars (`UVICORN_HOST`, `UVICORN_PORT`, …); aaiclick adds no parallel `AAICLICK_SERVER_*` namespace.
 
 # Configuration
 
-The server reuses the CLI's existing env vars and adds the auth knobs
-documented in `docs/designs/auth.md` — Configuration:
+The server reuses the CLI's env vars plus the auth knobs in `docs/designs/auth.md` — Configuration:
 
-| Variable               | Purpose                                              | Status                 |
-|------------------------|------------------------------------------------------|------------------------|
-| `AAICLICK_CH_URL`      | ClickHouse connection URL                            | Existing (see `backend.py`) |
-| `AAICLICK_SQL_URL`     | Orchestration SQL backend URL                        | Existing (see `backend.py`) |
-| `AAICLICK_JWT_SECRET`  | HS256 signing secret (required in distributed mode)  | See `Authentication`   |
-| `UVICORN_HOST`         | Bind host (uvicorn native)                           | Standard uvicorn       |
-| `UVICORN_PORT`         | Bind port (uvicorn native)                           | Standard uvicorn       |
+| Variable              | Purpose                                             | Source                            |
+|-----------------------|-----------------------------------------------------|-----------------------------------|
+| `AAICLICK_CH_URL`     | ClickHouse connection URL                           | `aaiclick/backend.py`             |
+| `AAICLICK_SQL_URL`    | Orchestration SQL backend URL                       | `aaiclick/backend.py`             |
+| `AAICLICK_JWT_SECRET` | HS256 signing secret (required in distributed mode) | [Authentication](#authentication) |
+| `UVICORN_HOST`        | Bind host                                           | uvicorn                           |
+| `UVICORN_PORT`        | Bind port                                           | uvicorn                           |
 
 # Authentication
 
 **Design**: `docs/designs/auth.md`.
 
-Username/password users with one role each (`viewer` / `member` / `admin`),
-authenticated by a short-lived access JWT +
-rotating refresh token, or by a scoped long-lived API token. The CLI runs
-`internal_api` in-process and never crosses this HTTP-transport layer.
+Username/password users with one role each (`viewer` / `member` / `admin`), authenticated by a short-lived access JWT + rotating refresh token, or by a scoped long-lived API token. The CLI runs `internal_api` in-process and never crosses this HTTP layer.
 
-- **Gating**: mode-derived, not a flag — open in local mode (synthetic admin +
-  startup `WARNING`), enforced in distributed mode (requires
-  `AAICLICK_JWT_SECRET`, else the server refuses to start).
-- **Login**: `POST /api/v0/auth/login` `{username, password[, totp_code]}` →
-  access + refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout`
-  revokes; `GET /auth/me` returns the current principal. MFA and password
-  reset are optional, configuration-driven extensions — see
-  `docs/designs/auth.md`.
-- **Enforcement**: `HTTPBearer` extracts the credential (access JWT or
-  `aaic_` API token); `require_principal` guards every `/api/v0/*` router,
-  then `require_scope(...)` gates on the level a route needs (`require_write`
-  for a member's own mutations, `require_admin` for everything else — jobs,
-  objects, users, audit, worker control). Authorization always
-  compares scopes: a session resolves one through its role, a token carries
-  its own.
-- **MCP**: the `/mcp` mount requires any principal (ASGI middleware — `Depends`
-  does not propagate into mounted sub-apps); each tool is gated by its
-  `read` / `write` / `admin` tag in `aaiclick/server/mcp_rbac.py`.
-- **Audit**: `aaiclick/server/audit.py` records requests to `audit_log`
-  per `AAICLICK_AUDIT_LOG`.
+- **Gating** is mode-derived, not a flag: open in local mode (synthetic admin + startup `WARNING`), enforced in distributed mode (requires `AAICLICK_JWT_SECRET`, else the server refuses to start).
+- **Login**: `POST /api/v0/auth/login` `{username, password[, totp_code]}` → access + refresh tokens; `POST /auth/refresh` rotates, `POST /auth/logout` revokes, `GET /auth/me` returns the principal. MFA and password reset are optional, configuration-driven extensions.
+- **Enforcement**: `HTTPBearer` extracts the credential (access JWT or `aaic_` API token); `require_principal` guards every `/api/v0/*` router, then `require_scope(...)` gates on the level a route needs (`require_write` for a member's own mutations, `require_admin` for everything else — jobs, objects, users, audit, worker control). Authorization always compares scopes: a session resolves one through its role, a token carries its own.
+- **MCP**: the `/mcp` mount requires any principal via ASGI middleware (`Depends` does not propagate into mounted sub-apps); each tool is gated by its `read` / `write` / `admin` tag (`aaiclick/server/mcp_rbac.py`).
+- **Audit**: `aaiclick/server/audit.py` records requests to `audit_log` per `AAICLICK_AUDIT_LOG`.
 
-Open paths (never 401): `GET /health`, `/api/v0/openapi.json`, `/docs`,
-`/redoc`, `/api/v0/auth/login|refresh`, and `/api/v0/auth/password-reset*`.
+Open paths (never 401): `GET /health`, `/api/v0/openapi.json`, `/api/v0/docs`, `/api/v0/redoc`, `/api/v0/auth/login|refresh` and `/api/v0/auth/password-reset*`.
 
-The error envelope is the standard `Problem` (`code="unauthorized"` or
-`code="mfa_required"` / 401 with `WWW-Authenticate: Bearer`, or
-`code="forbidden"` / 403).
+Errors use the standard `Problem`: `code="unauthorized"` or `"mfa_required"` → 401 with `WWW-Authenticate: Bearer`; `code="forbidden"` → 403.
 
 # Non-Goals
 
-- **Streaming log envelopes** — `GET /tasks/{id}/logs` returns the captured
-  lines in one `TaskLogsView`; the UI polls it while a task runs. There is no
-  live per-line push — `docs/designs/frontend.md` (Task logs) says why.
-- **WebSockets** — the UI's live update channel is a follow-up once the REST
-  surface stabilises.
-- **Backwards-compatible shims for old CLI code paths** — during migration,
-  the old `*_cmd` functions are deleted outright; no dual-path maintenance.
+- **Streaming log envelopes** — `GET /tasks/{id}/logs` returns the captured lines in one `TaskLogsView`; the UI polls it while a task runs. No live per-line push — `docs/designs/frontend.md` (Task logs) says why.
+- **WebSockets** — the UI's live channel is server-sent events (see [Live updates](#live-updates--get-apiv0events)).

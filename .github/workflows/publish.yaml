@@ -322,13 +322,9 @@ jobs:
             --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
             --image-tag "${{ inputs.tag }}-rc"
           docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" up -d --quiet-pull
-          # init generated the database passwords; later steps dial them from the host.
-          uv run --no-project python - "$RUNNER_TEMP/stack/docker-compose.yaml" >> "$GITHUB_ENV" <<'PY'
-          import sys, yaml
-          env = {n: s.get("environment") or {} for n, s in yaml.safe_load(open(sys.argv[1]))["services"].items()}
-          print(f"STACK_PG_PASSWORD={env['postgres']['POSTGRES_PASSWORD']}")
-          print(f"STACK_CH_PASSWORD={env['clickhouse']['CLICKHOUSE_PASSWORD']}")
-          PY
+          # init generated the database passwords into .env; later steps dial them from the host.
+          sed -n 's/^AAICLICK_PG_PASSWORD=/STACK_PG_PASSWORD=/p; s/^AAICLICK_CH_PASSWORD=/STACK_CH_PASSWORD=/p' \
+            "$RUNNER_TEMP/stack/.env" >> "$GITHUB_ENV"
 
       - name: Wait for infra health
         run: |

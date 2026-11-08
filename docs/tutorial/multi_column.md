@@ -1,9 +1,8 @@
 Multi-Column Data
 ---
 
-A dict of arrays is a table with named columns. `group_by()` partitions the
-rows by one or more key columns, and an aggregation then collapses each group
-to a single row — the same GROUP BY you know from SQL, expressed in Python.
+`group_by()` partitions rows by one or more key columns, and an aggregation
+collapses each group to one row — SQL's GROUP BY, in Python.
 
 # Group and sum
 
@@ -23,8 +22,8 @@ Pass several columns to group by their combination:
 
 # Several aggregations at once
 
-`agg()` takes a mapping of column to aggregation, so one pass can compute
-different reductions for different columns:
+`agg()` maps columns to aggregations, so one pass computes different reductions
+per column:
 
 ```python
 --8<-- "aaiclick/data/examples/group_by.py:groupby_agg"

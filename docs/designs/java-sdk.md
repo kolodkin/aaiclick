@@ -1,15 +1,14 @@
 Java Task SDK — Shim Jar (`jvm` Entry Type)
 ---
 
-Java payloads run through the shell/container path, claimed by Python workers
-— no second worker implementation. A `.jar` already runs on every runner as
-`entry_type="shell"` on a prebuilt JVM image, with the Task Interface
+Java payloads run through the shell/container path, claimed by Python
+workers — no second worker implementation. A `.jar` already runs on every
+runner as `entry_type="shell"` on a JVM image, speaking the Task Interface
 (`in.json` / `out.json` under `AAICLICK_IO_DIR`,
 `docs/designs/task_interface.md`). The `aaiclick-task-api` shim jar makes
-that plane typed:
-the image embeds the SDK, the runner invokes the shim with the class name,
-and the shim binds `in.json` to the `@AaiTask` method and writes its return
-value to `out.json`. No database, no runner env.
+that plane typed: the image embeds the SDK, the runner invokes the shim with
+the class name, and the shim binds `in.json` to the `@AaiTask` method and
+writes its return value to `out.json`. No database, no runner env.
 
 # Architecture
 
@@ -23,32 +22,27 @@ A `jvm` task is dispatched exactly like a container `shell` task: the worker
 resolves its kwargs into `in.json`, launches the container / Pod on the shell
 vehicle with **only** `command_env` and `AAICLICK_IO_DIR` (no DB credentials
 reach the image), waits, and reads `out.json` back. The one difference is the
-argv: the class name, which the image's `ENTRYPOINT` — the SDK bootstrap —
-receives; the runner cannot know a JVM classpath, the image owns it. The shim
-never touches `task_runs` or `task_logs`, so the host registers each attempt
-(`register_host_log_run`) and follows the container's output into
-`task_logs`.
+argv: the class name, for the image's `ENTRYPOINT` (the SDK bootstrap); the
+runner cannot know a JVM classpath, the image owns it. The shim never touches
+`task_runs` or `task_logs`, so the host registers each attempt and follows
+the container's output into `task_logs`.
 
 ## `jvm` entry type
 
 **Implementation**: `aaiclick/orchestration/runner_config.py`
 
-- `EntryType` Literal gains `"jvm"` (plain String column — code change only,
-  no migration). `tasks.entrypoint` holds the Java class name
-  (`com.example.Pipeline`), optionally `com.example.Pipeline#method` when the
-  class annotates more than one method.
+- `"jvm"` is an `EntryType` value on a plain String column, so adding it
+  needed no migration. `tasks.entrypoint` holds the Java class name
+  (`com.example.Pipeline`), or `com.example.Pipeline#method` when the class
+  annotates more than one method.
 - `command` is rejected (like `module`); the runner passes the class name as
   the argv. `command_env` is injected as for `shell`.
-- CLI (`--entry-type jvm`), `run_job()`, and `RunJobRequest` accept the new
-  choice; the entrypoint/class name rides in the existing `name` /
-  `entrypoint` fields.
+- The CLI (`--entry-type jvm`) and `run_job` accept it; the class name rides
+  in the existing `name` / `entrypoint` fields.
 
 ## Validation
 
-Enforced at commit points alongside `validate_image_sources()`
-(`aaiclick/orchestration/orch_context.py` — see `commit_tasks()`) and at the
-submission surface (`aaiclick/orchestration/registered_jobs.py` — see
-`run_job()`):
+Enforced at commit and at submission (`run_job`):
 
 - A `jvm` task's kwargs may carry only plain values, `native` wrappers, and
   upstream refs — the file data plane, shared with `shell`. Object/View,
@@ -71,34 +65,30 @@ submission surface (`aaiclick/orchestration/registered_jobs.py` — see
    plain values (every `upstream` ref replaced, every `native` wrapper
    unwrapped), so a parameter named `_aaiclick_type` is just a parameter.
 3. Jackson-bind the kwargs to the `@AaiTask` method's parameters by name
-   (requires `-parameters` compilation; the shim reports a clear error when
-   parameter names were compiled away). Missing or extra keys are errors,
+   (requires `-parameters` compilation — see the warning below). Missing or extra keys are errors,
    mirroring Python's `TypeError` on bad kwargs; so is `null` for a
    primitive at any depth. The class loads through the thread context
    classloader (Spring Boot, layered fat jars).
 4. Invoke the method and write its return value to `out.json` as is: the
    host treats untagged JSON as data and a `Map` / `JsonNode` carrying
-   `_aaiclick_type` as a returned task DAG (`docs/designs/task_interface.md`). `void` / `null` writes nothing. On any
-   exception: `Type: message` on stderr, exit code 1.
+   `_aaiclick_type` as a returned task DAG (`docs/designs/task_interface.md`).
+   `void` / `null` writes nothing. On any exception: `Type: message` on
+   stderr, exit code 1.
 
-The shim never writes task status — the host worker owns that (reaper
-invariant, see the `docker_worker` module docstring); it reads `out.json`
-only after an exit code 0.
+The shim never writes task status — the host worker owns it (the reaper
+invariant) and reads `out.json` only after exit code 0.
 
 # Java module
+
+**Implementation**: `java/aaiclick-task-api/`
 
 `java/` is a Maven monorepo: `java/pom.xml` (parent `aaiclick-parent`) with
 one module, `aaiclick-task-api`, whose only dependency is Jackson. Packages
 live under `io.github.kolodkin.aaiclick.task` to match the Maven Central
-namespace.
-
-| Class            | Role                                                                     |
-|------------------|--------------------------------------------------------------------------|
-| `AaiTask`        | Runtime method annotation marking a task entrypoint                      |
-| `AaiTaskShim`    | The bootstrap `main()` — steps 1–4 above                                 |
-| `TaskRegistry`   | Class name → annotated `Method` (`Class#method` disambiguation)          |
-| `KwargsBinder`   | JSON kwargs → typed method arguments via Jackson                         |
-| `TaskResult`, `Task`, `Group`, `Upstream`, `GroupResults` | Typed return DAG; Jackson writes the Task Interface vocabulary |
+namespace. User code sees the `@AaiTask` method annotation and the typed
+return-DAG classes (`TaskResult`, `Task`, `Group`, `Upstream`,
+`GroupResults`), which Jackson writes as the Task Interface vocabulary;
+`AaiTaskShim` is the bootstrap `main()`.
 
 User code:
 
@@ -140,7 +130,7 @@ await internal_api.run_job(RunJobRequest(
 # Testing
 
 The shim's only I/O is two files, so the suite is infra-free: each test gets
-a temp dir, writes `in.json`, runs `AaiTaskShim.run` and reads `out.json`.
+a temp dir, writes `in.json`, runs the shim and reads `out.json`.
 
 The docker-runner e2e covers what the unit suite cannot: a `jvm` task between
 two Python tasks, each in its own container — the real `docker create` /

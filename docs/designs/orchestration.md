@@ -1,8 +1,7 @@
 aaiclick Orchestration Backend Specification
 ---
 
-Internal design reference — not published on the docs site. The user-facing
-guide is [docs/user_guide/orchestration.md](../user_guide/orchestration.md).
+Internal design reference, not published on the docs site. User guide: [docs/user_guide/orchestration.md](../user_guide/orchestration.md).
 
 # Basic Example
 
@@ -26,29 +25,21 @@ def pipeline(x: int, y: int):
 job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
 ```
 
-See `aaiclick/orchestration/examples/orchestration_basic.py` for a full example.
+Full example: `aaiclick/orchestration/examples/orchestration_basic.py`.
 
 # Decorators
 
 **Implementation**: `aaiclick/orchestration/decorators.py`
 
-Airflow-style TaskFlow API. Passing a Task result as an argument creates an upstream dependency automatically.
+Airflow-style TaskFlow API: passing a Task result as an argument creates an upstream dependency.
 
-## @task
-
-Wraps an async function into a `TaskFactory`. Parameters: `name` (default: function name), `max_retries` (default: `0`). On failure with retries remaining, resets the task to PENDING with incremented `attempt`.
-
-## @job
-
-Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and commits all tasks to SQL. Use `@job("name")`, `@job(name="name")`, or bare `@job`.
-
-**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously; either takes a `Job` or a `@job` factory plus its kwargs (`aaiclick/orchestration/execution/debug.py`).
+- **`@task`** — `name` (default: function name), `max_retries` (default `0`). A failure with retries left resets the task to PENDING with `attempt` incremented.
+- **`@job`** — `@job("name")`, `@job(name="name")` or bare `@job`. Manages `orch_context()` and commits all tasks to SQL.
+- **`job_test` / `ajob_test`** — run a `Job`, or a `@job` factory plus its kwargs, synchronously (`execution/debug.py`).
 
 # Topology
 
 **Implementation**: `aaiclick/orchestration/local_runtime.py`
-
-Two storage services, three process roles:
 
 | Component         | Count | Role                                                                 |
 |-------------------|-------|----------------------------------------------------------------------|
@@ -58,60 +49,37 @@ Two storage services, three process roles:
 | Background worker | 1     | Cron scheduling, dead-worker detection, sole table-cleanup authority |
 | Execution worker  | N     | Claims tasks; runs each in a child process / container / Pod         |
 
-Processes never talk to each other — all coordination goes through the two
-databases: task claiming, heartbeats, and cancellation polling via PostgreSQL;
-data and logs via ClickHouse. Local mode collapses the three process roles into
-one process — hence exactly one execution worker — on embedded chdb + SQLite.
+Processes never talk to each other: claiming, heartbeats and cancellation polling go through PostgreSQL; data and logs through ClickHouse. Local mode collapses the three process roles into one process (hence exactly one execution worker) on embedded chdb + SQLite.
 
 # Deployment Modes
 
 **Implementation**: `aaiclick/backend.py`
 
-Two deployment modes, controlled by two independent environment variables:
+Two independent environment variables pick the mode:
 
-| Aspect              | Local (default)                              | Distributed                                         |
-|---------------------|----------------------------------------------|-----------------------------------------------------|
-| **Data backend**    | chdb (embedded ClickHouse)                   | ClickHouse server                                   |
-| **SQL backend**     | SQLite via aiosqlite                         | PostgreSQL via asyncpg                              |
-| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`           | `clickhouse://user:pass@host:8123/database`         |
-| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database` |
-| **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
-| **Schema**          | `create_all`, no revision chain              | Alembic revision chain                              |
-| **Task claiming**   | Sequential SELECT + UPDATE                   | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
-| **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts)              |
-| **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
+| Aspect                 | Local (default)                            | Distributed                                                   |
+|------------------------|--------------------------------------------|---------------------------------------------------------------|
+| **Data backend**       | chdb (embedded ClickHouse)                 | ClickHouse server                                             |
+| **SQL backend**        | SQLite via aiosqlite                       | PostgreSQL via asyncpg                                        |
+| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`            | `clickhouse://user:pass@host:8123/database`                   |
+| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database`           |
+| **Setup**              | `python -m aaiclick setup`                 | Provision servers + `python -m aaiclick migrate upgrade head` |
+| **Schema**             | `create_all`, no revision chain            | Alembic revision chain                                        |
+| **Task claiming**      | Sequential SELECT + UPDATE                 | Atomic CTE with `FOR UPDATE SKIP LOCKED`                      |
+| **Table lifecycle**    | `LocalLifecycleHandler` (in-process task)  | `OrchLifecycleHandler` (SQL refcounts)                        |
+| **Detection**          | `is_chdb()` / `is_sqlite()` return `True`  | Both return `False`                                           |
 
-**One migration chain, not two.** The Alembic revisions target PostgreSQL
-alone — they use plain `ALTER` of constraints, which SQLite cannot execute
-without alembic's batch (copy-and-move) mode. That is deliberate: supporting
-both backends would mean every revision written, reviewed and tested twice,
-for a local database that exists to be thrown away. Local SQLite is built by
-`create_all` and is recreated rather than migrated when it falls behind
-(`aaiclick setup --force`).
+**One migration chain, not two.** Alembic revisions target PostgreSQL only — they use plain `ALTER` of constraints, which SQLite cannot run without alembic's batch (copy-and-move) mode. Supporting both would mean writing, reviewing and testing every revision twice for a local database meant to be thrown away. Local SQLite is built by `create_all` and recreated, not migrated, when it falls behind (`aaiclick setup --force`).
 
-The cost lands on one question — *is this database current?* — which has no
-`alembic_version` row to read locally. `setup` answers it by building a
-throwaway in-memory database from the same `create_all` and diffing the real
-one against it, so the comparison covers everything the models materialise:
-tables, columns and their types, indexes, unique constraints, foreign keys.
-The two halves have different remedies — `missing_local_tables` is added by a
-plain `create_all`, while `stale_local_db_reason` (a table in the wrong shape)
-means recreating the database,
-since SQLite cannot `ALTER` its way there.
+The cost: locally there is no `alembic_version` row to answer *is this database current?* `setup` builds a throwaway in-memory database from the same `create_all` and diffs the real one against it — tables, column types, indexes, unique constraints, foreign keys. Missing tables (`missing_local_tables`) are added by a plain `create_all`; a table in the wrong shape (`stale_local_db_reason`) means recreating the database, since SQLite cannot `ALTER` its way there.
 
-What this still cannot see is anything a revision would do that `create_all`
-would not — a backfill, a data repair. That is the accepted limit of keeping
-one chain: local databases are recreated, so there is nothing to backfill.
+Accepted limit: anything a revision does that `create_all` would not (a backfill, a data repair) is invisible — local databases are recreated, so there is nothing to backfill.
 
 ## Worker runner
 
 **Implementation**: `aaiclick/orchestration/execution/runner_env.py`
 
-An execution worker launches container tasks through one **runner**, fixed by
-the worker's deployment and read once from `AAICLICK_RUNNER`. It is not a job
-property: the compose scaffold ships the `aaiclick-docker` worker with the host
-socket mounted, the helm scaffold ships the `aaiclick-kubectl` worker with a
-ServiceAccount, and a task claimed by a worker runs on whatever that worker has.
+An execution worker launches container tasks through one **runner**, read once from `AAICLICK_RUNNER`. It is a property of the worker's deployment, not the job: the compose scaffold ships the `aaiclick-docker` worker with the host socket mounted, the helm scaffold the `aaiclick-kubectl` worker with a ServiceAccount, and a claimed task runs on whatever its worker has.
 
 | `AAICLICK_RUNNER` | Container tasks run as                  | Extra worker requirements                      |
 |-------------------|-----------------------------------------|------------------------------------------------|
@@ -119,42 +87,36 @@ ServiceAccount, and a task claimed by a worker runs on whatever that worker has.
 | `docker`          | sibling containers on the worker daemon | Docker daemon + CLI                            |
 | `kubernetes`      | Pods in the cluster                     | `kubectl` (+ buildkitd & registry for `build`) |
 
-Tasks without an image (`tasks.image_source IS NULL`) run as a host subprocess on
-every worker, whatever the variable says. A `kubernetes` worker runs the
-concurrent reconciler of `kubernetes_runner.md` instead of the serial loop. There is no auto-detection:
-`aaiclick-kubectl` inherits the docker CLI, so an installed binary says nothing.
-`execution-worker start` validates the value and rejects `kubernetes` combined
-with `AAICLICK_LOCAL_BUILD` (the cluster cannot pull from the worker's daemon).
-
-Container tasks require the distributed backends above: an isolated container or
-Pod reaches the shared ClickHouse + PostgreSQL over the network, whereas embedded
-chdb and a local SQLite file cannot be shared into it. `run_job` rejects a
-resolved image source under `is_local()`.
+- Tasks without an image (`tasks.image_source IS NULL`) run as a host subprocess on every worker.
+- A `kubernetes` worker runs the concurrent reconciler of `kubernetes_runner.md` instead of the serial loop.
+- No auto-detection: `aaiclick-kubectl` inherits the docker CLI, so an installed binary says nothing.
+- `execution-worker start` validates the value and rejects `kubernetes` with `AAICLICK_LOCAL_BUILD` (the cluster cannot pull from the worker's daemon).
+- Container tasks need the distributed backends: a container or Pod reaches ClickHouse + PostgreSQL over the network, and embedded chdb or a SQLite file cannot be shared into it. `run_job` rejects a resolved image source under `is_local()`.
 
 # Runners & Entry Types
 
 **Implementation**: `aaiclick/orchestration/runner_config.py`
 
-Three orthogonal dials control how a task runs:
+Three orthogonal dials:
 
-- **image source** (per *task*, chosen by the user) — `NULL` (host subprocess), `prebuilt` (a named image), or `build` (an image built from the repo).
-- **runner** (per *worker*, chosen by the deployment) — `docker` or `kubernetes`; decides whether a container task becomes a container or a Pod. See [Worker runner](#worker-runner).
-- **entry type** (per *task*) — `module` (import and run a Python entrypoint, the default), `shell` (run a literal argv), or `jvm` (a Java class name resolved by the `aaiclick-task-api` shim inside the task's container image — see `docs/designs/java-sdk.md`).
+- **image source** (per *task*, chosen by the user) — `NULL` (host subprocess), `prebuilt` (a named image) or `build` (built from the repo).
+- **runner** (per *worker*, chosen by the deployment) — `docker` or `kubernetes`: container or Pod. See [Worker runner](#worker-runner).
+- **entry type** (per *task*) — `module` (import and run a Python entrypoint, default), `shell` (a literal argv) or `jvm` (a Java class name resolved by the `aaiclick-task-api` shim inside the image — `docs/designs/java-sdk.md`).
 
-They compose freely: a `shell` task runs the same way — "run this argv, success = exit 0" — whether the environment is a host subprocess, a container, or a Pod. `jvm` tasks are container-only (an image on either runner).
+They compose freely: a `shell` task means "run this argv, success = exit 0" on a host subprocess, container or Pod alike. `jvm` tasks are container-only.
 
 ## Image source
 
 **Implementation**: `aaiclick/orchestration/image_injection.py`
 
-The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** on any worker. The job row carries no runner state — only the optional `resources` snapshot (`docs/designs/kubernetes_runner.md` "Configuration").
+The image is a **task** property: nullable `tasks.image_source` JSON (`build` or `prebuilt`); **`NULL` runs a host subprocess** on any worker. The job row carries no runner state, only the optional `resources` snapshot (`docs/designs/kubernetes_runner.md` "Configuration").
 
 | Source     | How                                                                                               | When built              |
 |------------|---------------------------------------------------------------------------------------------------|-------------------------|
 | `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker buildx build` on buildkitd | build task in the graph |
 | `prebuilt` | `image="python:3.12"` run verbatim, no build stage                                                | never                   |
 
-The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default, then to the remote's branch head — the working tree only when the remote is unknown too; see `docker_config.resolve_image_source`). Defaults resolve **at submission**, so `image_source` always names a concrete commit. `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
+**Selecting a source.** The user names the source and nothing else: `image=` (`run-job --image`, or `register-job --image` as default) for prebuilt; `build=True` (`--build`) for a git build, modified by `git_remote` / `git_sha` / `git_branch` / `dockerfile`. Each modifier falls through to the registration's default, then the remote's branch head (the working tree only when the remote is unknown too). Defaults resolve **at submission**, so `image_source` always names a concrete commit. `image` and the build fields are **mutually exclusive** (`runner_config.py`, `docker_config.py`). First match wins:
 
 1. run `image` → `prebuilt`
 2. run `build` or any build modifier → `build`
@@ -162,123 +124,106 @@ The user names the source and nothing else. `image=` (`run-job --image`, or `reg
 4. registration `build` → `build`
 5. otherwise → `NULL`, a host subprocess
 
-A run cannot turn a containerized registration back into a subprocess. `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`) — except `jvm` tasks, which must declare their own (`docs/designs/java-sdk.md`). A shell/jvm parent's children may declare a build only from the parent's own `git_remote` (trusted, any scheme) or a prefix in the worker's `AAICLICK_CHILD_BUILD_REMOTES` (`https://` or `git@host:` only): the worker clones that repo with its own git credentials, so the container must not name an arbitrary one (`docker_config.check_child_build_remote`).
+A run cannot turn a containerized registration back into a subprocess.
 
-Commit points always inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`) into the job, host-pinned via `image_source=NULL`, wired `build >> dependent` for every task on that image — the scheduler's existing dependency filter guarantees no task is claimed before its image exists. Submission reads no build env; the **worker** running the build task decides the mode from two mutually exclusive variables (`docker_config.get_build_mode`):
+**Children.** `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image unless they declare their own (`create_task(image=... / git_*=...)`). `jvm` tasks must declare their own (`docs/designs/java-sdk.md`). A shell/jvm parent's children may declare a build only from the parent's own `git_remote` (trusted, any scheme) or a prefix in the worker's `AAICLICK_CHILD_BUILD_REMOTES` (`https://` or `git@host:` only): the worker clones with its own git credentials, so the container must not name an arbitrary repo.
+
+**Build tasks.** Commit points inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`), host-pinned (`image_source=NULL`) and wired `build >> dependent` for every task on that image — the scheduler's dependency filter already guarantees no task is claimed before its image exists. Submission reads no build env; the **worker** running the build task picks the mode from two mutually exclusive variables:
 
 | Env var                    | Mode     | Build body                                                                       | Launch path   |
 |----------------------------|----------|----------------------------------------------------------------------------------|---------------|
 | `AAICLICK_REGISTRY=<host>` | registry | registry-first (`buildx imagetools inspect` → done), else clone + build `--push` | `docker pull` |
 | `AAICLICK_LOCAL_BUILD=1`   | local    | daemon-cache-first (`docker image inspect` → done), else clone + build `--load`  | run directly  |
 
-Both set, or neither, raises in the build task naming both variables. Local mode is single-host by construction: the image lives only in the building host's daemon, so a kubernetes worker refuses to start with it. Crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. The container launch path never builds — it only derives the tag.
+- Both set, or neither, fails the build task naming both variables.
+- Local mode is single-host by construction (the image lives only in the building daemon), so a kubernetes worker refuses to start with it.
+- Crash recovery is the ordinary task retry/reaper path.
+- Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build — wasteful but correct.
+- The container launch path never builds; it only derives the tag: `aaiclick-job:<sha>`, suffixed `-<dockerfile>` for a non-default Dockerfile, so two Dockerfiles at one commit are two images.
 
-The tag is `aaiclick-job:<sha>`, suffixed `-<dockerfile>` when a non-default Dockerfile is named, so two Dockerfiles at one commit are two images.
+**Builds run on buildkitd**, never on the host daemon: the build task drives the buildx remote driver at `AAICLICK_BUILDKIT_ADDR` (one builder per address + TLS settings, created on first use; optional `AAICLICK_BUILDKIT_TLS_{CACERT,CERT,KEY}`). Clone, default-Dockerfile scaffolding and push credentials stay in the worker; Dockerfile steps run in buildkitd's sandbox and see neither the worker's env nor `docker.sock`. `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may carry a token, so they reach builds as BuildKit secrets (`pip_index_url`, `pip_extra_index_url`), never build-args. buildkitd does not know dockerd's `host-gateway`, so the worker resolves it in `AAICLICK_DOCKER_BUILD_ADD_HOST` to the bridge gateway IP. The deploy scaffolds run a rootless buildkitd; the helm chart also confines its egress with a NetworkPolicy.
 
-**Builds run on buildkitd**, never on the host daemon: the build task drives the buildx remote driver at `AAICLICK_BUILDKIT_ADDR` (one builder per address + TLS settings, created on first use; optional `AAICLICK_BUILDKIT_TLS_{CACERT,CERT,KEY}`). Clone, default-Dockerfile scaffolding and push credentials stay in the worker; Dockerfile steps run in buildkitd's sandbox and see neither the worker's env nor `docker.sock`. `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may carry a token, so they reach builds as BuildKit secrets (`pip_index_url`, `pip_extra_index_url`), never as build-args. buildkitd does not know dockerd's `host-gateway`, so the worker resolves it in `AAICLICK_DOCKER_BUILD_ADD_HOST` to the bridge gateway IP. The deploy scaffolds run a rootless buildkitd; the helm chart also confines its egress with a NetworkPolicy.
+**Worker prerequisites** beyond the [Worker runner](#worker-runner) table (every `build` also needs `AAICLICK_BUILDKIT_ADDR`):
 
-**ExecutionWorker prerequisites**:
+- **`docker`** — Docker daemon + CLI (`AAICLICK_DOCKER_BIN`, default `docker`) on every worker that may run the job, to `docker run` tasks and `--load` local builds.
+- **`kubernetes` + `build`** — **requires `AAICLICK_REGISTRY`** (startup rejects `AAICLICK_LOCAL_BUILD`; a missing registry fails the build task). The build task needs the docker CLI with buildx but no daemon; the Pod pulls from the registry.
+- **`kubernetes` + `prebuilt`** — no Docker; only cluster access (`kubectl`), the cluster pulls the image.
+- **unset** — no Docker; subprocess tasks only, and a container task fails with a message naming the variable.
 
-- **`AAICLICK_RUNNER=docker`** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), to `docker run` tasks (and to `--load` local builds); `build` also needs `AAICLICK_BUILDKIT_ADDR` and exactly one of `AAICLICK_REGISTRY` / `AAICLICK_LOCAL_BUILD`.
-- **`AAICLICK_RUNNER=kubernetes`, `build` source** — **requires `AAICLICK_REGISTRY`** (worker startup rejects `AAICLICK_LOCAL_BUILD`; a missing registry fails in the build task); the injected build task needs the docker CLI with buildx and `AAICLICK_BUILDKIT_ADDR` — no daemon — then the Pod pulls from the registry.
-- **`AAICLICK_RUNNER=kubernetes`, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
-- **`AAICLICK_RUNNER` unset** — no Docker at all; the worker runs subprocess tasks only and fails a container task with a message naming the variable.
+After the cache check, a `build` preflights the builder (`docker buildx inspect --bootstrap`): a missing CLI, failed `buildx create`, unset `AAICLICK_BUILDKIT_ADDR` or unreachable buildkitd fails with an actionable error. Nothing falls back to the host daemon.
 
-After the cache check, a `build` preflights the builder (`docker buildx inspect --bootstrap`): a missing CLI, a failed `buildx create`, an unset `AAICLICK_BUILDKIT_ADDR` or an unreachable buildkitd fails the build with an actionable error. Nothing falls back to the host daemon.
+**Default Dockerfile.** When `dockerfile` is unset and the checkout has none, the build task writes a default (`execution/docker_scaffold.py`, from the detected root manifest) plus a `.dockerignore` for `.git` if the repo has none: a thin layer on `BASE_IMAGE` that copies the repo to `/src` and runs the install step the manifest calls for (`docs/user_guide/container_images.md` "Runner base"). Entrypoints import from there, so each directory on an entrypoint's path must be an importable package name.
 
-**Default Dockerfile** — when `dockerfile` is unset and the checkout has none, the build task writes `docker_scaffold.render_default_dockerfile(detect_manifest(checkout))` into the checkout (plus a `.dockerignore` for `.git` when the repo has none) and builds with it: a thin layer on `BASE_IMAGE` that copies the repo to `/src`, plus the install step the root manifest calls for (`docs/user_guide/container_images.md` "Runner base"); entrypoints import from there, so each directory on an entrypoint's path must be an importable package name. `BASE_IMAGE` is a build-arg forwarded on every build (buildkitd pulls it, so a locally built base must be pushed to a registry first): `AAICLICK_BASE_IMAGE` on the worker (rc workers whose release tag is not promoted yet, dev installs), else `ghcr.io/kolodkin/aaiclick:v<worker's version>`. A checked-in `Dockerfile` wins; an explicit `dockerfile=` path that is absent, or resolves outside the checkout, fails. The image key is unchanged — the fallback is a build-time detail, so a cached image keeps the base version of the worker that built it until the SHA changes (mixed-version fleets are not supported anyway). This lets a repo of submitted job files (the sandbox) build without a platform-authored Dockerfile: the sandbox calls `run_job` with only `git_remote` / `git_sha` (`docs/user_guide/sandbox.md`).
+- `BASE_IMAGE` is a build-arg forwarded on every build: `AAICLICK_BASE_IMAGE` on the worker (rc workers whose release tag is not promoted yet, dev installs), else `ghcr.io/kolodkin/aaiclick:v<worker's version>`. buildkitd pulls it, so a locally built base must be pushed to a registry first.
+- A checked-in `Dockerfile` wins; an explicit `dockerfile=` path that is absent or resolves outside the checkout fails.
+- The image key is unchanged — the fallback is a build-time detail, so a cached image keeps the base version of the worker that built it until the SHA changes (mixed-version fleets are unsupported anyway).
+- This lets a repo of submitted job files (the sandbox) build without a platform-authored Dockerfile: the sandbox calls `run_job` with only `git_remote` / `git_sha` (`docs/user_guide/sandbox.md`).
 
 ## Shell entry type
 
-A `shell` task runs a literal argv (`command`, a list) instead of importing a
-Python `entrypoint`. Success is **exit code 0**. Its stdout and stderr stream
-into the ClickHouse `task_logs` table (separate pipes, so lines keep their
-source stream) every `LOG_FLUSH_INTERVAL` (2 s) under a registered `run_id`,
-so logs are tailable live on every runner.
+A `shell` task runs a literal argv (`command`, a list) instead of a Python `entrypoint`; success is **exit code 0**. Its stdout and stderr stream live into `task_logs` on every runner (see [Task Logs](#task-logs)).
 
-Inputs and result travel as `in.json` / `out.json` under `AAICLICK_IO_DIR` —
-the Task Interface, which also lets a shell task spawn children: see
-`docs/designs/task_interface.md` for the vocabulary, the file data plane and
-its transport on each runner (host subprocess, docker, kubernetes), and the
-env a container receives (`command_env` + `AAICLICK_IO_DIR` only, never the
-runner env).
-
-Submit via:
+Inputs and result travel as `in.json` / `out.json` under `AAICLICK_IO_DIR` — the Task Interface, which also lets a shell task spawn children. `docs/designs/task_interface.md` covers the vocabulary, the file data plane, its transport per runner, and the env a container receives (`command_env` + `AAICLICK_IO_DIR` only, never the runner env).
 
 ```python
 run_job(name, entry_type="shell", command=["python", "main.py"], command_env={"K": "v"})
 ```
 
-```bash
-python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' --command-env K=v
-```
-
-REST/MCP submission uses the same fields on `RunJobRequest`.
+The CLI (`--entry-type shell --command ... --command-env K=v`) and REST/MCP (`RunJobRequest`) take the same fields.
 
 ## Execution layers
 
 **Implementation**: `aaiclick/orchestration/execution/dispatch.py`
 
-The runner's *invocation* sits at a different layer than the task it runs, and the `module` path blurs the two. The same three layers exist for every runner, host → execution environment:
+A runner's *invocation* sits at a different layer than the task it runs; the `module` path blurs the two. Every runner has the same three layers:
 
-1. **Host worker** — the runner's ExecuteFn (`_run_task_in_child` / `_run_task_in_container` / `_run_task_in_pod`, and `_run_shell_in_container` / `_run_shell_in_pod` for shell and jvm): claim, heartbeat, cancellation poll, wait, result read.
-2. **Runner invocation** — *what the runner launches*: the mp child target, the `docker run <image> <argv>` command, or the Pod `command`. This is the **runner** level, not the task's own definition. **`entry_type` branches here.**
+1. **Host worker** — the runner's ExecuteFn (`mp_worker.py`, `docker_worker.py`, `kubernetes_worker.py`): claim, heartbeat, cancellation poll, wait, result read.
+2. **Runner invocation** — *what the runner launches*: the mp child target, `docker run <image> <argv>`, or the Pod `command`. **`entry_type` branches here.**
 3. **Task execution** — `execute_task(task)` running the module entrypoint.
 
-`python -m aaiclick.orchestration.execution.remote_result --task-id N --run-epoch M` (run by both docker containers and Pods) is a **layer-2 bootstrap shim** — framework plumbing, *not* a queue-claiming loop and *not* task execution (layer 3): it loads one task by id, boots `orch_context()`, calls `execute_task`, writes a `RemoteTaskResult` row, and exits.
+`python -m aaiclick.orchestration.execution.remote_result --task-id N --run-epoch M` (run by docker containers and Pods) is a **layer-2 bootstrap shim** — not a queue-claiming loop, not task execution: it loads one task by id, boots `orch_context()`, calls `execute_task`, writes a `RemoteTaskResult` row and exits.
 
-| entry_type | layer-2 runner invocation                          | layer-3 execution               |
-|------------|----------------------------------------------------|---------------------------------|
-| `module`   | bootstrap shim (mp child / `remote_result` shim in a container or Pod) | shim calls `execute_task` |
-| `shell`    | the user's argv directly, with `in.json` / `out.json` under `AAICLICK_IO_DIR` | none — the argv *is* the execution |
-| `jvm`      | the image's own `ENTRYPOINT` (the `aaiclick-task-api` shim) + the class name | the shim reads `in.json`, invokes the `@AaiTask` method, writes `out.json` |
+| entry_type | layer-2 runner invocation                                                     | layer-3 execution                                                          |
+|------------|-------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| `module`   | bootstrap shim (mp child / `remote_result` shim in a container or Pod)        | shim calls `execute_task`                                                  |
+| `shell`    | the user's argv directly, with `in.json` / `out.json` under `AAICLICK_IO_DIR` | none — the argv *is* the execution                                         |
+| `jvm`      | the image's own `ENTRYPOINT` (the `aaiclick-task-api` shim) + the class name  | the shim reads `in.json`, invokes the `@AaiTask` method, writes `out.json` |
 
-So for a `module` task the user's entrypoint runs *inside* the shim; for a `shell` task the user's argv *replaces* the shim, bypassing both the bootstrap and `execute_task`, in whatever environment the runner provides. A `jvm` task is a shell task whose argv is a class name: the shim is the SDK jar embedded in the user's image (`docs/designs/java-sdk.md`), and it speaks the shell file data plane.
+A `module` entrypoint runs *inside* the shim; a `shell` argv *replaces* it, bypassing bootstrap and `execute_task`. A `jvm` task is a shell task whose argv is a class name: the shim is the SDK jar embedded in the user's image (`docs/designs/java-sdk.md`) and speaks the shell file data plane.
 
 # DB Models
 
 **Implementation**: `aaiclick/orchestration/models.py`
 
-All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](https://clickhouse.com/docs/sql-reference/functions/uuid-functions#generateSnowflakeID) — distributed, time-ordered, no DB round-trip. Stored as `BIGINT`.
+All entities use **Snowflake IDs** from ClickHouse [`generateSnowflakeID()`](https://clickhouse.com/docs/sql-reference/functions/uuid-functions#generateSnowflakeID) — distributed, time-ordered, no DB round-trip — stored as `BIGINT`.
 
 ## Status Enums
 
-| Enum           | Values                                          |
-|----------------|-------------------------------------------------|
-| `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED  |
-| `TaskStatus`   | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_FAILURE_CLEANUP, PENDING_CANCELLED_CLEANUP, UPSTREAM_FAILED |
-| `ExecutionWorkerStatus` | ACTIVE, STOPPING, STOPPED                       |
-| `RunType`      | SCHEDULED, MANUAL                               |
+| Type                    | Values                                                                                                              |
+|-------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `JobStatus`             | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED                                                                      |
+| `TaskStatus`            | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_FAILURE_CLEANUP, PENDING_CANCELLED_CLEANUP, UPSTREAM_FAILED |
+| `ExecutionWorkerStatus` | ACTIVE, STOPPING, STOPPED                                                                                           |
+| `RunType`               | SCHEDULED, MANUAL, SANDBOX                                                                                          |
 
 Three `TaskStatus` values are set by the background sweep, not the worker:
 
-- `PENDING_FAILURE_CLEANUP` — transient; a failed or dead-worker run awaiting
-  ref cleanup before it retries to PENDING or settles to FAILED.
-- `PENDING_CANCELLED_CLEANUP` — transient; set by `cancel_job` and the
-  fail-fast group-sibling abort. The worker kills the run; the sweep drops
-  the attempt's refs and settles the task to CANCELLED once no worker owns it
-  (`execution_worker_id` is NULL — released by `release_cancelled_run` on
-  report-back, or by the expired-claim sweep).
-- `UPSTREAM_FAILED` — terminal; a pending task whose transitive upstream
-  failed or was cancelled.
+- `PENDING_FAILURE_CLEANUP` — transient; a failed or dead-worker run awaiting ref cleanup before it retries to PENDING or settles to FAILED.
+- `PENDING_CANCELLED_CLEANUP` — transient; set by `cancel_job` and the fail-fast group-sibling abort. The worker kills the run; the sweep drops the attempt's refs and settles the task to CANCELLED once no worker owns it (`execution_worker_id` is NULL — released on report-back or by the expired-claim sweep).
+- `UPSTREAM_FAILED` — terminal; a pending task whose transitive upstream failed or was cancelled.
 
 ## Entities
 
-- **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preservation_mode`, `next_run_at`, `created_at`, `updated_at`
-- **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preservation_mode`, `created_at`, `started_at`, `completed_at`, `error`
-- **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `error`, `execution_worker_id`, `run_epoch` (fencing token bumped by `clear_task`), timestamps
-- **Group** — logical task grouping with optional nesting via `parent_group_id`; fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`
-- **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
-- **ExecutionWorker** — active worker process; fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`
+- **RegisteredJob** — job catalog entry (unique `name`, cron `schedule`, defaults, `next_run_at`); see [Registered Jobs](#registered-jobs).
+- **Job** — one workflow run, optionally linked to its `RegisteredJob`.
+- **Task** — single executable unit. `run_epoch` is a fencing token bumped on every reset or reclaim.
+- **Group** — logical task grouping, nestable via `parent_group_id`.
+- **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; each side is `'task'` or `'group'`, so all four combinations are supported.
+- **ExecutionWorker** — a worker process with heartbeat and task counters.
 
 ## Task Parameter Serialization
 
-Task kwargs and results are JSON: plain values are data, and a dict carrying
-the reserved key `_aaiclick_type` is a ref (`upstream`, `object`, `native`,
-…) or a returned task DAG (`task`, `group`, `task_result`). The vocabulary,
-handles and return-value rules are the Task Interface —
-`docs/designs/task_interface.md`; `aaiclick/data/object/refs.py` is the
-single source of truth.
+Task kwargs and results are JSON: plain values are data; a dict carrying the reserved key `_aaiclick_type` is a ref (`upstream`, `object`, `native`, …) or a returned task DAG (`task`, `group`, `task_result`). Vocabulary, handles and return-value rules: `docs/designs/task_interface.md`; `aaiclick/data/object/refs.py` is the single source of truth.
 
 # Task Execution
 
@@ -288,109 +233,74 @@ single source of truth.
 
 **Implementation**: `aaiclick/orchestration/execution/execution_worker.py`
 
-Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown, and per-task lifecycle creation.
+Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown and per-task lifecycle creation.
 
 ## Worker Liveness
 
-Rules for heartbeats, the dead-worker sweep and task ownership. Constants
-live in `models.py` next to `ExecutionWorker`.
+Constants live in `models.py`.
 
-1. **`WORKER_TIMEOUT` is 10 minutes.** Long enough that a live worker never
-   gets swept. Trade-off: a dead worker's tasks wait that long before anyone
-   takes them over.
-2. **Worker self-stop.** A worker stops itself when a heartbeat reports it
-   STOPPED (the conditional update matched no row) or its last successful
-   heartbeat is older than `SELF_STOP_AFTER` (80% of `WORKER_TIMEOUT`). It
-   aborts its running task without reporting it and exits; it rejoins only as
-   a new `execution_workers` row. `SELF_STOP_AFTER < WORKER_TIMEOUT`, so a
-   worker cut off from the DB has stopped by the time it is swept.
-3. **Heartbeat never revives a STOPPED worker.** `execution_worker_heartbeat`
-   updates `execution_workers` only where `status != STOPPED`. It depends on
-   rule 2, or a revived worker keeps running unseen.
-4. **Worker lifetime and task lifetime are independent.** Ownership lives on
-   the task (`tasks.execution_worker_id` plus `tasks.claim_expires_at`), never
-   on worker status. Sweeping a worker STOPPED leaves its tasks alone; a task
-   is reclaimed to `PENDING_FAILURE_CLEANUP` only when its own claim expires.
-   Each heartbeat renews the running task's claim (`renew_claim`); a refused
-   renewal means the run was aborted, and the cancellation watcher terminates
-   it. A task can outlive its worker (retried elsewhere); a worker outlives
-   many tasks.
-5. **Double processing cannot be fully avoided.** Tasks must be idempotent.
-   Reclaiming an expired claim bumps `run_epoch`, so the lost owner's late
-   status writes are rejected; a side effect that cannot be repeated safely
-   (payments, emails) must carry the epoch itself and reject an old one.
+1. **`WORKER_TIMEOUT` is 10 minutes** — long enough that a live worker is never swept. Trade-off: a dead worker's tasks wait that long before takeover.
+2. **Worker self-stop.** A worker stops itself when a heartbeat reports it STOPPED (the conditional update matched no row) or its last successful heartbeat is older than `SELF_STOP_AFTER` (80% of `WORKER_TIMEOUT`). It aborts its running task without reporting it, exits, and rejoins only as a new `execution_workers` row. Since `SELF_STOP_AFTER < WORKER_TIMEOUT`, a worker cut off from the DB has stopped by the time it is swept.
+3. **Heartbeat never revives a STOPPED worker** — it updates only where `status != STOPPED`. This depends on rule 2, or a revived worker keeps running unseen.
+4. **Worker lifetime and task lifetime are independent.** Ownership lives on the task (`tasks.execution_worker_id` + `tasks.claim_expires_at`), never on worker status. Sweeping a worker STOPPED leaves its tasks alone; a task is reclaimed to `PENDING_FAILURE_CLEANUP` only when its own claim expires. Each heartbeat renews the running task's claim; a refused renewal means the run was aborted, and the cancellation watcher terminates it. A task can outlive its worker (retried elsewhere); a worker outlives many tasks.
+5. **Double processing cannot be fully avoided.** Tasks must be idempotent. Reclaiming an expired claim bumps `run_epoch`, so the lost owner's late status writes are rejected; a side effect that cannot be repeated safely (payments, emails) must carry the epoch itself and reject an old one.
 
 ## Task Claiming
 
 **Implementation**: `aaiclick/orchestration/execution/claiming.py`
 
-Finds the oldest pending task with all dependencies satisfied and atomically claims it. Transitions job PENDING→RUNNING on first claim. PostgreSQL uses `FOR UPDATE SKIP LOCKED`; SQLite uses sequential SELECT + UPDATE.
+Atomically claims the oldest pending task whose dependencies are all satisfied, moving its job PENDING→RUNNING on first claim (per-backend strategy: [Deployment Modes](#deployment-modes)).
 
 # Job Management
 
 **Implementation**: `aaiclick/orchestration/jobs/`
 
-- `queries.py` — `get_job()`, `list_jobs(status, name_like, limit, offset)`, `count_jobs()`, `get_tasks_for_job()`
-- `view_models.py` (package root) — `compute_job_stats_view()` for execution stats
-- `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `execution/claiming.py`.
-- `clear_task(task_id)` — resets a task and all its transitive downstream tasks to PENDING for re-run (Airflow-style "clear task"); leaves upstream tasks and their output tables untouched, and reactivates a terminal job to RUNNING. Each reset bumps the task's `run_epoch` fence so an in-flight worker's late writes are rejected. See `execution/claiming.py`.
+Queries live in `jobs/`; cancel and clear in `execution/claiming.py`.
 
-Workers detect cancellation by polling task status. **Known limitation**: CPU-bound tasks won't interrupt until they yield.
+- **Cancel** atomically cancels a job and all its non-terminal tasks; a missing or already-terminal job is a no-op.
+- **Clear** (Airflow-style) resets a task and all its transitive downstream tasks to PENDING for re-run. Upstream tasks and their output tables are untouched; a terminal job is reactivated to RUNNING. Each reset bumps `run_epoch`, so an in-flight worker's late writes are rejected.
+
+Workers detect cancellation by polling task status. **Known limitation**: CPU-bound tasks don't interrupt until they yield.
 
 # Registered Jobs
 
 **Implementation**: `aaiclick/orchestration/registered_jobs.py`
 
-Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, preservation-mode defaults, and enabled flag.
-
-## Registration & CRUD
-
-- `register_job(name, entrypoint, schedule, default_kwargs, preservation_mode, enabled, replace)` — create a catalog entry; `replace=True` overwrites an existing one
-- `get_registered_job(name)` — lookup by name
-- `enable_job(name)` / `disable_job(name)` — toggle enabled, recompute `next_run_at`
-- `list_registered_jobs(enabled_only)` — list all or enabled only
+Catalog of known jobs, separate from runs. Each entry stores entrypoint, optional cron schedule, default kwargs, preservation-mode default and enabled flag. Re-registering needs `replace=True`; enable/disable recompute `next_run_at`.
 
 ## Preservation Config Precedence
 
-`preservation_mode` follows a four-level precedence chain resolved by `factories.resolve_job_config()`:
+`preservation_mode` resolves through four levels (`factories.py`):
 
-| Level | Source                                        | Wins when                                    |
-|-------|-----------------------------------------------|-----------------------------------------------|
-| 1     | Explicit `run_job(...)` / `create_job(...)` argument | The caller passes a non-`None` value   |
-| 2     | `RegisteredJob.preservation_mode`             | The registered job carries a default          |
-| 3     | `AAICLICK_DEFAULT_PRESERVATION_MODE` env var  | Set in environment                            |
-| 4     | `PRESERVATION_NONE`                           | Hardcoded fallback                            |
+| Level | Source                                               | Wins when                            |
+|-------|------------------------------------------------------|--------------------------------------|
+| 1     | Explicit `run_job(...)` / `create_job(...)` argument | The caller passes a non-`None` value |
+| 2     | `RegisteredJob.preservation_mode`                    | The registered job carries a default |
+| 3     | `AAICLICK_DEFAULT_PRESERVATION_MODE` env var         | Set in environment                   |
+| 4     | `"NONE"`                                             | Hardcoded fallback                   |
 
-`None` at any level means "inherit from the next level"; an explicit mode terminates the chain.
-
-Scheduled runs inherit the registered job's level-2 defaults automatically. Manual runs via `run_job()` or the CLI can override at level 1.
+`None` at any level inherits from the next; an explicit mode ends the chain. Scheduled runs get the level-2 default; manual runs (`run_job()`, CLI) can override at level 1.
 
 ## run_job
 
-`run_job(name, entrypoint, kwargs, preservation_mode)` — links to the existing `RegisteredJob` if one matches `name` (and merges `kwargs` over its `default_kwargs`); otherwise runs standalone with `registered_job_id=None`. Resolves preservation config via the precedence chain above and creates a Job with `run_type=MANUAL` plus the entry point Task. See [ObjectContext — Preservation Modes](../user_guide/object_context.md#preservation-modes) for the two modes' semantics.
+Links to the `RegisteredJob` matching `name` if one exists (merging `kwargs` over its `default_kwargs`); otherwise runs standalone with `registered_job_id=None`. Creates a `MANUAL` Job plus its entry Task. Mode semantics: [ObjectContext — Preservation Modes](../user_guide/object_context.md#preservation-modes).
 
 ## Cron Scheduling
 
-`BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates; once the lock commits, each run is created through `run_job(run_type="SCHEDULED")`, so registration config (preservation mode, runner, image source) applies as for a manual run. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
+`BackgroundWorker` polls enabled jobs with `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates; once the lock commits, each run goes through `run_job(run_type="SCHEDULED")`, so registration config (preservation mode, runner, image source) applies as for a manual run. Cron is parsed by `croniter`; `next_run_at` is recomputed on registration, enable, and after each run.
 
 # CLI
 
 **Implementation**: `aaiclick/orchestration/cli.py`
 
-## Local Mode (chdb + SQLite)
-
-Single process, no infrastructure required. `local start` runs the
-combined REST + MCP server with the background and execution workers
-wired into the FastAPI lifespan — auto-runs setup if needed.
+**Local mode** (chdb + SQLite) — one process, no infrastructure. `local start` runs the combined REST + MCP server with the background and execution workers in the FastAPI lifespan, running setup first if needed:
 
 ```bash
 python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 # Stop with Ctrl+C / SIGTERM — the lifespan tears down workers cleanly.
 ```
 
-## Distributed Mode (ClickHouse + PostgreSQL)
-
-Independent processes; tasks run in child processes for isolation.
+**Distributed mode** (ClickHouse + PostgreSQL) — independent processes; tasks run in child processes for isolation:
 
 ```bash
 python -m aaiclick execution-worker start [--max-tasks N]
@@ -402,35 +312,25 @@ python -m aaiclick background start
 !!! warning "`execution-worker start`/`background start` require distributed backends"
     In local mode, use `local start` instead.
 
-## Common Commands
-
-```bash
-python -m aaiclick job get <id>
-python -m aaiclick job cancel <id>
-python -m aaiclick job list [--status RUNNING] [--like "%crawl%"] [--limit 20 --offset 40]
-python -m aaiclick job enable <name>          # Enable a registered job
-python -m aaiclick job disable <name>         # Disable a registered job
-python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--build | --image python:3.12] [--replace]
-python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--entry-type module|shell|jvm] [--command 'python main.py'] [--command-env K=v] [--image python:3.12]
-python -m aaiclick registered-job list        # List registered jobs
-```
+Job and registry commands: [user guide](../user_guide/orchestration.md).
 
 # Orchestration Operators
 
 **Implementation**: `aaiclick/orchestration/operators.py`
 
-| Operator                                              | Description                                                                                        |
-|-------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| `map(cbk, obj, partition, args, kwargs) -> Task`      | Expander Task. Partitions Object into Views, creates N `_map_part` children; result is the output. |
-| `_map_part(cbk, part, out) -> None`                   | Applies `cbk(row, *args, **kwargs)` to each record; non-None returns are inserted into `out`.      |
-| `_finalize(out) -> Object`                            | Join task after the parts (or the last layer); the expander returns it as data.                    |
-| `reduce(cbk, obj, partition, args, kwargs) -> Task`   | Expander Task. Layered parallel reduction; result is the final single-row Object.                  |
-| `_expand_reduce(cbk, obj, ...) -> (Task, [Groups])`   | Pre-allocates all layer Objects and tasks at once.                                                 |
-| `_reduce_part(cbk, part, layer_obj) -> None`          | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`.                        |
+`map()` and `reduce()` return an **expander** task that fans out at runtime; the names below are the tasks it adds to the job graph.
+
+| Task                                                | Role                                                                                          |
+|-----------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| `map(cbk, obj, partition, args, kwargs) -> Task`    | Partitions the Object into Views, creates N `_map_part` children; result is the output.       |
+| `_map_part`                                         | Applies `cbk(row, *args, **kwargs)` to each record; non-None returns are inserted into `out`. |
+| `reduce(cbk, obj, partition, args, kwargs) -> Task` | Layered parallel reduction; result is the final single-row Object.                            |
+| `_reduce_part`                                      | Calls `cbk(partition, output)`; the callback writes directly into the layer Object.           |
+| `_finalize`                                         | Join task after the parts (or last layer); the expander returns it as data.                   |
 
 ## reduce()
 
-Layered parallel reduction. Callback receives input partition and pre-allocated output Object; writes via `output.insert()`. All layers created at once; each layer depends on the previous.
+The callback receives an input partition and a pre-allocated output Object and writes via `output.insert()`. All layer Objects and tasks are created at once; each layer depends on the previous.
 
 ```
 Layer 0  input=N      tasks=⌈N/P⌉   → layer_0_obj
@@ -440,49 +340,34 @@ Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
-Consumers of the expander wait for every layer: the expander's data is a
-`_finalize` task after the last layer, and `register_returned_tasks` copies every
-edge leaving the expander (or its group) onto `_finalize` (see
-`_hold_dependencies` in `runner.py`). A group consumer stays a group edge, so
-members it gains later are held too. The same hold applies to any `task_result`
-whose data is one of its returned tasks.
+Consumers of the expander wait for every layer: the expander's data is the `_finalize` task after the last layer, and registering returned tasks copies every edge leaving the expander (or its group) onto `_finalize` (`execution/runner.py`). A group consumer stays a group edge, so members it gains later are held too. The same hold applies to any `task_result` whose data is one of its returned tasks.
 
 ## Graph Frame
 
-Each call draws as one frame in the job graph (`_framed` / `_join_frame`):
+Each call draws as one frame in the job graph:
 
-- `map()` / `foreach()` / `reduce()` put the expander in a `map` / `foreach` /
-  `reduce` group at definition time.
-- At runtime the expander nests its parts group(s) (`parts`, or `layer_N`)
-  under its own group (`TaskInfo.group_id`) and adds `_finalize` to it.
+- `map()` / `foreach()` / `reduce()` put the expander in a `map` / `foreach` / `reduce` group at definition time.
+- At runtime the expander nests its parts group(s) (`parts`, or `layer_N`) under its own group and adds `_finalize` to it.
 
-The frame is not only drawn: `_framed` commits one extra `groups` row per call.
-It changes no scheduling:
+The frame commits one extra `groups` row per call but changes no scheduling:
 
-- No edge touches the frame, so `DEPENDENCY_WHERE` and the hold on `_finalize`
-  are unchanged.
-- The expander and `_finalize` are its direct members, so they are fail-fast
-  siblings. They never run at the same time, so the sibling abort has nothing
-  to cancel.
+- No edge touches the frame, so the dependency filter and the hold on `_finalize` are unchanged.
+- The expander and `_finalize` are its direct members, hence fail-fast siblings; they never run at the same time, so the sibling abort has nothing to cancel.
 - Job cleanup deletes the frame with the job's other groups.
 
-The frame is linked only through membership (`group_id` / `parent_group_id`),
-so `_collect_from_registry` visits a task's group and a group's parent before
-the node; otherwise the frame is never committed. If a user moves the expander
-into a group of their own, the frame is never committed and the parts nest
-under the user's group.
+The frame is linked only through membership (`group_id` / `parent_group_id`), so task registration (`orch_context.py`) visits a task's group and a group's parent before the node; otherwise the frame is never committed. If a user moves the expander into a group of their own, the frame is never committed and the parts nest under the user's group.
 
 # Distributed Object Lifecycle
 
 **Implementation**: `aaiclick/orchestration/lifecycle/`
 
-In distributed mode, Object table lifecycle is managed through three PostgreSQL tables:
+In distributed mode, Object table lifecycle lives in three PostgreSQL tables:
 
-| Table                | PK                         | Purpose                                              |
-|----------------------|----------------------------|------------------------------------------------------|
-| `table_context_refs` | `(table_name, context_id)` | Registry of which tasks created/used a table         |
-| `table_run_refs`     | `(table_name, run_id)`     | Active run references (incref/decref)                |
-| `table_pin_refs`     | `(table_name, task_id)`    | Per-consumer pins protecting result tables           |
+| Table                | PK                         | Purpose                                      |
+|----------------------|----------------------------|----------------------------------------------|
+| `table_context_refs` | `(table_name, context_id)` | Registry of which tasks created/used a table |
+| `table_run_refs`     | `(table_name, run_id)`     | Active run references (incref/decref)        |
+| `table_pin_refs`     | `(table_name, task_id)`    | Per-consumer pins protecting result tables   |
 
 The background worker is the sole cleanup authority.
 
@@ -501,16 +386,16 @@ ExecutionWorker Process (spawns child per task)
 └── orch_context() — shared SQL session
 ```
 
+- **Write-ahead incref**: `create_object()` increfs before `CREATE TABLE`, so a crash between the two is harmless (`DROP TABLE IF EXISTS`).
+- **Local mode**: `LocalLifecycleHandler` wraps an asyncio table worker — immediate DROP on refcount 0, no PostgreSQL. See [ObjectContext](../user_guide/object_context.md).
+
 ## Pin Lifecycle
 
-Only at runtime — when a producer task returns an Object — do we know
-both the `table_name` and the upstream `task_id`. The downstream consumer
-task_ids are discovered via the dependencies table. This is the only point
-where the table→task mapping exists.
+Only at runtime — when a producer returns an Object — are both the `table_name` and the upstream `task_id` known; the consumers are found through the dependencies table. This is the only point where the table→task mapping exists.
 
 ```
 Task A executes, returns Object(table=T)
-  ├── PIN fans out one hop via dependencies table (see successor_task_ids):
+  ├── PIN fans out one hop via the dependencies table:
   │   → inserts pin_ref(T, B.task_id), pin_ref(T, C.task_id)
   └── task_scope exit: decref all → run_refs removed, pin_refs protect T
 
@@ -523,33 +408,30 @@ Task C fails
       the failure pass drops it only once C settles to FAILED
 
 All consumers succeeded or settled → 0 pin_refs, 0 run_refs → eligible for cleanup
-
-Dynamic children (map / reduce parts) exist only after their parent has
-pinned, so `register_returned_tasks` pins each child on every ephemeral
-table its kwargs reference (see _pin_child_inputs). The child releases
-them like any consumer.
 ```
+
+Dynamic children (map / reduce parts) exist only after their parent has pinned, so registering returned tasks pins each child on every ephemeral table its kwargs reference. The child releases them like any consumer.
 
 ## OrchLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/orch_context.py`
 
-Uses `task_id` as `context_id` for context_refs. Pin fans out to consumers one dependency hop away through all four edge shapes (`successor_task_ids` in `dependency_graph.py`). A consumer releases all of its pin_ref rows once its function returns successfully, including pins for tables it never reads (ordering edges).
-
-**PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
+Uses `task_id` as the `context_id` of context_refs. Pin fans out to consumers one dependency hop away through all four edge shapes (`dependency_graph.py`). A consumer releases all its pin_refs once its function returns successfully, including pins on tables it never reads (ordering edges).
 
 ## BackgroundWorker
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py`
 
-Operations per poll include:
+Runs these passes every `poll_interval` (default 10s), in order:
 
-1. **Job cleanup** — clear `job_id` on pin refs for completed/failed/cancelled jobs
-2. **Table cleanup** — DROP tables where no context_ref has non-NULL `job_id` AND no run_refs exist
-3. **Liveness** — expired heartbeats → workers STOPPED; expired claims → tasks PENDING_FAILURE_CLEANUP
-4. **Job scheduling** — create Job runs for registered jobs whose `next_run_at` is due
+1. **Failure / cancelled cleanup** — drops refs of failed and cancelled runs and settles them. Failure runs first: its fail-fast sweep cancels group siblings, which the cancelled pass then settles in the same cycle.
+2. **Table cleanup** — DROPs tables with no pin_refs and no run_refs, skipping jobs with `"FULL"` preservation.
+3. **Expired jobs** — deletes all data of jobs past `AAICLICK_JOB_TTL_DAYS` (CH tables, oplog, `task_logs`, SQL metadata), plus orphans: tables registered without a job (`job_id IS NULL`) older than the same TTL.
+4. **Liveness** — expired heartbeats → workers STOPPED (cutoff `WORKER_TIMEOUT`); expired claims → tasks PENDING_FAILURE_CLEANUP.
+5. **Job scheduling** — creates runs for registered jobs whose `next_run_at` is due.
+6. **Sandbox files** — submits every `@job` of a pending sandbox file once.
 
-Config: `poll_interval` (default 10s); the sweep cutoff is `WORKER_TIMEOUT` (10 min).
+One failing pass (e.g. a DB restart) is logged and does not stop the loop or the other passes.
 
 Uses the caller's `orch_context` engine and CH client and owns neither: `local_runtime`
 starts it in the server's context, `background start` in its own. The scheduled-run and
@@ -557,15 +439,15 @@ sandbox-run passes nest an `orch_context` only for a fresh task registry.
 
 ## View Lifecycle
 
-Views share the underlying ClickHouse table with their source Object. This interacts with `table_run_refs` in a non-obvious way.
+Views share the underlying ClickHouse table with their source Object, which interacts with `table_run_refs` in a non-obvious way.
 
-**`table_run_refs` is a set, not a counter.** The composite PK `(table_name, run_id)` means at most one row exists per table per run — `INSERT … ON CONFLICT DO NOTHING`. A second `incref` for the same table in the same run is a no-op; the matching `decref` still deletes the one row.
+**`table_run_refs` is a set, not a counter.** The PK `(table_name, run_id)` allows one row per table per run (`INSERT … ON CONFLICT DO NOTHING`). A second `incref` in the same run is a no-op; the matching `decref` still deletes the one row.
 
-**Views do not own lifecycle refs.** `_owns_lifecycle_ref = False` on every View. Only the source Object that originally called `_register()` (and actually inserted a row into `table_run_refs`) issues the corresponding `decref`. This prevents a View's `__del__` from deleting the source's run_ref while the source Object is still alive.
+**Views do not own lifecycle refs.** Only the source Object that registered the table (and actually inserted the `table_run_refs` row) issues the matching `decref`, so a View's `__del__` cannot delete the source's run_ref while the source is still alive.
 
-**Within-task View lifetime** is managed by Python reference counting: `View.__init__` stores `_source_obj = source`, keeping the source Object alive as long as the View is alive. When the View is GC'd the Python ref is released — if the source has no other refs, it is also GC'd and its `decref` fires normally.
+**Within a task**, a View holds a Python reference to its source, keeping it alive as long as the View is. When the View is GC'd and the source has no other refs, the source is GC'd too and its `decref` fires normally.
 
-**Cross-task View lifetime** uses the PIN mechanism — the same as for Objects:
+**Across tasks**, Views use the same PIN mechanism as Objects:
 
 ```
 Task A returns View(table=T)
@@ -573,68 +455,38 @@ Task A returns View(table=T)
   └── task_scope exit → decref(T) [run_refs → 0, pin protects]
 
 Task B deserializes View
-  ├── fresh source = Object(table=T); source._register() → INCREF(T)
-  ├── view = View(source=source)   [_source_obj keeps source alive]
+  ├── fresh source = Object(table=T); registering it → INCREF(T)
+  ├── view = View(source=source)   [view keeps source alive]
   └── release_pins() on success     [FIFO: after INCREF commits]
 ```
 
-The deserialized source Object holds its own `_owns_lifecycle_ref = True` and issues a normal `decref` at `task_scope` exit.
-
-## Write-Ahead Incref
-
-`create_object()` calls `incref` before `CREATE TABLE` — crash between the two is harmless (`DROP TABLE IF EXISTS`).
-
-## TableSweeper
-
-Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowflake ID, drops tables older than threshold with no `table_context_refs` row.
-
-## Local Mode
-
-`LocalLifecycleHandler` wraps `TableWorker` — immediate DROP on refcount 0, no PostgreSQL. See [ObjectContext](../user_guide/object_context.md).
+The deserialized source owns its ref and issues a normal `decref` at `task_scope` exit.
 
 # Operation Provenance (Oplog)
 
-All Object operations within a task are automatically logged when `object_context(oplog=...)` is active. See `docs/user_guide/oplog.md` for the full specification.
+With `object_context(oplog=...)` active, every Object operation in a task is logged. Spec: `docs/designs/oplog.md`.
 
-# Configuration
+# Task Logs
 
-| Variable           | Default                              | Description                               |
-|--------------------|--------------------------------------|-------------------------------------------|
-| `AAICLICK_LOCAL_ROOT`    | `~/.aaiclick`                        | Base directory for all local-mode state   |
-| `AAICLICK_SQL_URL` | `sqlite+aiosqlite:///{root}/local.db`| SQLAlchemy async URL for orchestration DB |
-| `AAICLICK_CH_URL`  | `chdb://{root}/chdb_data`            | ClickHouse connection URL for data ops    |
-`is_local()` returns `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`.
+**Implementation**: `aaiclick/orchestration/logging.py`
 
-**Cross-host logs**: `capture_task_output` streams task stdout/stderr into the
-ClickHouse `task_logs` table from inside the task process, draining its
-capture sink every `LOG_FLUSH_INTERVAL` (2 s) with a running `seq` offset —
-long-running tasks are tailable live, and a killed run keeps everything
-flushed up to the last tick. Only stdout/stderr are captured — `logging` is
-left alone, so a record reaches the log only if its handler writes there. A
-failing task prints its traceback to stderr. Every row is tagged with its
-`stream` (`stdout`/`stderr`) and a per-line `created_at` (emit time, not
-flush time); the UI colors lines by keyword (`logTone` in
-`src/lib/logTone.ts`).
+Task stdout/stderr stream into the ClickHouse `task_logs` table every `LOG_FLUSH_INTERVAL` (2 s) with a running `seq` offset — long tasks are tailable live, and a killed run keeps everything flushed up to the last tick.
 
-Every entry type writes through the same `stream_to_task_logs` sink, so
-`get_task_logs` reads one host-independent source regardless of where the task
-ran. `module` tasks feed it in-process; for the rest the host pumps a
-process's pipes (`pump_process_output`):
+- Only stdout/stderr are captured; `logging` is left alone, so a record reaches the log only if its handler writes there. A failing task prints its traceback to stderr.
+- Each row carries its `stream` (`stdout`/`stderr`, kept apart by separate pipes) and a per-line `created_at` (emit time, not flush time); the UI colors lines by keyword (`src/lib/logTone.ts`).
+- Rows are job-scoped: the background worker drops a job's `task_logs` with its `operation_log` on TTL expiry, so logs share the job's retention.
 
-| Entry type | subprocess                        | docker                           | kubernetes                                  |
-|------------|-----------------------------------|----------------------------------|---------------------------------------------|
-| `module`   | task child: `capture_task_output` | container: `capture_task_output` | Pod: `capture_task_output`                  |
+Every entry type writes through one sink, so log reads hit one host-independent source wherever the task ran. `module` tasks feed it in-process; otherwise the host pumps the process's pipes:
+
+| Entry type | subprocess                        | docker                           | kubernetes                                          |
+|------------|-----------------------------------|----------------------------------|-----------------------------------------------------|
+| `module`   | task child: `capture_task_output` | container: `capture_task_output` | Pod: `capture_task_output`                          |
 | `shell`    | task child: argv pipes            | host: `docker logs -f`           | host: `kubectl logs -f -c task` (merged → `stdout`) |
 | `jvm`      | — (rejected at commit)            | host: `docker logs -f`           | host: `kubectl logs -f -c task` (merged → `stdout`) |
 
-Host-side following is the default for any container entry type other than
-`module` (`register_host_log_run`), so a new language SDK needs no logging code.
-A `module` container that exits without registering a run (bootstrap failed
-before `execute_task`: bad DB URL, broken image) has its output copied in by the
-host (`_collect_unfollowed_output` in `execution_worker.py`).
+Host-side following is the default for every container entry type except `module`, so a new language SDK needs no logging code. A `module` container that exits without registering a run (bootstrap failed before `execute_task`: bad DB URL, broken image) has its output copied in by the host.
 
-`AAICLICK_TASK_LOGS` picks where task output goes (`task_logs_destination` in
-`logging.py`):
+`AAICLICK_TASK_LOGS` picks where task output goes:
 
 | Value            | ClickHouse `task_logs` (UI log panel) | Console |
 |------------------|---------------------------------------|---------|
@@ -642,15 +494,17 @@ host (`_collect_unfollowed_output` in `execution_worker.py`).
 | `clickhouse`     | yes                                   | no      |
 | `console`        | no                                    | yes     |
 
-Console output is printed line by line. Container output carries a `[task N]`
-prefix — live for followed containers, at exit for `module` containers.
-aaiclick's own framework logs always go to the console.
+Console output is printed line by line. Container output carries a `[task N]` prefix — live for followed containers, at exit for `module` containers. aaiclick's own framework logs always go to the console.
 
-Implementation: `aaiclick/orchestration/logging.py`,
-`aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are
-job-scoped: the background worker's `_delete_job_data` drops a job's
-`task_logs` alongside its `operation_log` on TTL expiry, so logs share the
-job's retention lifecycle.
+# Configuration
+
+| Variable              | Default                               | Description                               |
+|-----------------------|---------------------------------------|-------------------------------------------|
+| `AAICLICK_LOCAL_ROOT` | `~/.aaiclick`                         | Base directory for all local-mode state   |
+| `AAICLICK_SQL_URL`    | `sqlite+aiosqlite:///{root}/local.db` | SQLAlchemy async URL for orchestration DB |
+| `AAICLICK_CH_URL`     | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops    |
+
+`is_local()` is `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` with `sqlite`.
 
 - **Setup (local)**: `python -m aaiclick setup`
-- **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`
+- **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` (`aaiclick/orchestration/migrate.py`)

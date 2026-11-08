@@ -14,8 +14,10 @@ imagePullSecrets: []
 # start with the raw template's placeholders. The full list is in
 # docs/user_guide/deployment.md.
 env:
-  sqlUrl: postgresql+asyncpg://aaiclick:change-me-postgres@aaiclick-postgres:5432/aaiclick
-  chUrl: clickhouse://default:change-me-clickhouse@aaiclick-clickhouse:8123/default
+  # Empty builds the URL from devDependencies below, so each database
+  # password lives in one place. Set a full URL for a managed database.
+  sqlUrl: ""
+  chUrl: ""
   # Registry the docker/kubernetes runner pushes task images to. Empty
   # disables the env var (subprocess and prebuilt-image jobs need none).
   registry: ""

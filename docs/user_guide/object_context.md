@@ -1,8 +1,10 @@
-# ObjectContext Documentation
+ObjectContext
+---
 
-## Overview
+# Overview
 
-The `ObjectContext` manages ClickHouse client lifecycle, Object tracking, and table lifecycle — the entry point for all data operations. Objects become stale when the context exits.
+The `ObjectContext` is the entry point for all data operations: it owns the
+ClickHouse client, tracks Objects and manages table lifecycle.
 
 ```python
 async with object_context():
@@ -11,8 +13,8 @@ async with object_context():
 # obj is now stale — using it raises RuntimeError
 ```
 
-To wrap an entire async function, use `object_context()` as a decorator (the
-parentheses are required — `object_context` is a factory):
+As a decorator it wraps a whole async function (the parentheses are required —
+`object_context` is a factory):
 
 ```python
 @object_context()
@@ -21,58 +23,21 @@ async def main():
     print(await obj.sum().data())  # 6
 ```
 
-## Managed Resources
+# Deployment Modes
 
-`object_context()` owns and sets five per-resource ContextVars for the duration of the block.
-Each resource lives in its own module so it can be accessed without importing `object_context`:
+`AAICLICK_CH_URL` selects the ClickHouse backend — embedded chdb by default, a
+ClickHouse server in distributed mode. Object operations work identically on
+both. URLs and setup: [Deployment — Deployment Modes](deployment.md#deployment-modes).
 
-| Resource             | Type                          | ContextVar          | Module               | Accessor              |
-|----------------------|-------------------------------|---------------------|----------------------|-----------------------|
-| ClickHouse client    | `ChClient`                    | `_ch_client_var`    | `ch_client.py`       | `get_ch_client()`     |
-| Table lifecycle      | `LifecycleHandler \| None`    | `_lifecycle_var`    | `lifecycle.py`       | `get_data_lifecycle()`|
-| Table engine         | `EngineType`                  | `_engine_var`       | `object_context.py`  | `get_engine()`        |
-| Object registry      | `dict[int, weakref.ref]`      | `_objects_var`      | `object_context.py`  | internal              |
-| Oplog collector      | `OplogCollector \| None`      | `_oplog_collector`  | `oplog/collector.py` | `get_oplog_collector()`|
+# Object Lifecycle and Staleness
 
-Each ContextVar is reset (via token) on context exit, so nested `object_context()` calls are safe.
-
-## Deployment Modes
-
-`AAICLICK_CH_URL` selects the ClickHouse backend. Both satisfy the `ChClient` protocol, so all Object operations work identically.
-
-=== "Local (default)"
-
-    Embedded chdb — no server needed:
-
-    ```bash
-    export AAICLICK_CH_URL="chdb:///~/.aaiclick/chdb_data"
-    export AAICLICK_SQL_URL="sqlite+aiosqlite:///~/.aaiclick/local.db"
-    ```
-
-=== "Distributed"
-
-    Remote ClickHouse + PostgreSQL:
-
-    ```bash
-    export AAICLICK_CH_URL="clickhouse://user:pass@host:8123/db"
-    export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
-    ```
-
-    Percent-encode reserved characters in the user or password (`@` → `%40`, `:` → `%3A`) in either URL.
-
-Ingest inserts are arrow-native: `create_object_from_value()` builds a `pa.Table` and calls `ChClient.insert_arrow()` — chdb inserts it via pyarrow's `Python()` table function, clickhouse-connect via its native `insert_arrow`. Type mapping: `ch_type_to_pa()` in `arrow_types.py`.
-
-See [Orchestration — Deployment Modes](orchestration.md#deployment-modes) for the full local/distributed comparison table.
-
-## Object Lifecycle and Staleness
-
-Objects become **stale** when the context exits — all async methods check via `self.checkstale()`.
+Objects become **stale** when the context exits; every async method checks first.
 
 !!! warning "Create and consume Objects within the same `object_context()` block"
     Using a stale Object raises `RuntimeError`. Persistent objects
     (created with `name=`) survive — reopen via `open_object()`.
 
-## Scopes: temp, temp_named, job, global
+# Scopes: temp, temp_named, job, global
 
 Every Object belongs to one of four scopes, identified by the table-name prefix:
 
@@ -83,9 +48,13 @@ Every Object belongs to one of four scopes, identified by the table-name prefix:
 | `job`        | `j_<job_id>_<name>`     | Dropped when the owning job's TTL expires         | `create_object_from_value(..., name="x", scope="job")`      |
 | `global`     | `p_<name>`              | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`   |
 
-**Default when `name` is set, no `scope=`**: `"temp_named"` everywhere — the table dies with the context, but the user-supplied `name` shows up in the table name (`t_<name>_<snowflake>`) for easier debugging in `system.tables`. Two callers passing `name="staging"` get two distinct tables — the snowflake disambiguates.
+With `name` and no `scope=`, the scope is `"temp_named"` everywhere: the table
+dies with the context, but `name` shows in `system.tables` for debugging. Two
+callers passing `name="staging"` get two distinct tables — the snowflake
+disambiguates.
 
-Persistent scopes (`"job"`, `"global"`) require an active `orch_context()` because they write a `table_registry` row that only the orch lifecycle handler maintains.
+Persistent scopes (`"job"`, `"global"`) require an active `orch_context()`:
+they write a `table_registry` row that only the orch lifecycle maintains.
 
 ```python
 # Bare object_context — name= produces a temp_named table.
@@ -111,13 +80,17 @@ async with task_scope(task_id=1, job_id=42, run_id=100):
     assert shared.table == "p_cross_job_catalog"
 ```
 
-`p_*` tables are **exempt** from job-TTL cleanup — the background worker never drops them, even for expired jobs. `j_<id>_*` tables are dropped only when the job itself expires (`AAICLICK_JOB_TTL_DAYS`), not by per-task refcount cleanup.
+`p_*` tables are **exempt** from job-TTL cleanup, even for expired jobs.
+`j_<id>_*` tables drop only when the job expires (`AAICLICK_JOB_TTL_DAYS`), not
+by per-task refcount cleanup.
 
-## Table Schema and Structure
+# Table Schema and Structure
 
-Each Object gets a ClickHouse table `t{snowflake_id}` containing only the user-declared columns — no implicit ordering column. Row order is opt-in: callers pass `data(order_by=...)` or wrap in `View(order_by=...)` when they need it.
+An Object's table holds only the user-declared columns — no implicit ordering
+column. Row order is opt-in: pass `data(order_by=...)` or wrap in
+`View(order_by=...)`.
 
-### Schema Patterns
+## Schema Patterns
 
 | Data Type                    | Columns                | Rows     |
 |------------------------------|------------------------|----------|
@@ -131,23 +104,20 @@ A dict routes to parallel arrays (one row per element) only when **all** values
 are lists; a mixed dict is a single record whose lists become `Array(T)`
 columns (`{"id": 1, "tags": ["a"]}` → `id` Int64, `tags` Array(String)).
 
-Column names are backtick-quoted via `quote_identifier()` in `aaiclick/data/sql_utils.py`.
+Column names are backtick-quoted in generated SQL.
 
-### Schema Storage
+# Supported Data Types
 
-aaiclick stores per-table fieldtype + column metadata as a serialised `Schema` (Pydantic JSON) in the SQL `table_registry.schema_doc` column. `read_table_schema(table)` reads that row to hydrate the in-memory `Schema`. There is no per-column ClickHouse `COMMENT` storage — DDL emits user columns only.
+`create_object_from_value()` maps `int` → `Int64`, `float` → `Float64`, `bool` →
+`UInt8`, `str` → `LowCardinality(String)`, `datetime` → `DateTime64(3, 'UTC')`.
 
-`Schema` = "what a table is" and `ViewSchema` = "how to read it", and the registry can never see the latter: `create_object()` is the registry's only writer and rejects a `ViewSchema`. View operators (`where`, `rename`, `with_columns`, `explode`, column selection) never create a table or a registry row — only `copy()` does.
+For explicit schemas use `ColumnInfo("DateTime64(3, 'UTC')")`. DateTime64 values
+return as timezone-aware `datetime(tzinfo=utc)`.
 
-## Supported Data Types
+# Field Specifications
 
-**Auto-detected by `create_object_from_value()`**: Python `int` → `Int64`, `float` → `Float64`, `bool` → `UInt8`, `str` → `LowCardinality(String)`, `datetime` → `DateTime64(3, 'UTC')`.
-
-**Datetime handling**: `create_object_from_value()` auto-detects `datetime` → `DateTime64(3, 'UTC')`. For explicit schemas, use `ColumnInfo("DateTime64(3, 'UTC')")`. All DateTime64 values are returned as timezone-aware `datetime(tzinfo=utc)`.
-
-## Field Specifications
-
-The `fields` parameter on `create_object_from_value()` overrides inferred column properties without requiring a full `Schema`. Pass a dict mapping column names to `FieldSpec` instances:
+`fields=` on `create_object_from_value()` maps column names to `FieldSpec`s,
+overriding inferred properties without a full `Schema`:
 
 ```python
 from aaiclick import create_object_from_value, FieldSpec
@@ -183,36 +153,33 @@ obj = await create_object_from_value(
 await obj.data()  # {"a": [1, 2], "score": [0.5, None]}
 ```
 
-| Attribute        | Default | Description                                                         |
-|------------------|---------|---------------------------------------------------------------------|
-| `nullable`       | `False` | Wrap column type in `Nullable()`                                    |
-| `low_cardinality`| `False` | Wrap column type in `LowCardinality()`                              |
-| `type`           | `None`  | Override the inferred base type (e.g., `'Float32'` instead of `'Float64'`) |
+| Attribute         | Default | Description                                                    |
+|-------------------|---------|----------------------------------------------------------------|
+| `nullable`        | `False` | Wrap column type in `Nullable()`                               |
+| `low_cardinality` | `False` | Wrap column type in `LowCardinality()`                         |
+| `type`            | `None`  | Override the inferred base type (`'Float32'` vs. `'Float64'`)  |
 
-Passing an unknown column name in `fields` raises `ValueError`.
+An unknown column name in `fields` raises `ValueError`.
 
-**Tests**: `aaiclick/data/object/test_field_spec.py`
+# Table Lifecycle Tracking
 
-## Column Metadata
+Tables are reference-counted. On context exit, live Objects are decreffed and
+marked stale. Locally a table drops at refcount 0; in distributed mode the
+background worker does the cleanup. Full design:
+[orchestration](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md) — "Distributed Object Lifecycle".
 
-Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `'d'` (dict).
+# Preservation Modes
 
-## Table Lifecycle Tracking
-
-Tables are reference-counted and dropped when unreferenced. On context exit, live objects are decreffed and stale-marked. `LocalLifecycleHandler` drops tables on refcount 0; in distributed mode, `OrchLifecycleHandler` defers cleanup to `BackgroundWorker`.
-
-See the [orchestration design reference](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md) — "Distributed Object Lifecycle" for the full design.
-
-## Preservation Modes
-
-Each `Job` carries a `preservation_mode` that controls which tables survive cleanup after the job completes. Task execution is identical in both modes — only the cleanup step differs.
+A `Job`'s `preservation_mode` controls which tables survive cleanup after it
+completes; task execution is identical in both modes.
 
 | Mode         | What survives after job              | Use case                       |
 |--------------|--------------------------------------|--------------------------------|
-| `NONE`       | Persistent tables only (default)     | Production runs (as today)     |
+| `NONE`       | Persistent tables only (default)     | Production runs                |
 | `FULL`       | All tables until the job TTL expires | Development / debugging        |
 
-The default can be set globally via `AAICLICK_DEFAULT_PRESERVATION_MODE` (values: `NONE`, `FULL`) and overridden per submission:
+Set the default with `AAICLICK_DEFAULT_PRESERVATION_MODE` (`NONE` or `FULL`);
+override it per submission:
 
 ```python
 from aaiclick.orchestration import PRESERVATION_FULL
