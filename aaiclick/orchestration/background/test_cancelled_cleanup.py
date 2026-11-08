@@ -54,7 +54,7 @@ async def test_cancelled_cleanup_settles_unowned_task(bg_db):
     await insert_pin_ref(bg_db, "t_upstream", 100)
     await insert_pin_ref(bg_db, "t_upstream", 200)
 
-    await make_worker(bg_db)._process_cancelled_cleanup()
+    await make_worker()._process_cancelled_cleanup()
 
     status, _, _, _, _, completed_at = await _get_task_status(bg_db, 100)
     assert status == "CANCELLED"
@@ -75,7 +75,7 @@ async def test_cancelled_cleanup_waits_for_owning_worker(bg_db):
     await insert_run_ref(bg_db, "t_partial", "111")
     await insert_pin_ref(bg_db, "t_upstream", 100)
 
-    await make_worker(bg_db)._process_cancelled_cleanup()
+    await make_worker()._process_cancelled_cleanup()
 
     status, _, _, _, _, _ = await _get_task_status(bg_db, 100)
     assert status == "PENDING_CANCELLED_CLEANUP"
@@ -90,7 +90,7 @@ async def test_cancelled_cleanup_fails_job_after_sibling_abort(bg_db):
     await insert_task(bg_db, 100, 1000, status="FAILED")
     await insert_task(bg_db, 101, 1000, status="PENDING_CANCELLED_CLEANUP")
 
-    await make_worker(bg_db)._process_cancelled_cleanup()
+    await make_worker()._process_cancelled_cleanup()
 
     status, _, _, _, _, _ = await _get_task_status(bg_db, 101)
     assert status == "CANCELLED"
@@ -111,7 +111,7 @@ async def test_expired_claim_releases_cancelled_task(bg_db):
         claim_expired_by=timedelta(seconds=1),
     )
     await insert_task_run(bg_db, 111, 100)
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._release_expired_claims()
     assert await _get_worker_ownership(bg_db, 100) is None

@@ -8,17 +8,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from typing import NamedTuple
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 
 from aaiclick.backend import is_postgres
 from aaiclick.data.models import ENGINE_DEFAULT
-from aaiclick.data.object_context.ch_client import LazyChClient, _ch_client_var, get_ch_client
+from aaiclick.data.object_context.ch_client import ChClient, LazyChClient, _ch_client_var, get_ch_client
 from aaiclick.data.object_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.object_context.object_context import _engine_var, _objects_var, decref
 from aaiclick.locks import lookup_advisory_id
@@ -28,7 +29,7 @@ from ..snowflake import get_snowflake_id
 from .dependency_graph import successor_task_ids
 from .env import get_db_url
 from .events import register_session_hooks
-from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
+from .execution.db_handler import DbHandler, _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .execution.execution_worker_context import get_current_task_info
 from .image_injection import inject_build_tasks, stamp_inherited_image, validate_plain_data_plane_tasks
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
@@ -368,6 +369,36 @@ class OrchLifecycleHandler(LifecycleHandler):
         elif msg.op == DBLifecycleOp.OPLOG_TABLE:
             assert msg.oplog_table is not None
             await self._write_table_registry_row(msg.oplog_table)
+
+
+class OrchResources(NamedTuple):
+    """The long-lived resources of an outer ``orch_context``; a nested one reuses them."""
+
+    engine: AsyncEngine
+    db_handler: DbHandler
+    ch_client: ChClient
+
+
+def current_orch_resources() -> OrchResources:
+    """The active ``orch_context``'s resources, to hand to code running in another context."""
+    engine = _sql_engine_var.get()
+    if engine is None:
+        raise RuntimeError("No active orch_context — use 'async with orch_context()'")
+    return OrchResources(engine, get_db_handler(), get_ch_client())
+
+
+@contextmanager
+def reuse_orch_resources(resources: OrchResources) -> Iterator[None]:
+    """Make ``resources`` the outer context: every ``orch_context`` entered inside nests into them."""
+    sql_token = _sql_engine_var.set(resources.engine)
+    db_token = _db_handler_var.set(resources.db_handler)
+    ch_token = _ch_client_var.set(resources.ch_client)
+    try:
+        yield
+    finally:
+        _ch_client_var.reset(ch_token)
+        _db_handler_var.reset(db_token)
+        _sql_engine_var.reset(sql_token)
 
 
 @asynccontextmanager

@@ -1,7 +1,6 @@
 """The background worker turns pending sandbox files into ``run_job`` calls."""
 
 import asyncio
-import os
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -10,19 +9,12 @@ from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.background.background_worker import SANDBOX_STALE_AFTER, BackgroundWorker
 from aaiclick.orchestration.models import SANDBOX_FAILED, SANDBOX_RUNNING, SANDBOX_SUBMITTED, SandboxFile
 from aaiclick.orchestration.orch_context import get_sql_session
-from aaiclick.orchestration.sql_context import create_sql_engine
 
 RUN_JOB = "aaiclick.orchestration.background.background_worker.run_job"
 
 
 async def _run_step() -> None:
-    worker = BackgroundWorker()
-    worker._engine = create_sql_engine(os.environ["AAICLICK_SQL_URL"])
-    worker._ch_client = None
-    try:
-        await worker._run_sandbox_files()
-    finally:
-        await worker._engine.dispose()
+    await BackgroundWorker()._run_sandbox_files()
 
 
 async def _insert_row(job_names: list[str]) -> SandboxFile:

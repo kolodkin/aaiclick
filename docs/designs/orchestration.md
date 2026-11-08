@@ -433,6 +433,10 @@ Runs these passes every `poll_interval` (default 10s), in order:
 
 One failing pass (e.g. a DB restart) is logged and does not stop the loop or the other passes.
 
+Uses the caller's `orch_context` engine and CH client and owns neither: `local_runtime`
+starts it in the server's context, `background start` in its own. The scheduled-run and
+sandbox-run passes nest an `orch_context` only for a fresh task registry.
+
 ## View Lifecycle
 
 Views share the underlying ClickHouse table with their source Object, which interacts with `table_run_refs` in a non-obvious way.

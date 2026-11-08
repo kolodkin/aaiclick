@@ -14,9 +14,11 @@ All resource cleanup is job-driven: every CH table, sample, and oplog entry
 traces to a job_id via table_registry (SQL). Resources without a job_id
 (orphans) are cleaned up after the same TTL.
 
-Runs on its own DB engine and CH client, outside ObjectContext and OrchContext;
-only scheduled-run and sandbox-run creation enter a short-lived ``orch_context``
-so they take the same ``run_job`` path as a manual submission.
+Runs inside the caller's ``orch_context`` and uses its SQL engine and CH
+client — in local mode the server's own, so one process holds one connection
+pool. Scheduled-run and sandbox-run creation nest an ``orch_context`` that
+reuses the outer resources but gives each batch of ``run_job`` calls a fresh
+task registry.
 """
 
 from __future__ import annotations
@@ -31,17 +33,16 @@ from croniter import croniter
 from sqlalchemy import select as sa_select
 from sqlalchemy import text, update
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from aaiclick.async_wait import wait_or_timeout
-from aaiclick.data.object_context.ch_client import ChClient, create_ch_client
+from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.oplog.cleanup import drop_tables
 
 from ...datetime_utils import utc_now
 from ...sandbox.paths import module_parts
-from ..env import get_db_url
-from ..events import register_session_hooks
+from ..execution.db_handler import get_db_handler
 from ..models import (
     JOB_CANCELLED,
     JOB_COMPLETED,
@@ -58,9 +59,8 @@ from ..models import (
     WORKER_TIMEOUT,
     SandboxFile,
 )
-from ..orch_context import orch_context
+from ..orch_context import get_sql_session, orch_context
 from ..registered_jobs import run_job
-from ..sql_context import create_sql_engine
 from ..sql_utils import IN_BATCH_SIZE, batched, in_clause
 from .handler import BackgroundHandler, CleanupTask, create_background_handler, try_complete_job
 
@@ -117,38 +117,24 @@ class BackgroundWorker:
     5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
     6. Sandbox files: one ``run_job`` per ``@job`` of each pending sandbox file
 
-    Has its own DB engine and CH client; see the module docstring for the one
-    place it enters ``orch_context``.
+    Uses the SQL engine and CH client of the ``orch_context`` it is started
+    in; it owns neither.
     """
 
     def __init__(self, poll_interval: float = DEFAULT_POLL_INTERVAL):
         self._poll_interval = poll_interval
         self._task: asyncio.Task | None = None
-        self._engine: AsyncEngine = create_sql_engine(get_db_url())
-        self._ch_client: ChClient | None = None
         self._shutdown: asyncio.Event = asyncio.Event()
         self._handler: BackgroundHandler = create_background_handler()
 
     async def start(self) -> None:
-        register_session_hooks()
-        self._ch_client = await create_ch_client()
+        get_db_handler()  # raises outside an orch_context: fail here, not once per pass
         self._task = asyncio.create_task(self._cleanup_loop())
 
     async def stop(self) -> None:
         self._shutdown.set()
         if self._task:
             await self._task
-        await self._engine.dispose()
-        if self._ch_client is not None:
-            await self._ch_client.close()
-        self._ch_client = None
-
-    @property
-    def _ch(self) -> ChClient:
-        """The ClickHouse client ``start()`` opened."""
-        if self._ch_client is None:
-            raise RuntimeError("BackgroundWorker.start() has not been called")
-        return self._ch_client
 
     async def _cleanup_loop(self) -> None:
         while not self._shutdown.is_set():
@@ -195,7 +181,7 @@ class BackgroundWorker:
         2. Transition each to PENDING (retries remaining) or FAILED (exhausted)
         3. Check job completion for jobs with newly-FAILED tasks
         """
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             tasks = await self._handler.get_cleanup_tasks(session, TASK_PENDING_FAILURE_CLEANUP)
             if not tasks:
                 return
@@ -249,7 +235,7 @@ class BackgroundWorker:
         being stopped. The rollup only matters for fail-fast siblings, whose
         job is still RUNNING.
         """
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             tasks = await self._handler.get_cleanup_tasks(session, TASK_PENDING_CANCELLED_CLEANUP)
             if not tasks:
                 return
@@ -276,7 +262,7 @@ class BackgroundWorker:
         Joins table_registry and jobs in a single SQL query to skip
         FULL-preservation jobs in-database.
         """
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             result = await session.execute(
                 text(
                     "SELECT DISTINCT tcr.table_name "
@@ -302,7 +288,7 @@ class BackgroundWorker:
             if not table_names:
                 return
 
-            dropped_tables = await drop_tables(self._ch, table_names)
+            dropped_tables = await drop_tables(get_ch_client(), table_names)
             await _delete_table_refs(session, dropped_tables)
             await _delete_registry_rows(session, dropped_tables)
             await session.commit()
@@ -319,7 +305,7 @@ class BackgroundWorker:
         cutoff = utc_now() - timedelta(days=ttl_days)
 
         # 1. Delete expired jobs
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             result = await session.execute(
                 text(
                     "SELECT id FROM jobs WHERE status IN (:completed, :failed, :cancelled) AND completed_at < :cutoff"
@@ -351,7 +337,7 @@ class BackgroundWorker:
         ``delete_persistent_object()``. Job-scoped ``j_<id>_*`` tables and
         unnamed ``t_*`` tables belonging to this job are dropped normally.
         """
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             # 1. Find all CH tables belonging to this job from table_registry,
             #    excluding user-managed globals (``p_*``).
             result = await session.execute(
@@ -366,7 +352,7 @@ class BackgroundWorker:
             # 2. Drop all non-global CH tables (includes samples registered in
             #    table_registry). Forget the ones that are gone; keep the job
             #    until the rest drop, so nothing is orphaned behind a failure.
-            dropped_tables = await drop_tables(self._ch, table_names)
+            dropped_tables = await drop_tables(get_ch_client(), table_names)
             if len(dropped_tables) < len(table_names):
                 await _delete_registry_rows(session, dropped_tables)
                 await session.commit()
@@ -378,7 +364,7 @@ class BackgroundWorker:
             #    mutations_sync=2 waits for the mutation on every replica, so a
             #    failure raises here, not later in system.mutations.
             for log_table in ("operation_log", "task_logs"):
-                await self._ch.command(
+                await get_ch_client().command(
                     f"ALTER TABLE {log_table} DELETE WHERE job_id = {job_id}",
                     settings={"mutations_sync": 2},
                 )
@@ -435,20 +421,20 @@ class BackgroundWorker:
         """
         cutoff = utc_now() - timedelta(days=ttl_days)
 
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             result = await session.execute(
                 text("SELECT DISTINCT table_name FROM table_registry WHERE job_id IS NULL AND created_at < :cutoff"),
                 {"cutoff": cutoff},
             )
             orphan_tables = [row[0] for row in result.fetchall()]
 
-            dropped_tables = await drop_tables(self._ch, orphan_tables)
+            dropped_tables = await drop_tables(get_ch_client(), orphan_tables)
             await _delete_registry_rows(session, dropped_tables)
             await session.commit()
 
         # operation_log still lives on CH — prune orphaned rows there.
         try:
-            await self._ch.command(
+            await get_ch_client().command(
                 "ALTER TABLE operation_log DELETE "
                 "WHERE job_id IS NULL "
                 f"AND created_at < now() - INTERVAL {ttl_days} DAY"
@@ -464,7 +450,7 @@ class BackgroundWorker:
         """
         cutoff = utc_now() - WORKER_TIMEOUT
 
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             # One statement, so a worker that heartbeats mid-sweep is not marked
             # dead. RETURNING needs SQLite >= 3.35 (2021) on the local backend.
             result = await session.execute(
@@ -482,7 +468,7 @@ class BackgroundWorker:
 
     async def _release_expired_claims(self) -> None:
         """Reclaim tasks whose claim expired; ref cleanup follows on the next cycle."""
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             await self._handler.release_expired_claims(session, utc_now())
             await session.commit()
 
@@ -501,7 +487,7 @@ class BackgroundWorker:
         """
         now = utc_now()
 
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             result = await session.execute(
                 text(
                     "SELECT id, name, entrypoint, schedule, next_run_at "
@@ -560,7 +546,7 @@ class BackgroundWorker:
         jobs may already exist.
         """
         now = utc_now()
-        async with AsyncSession(self._engine) as session:
+        async with get_sql_session() as session:
             await session.execute(
                 update(SandboxFile)
                 .where(
@@ -604,7 +590,7 @@ class BackgroundWorker:
         async with orch_context():
             for row in claimed:
                 outcome = await self._submit_sandbox_jobs(row.path, row.job_names, row.git_remote, row.git_sha)
-                async with AsyncSession(self._engine) as session:
+                async with get_sql_session() as session:
                     await session.execute(
                         update(SandboxFile)
                         .where(col(SandboxFile.id) == row.id)

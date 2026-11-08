@@ -11,7 +11,7 @@ Usage:
     python -m aaiclick execution-worker start   # Start a distributed execution worker process
     python -m aaiclick execution-worker list    # List execution workers
     python -m aaiclick execution-worker stop <execution_worker_id>  # Stop an execution worker gracefully
-    python -m aaiclick background start         # Start background cleanup worker
+    python -m aaiclick background start         # Start background worker
     python -m aaiclick job get <ref>            # Get job details (by ID or name)
     python -m aaiclick job stats <ref>          # Show job execution stats
     python -m aaiclick job cancel <ref>         # Cancel a job
@@ -1213,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
     # background start
     background_start_parser = background_subparsers.add_parser(
         "start",
-        help="Start background cleanup worker",
+        help="Start the background worker (cleanup, job scheduling, sandbox runs)",
     )
     background_start_parser.add_argument(
         "--poll-interval",

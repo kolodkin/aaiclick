@@ -9,7 +9,6 @@ audit trail matches expectations.
 
 import gc
 from typing import NamedTuple
-from unittest.mock import AsyncMock
 
 from sqlalchemy import event, text
 from sqlmodel import select
@@ -17,7 +16,6 @@ from sqlmodel import select
 from aaiclick.data.object import Object
 from aaiclick.data.object_context import create_object_from_value, get_data_lifecycle
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
-from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import JOB_COMPLETED, Group, Job
@@ -25,6 +23,8 @@ from aaiclick.orchestration.operators import map
 from aaiclick.orchestration.orch_context import get_sql_session, task_scope
 from aaiclick.orchestration.sql_context import _sql_engine_var
 from aaiclick.snowflake import get_snowflake_id
+
+from .background.test_failure_cleanup import run_cleanup_pass
 
 # --- Task fixtures (module-level for entrypoint resolution) ---
 
@@ -225,16 +225,6 @@ def _pin_inserts(events: list[RefEvent]) -> list[RefEvent]:
     return [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
 
 
-async def _run_cleanup():
-    engine = _sql_engine_var.get()
-    assert engine is not None
-    worker = BackgroundWorker()
-    worker._engine = engine
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
-    await worker._cleanup_unreferenced_tables()
-
-
 async def _run_and_verify(pipeline_fn):
     """Run job, verify junction table state and audit trail, then cleanup."""
     engine = _sql_engine_var.get()
@@ -281,7 +271,7 @@ async def _run_and_verify(pipeline_fn):
             assert len(pin_refs) == 0, f"Stale pin_refs after job: {pin_refs}"
 
         # Run background cleanup
-        await _run_cleanup()
+        await run_cleanup_pass(BackgroundWorker._cleanup_unreferenced_tables)
 
         async with get_sql_session() as session:
             context_tables = await _get_context_tables(session)
