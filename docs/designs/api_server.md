@@ -515,11 +515,9 @@ uvicorn aaiclick.server.app:app
 In **local mode** (`chdb` + `sqlite`) the lifespan auto-starts the
 `BackgroundWorker` and the execution worker — submitting a job via
 the REST or MCP surface picks it up and runs it in the same process.
-There is no separate worker process to launch. Both workers and every
-request share the lifespan's `orch_context`: the lifespan state carries its
-resources and `SharedOrchMiddleware` (`aaiclick/server/deps.py`) installs
-them per request, so each request's `orch_context` nests instead of opening
-its own engine on `local.db`.
+There is no separate worker process to launch. Both workers and every request
+share the lifespan's `orch_context` (see `aaiclick/server/deps.py`), so a request
+nests into it instead of opening its own engine on `local.db`.
 
 For convenience, the CLI exposes the same flow:
 

@@ -542,7 +542,7 @@ Uses `task_id` as `context_id` for context_refs. Pin fans out to consumers one d
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py`
 
-Five operations per poll:
+Operations per poll include:
 
 1. **Job cleanup** — clear `job_id` on pin refs for completed/failed/cancelled jobs
 2. **Table cleanup** — DROP tables where no context_ref has non-NULL `job_id` AND no run_refs exist
@@ -551,12 +551,9 @@ Five operations per poll:
 
 Config: `poll_interval` (default 10s); the sweep cutoff is `WORKER_TIMEOUT` (10 min).
 
-Runs inside the caller's `orch_context` and uses its SQL engine and CH client,
-owning neither: `local_runtime` starts it in the server's context, so a local
-process holds one connection pool on `local.db`; `background start` wraps the
-standalone worker in its own `orch_context`. The scheduled-run and sandbox-run
-passes nest a short `orch_context` that reuses the outer resources but gives
-their `run_job` calls a fresh task registry.
+Uses the caller's `orch_context` engine and CH client and owns neither: `local_runtime`
+starts it in the server's context, `background start` in its own. The scheduled-run and
+sandbox-run passes nest an `orch_context` only for a fresh task registry.
 
 ## View Lifecycle
 
