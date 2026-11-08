@@ -103,8 +103,8 @@ class RunJobRequest(ApiModel):
     git_sha: str | None = None
     git_branch: str | None = None
     dockerfile: str | None = None
-    # Kubernetes-style requests/limits for this run's containers; None
-    # inherits the RegisteredJob default.
+    # Runner-specific container resources (docker run flags, or a Pod
+    # resources dict); None inherits the RegisteredJob default.
     resources: dict[str, Any] | None = None
 
 

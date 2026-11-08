@@ -160,7 +160,7 @@ class RegisteredJob(SQLModel, table=True):
     # Default image source kind: build the task image from the repo. Mutually
     # exclusive with ``image``; git_remote / dockerfile are its modifiers.
     build: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
-    # Default Kubernetes requests/limits for every run's Pods.
+    # Default runner-specific container resources (docker run flags, or a Pod dict).
     resources: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     next_run_at: datetime | None = utc_field(default=None, index=True)
     created_at: datetime = utc_field(default_factory=utc_now)
@@ -224,8 +224,7 @@ class Job(SQLModel, table=True):
         default=PRESERVATION_NONE,
         sa_column=Column(String, nullable=False, server_default=PRESERVATION_NONE),
     )
-    # Kubernetes requests/limits applied to every Pod of this job; the docker
-    # runner ignores it. Snapshot of run kwarg → registration default.
+    # Runner-specific container resources; snapshot of run kwarg → registration default.
     resources: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = utc_field(default_factory=utc_now, index=True)
     started_at: datetime | None = utc_field(default=None)

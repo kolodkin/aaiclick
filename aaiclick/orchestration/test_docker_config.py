@@ -217,18 +217,8 @@ def test_compute_image_tag(monkeypatch, dockerfile, suffix):
     "resources, expected",
     [
         pytest.param(None, [], id="none"),
-        pytest.param({"requests": {"cpu": "1"}}, [], id="requests-ignored"),
-        pytest.param({"limits": {"cpu": "500m"}}, ["--cpus", "0.5"], id="cpu-millis"),
-        pytest.param({"limits": {"cpu": 2}}, ["--cpus", "2"], id="cpu-json-number"),
-        pytest.param(
-            {"limits": {"memory": "512Mi"}},
-            ["--memory", str(512 * 1024**2), "--memory-swap", str(512 * 1024**2)],
-            id="mem-binary-no-swap",
-        ),
-        pytest.param(
-            {"limits": {"memory": "1e9"}}, ["--memory", "1000000000", "--memory-swap", "1000000000"], id="mem-exponent"
-        ),
-        pytest.param({"limits": {"memory": "1500m"}}, ["--memory", "2", "--memory-swap", "2"], id="mem-rounds-up"),
+        pytest.param({"cpus": "1.5", "memory": "512m"}, ["--cpus", "1.5", "--memory", "512m"], id="passthrough"),
+        pytest.param({"cpu-shares": 512}, ["--cpu-shares", "512"], id="json-number"),
     ],
 )
 def test_resource_flags(resources, expected):
@@ -238,8 +228,10 @@ def test_resource_flags(resources, expected):
 @pytest.mark.parametrize(
     "resources, match",
     [
-        pytest.param({"limits": {"memory": "1Xi"}}, "not a valid", id="malformed"),
-        pytest.param({"limits": {"cpu": "0"}}, "greater than zero", id="zero-is-unlimited-on-docker"),
+        pytest.param({"memory": {"limit": 1}}, "resources.'memory' value", id="nested-value"),
+        pytest.param({"memory": True}, "resources.'memory' value", id="bool-value"),
+        pytest.param({"privileged=true": "x"}, "resources.'privileged=true'", id="self-contained-flag"),
+        pytest.param({"volume": "/:/host"}, "resources.'volume'", id="not-a-resource-flag"),
     ],
 )
 def test_resource_flags_rejects(resources, match):

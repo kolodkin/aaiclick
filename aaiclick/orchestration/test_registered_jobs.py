@@ -352,11 +352,6 @@ async def test_run_job_image_and_git_mutually_exclusive():
         await run_job("j", "m.f", image="python:3.12", git_sha="a" * 40)
 
 
-async def test_run_job_rejects_malformed_resources():
-    with pytest.raises(ValueError, match="limits.cpu"):
-        await run_job("j", "m.f", image="python:3.12", resources={"limits": {"cpu": "fast"}})
-
-
 async def test_run_job_image_and_build_mutually_exclusive():
     with pytest.raises(ValueError, match="mutually exclusive"):
         await run_job("j", "m.f", image="python:3.12", build=True)
@@ -369,14 +364,7 @@ async def test_run_job_image_and_build_mutually_exclusive():
         pytest.param({"git_remote": "git@x:r.git"}, "without build.*git_remote", id="git-remote"),
         pytest.param({"dockerfile": "Dockerfile.gpu"}, "without build.*dockerfile", id="dockerfile"),
         pytest.param({"image": "python:3.12", "build": True}, "mutually exclusive", id="image-and-build"),
-        pytest.param(
-            {"resources": {"limits": {"cpu": "1"}}}, "resources require an image source", id="resources-on-subprocess"
-        ),
-        pytest.param(
-            {"image": "python:3.12", "resources": {"limits": {"memory": "lots"}}},
-            "limits.memory",
-            id="malformed-quantity",
-        ),
+        pytest.param({"resources": {"cpus": "1"}}, "resources require an image source", id="resources-on-subprocess"),
     ],
 )
 async def test_registration_rejects_build_modifiers_without_build(orch_ctx, replace, fields, message):
@@ -391,21 +379,21 @@ async def test_register_job_persists_build_and_resources(orch_ctx):
         entrypoint="myapp.built",
         build=True,
         git_remote="git@x:r.git",
-        resources={"limits": {"cpu": "1"}},
+        resources={"cpus": "1"},
     )
     fetched = await get_registered_job("built")
     assert fetched is not None
     assert fetched.build is True
-    assert fetched.resources == {"limits": {"cpu": "1"}}
+    assert fetched.resources == {"cpus": "1"}
 
 
 async def test_run_job_resources_fall_back_to_registration(orch_ctx, monkeypatch):
     monkeypatch.setattr(registered_jobs_module, "is_local", lambda: False)
-    await register_job(name="res_reg", entrypoint="myapp.res", image="python:3.12", resources={"limits": {"cpu": "1"}})
+    await register_job(name="res_reg", entrypoint="myapp.res", image="python:3.12", resources={"cpus": "1"})
     job = await run_job("res_reg", "myapp.res")
-    assert job.resources == {"limits": {"cpu": "1"}}
-    job = await run_job("res_reg", "myapp.res", resources={"limits": {"cpu": "2"}})
-    assert job.resources == {"limits": {"cpu": "2"}}
+    assert job.resources == {"cpus": "1"}
+    job = await run_job("res_reg", "myapp.res", resources={"cpus": "2"})
+    assert job.resources == {"cpus": "2"}
 
 
 async def test_run_job_rejects_container_source_in_local_mode(orch_ctx, monkeypatch):

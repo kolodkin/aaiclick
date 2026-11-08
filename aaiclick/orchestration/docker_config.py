@@ -10,11 +10,9 @@ used by the build task and host runner.
 from __future__ import annotations
 
 import hashlib
-import math
 import os
 import posixpath
 import re
-from decimal import Decimal
 from typing import Literal, NamedTuple
 
 from .execution import cli
@@ -27,7 +25,6 @@ from .runner_config import (
     ImagePrebuilt,
     ImageSourceT,
     build_requested,
-    parse_quantity,
 )
 
 BUILD_MODE_REGISTRY = "registry"
@@ -306,24 +303,41 @@ def add_host_flags(env_var: str) -> list[str]:
     return flags
 
 
+# ``docker run`` flags a job may set: compute, memory and process limits, plus
+# ``--gpus``, which grants devices the way a Pod's GPU request does. An
+# allowlist, not a shape check: any other flag (``--privileged``, ``--volume``,
+# ``--pid``) would hand an API admin the worker host.
+DOCKER_RESOURCE_FLAGS = frozenset(
+    {
+        "cpus",
+        "cpu-shares",
+        "cpu-period",
+        "cpu-quota",
+        "cpuset-cpus",
+        "cpuset-mems",
+        "memory",
+        "memory-swap",
+        "memory-reservation",
+        "memory-swappiness",
+        "pids-limit",
+        "shm-size",
+        "gpus",
+        "ulimit",
+        "blkio-weight",
+    }
+)
+
+
 def resource_flags(resources: dict | None) -> list[str]:
-    """``docker run`` flags for a job's ``resources`` limits: ``--cpus``, and
-    ``--memory`` with ``--memory-swap`` pinned equal so, as on Kubernetes, no
-    swap past the limit. ``requests`` are ignored: docker has no scheduler.
-    Zero raises ``ValueError``, since docker reads it as unlimited."""
-    limits = (resources or {}).get("limits") or {}
+    """``--key value`` for each ``resources`` entry, verbatim. Keys must be in
+    ``DOCKER_RESOURCE_FLAGS`` and values scalar, else ``ValueError``."""
     flags: list[str] = []
-    if (cpu := limits.get("cpu")) is not None:
-        cpus = _positive_limit("limits.cpu", cpu)
-        flags.extend(["--cpus", format(cpus.normalize(), "f")])
-    if (memory := limits.get("memory")) is not None:
-        size = str(math.ceil(_positive_limit("limits.memory", memory)))
-        flags.extend(["--memory", size, "--memory-swap", size])
+    for key, value in (resources or {}).items():
+        if key not in DOCKER_RESOURCE_FLAGS:
+            raise ValueError(
+                f"resources.{key!r} is not a docker resource flag; expected one of {sorted(DOCKER_RESOURCE_FLAGS)}"
+            )
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ValueError(f"resources.{key!r} value {value!r} is not a scalar")
+        flags.extend([f"--{key}", str(value)])
     return flags
-
-
-def _positive_limit(key: str, value: object) -> Decimal:
-    quantity = parse_quantity(key, value)
-    if quantity <= 0:
-        raise ValueError(f"resources.{key} {value!r} must be greater than zero on the docker runner")
-    return quantity

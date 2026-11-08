@@ -242,13 +242,13 @@ The concurrency limits (`AAICLICK_K8S_MAX_PENDING`, `…_MAX_PENDING_TOTAL`,
 `…_MAX_PODS`, `…_PENDING_TIMEOUT`) sit beside them, see
 [Capacity gate](#capacity-gate).
 
-`resources` (requests/limits) is the one per-job setting: a nullable JSON column
+`resources` is the one per-job setting: a nullable JSON column
 on `RegisteredJob` (default) and `Job` (per-run snapshot: `run_job` kwarg →
 registration default → `None`), exposed on the Python API, `RegisterJobRequest`
-and `RunJobRequest`, and validated at submission. It rides on the job's dispatch
-record, not the Pod config, because the docker runner applies its `limits` too;
-with no scheduler, docker ignores `requests` (mapping:
-[Resources](../user_guide/orchestration.md#resources-docker-kubernetes)).
+and `RunJobRequest`, and checked to be a mapping at submission. It rides on the
+job's dispatch record, not the Pod config, and is runner-shaped: the Pod
+container `resources` here, `docker run` flags on docker
+([Resources](../user_guide/orchestration.md#resources)).
 
 Both are resolved on the **worker at dispatch** — the runner is picked from the
 task and the worker, never from the job (a `NULL` `image_source` is a host

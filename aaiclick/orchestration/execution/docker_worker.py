@@ -88,7 +88,7 @@ def write_command_env_file(command_env: dict[str, str]) -> str:
 def build_docker_create_cmd(
     name: str, image_tag: str, command: list[str], resources: dict | None, env_file: str | None
 ) -> list[str]:
-    """``docker create`` for a shell/jvm task: the job's limits
+    """``docker create`` for a shell/jvm task: the job's resource flags
     (``resource_flags``), ``command_env`` from a private ``--env-file``
     (on the argv the values would show in ``ps``), and ``AAICLICK_IO_DIR``
     pointing at the in-container IO dir. No runner env reaches the image."""
@@ -114,7 +114,7 @@ def _build_docker_run_cmd(
 ) -> list[str]:
     """Construct the detached ``docker run`` command line for a module task:
     inject the full runner env (names only — ``_docker_run_detached`` passes
-    the values), apply the job's limits (``resource_flags``), and run the
+    the values), apply the job's resource flags (``resource_flags``), and run the
     in-container bootstrap shim (``python -m ...remote_result --task-id N
     --run-epoch M``).
 
