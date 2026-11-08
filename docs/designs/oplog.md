@@ -1,77 +1,100 @@
 Operation Log (oplog)
 ---
 
-The `aaiclick/oplog/` module captures operation provenance inside ClickHouse with zero AI dependencies — every object created or transformed is recorded for lineage tracing and debugging.
+**Implementation**: `aaiclick/oplog/`
 
----
+Operation provenance captured inside ClickHouse, with zero AI dependencies:
+every object created or transformed is recorded for lineage tracing and
+debugging.
 
 # Storage
 
 ## operation_log (ClickHouse)
 
-Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `run_id`, `created_at` (`DateTime64(3, 'UTC')`, like `task_logs.created_at` and `schema_migrations.applied_at`). ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
+Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`,
+`kwargs` (`Map(String, String)`), `sql_template`, `task_id`, `job_id`,
+`run_id`, `created_at` (`DateTime64(3, 'UTC')`, like `task_logs.created_at`
+and `schema_migrations.applied_at`). ORDER BY `(result_table, created_at)`.
+Deleted with the owning job when it expires (`AAICLICK_JOB_TTL_DAYS`).
 
-All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops). Only `p_`/`j_`/`t_` values count as tables, so a join's `how` can sit beside them.
+`kwargs` names every input (e.g. `{"left": ..., "right": ...}` for binary
+ops). Only `p_` / `j_` / `t_` values count as tables, so a join's `how` can
+sit beside them. Values must be strings — a non-string makes ClickHouse
+silently drop the row, so recording raises `TypeError` and callers encode
+lists at the call site (`",".join(...)`).
 
 ## table_registry (SQL)
 
-Ownership metadata for every ClickHouse data table: `table_name` (PK) → `(job_id, task_id, run_id, created_at)`. Written once at creation by the lifecycle handler's queued `OPLOG_TABLE` op; deleted by `BackgroundWorker._cleanup_unreferenced_tables()` when the table is dropped, and by `_cleanup_expired_jobs()` / `_cleanup_orphaned_resources()` for TTL'd rows.
+Ownership metadata for every ClickHouse data table: `table_name` (PK) →
+`(job_id, task_id, run_id, created_at)`. Written once at creation through the
+lifecycle handler's queue; the background worker deletes a row when it drops
+the table, and on job expiry or orphan cleanup for TTL'd rows.
 
-Previously lived in ClickHouse as an append-only MergeTree table. Moved to SQL because every consumer is a keyed lookup or owner join during background cleanup — not append-only audit.
+It once lived in ClickHouse as an append-only MergeTree table. It moved to
+SQL because every consumer is a keyed lookup or an owner join during
+background cleanup — not append-only audit.
 
 ## Initialization
 
-`init_oplog_tables(ch_client)` brings the CH schema up to date through the migration runner (`aaiclick/oplog/migrate.py`): local mode applies pending migrations directly; distributed mode raises asking for `aaiclick migrate upgrade`. Startup also performs a one-time copy of any pre-existing CH `table_registry` rows into SQL and drops the CH side (no-op on fresh installs).
+`init_oplog_tables` brings the CH schema up to date through the migration
+runner (`aaiclick/oplog/migrate.py`): local mode applies pending migrations
+directly; distributed mode raises, asking for `aaiclick migrate upgrade`.
+Task startup also copies any pre-existing CH `table_registry` rows into SQL
+once and drops the CH table (`aaiclick/orchestration/oplog_backfill.py`;
+no-op on fresh installs).
 
----
+# Recording
 
-# OplogCollector
+**Implementation**: `aaiclick/oplog/oplog_api.py`
 
-Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inserts to `operation_log` (CH) and `table_registry` (SQL) on `flush()`. Accessed via ContextVar `_oplog_collector`.
-
----
+Recording delegates to the active lifecycle handler. Under a bare
+`object_context()` (local mode) it is a no-op. Inside a task, the
+orchestration handler enqueues each record on the same FIFO queue as
+incref/decref, and the queue's consumer writes it straight to
+`operation_log` — one best-effort row per message, no buffer. Table creation
+enqueues the `table_registry` row the same way.
 
 # Instrumentation Points
 
-Each instrumentation is a 2-line addition: get collector from ContextVar, call `record()` if not None.
+| Operation                                            | `operation`              | `kwargs`                                                     |
+|------------------------------------------------------|--------------------------|--------------------------------------------------------------|
+| `create_object()`                                    | (none — registry only)   | —                                                            |
+| `create_object_from_value()`                         | `"create_from_value"`    | `{}`                                                         |
+| Binary operators                                     | `"add"`, `"sub"`, etc.   | `{"left": ..., "right": ...}`; a literal operand is left out |
+| Aggregations, `nunique`, `group_by`                  | `"sum"`, `"group_by"`, … | `{"source": ...}`                                            |
+| `isin`                                               | `"isin"`                 | `{"source": ..., "other": ...}`                              |
+| `join`                                               | `"join"`                 | `left`, `right`, `left_on`, `right_on`, `how`                |
+| `concat`                                             | `"concat"`               | `{"source_0": ..., "source_1": ..., ...}`                    |
+| `insert`                                             | `"insert"`               | `{"source": ..., "target": ...}`                             |
+| `copy()`                                             | `"copy"`                 | `{"source": ...}`                                            |
 
-| Location                                    | Operation              | `kwargs`                                                      |
-|---------------------------------------------|------------------------|---------------------------------------------------------------|
-| `object_context.create_object()`            | (none — registry only) | —                                                             |
-| `object_context.create_object_from_value()` | `"create_from_value"`  | `{}`                                                          |
-| `operators._apply_operator_db()`            | `"add"`, `"sub"`, etc. | `{"left": left.table, "right": right.table}`                  |
-| `operators._apply_aggregation()`            | `"sum"`, `"mean"`, etc.| `{"source": source.table}`                                    |
-| `operators.group_by_agg()`                  | `"group_by"`           | `{"source": source.table}`                                    |
-| `ingest.concat_objects_db()`                | `"concat"`             | `{"source_0": s0.table, "source_1": s1.table, ...}`          |
-| `ingest.insert_objects_db()`                | `"insert"`             | `{"source": src.table, "target": tgt.table}`                  |
-| `object.Object.copy()`                      | `"copy"`               | `{"source": self.table}`                                      |
-
-`create_object()` only calls `record_table()` (populates `table_registry`), not `record()`, to avoid double-counting — higher-level functions record the operation that produced the table.
-
----
+`create_object()` only registers the table, never records an operation, to
+avoid double-counting — the higher-level function records the operation that
+produced the table. A literal operand has no table, so the lineage graph
+references only real tables.
 
 # Graph Queries
 
-Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage via recursive CTE; the MCP server exposes the graph to agents — see [Lineage via MCP](lineage.md).
-
----
+Graph traversal over `operation_log` by recursive CTE traces upstream
+lineage; the MCP server exposes the graph to agents — see
+[Lineage via MCP](lineage.md).
 
 # Table Lifecycle & Cleanup
 
-All cleanup is job-driven. The per-job `preservation_mode` gates what cleanup does:
+All cleanup is job-driven. The per-job `preservation_mode` gates what cleanup
+does:
 
-| Mode         | Cleanup behavior                                                              |
-|--------------|-------------------------------------------------------------------------------|
-| `NONE`       | Drop unpinned tables as soon as refs fall to zero (default).                  |
-| `FULL`       | Skip the drop entirely — tables live until the job TTL expires.               |
+| Mode   | Cleanup behavior                                                |
+|--------|-----------------------------------------------------------------|
+| `NONE` | Drop unpinned tables as soon as refs fall to zero (default).    |
+| `FULL` | Skip the drop entirely — tables live until the job TTL expires. |
 
-`BackgroundWorker._cleanup_expired_jobs()` deletes all job data (CH tables, oplog entries, SQL metadata) for jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago.
-
----
+Jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago lose all their data: CH
+tables, oplog entries, SQL metadata.
 
 # Environment Variables
 
-| Variable                             | Default | Description                                                                   |
-|--------------------------------------|---------|-------------------------------------------------------------------------------|
-| `AAICLICK_JOB_TTL_DAYS`              | `90`    | Days after job completion before all job data is deleted.                     |
-| `AAICLICK_DEFAULT_PRESERVATION_MODE` | `NONE`  | Default preservation mode for jobs that don't pass one explicitly. One of `NONE`, `FULL`. |
+| Variable                             | Default | Description                                                     |
+|--------------------------------------|---------|-----------------------------------------------------------------|
+| `AAICLICK_JOB_TTL_DAYS`              | `90`    | Days after job completion before all job data is deleted.       |
+| `AAICLICK_DEFAULT_PRESERVATION_MODE` | `NONE`  | Mode for jobs that don't pass one explicitly: `NONE` or `FULL`. |
