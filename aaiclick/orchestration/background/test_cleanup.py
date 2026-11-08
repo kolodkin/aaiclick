@@ -46,7 +46,7 @@ async def test_cleanup_skips_pinned_tables(bg_db):
     await insert_context_ref(bg_db, "t_pinned", 200)
     await insert_pin_ref(bg_db, "t_pinned", 300)
 
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._cleanup_unreferenced_tables()
 
@@ -61,7 +61,7 @@ async def test_cleanup_skips_tables_with_active_runs(bg_db):
     await insert_run_ref(bg_db, "t_active", "run_1")
     await insert_context_ref(bg_db, "t_empty", 200)
 
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._cleanup_unreferenced_tables()
 
@@ -112,7 +112,7 @@ async def test_clean_task_run_then_cleanup_drops_table(bg_db):
         await BackgroundHandler.clean_task_run(session, "crashed_run")
         await session.commit()
 
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._cleanup_unreferenced_tables()
 
@@ -126,14 +126,14 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     await insert_context_ref(bg_db, "t_full", 100)
     await insert_table_registry(bg_db, "t_full", job_id=777)
 
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._cleanup_unreferenced_tables()
 
     # Table still present, no drop was attempted on CH.
     remaining = await _table_names(bg_db, "table_context_refs")
     assert "t_full" in remaining
-    mock_ch(worker).command.assert_not_called()
+    mock_ch().command.assert_not_called()
 
 
 async def test_cleanup_none_mode_drops(bg_db):
@@ -142,7 +142,7 @@ async def test_cleanup_none_mode_drops(bg_db):
     await insert_context_ref(bg_db, "t_none", 100)
     await insert_table_registry(bg_db, "t_none", job_id=888)
 
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._cleanup_unreferenced_tables()
 
@@ -162,8 +162,8 @@ async def test_cleanup_keeps_refs_when_drop_fails(bg_db):
     await insert_context_ref(bg_db, "t_fine", 101)
     await insert_table_registry(bg_db, "t_fine")
 
-    worker = make_worker(bg_db)
-    mock_ch(worker).command.side_effect = _fail_drop_of
+    worker = make_worker()
+    mock_ch().command.side_effect = _fail_drop_of
 
     await worker._cleanup_unreferenced_tables()
 
@@ -176,8 +176,8 @@ async def test_orphan_cleanup_keeps_registry_row_when_drop_fails(bg_db):
     await insert_table_registry(bg_db, "t_stuck")
     await insert_table_registry(bg_db, "t_fine")
 
-    worker = make_worker(bg_db)
-    mock_ch(worker).command.side_effect = _fail_drop_of
+    worker = make_worker()
+    mock_ch().command.side_effect = _fail_drop_of
 
     await worker._cleanup_orphaned_resources(ttl_days=0)
 
@@ -190,8 +190,8 @@ async def test_delete_job_data_keeps_job_until_every_table_drops(bg_db):
     await insert_table_registry(bg_db, "t_stuck", job_id=998)
     await insert_table_registry(bg_db, "t_fine", job_id=998)
 
-    worker = make_worker(bg_db)
-    mock_ch(worker).command.side_effect = _fail_drop_of
+    worker = make_worker()
+    mock_ch().command.side_effect = _fail_drop_of
 
     with pytest.raises(RuntimeError, match="not dropped yet"):
         await worker._delete_job_data(998)
@@ -208,7 +208,7 @@ async def test_delete_job_removes_task_runs(bg_db):
     await insert_task_run(bg_db, 111, 100)
     await insert_task_run(bg_db, 222, 100)
 
-    await make_worker(bg_db)._delete_job_data(998)
+    await make_worker()._delete_job_data(998)
 
     assert await task_run_statuses(bg_db, 100) == []
 
@@ -224,7 +224,7 @@ async def test_delete_job_data_removes_remote_task_results(bg_db):
         )
         await session.commit()
 
-    await make_worker(bg_db)._delete_job_data(998)
+    await make_worker()._delete_job_data(998)
 
     async with AsyncSession(bg_db) as session:
         assert (await session.execute(text("SELECT count(*) FROM tasks WHERE job_id = 998"))).scalar_one() == 0
@@ -236,12 +236,12 @@ async def test_drop_tables_gives_up_after_consecutive_failures(bg_db):
     for i in range(5):
         await insert_context_ref(bg_db, f"t_{i}", 100 + i)
 
-    worker = make_worker(bg_db)
-    mock_ch(worker).command.side_effect = RuntimeError("ClickHouse unavailable")
+    worker = make_worker()
+    mock_ch().command.side_effect = RuntimeError("ClickHouse unavailable")
 
     await worker._cleanup_unreferenced_tables()
 
-    assert mock_ch(worker).command.call_count == 3
+    assert mock_ch().command.call_count == 3
     assert await _table_names(bg_db, "table_context_refs") == {f"t_{i}" for i in range(5)}
 
 
@@ -251,7 +251,7 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     await insert_context_ref(bg_db, "j_42_intermediate", 101)
     await insert_context_ref(bg_db, "t_scratch", 102)
 
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     await worker._cleanup_unreferenced_tables()
 
@@ -261,7 +261,7 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     assert "t_scratch" not in remaining, "Temp table was not cleaned up"
 
 
-async def test_delete_job_data_exempts_persistent_tables(bg_db, orch_ctx):
+async def test_delete_job_data_exempts_persistent_tables(orch_ctx, bg_db):
     """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never ``p_*``."""
     job_id = 555
     await insert_job(bg_db, job_id, preservation_mode="NONE")
@@ -271,7 +271,7 @@ async def test_delete_job_data_exempts_persistent_tables(bg_db, orch_ctx):
     for table_name in job_tables:
         await insert_table_registry(bg_db, table_name, job_id=job_id)
 
-    worker = make_worker(bg_db, ch)
+    worker = make_worker()
 
     await worker._delete_job_data(job_id)
 
@@ -283,7 +283,7 @@ async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
     return {row[0] for row in result.result_rows}
 
 
-async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
+async def test_delete_job_data_purges_ch_log_tables(orch_ctx, bg_db):
     """``_delete_job_data`` synchronously deletes the job's operation_log and task_logs rows, and no other job's."""
     job_id, other_job_id = 556, 557
     await insert_job(bg_db, job_id, preservation_mode="NONE")
@@ -298,7 +298,7 @@ async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
             f"VALUES ({jid}, {jid}, {jid}, 0, 'stdout', 'hello', now64(3))"
         )
 
-    worker = make_worker(bg_db, ch)
+    worker = make_worker()
 
     await worker._delete_job_data(job_id)
 
@@ -306,7 +306,7 @@ async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
     assert await _log_job_ids(ch, "task_logs") == {other_job_id}
 
 
-async def test_delete_job_data_keeps_job_when_log_purge_fails(bg_db, orch_ctx):
+async def test_delete_job_data_keeps_job_when_log_purge_fails(orch_ctx, bg_db):
     """A log-purge mutation that fails while running keeps the job's SQL rows for the next cycle.
 
     The ``throwIf`` alias raises only when the mutation executes, which a
@@ -322,7 +322,7 @@ async def test_delete_job_data_keeps_job_when_log_purge_fails(bg_db, orch_ctx):
     )
     await ch.command(f"INSERT INTO task_logs (raw) VALUES ({job_id})")
 
-    worker = make_worker(bg_db, ch)
+    worker = make_worker()
 
     with pytest.raises(Exception, match="purge failed"):
         await worker._delete_job_data(job_id)
@@ -333,7 +333,7 @@ async def test_delete_job_data_keeps_job_when_log_purge_fails(bg_db, orch_ctx):
 
 async def test_failing_pass_does_not_stop_the_others(bg_db, monkeypatch):
     """One pass raising (e.g. a DB restart) is logged; the passes after it still run."""
-    worker = make_worker(bg_db)
+    worker = make_worker()
 
     async def _process_failure_cleanup():
         raise RuntimeError("db down")

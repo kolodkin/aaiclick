@@ -55,10 +55,12 @@ async def local_runtime() -> AsyncIterator[None]:
         if reason:
             raise RuntimeError(f"{reason} {STALE_DB_REMEDY}")
 
-    background = BackgroundWorker()
-    await background.start()
-    try:
-        async with orch_context():
+    # One orch_context for both workers: the BackgroundWorker shares its SQL
+    # engine and CH client instead of opening a second pool on local.db.
+    async with orch_context():
+        background = BackgroundWorker()
+        await background.start()
+        try:
             # uvicorn (or the outer process) owns SIGTERM/SIGINT — the worker must not steal them.
             worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False))
             try:
@@ -67,5 +69,5 @@ async def local_runtime() -> AsyncIterator[None]:
                 worker_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker_task
-    finally:
-        await background.stop()
+        finally:
+            await background.stop()

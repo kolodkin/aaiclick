@@ -12,11 +12,12 @@ from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.backend import is_local
 from aaiclick.deploy.placeholders import require_no_placeholder_credentials
 from aaiclick.orchestration.local_runtime import local_runtime
-from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.orchestration.orch_context import OrchResources, current_orch_resources, orch_context
 from aaiclick.view_models import API_VERSION
 
 from .audit import AuditMiddleware
 from .auth import AllowedHostMiddleware, PrincipalAuthMiddleware, require_principal, warn_if_open
+from .deps import ORCH_STATE_KEY, SharedOrchMiddleware
 from .errors import register_exception_handlers
 from .events import live_events
 from .events import router as events_router
@@ -51,7 +52,7 @@ async def _seed_admin() -> None:
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def _lifespan(app: FastAPI) -> AsyncIterator[dict[str, OrchResources] | None]:
     warn_if_open()
     require_no_placeholder_credentials()
     if config.auth_enabled():
@@ -62,7 +63,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with _mcp_app.lifespan(app), live_events(app):
         if is_local():
             async with local_runtime():
-                yield
+                # Requests share this context: a per-request engine on local.db would race its pool.
+                yield {ORCH_STATE_KEY: current_orch_resources()}
         else:
             yield
 
@@ -79,8 +81,10 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.add_middleware(AllowedHostMiddleware)
-# Outermost so it sees the final status of every request, including the /mcp mount.
+# Outside every route and mount so it sees the final status of every request, /mcp included.
 app.add_middleware(AuditMiddleware)
+# Around the audit write too, so it nests into the lifespan's orch_context.
+app.add_middleware(SharedOrchMiddleware)
 
 # Every resource router needs a principal; scope guards are declared per route.
 for router in (

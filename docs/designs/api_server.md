@@ -280,7 +280,7 @@ pip install 'aaiclick[server]'
 uvicorn aaiclick.server.app:app
 ```
 
-In **local mode** (chdb + SQLite) the lifespan starts the `BackgroundWorker` and the execution worker, so a job submitted over REST or MCP runs in the same process; there is no worker process to launch. The CLI wraps this:
+In **local mode** (chdb + SQLite) the lifespan starts the `BackgroundWorker` and the execution worker, so a job submitted over REST or MCP runs in the same process; there is no worker process to launch. Both workers and every request share the lifespan's `orch_context` (see `aaiclick/server/deps.py`), so a request nests into it instead of opening its own engine on `local.db`. The CLI wraps this:
 
 ```bash
 python -m aaiclick local start            # workers + REST + MCP on 127.0.0.1:5255
