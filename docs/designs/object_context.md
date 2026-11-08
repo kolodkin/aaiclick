@@ -12,12 +12,12 @@ block and resets each by token on exit, so nested calls are safe. Each
 resource lives in its own module, so it can be read without importing
 `object_context`:
 
-| Resource          | Holds                        | Module              |
-|-------------------|------------------------------|---------------------|
-| ClickHouse client | the chdb or remote client    | `ch_client.py`      |
-| Table lifecycle   | lifecycle handler, or none   | `lifecycle.py`      |
+| Resource          | Holds                         | Module              |
+|-------------------|-------------------------------|---------------------|
+| ClickHouse client | the chdb or remote client     | `ch_client.py`      |
+| Table lifecycle   | lifecycle handler, or none    | `lifecycle.py`      |
 | Table engine      | default engine for new tables | `object_context.py` |
-| Object registry   | weak refs to live Objects    | `object_context.py` |
+| Object registry   | weak refs to live Objects     | `object_context.py` |
 
 Oplog recording rides the lifecycle handler (`docs/designs/oplog.md` —
 "Recording").

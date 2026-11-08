@@ -16,50 +16,48 @@ Not implemented. Indexed from `docs/designs/future.md`.
 # Concept
 
 A tenant is an *installation*, not a column. Creating one provisions a
-namespace containing a complete aaiclick stack — server, worker, background
+namespace holding a complete aaiclick stack — server, worker, background
 service, and its own Postgres and ClickHouse. Isolation is the namespace
 boundary rather than a `WHERE` clause, so tenants may be mutually
-distrusting parties, which the earlier metadata-level scheme explicitly
-could not support.
+distrusting parties, which the earlier metadata-level scheme could not
+support.
 
-The installation is unmodified aaiclick. It gains exactly one capability:
+The installation is unmodified aaiclick plus exactly one capability:
 verifying access tokens signed by the control plane.
 
 # Components
 
-| Component            | Packaging                    | Runs in            |
-|----------------------|------------------------------|--------------------|
-| Control plane        | `aaiclick[tenants]`          | `aaiclick-system`  |
-| Tenant installation  | `aaiclick[server,distributed]` | `tenant-<slug>`  |
+| Component           | Packaging                      | Runs in           |
+|---------------------|--------------------------------|-------------------|
+| Control plane       | `aaiclick[tenants]`            | `aaiclick-system` |
+| Tenant installation | `aaiclick[server,distributed]` | `tenant-<slug>`   |
 
-The control plane is a distinct service with its own FastAPI app, its own
-Postgres, its own SPA, and a ServiceAccount holding cluster RBAC to create
-namespaces and apply releases. It does not share a database with any
-installation.
+The control plane is a distinct service with its own FastAPI app,
+Postgres and SPA, and a ServiceAccount holding cluster RBAC to create
+namespaces and apply releases. It shares no database with any installation.
 
-It imports `aaiclick.auth` for the authorization vocabulary — `Role`,
-`ScopeLevel`, `ROLE_SCOPES`, `scope_admits`, and the password and JWT
-primitives in `aaiclick.auth.security` — so roles and scopes are the same
-code, not a parallel implementation.
+It imports `aaiclick.auth` for the authorization vocabulary (roles, scope
+levels, the role → scope map) and the password and JWT primitives, so roles
+and scopes are the same code, not a parallel implementation.
 
 ## Package layout
 
-| Module                        | Responsibility                                  |
-|-------------------------------|--------------------------------------------------|
-| `tenants/models.py`           | `Installation`, `InstallationEvent`              |
-| `tenants/store.py`            | CRUD against the control plane's own session     |
-| `tenants/provisioner/state.py`| Lifecycle state machine                          |
-| `tenants/provisioner/k8s.py`  | Namespace, secrets, release application          |
-| `tenants/provisioner/chart.py`| Per-tenant Helm values rendering                 |
-| `tenants/keys.py`             | Signing keypair and JWKS publication             |
-| `tenants/routers/`            | REST surface                                     |
-| `tenants/app.py`              | The FastAPI application                          |
+| Module                         | Responsibility                               |
+|--------------------------------|----------------------------------------------|
+| `tenants/models.py`            | `Installation`, `InstallationEvent`          |
+| `tenants/store.py`             | CRUD against the control plane's own session |
+| `tenants/provisioner/state.py` | Lifecycle state machine                      |
+| `tenants/provisioner/k8s.py`   | Namespace, secrets, release application      |
+| `tenants/provisioner/chart.py` | Per-tenant Helm values rendering             |
+| `tenants/keys.py`              | Signing keypair and JWKS publication         |
+| `tenants/routers/`             | REST surface                                 |
+| `tenants/app.py`               | The FastAPI application                      |
 
 ## Prerequisite refactor
 
 `aaiclick.auth` is not importable outside an orchestration context today:
 `auth/store.py` reads the session through `orchestration.orch_context`, and
-`auth/config.py` depends on `backend.is_local`. The control plane has its
+`auth/config.py` depends on `aaiclick/backend.py`. The control plane has its
 own database and no orchestration state, so the shared session accessor
 moves to a neutral module that both sides set — restructuring rather than
 inline imports, per CLAUDE.md.
@@ -71,10 +69,10 @@ The control plane owns identity. `users`, `tenants` and
 tables stay empty.
 
 Authorization splits cleanly: rules are **defined** centrally — a
-membership grants one role per `(tenant, user)` exactly as the earlier
-in-installation scheme did — and **enforced** locally, by each
-installation's existing scope guards. This works without any lookup
-because `Principal` is already built from JWT claims alone.
+membership grants one role per `(tenant, user)`, as the earlier
+in-installation scheme did — and **enforced** locally by each installation's
+existing scope guards, with no lookup, because an installation already
+builds its principal from JWT claims alone.
 
 ## Token shape
 
@@ -82,7 +80,7 @@ Access tokens are **audience-scoped**: `aud` names one tenant and the token
 carries that tenant's role only. An installation rejects any token whose
 audience is not its own.
 
-A token enumerating the holder's roles across every tenant — as the
+A token listing the holder's roles across every tenant — as the
 in-installation scheme's claims did — would disclose the fleet's shape to
 each installation and let a compromised one replay the credential
 elsewhere. One audience, one role.
@@ -98,8 +96,8 @@ only party that can sign. Installations verify only. HS256 remains the
 default for single installations, so nothing changes for them.
 
 The provisioner writes the current public key into each namespace as a
-Secret, and installations also poll JWKS on a cache. Rotation is therefore
-a control-plane action: publish the new key alongside the old, wait out the
+Secret, and installations also poll JWKS on a cache. Rotation is a
+control-plane action: publish the new key alongside the old, wait out the
 access-token TTL, retire the old one — no fleet-wide redeploy.
 
 ## Request flow
@@ -115,24 +113,24 @@ installation's.
 
 # Data Model
 
-Existing auth tables are reused unchanged. `Tenant` gains no columns;
+Auth tables are reused unchanged and `tenants` gains no columns;
 provisioning state lives beside it, one row per tenant.
 
 ## `installations`
 
-| Column             | Type                        | Notes                              |
-|--------------------|-----------------------------|-------------------------------------|
-| `tenant_id`        | `BigInteger` PK, FK         | 1:1 with `tenants.id`               |
-| `namespace`        | `String`, unique            | `tenant-<slug>`                     |
-| `status`           | `String`                    | `Status` literal, below             |
-| `phase`            | `String`                    | Current step, for progress display  |
-| `base_url`         | `String`, nullable          | The tenant's ingress URL            |
-| `aaiclick_version` | `String`                    | Chart and image tag                 |
-| `helm_release`     | `String`                    | Release name                        |
-| `values_digest`    | `String`                    | Hash of applied values              |
-| `error`            | `String`, nullable          | Terminal failure detail             |
-| `created_at`       | `datetime`                  |                                     |
-| `updated_at`       | `datetime`                  |                                     |
+| Column             | Type                | Notes                              |
+|--------------------|---------------------|------------------------------------|
+| `tenant_id`        | `BigInteger` PK, FK | 1:1 with `tenants.id`              |
+| `namespace`        | `String`, unique    | `tenant-<slug>`                    |
+| `status`           | `String`            | `Status` literal, below            |
+| `phase`            | `String`            | Current step, for progress display |
+| `base_url`         | `String`, nullable  | The tenant's ingress URL           |
+| `aaiclick_version` | `String`            | Chart and image tag                |
+| `helm_release`     | `String`            | Release name                       |
+| `values_digest`    | `String`            | Hash of applied values             |
+| `error`            | `String`, nullable  | Terminal failure detail            |
+| `created_at`       | `datetime`          |                                    |
+| `updated_at`       | `datetime`          |                                    |
 
 `status` is `Literal["pending", "provisioning", "ready", "failed",
 "deleting", "deleted"]` on a plain `String` column — no CHECK constraint,
@@ -142,9 +140,9 @@ per CLAUDE.md.
 
 ## `installation_events`
 
-Append-only `(id, tenant_id, phase, level, message, created_at)`. Because
-provisioning does not run through the job engine, this is what gives the UI
-live progress and gives operators a post-mortem on a failed install.
+Append-only `(id, tenant_id, phase, level, message, created_at)`.
+Provisioning does not run through the job engine, so this table gives the UI
+live progress and operators a post-mortem on a failed install.
 
 # Provisioner
 
@@ -159,11 +157,11 @@ never be mistaken for a tenant's own.
 
 `namespace` → `secrets` → `databases` → `helm` → `migrate` → `health` → `ready`
 
-Each phase is idempotent and individually resumable, so a provisioner
-restart re-reads status and continues rather than restarting the install.
+Each phase is idempotent and resumable: a restarted provisioner re-reads
+status and continues rather than restarting the install.
 
-| Phase       | Action                                                             |
-|-------------|--------------------------------------------------------------------|
+| Phase       | Action                                                              |
+|-------------|---------------------------------------------------------------------|
 | `namespace` | Create `tenant-<slug>` with labels identifying the tenant           |
 | `secrets`   | Generate database credentials; write the control plane's public key |
 | `databases` | Postgres and ClickHouse StatefulSets with persistent volumes        |
@@ -181,8 +179,8 @@ confirmation.
 
 ## Chart gaps
 
-The shipped chart (`aaiclick/deploy` — see `init_helm`) is a starter and is
-not sufficient for a tenant as it stands:
+The shipped chart (`aaiclick/deploy/`, `docs/designs/deploy_scaffold.md`) is
+a starter, not sufficient for a tenant as it stands:
 
 - **No Ingress template.** Services are `ClusterIP` only, so direct routing
   needs an Ingress per tenant, with DNS and TLS.

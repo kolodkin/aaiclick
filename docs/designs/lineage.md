@@ -14,10 +14,10 @@ insufficient.
 
 # Two-Tier Model
 
-| Tier | What runs                            | What the agent can query                           | Cost                  |
-|------|--------------------------------------|----------------------------------------------------|-----------------------|
-| 1    | Nothing — use existing state         | Persistent inputs (`p_*`), target table, oplog SQL | Zero replay           |
-| 2    | Full replay with `"FULL"` preservation | Everything above + every intermediate table      | One full pipeline run |
+| Tier | What runs                              | What the agent can query                           | Cost                  |
+|------|----------------------------------------|----------------------------------------------------|-----------------------|
+| 1    | Nothing — use existing state           | Persistent inputs (`p_*`), target table, oplog SQL | Zero replay           |
+| 2    | Full replay with `"FULL"` preservation | Everything above + every intermediate table        | One full pipeline run |
 
 Tier 1 runs first; the agent escalates only when static state cannot
 answer, or when the user asks for Tier 2 up front.
@@ -79,9 +79,9 @@ evidence for the price of one run.
 
 # Preservation Mode
 
-| Mode   | What survives after job | Use case                                     |
-|--------|-------------------------|----------------------------------------------|
-| `NONE` | Persistent tables only  | Production runs, Tier 1 debugging            |
+| Mode   | What survives after job  | Use case                                     |
+|--------|--------------------------|----------------------------------------------|
+| `NONE` | Persistent tables only   | Production runs, Tier 1 debugging            |
 | `FULL` | All tables until job TTL | Development, Tier 2 debugging, replay target |
 
 Precedence, highest first:

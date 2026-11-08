@@ -61,10 +61,10 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 ## Transport per runner
 
-| Runner          | `in.json` in                                                                       | `out.json` out                                        |
-|-----------------|------------------------------------------------------------------------------------|-------------------------------------------------------|
-| host subprocess | per-attempt temp dir, `AAICLICK_IO_DIR` in the child's env                         | read from the temp dir, removed after                 |
-| docker          | `docker create` → `docker cp` → `docker start`                                     | `docker cp` of the IO dir back, then `docker rm`      |
+| Runner          | `in.json` in                                                                           | `out.json` out                                                 |
+|-----------------|----------------------------------------------------------------------------------------|----------------------------------------------------------------|
+| host subprocess | per-attempt temp dir, `AAICLICK_IO_DIR` in the child's env                             | read from the temp dir, removed after                          |
+| docker          | `docker create` → `docker cp` → `docker start`                                         | `docker cp` of the IO dir back, then `docker rm`               |
 | kubernetes      | `kubectl cp` into an `emptyDir`; init container `io-in` waits for an `in.ready` marker | `kubectl exec -c io -- cat` via a `sleep` sidecar, then delete |
 
 - **Containers**: `AAICLICK_IO_DIR` is `/aaiclick`; the argv follows the
@@ -83,11 +83,11 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 **Implementation**: `aaiclick/orchestration/execution/io_plane.py`
 
-| Worker                                      | Runs the command                                                 |
-|---------------------------------------------|------------------------------------------------------------------|
-| In-process (local mode, `job_test`)         | in the worker's event loop                                       |
-| mp worker                                   | in the spawned task child, which owns timeout and cancellation   |
-| Container runners (docker, kubernetes)      | host-side on a `ShellVehicle` (multi-step launch)                |
+| Worker                                 | Runs the command                                               |
+|----------------------------------------|----------------------------------------------------------------|
+| In-process (local mode, `job_test`)    | in the worker's event loop                                     |
+| mp worker                              | in the spawned task child, which owns timeout and cancellation |
+| Container runners (docker, kubernetes) | host-side on a `ShellVehicle` (multi-step launch)              |
 
 What each runner launches for `module` / `shell` / `jvm`:
 [orchestration.md, Execution layers](orchestration.md#execution-layers).

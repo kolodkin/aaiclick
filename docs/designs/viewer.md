@@ -26,14 +26,14 @@ fetching and app state), then the copy is refreshed and `npm run check` /
 
 ## The contract the kernel expects
 
-| Input             | Shape                                                                                                             | aaiclick source                                      |
-|-------------------|-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
+| Input             | Shape                                                                                                                                    | aaiclick source                                           |
+|-------------------|------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
 | result rows       | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact`, 64-bit integers / decimals / denormals quoted, named tuples as objects | `POST /viewer/query` returns ClickHouse's output verbatim |
-| column types      | `meta[].type`, ClickHouse type strings                                                                            | same response                                        |
-| cell views        | raw YAML (`link` / `custom`, `params:` block); `{name}` params substitute into the `where` expression             | `viewer_queries.cell_view`, validated server-side    |
-| presentation      | `order_by: [{name, dir}]`, `fields: [col]`                                                                        | `viewer_queries.order_by` / `fields`                 |
-| dashboard results | `{query: {column: values}}` for `window.queries`                                                                  | `run_dashboard`                                      |
-| CSV download      | text from a separate request                                                                                      | `query_object` with `fmt="csv"`                      |
+| column types      | `meta[].type`, ClickHouse type strings                                                                                                   | same response                                             |
+| cell views        | raw YAML (`link` / `custom`, `params:` block); `{name}` params substitute into the `where` expression                                    | `viewer_queries.cell_view`, validated server-side         |
+| presentation      | `order_by: [{name, dir}]`, `fields: [col]`                                                                                               | `viewer_queries.order_by` / `fields`                      |
+| dashboard results | `{query: {column: values}}` for `window.queries`                                                                                         | `run_dashboard`                                           |
+| CSV download      | text from a separate request                                                                                                             | `query_object` with `fmt="csv"`                           |
 
 These are QueryView's `/api/db/query`, predefined-query and `/api/runqueries`
 shapes; keeping them identical is what lets the copy stay verbatim. The one
@@ -101,17 +101,17 @@ The viewer builds on three additions to `aaiclick/data` and
 Every function runs under `orch_context()`. Models:
 `aaiclick/viewer/view_models.py`.
 
-| Function                                    | Returns                                | Notes                                                                                   |
-|---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------|
-| `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` (MCP, CLI) |
+| Function                                    | Returns                                | Notes                                                                                                                 |
+|---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` (MCP, CLI)        |
 | `query_object_bytes(ObjectQueryRequest)`    | `bytes`                                | the page as ClickHouse sent it — what REST returns verbatim (`application/json` / `text/csv`), no decode or re-encode |
-| `list_saved_queries(SavedQueryFilter)`      | `Page[SavedQuery]`                     | by `scope` and `object`; a query saved with `scope=None` matches every scope            |
-| `save_query(SavedQueryIn)`                  | `SavedQuery`                           | upsert on `name`; validates `where` and the `cell_view` YAML shape                      |
-| `delete_saved_query(name)`                  | `Deleted`                              |                                                                                         |
-| `list_dashboards()` / `get_dashboard(name)` | `Page[DashboardSummary]` / `Dashboard` |                                                                                         |
-| `save_dashboard(DashboardIn)`               | `Dashboard`                            | upsert on `name`; `queries` is `dict[panel, ObjectQuery]`                                |
-| `delete_dashboard(name)`                    | `Deleted`                              |                                                                                         |
-| `run_dashboard(name)`                       | `DashboardResults`                     | runs the panels concurrently under the dashboard's scope; column-oriented, the `window.queries` contract |
+| `list_saved_queries(SavedQueryFilter)`      | `Page[SavedQuery]`                     | by `scope` and `object`; a query saved with `scope=None` matches every scope                                          |
+| `save_query(SavedQueryIn)`                  | `SavedQuery`                           | upsert on `name`; validates `where` and the `cell_view` YAML shape                                                    |
+| `delete_saved_query(name)`                  | `Deleted`                              |                                                                                                                       |
+| `list_dashboards()` / `get_dashboard(name)` | `Page[DashboardSummary]` / `Dashboard` |                                                                                                                       |
+| `save_dashboard(DashboardIn)`               | `Dashboard`                            | upsert on `name`; `queries` is `dict[panel, ObjectQuery]`                                                             |
+| `delete_dashboard(name)`                    | `Deleted`                              |                                                                                                                       |
+| `run_dashboard(name)`                       | `DashboardResults`                     | runs the panels concurrently under the dashboard's scope; column-oriented, the `window.queries` contract              |
 
 `ObjectQuery` (object, fields, where, order_by) is a dashboard panel; a saved
 query adds `name`, `scope` and `cell_view`; a request adds `scope`, paging and

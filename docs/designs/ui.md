@@ -81,13 +81,13 @@ One registry, `src/components/commands.ts`, feeds Home, the prompt dropdown and 
 
 Jobs, newest `created_at` first.
 
-| Column     | Source field    | Notes                           |
-|------------|----------------|---------------------------------|
-| Name       | `name`         | Clickable — sets prompt to `@job <name>` |
-| Status     | `status`       | Colored badge                   |
-| Progress   | computed       | `completed_tasks / total_tasks` |
-| Created    | `created_at`   | Relative time (e.g., "2m ago")  |
-| Duration   | computed       | `started_at` to `completed_at` or now |
+| Column   | Source field | Notes                                    |
+|----------|--------------|------------------------------------------|
+| Name     | `name`       | Clickable — sets prompt to `@job <name>` |
+| Status   | `status`     | Colored badge                            |
+| Progress | computed     | `completed_tasks / total_tasks`          |
+| Created  | `created_at` | Relative time (e.g., "2m ago")           |
+| Duration | computed     | `started_at` to `completed_at` or now    |
 
 Status badges, shared by jobs and tasks: `PENDING` gray, `RUNNING` blue,
 `COMPLETED` green, `FAILED` red, `CANCELLED` yellow.
@@ -107,14 +107,14 @@ links to `@data job <id> <object>`.
 
 **Tasks table**:
 
-| Column     | Source field    | Notes                           |
-|------------|----------------|---------------------------------|
-| Name       | `name`         | Clickable — sets prompt to `@task <id>` |
-| Status     | `status`       | Colored badge                   |
-| Entrypoint | `entrypoint`   |                                 |
-| Attempt    | `attempt`      | `attempt / max_retries`         |
-| Started    | `started_at`   | Relative time                   |
-| Duration   | computed       | `started_at` to `completed_at` or now |
+| Column     | Source field | Notes                                   |
+|------------|--------------|-----------------------------------------|
+| Name       | `name`       | Clickable — sets prompt to `@task <id>` |
+| Status     | `status`     | Colored badge                           |
+| Entrypoint | `entrypoint` |                                         |
+| Attempt    | `attempt`    | `attempt / max_retries`                 |
+| Started    | `started_at` | Relative time                           |
+| Duration   | computed     | `started_at` to `completed_at` or now   |
 
 A Table / Graph / Timings / Duration toggle switches the body. The prompt
 carries the mode — `@job <name> graph`, `timings`, `duration` — so the view
@@ -196,13 +196,13 @@ CLI (`view dashboards save`).
 Prompt-driven like the rest of the UI; flows and the role matrix are in
 `docs/designs/auth.md` — SPA.
 
-| Prompt          | View                                          | Implementation                 |
-|-----------------|-----------------------------------------------|--------------------------------|
-| `@account`      | Change password, MFA setup / disable          | `src/views/Account.tsx`        |
-| `@tokens`       | List / create / revoke the caller's API tokens | `src/views/Tokens.tsx`        |
-| `@users`        | Admin user table                              | `src/views/Users.tsx`          |
-| `@invite`       | Invite a user — admin only                    | `src/views/Invite.tsx`         |
-| `@audit`        | Admin audit-log table with filters            | `src/views/Audit.tsx`          |
+| Prompt          | View                                             | Implementation                |
+|-----------------|--------------------------------------------------|-------------------------------|
+| `@account`      | Change password, MFA setup / disable             | `src/views/Account.tsx`       |
+| `@tokens`       | List / create / revoke the caller's API tokens   | `src/views/Tokens.tsx`        |
+| `@users`        | Admin user table                                 | `src/views/Users.tsx`         |
+| `@invite`       | Invite a user — admin only                       | `src/views/Invite.tsx`        |
+| `@audit`        | Admin audit-log table with filters               | `src/views/Audit.tsx`         |
 | `reset <token>` | New-password form from a reset link (no session) | `src/views/ResetPassword.tsx` |
 
 `src/components/Header.tsx` shows the signed-in username (opens `@account`)

@@ -66,11 +66,11 @@ writes by path:
 | job    | Shared by a job's tasks, dropped when the job ends | intermediate files between tasks |
 | global | Shared by every job, kept until evicted            | model weights, HF / pip caches   |
 
-| Runner     | Backing                                                |
-|------------|--------------------------------------------------------|
+| Runner     | Backing                                                 |
+|------------|---------------------------------------------------------|
 | subprocess | Directories under `~/.aaiclick` (`AAICLICK_LOCAL_ROOT`) |
-| docker     | Host directories bind-mounted into the container       |
-| kubernetes | PersistentVolumeClaims mounted into the Pod            |
+| docker     | Host directories bind-mounted into the container        |
+| kubernetes | PersistentVolumeClaims mounted into the Pod             |
 
 Open points: how a task names the paths (env vars vs. a helper), concurrent
 writers to one global entry, eviction and size limits, and ReadWriteMany

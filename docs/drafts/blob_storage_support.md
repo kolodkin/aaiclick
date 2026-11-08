@@ -11,20 +11,18 @@ default stays as it is; blob storage is opt-in per object.
 
 Two pieces, files as the contract between them:
 
-| Piece                    | What it does                                            | Goal served                                  |
-|--------------------------|---------------------------------------------------------|----------------------------------------------|
-| Read-only source Object  | Queries an existing path in place, nothing copied       | External data without ingestion              |
-| Export to a bucket       | Writes an Object or View as a file, server-side         | Results that outlive the server and the job  |
+| Piece                   | What it does                                      | Goal served                                 |
+|-------------------------|---------------------------------------------------|---------------------------------------------|
+| Read-only source Object | Queries an existing path in place, nothing copied | External data without ingestion             |
+| Export to a bucket      | Writes an Object or View as a file, server-side   | Results that outlive the server and the job |
 
 A job exports its result, the URL travels to the next job as a plain string,
-and that job opens it read-only on any cluster. That is the whole of
-ephemeral compute and cross-job sharing.
+and that job opens it read-only on any cluster — the whole of ephemeral
+compute and cross-job sharing.
 
 Out of scope: replacing MergeTree for temp objects, a second query engine
 (DuckDB or similar), and lake formats (Iceberg, Delta) — ClickHouse reads
 them through the same engine family, so they can be added later as schemes.
-
----
 
 # Concept: Location
 
@@ -43,22 +41,21 @@ the engine clause is unchanged:
 (ClickHouse format name, default `Parquet`). `get_engine_clause()` renders
 the engine from them.
 
-| URL scheme           | Table engine        | Table function (schema inference) |
-|----------------------|---------------------|-----------------------------------|
-| `s3://`              | `S3`                | `s3()`                            |
-| `gs://`              | `S3` (HMAC keys)    | `gcs()`                           |
-| `az://`              | `AzureBlobStorage`  | `azureBlobStorage()`              |
-| `http(s)://`         | none — copies via `url()` | `url()`                      |
+| URL scheme   | Table engine              | Table function (schema inference) |
+|--------------|---------------------------|-----------------------------------|
+| `s3://`      | `S3`                      | `s3()`                            |
+| `gs://`      | `S3` (HMAC keys)          | `gcs()`                           |
+| `az://`      | `AzureBlobStorage`        | `azureBlobStorage()`              |
+| `http(s)://` | none — copies via `url()` | `url()`                           |
 
 Globs (`*`, `?`, `{a,b}`, `{1..9}`) and Hive-style partition discovery come
 through untouched.
 
 # Credentials
 
-aaiclick never handles object-store secrets. URLs carry none, and the SQL
+aaiclick never handles object-store secrets: URLs carry none, so the SQL
 text — which reaches the operation log and ClickHouse's query log — stays
-clean. ClickHouse resolves credentials server-side through, in order of
-preference:
+clean. ClickHouse resolves credentials server-side, in order of preference:
 
 1. Named collections in the server config (per bucket or per provider).
 2. Environment credentials (`use_environment_credentials`) or the instance
@@ -67,8 +64,6 @@ preference:
 
 The deploy templates gain a commented named-collection example; chdb reads
 the same settings from its session config.
-
----
 
 # Read-Only Source Object
 

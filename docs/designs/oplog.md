@@ -56,22 +56,21 @@ enqueues the `table_registry` row the same way.
 
 # Instrumentation Points
 
-| Operation                                            | `operation`              | `kwargs`                                                     |
-|------------------------------------------------------|--------------------------|--------------------------------------------------------------|
-| `create_object()`                                    | (none — registry only)   | —                                                            |
-| `create_object_from_value()`                         | `"create_from_value"`    | `{}`                                                         |
-| Binary operators                                     | `"add"`, `"sub"`, etc.   | `{"left": ..., "right": ...}`; a literal operand is left out |
-| Aggregations, `nunique`, `group_by`                  | `"sum"`, `"group_by"`, … | `{"source": ...}`                                            |
-| `isin`                                               | `"isin"`                 | `{"source": ..., "other": ...}`                              |
-| `join`                                               | `"join"`                 | `left`, `right`, `left_on`, `right_on`, `how`                |
-| `concat`                                             | `"concat"`               | `{"source_0": ..., "source_1": ..., ...}`                    |
-| `insert`                                             | `"insert"`               | `{"source": ..., "target": ...}`                             |
-| `copy()`                                             | `"copy"`                 | `{"source": ...}`                                            |
+| Operation                           | `operation`              | `kwargs`                                                     |
+|-------------------------------------|--------------------------|--------------------------------------------------------------|
+| `create_object()`                   | (none — registry only)   | —                                                            |
+| `create_object_from_value()`        | `"create_from_value"`    | `{}`                                                         |
+| Binary operators                    | `"add"`, `"sub"`, etc.   | `{"left": ..., "right": ...}`; a literal operand is left out |
+| Aggregations, `nunique`, `group_by` | `"sum"`, `"group_by"`, … | `{"source": ...}`                                            |
+| `isin`                              | `"isin"`                 | `{"source": ..., "other": ...}`                              |
+| `join`                              | `"join"`                 | `left`, `right`, `left_on`, `right_on`, `how`                |
+| `concat`                            | `"concat"`               | `{"source_0": ..., "source_1": ..., ...}`                    |
+| `insert`                            | `"insert"`               | `{"source": ..., "target": ...}`                             |
+| `copy()`                            | `"copy"`                 | `{"source": ...}`                                            |
 
 `create_object()` only registers the table, never records an operation, to
 avoid double-counting — the higher-level function records the operation that
-produced the table. A literal operand has no table, so the lineage graph
-references only real tables.
+produced the table.
 
 # Graph Queries
 

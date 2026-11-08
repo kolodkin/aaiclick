@@ -11,11 +11,11 @@ imports them so pytest registers them at the root (a nested
 `pytest_plugins` is ignored under `--pyargs`). Subpackage conftests hold
 only subpackage-local fixtures:
 
-| Conftest                                         | Content                                          |
-|--------------------------------------------------|--------------------------------------------------|
-| `aaiclick/data/conftest.py`                      | `ctx` (function-scoped `object_context`)         |
-| `aaiclick/orchestration/conftest.py`             | `fast_poll`                                      |
-| `aaiclick/orchestration/background/conftest.py`  | `bg_db` (temp SQLite engine)                     |
+| Conftest                                        | Content                                  |
+|-------------------------------------------------|------------------------------------------|
+| `aaiclick/data/conftest.py`                     | `ctx` (function-scoped `object_context`) |
+| `aaiclick/orchestration/conftest.py`            | `fast_poll`                              |
+| `aaiclick/orchestration/background/conftest.py` | `bg_db` (temp SQLite engine)             |
 
 ## Shared fixtures (from `aaiclick/testing.py`)
 
@@ -23,10 +23,10 @@ only subpackage-local fixtures:
 wraps the `worker_databases()` context manager in its own autouse session
 fixture, which composes:
 
-| Context manager       | Purpose                                                                |
-|-----------------------|------------------------------------------------------------------------|
-| `worker_ch_database`  | `<root>/chdb_data` for chdb / per-xdist-worker database for real CH    |
-| `worker_sql_database` | `<root>/local.db` for SQLite / per-xdist-worker database for Postgres  |
+| Context manager       | Purpose                                                               |
+|-----------------------|-----------------------------------------------------------------------|
+| `worker_ch_database`  | `<root>/chdb_data` for chdb / per-xdist-worker database for real CH   |
+| `worker_sql_database` | `<root>/local.db` for SQLite / per-xdist-worker database for Postgres |
 
 **Module-scoped** — one entry per test module, explicit via `orch_ctx*`:
 
@@ -39,11 +39,11 @@ fixture, which composes:
 
 **Function-scoped** — declare as a test parameter:
 
-| Fixture           | Depends on               | Resets                               |
-|-------------------|--------------------------|--------------------------------------|
-| `ctx`             | fresh `object_context()` | CH tables                            |
-| `orch_ctx`        | `orch_module_ctx`        | CH tables + SQL rows                 |
-| `orch_ctx_no_ch`  | `orch_module_ctx_no_ch`  | SQL rows only (no CH in parent)      |
+| Fixture          | Depends on               | Resets                          |
+|------------------|--------------------------|---------------------------------|
+| `ctx`            | fresh `object_context()` | CH tables                       |
+| `orch_ctx`       | `orch_module_ctx`        | CH tables + SQL rows            |
+| `orch_ctx_no_ch` | `orch_module_ctx_no_ch`  | SQL rows only (no CH in parent) |
 
 # chdb Session Constraint
 
