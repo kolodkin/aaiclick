@@ -229,9 +229,9 @@ def test_resource_flags(resources, expected):
 @pytest.mark.parametrize(
     "resources, match",
     [
-        pytest.param({"memory": {"limit": 1}}, "resources.memory", id="nested-value"),
-        pytest.param({"memory": None}, "resources.memory", id="null-value"),
-        pytest.param({"memory": True}, "resources.memory", id="bool-value"),
+        pytest.param({"memory": {"limit": 1}}, "resources.'memory' value", id="nested-value"),
+        pytest.param({"memory": None}, "resources.'memory' value", id="null-value"),
+        pytest.param({"memory": True}, "resources.'memory' value", id="bool-value"),
         pytest.param({"--cpus": "1"}, "resources.'--cpus'", id="leading-dashes"),
         pytest.param({"": "1"}, "resources.''", id="empty-key"),
         pytest.param({"cpu shares": "1"}, "resources.'cpu shares'", id="space-in-key"),
