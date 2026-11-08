@@ -262,9 +262,9 @@ The concurrency limits (`AAICLICK_K8S_MAX_PENDING`, `…_MAX_PENDING_TOTAL`,
 on `RegisteredJob` (default) and `Job` (per-run snapshot: `run_job` kwarg →
 registration default → `None`), exposed on the Python API, `RegisterJobRequest`
 and `RunJobRequest`, and checked to be a mapping at submission. It rides on
-`JobDispatch.resources`, not the Pod config. Its shape is the deployment
-runner's: on kubernetes the Pod container `resources`, on docker a flat map of
-`docker run` flags ([Resources](../user_guide/orchestration.md#resources)).
+`JobDispatch.resources`, not the Pod config, and is runner-shaped: the Pod
+container `resources` here, `docker run` flags on docker
+([Resources](../user_guide/orchestration.md#resources)).
 
 Both are resolved on the **worker at dispatch** (`dispatch.resolve_dispatch`
 picks the runner from the task and the worker, never from the job: a `NULL`

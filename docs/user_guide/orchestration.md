@@ -444,8 +444,8 @@ runtime requirements, see [Container Images](container_images.md).
 ## Resources
 
 `resources` is a per-job dict (`register-job` default, overridable per
-`run_job`) whose shape is the deployment's runner. A deployment runs one
-runner; mixed docker / kubernetes fleets are not supported.
+`run_job`) shaped for the deployment's one runner; mixed docker / kubernetes
+fleets are not supported.
 
 ```python
 # AAICLICK_RUNNER=docker — docker run flags, verbatim
@@ -455,11 +455,11 @@ run_job(name, image="python:3.12", resources={"cpus": "1.5", "memory": "512m"})
 run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})
 ```
 
-On docker only resource-constraint flags are accepted (`cpus`, `memory`,
-`gpus`, …); any other key fails the task, and the error lists the allowed ones. Values go to docker as written:
-`0` means unlimited, and `memory` alone still allows swap (add `memory-swap`
-equal to it to forbid that). A non-mapping is rejected when the job is
-registered or run; a value the runner does not accept fails the task.
+- **Docker** accepts resource flags only (`cpus`, `memory`, `gpus`, …); any
+  other key fails the task with the allowed list. `0` means unlimited, and
+  `memory` alone allows swap: set `memory-swap` to the same value to forbid it.
+- A non-mapping is rejected at register / run; a value the runner rejects fails
+  the task.
 
 ## Shell tasks
 
