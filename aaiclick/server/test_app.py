@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import contextvars
+from unittest.mock import Mock
+
+import httpx
 import pytest
 from fastapi.routing import APIRoute
 from starlette.routing import Route
 
 from aaiclick.backend import is_local
 from aaiclick.deploy.placeholders import PLACEHOLDER_MARKER
+from aaiclick.orchestration import sql_context
 from aaiclick.orchestration.execution import list_execution_workers
 from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE
 from aaiclick.testing import until
@@ -136,6 +142,31 @@ async def test_lifespan_starts_worker_in_local_mode():
 
     async with _lifespan(app):
         await until(lambda: list_execution_workers(status=EXECUTION_WORKER_ACTIVE), what="ACTIVE worker")
+
+
+async def test_local_requests_reuse_the_lifespan_sql_engine(monkeypatch):
+    """A request nests into the lifespan's ``orch_context`` instead of opening
+    its own engine on local.db, whose fresh connections raced the shared pool."""
+    if not is_local():
+        pytest.skip("the lifespan shares its orch resources only in local mode")
+    spy = Mock(wraps=sql_context.create_async_engine)
+    monkeypatch.setattr(sql_context, "create_async_engine", spy)
+
+    async with _lifespan(app) as state:
+
+        async def as_uvicorn(scope, receive, send):
+            # uvicorn copies the lifespan state into every request scope; ASGITransport does not.
+            scope["state"] = dict(state or {})
+            await app(scope, receive, send)
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=as_uvicorn), base_url="http://127.0.0.1"
+        ) as client:
+            # An empty context, as uvicorn's request tasks have: none of the lifespan's ContextVars.
+            response = await asyncio.create_task(client.get(f"{API_PREFIX}/jobs"), context=contextvars.Context())
+
+    assert response.status_code == 200
+    assert spy.call_count == 1
 
 
 async def test_lifespan_distributed_mode_is_a_no_op():
