@@ -329,11 +329,8 @@ DOCKER_RESOURCE_FLAGS = frozenset(
 
 
 def resource_flags(resources: dict | None) -> list[str]:
-    """``docker run`` flags from a job's ``resources``: each ``key: value``
-    becomes ``--key value``, verbatim, for keys in ``DOCKER_RESOURCE_FLAGS``.
-    Docker interprets the values (``0`` means unlimited, and ``--memory`` alone
-    allows swap); a value it rejects fails the task. Any other key, or a
-    non-scalar value, raises ``ValueError``."""
+    """``--key value`` for each ``resources`` entry, verbatim. Keys must be in
+    ``DOCKER_RESOURCE_FLAGS`` and values scalar, else ``ValueError``."""
     flags: list[str] = []
     for key, value in (resources or {}).items():
         if key not in DOCKER_RESOURCE_FLAGS:

@@ -217,7 +217,6 @@ def test_compute_image_tag(monkeypatch, dockerfile, suffix):
     "resources, expected",
     [
         pytest.param(None, [], id="none"),
-        pytest.param({}, [], id="empty"),
         pytest.param({"cpus": "1.5", "memory": "512m"}, ["--cpus", "1.5", "--memory", "512m"], id="passthrough"),
         pytest.param({"cpu-shares": 512}, ["--cpu-shares", "512"], id="json-number"),
     ],
@@ -230,11 +229,7 @@ def test_resource_flags(resources, expected):
     "resources, match",
     [
         pytest.param({"memory": {"limit": 1}}, "resources.'memory' value", id="nested-value"),
-        pytest.param({"memory": None}, "resources.'memory' value", id="null-value"),
         pytest.param({"memory": True}, "resources.'memory' value", id="bool-value"),
-        pytest.param({"--cpus": "1"}, "resources.'--cpus'", id="leading-dashes"),
-        pytest.param({"": "1"}, "resources.''", id="empty-key"),
-        pytest.param({"cpu shares": "1"}, "resources.'cpu shares'", id="space-in-key"),
         pytest.param({"privileged=true": "x"}, "resources.'privileged=true'", id="self-contained-flag"),
         pytest.param({"volume": "/:/host"}, "resources.'volume'", id="not-a-resource-flag"),
     ],

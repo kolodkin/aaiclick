@@ -455,9 +455,8 @@ run_job(name, image="python:3.12", resources={"cpus": "1.5", "memory": "512m"})
 run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})
 ```
 
-On docker only resource-constraint flags are accepted (`cpus`, `cpu-shares`,
-`memory`, `memory-swap`, `pids-limit`, `shm-size`, `gpus`, `ulimit`, …); any
-other key fails the task with the allowed list. Values go to docker as written:
+On docker only resource-constraint flags are accepted (`cpus`, `memory`,
+`gpus`, …); any other key fails the task, and the error lists the allowed ones. Values go to docker as written:
 `0` means unlimited, and `memory` alone still allows swap (add `memory-swap`
 equal to it to forbid that). A non-mapping is rejected when the job is
 registered or run; a value the runner does not accept fails the task.

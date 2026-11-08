@@ -115,7 +115,7 @@ def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> 
 def validate_resources(resources: dict | None) -> None:
     """Reject a non-mapping ``resources`` at submission. Contents are
     runner-specific (docker flags or a Pod ``resources`` dict) and are checked
-    by the worker at dispatch."""
+    when the worker builds the task's container."""
     if resources is None:
         return
     if not isinstance(resources, dict):

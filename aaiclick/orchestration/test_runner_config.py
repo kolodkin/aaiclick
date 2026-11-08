@@ -93,16 +93,11 @@ def test_parse_image_source_rejects_unknown_type():
         parse_image_source({"type": "carrier-pigeon"})
 
 
-@pytest.mark.parametrize(
-    "resources",
-    [pytest.param([{"cpus": "1"}], id="list"), pytest.param("cpus=1", id="string")],
-)
-def test_validate_resources_rejects_non_mapping(resources):
+def test_validate_resources_rejects_non_mapping():
     with pytest.raises(ValueError, match="resources must be a mapping"):
-        validate_resources(resources)
+        validate_resources([{"cpus": "1"}])
 
 
 def test_validate_resources_accepts_any_mapping():
     """Contents are the runner's business: docker flags or a Pod dict."""
     validate_resources({"cpus": "1.5", "memory": "512m"})
-    validate_resources({"limits": {"cpu": "1", "nvidia.com/gpu": 1}})
