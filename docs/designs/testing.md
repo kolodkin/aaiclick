@@ -4,14 +4,12 @@ Testing Architecture
 How the test suite composes fixtures, isolates backend state, and works
 around chdb's single-session-per-process constraint.
 
----
-
 # Fixtures
 
-All shared fixtures live in `aaiclick/testing.py`; `aaiclick/conftest.py`
+Shared fixtures live in `aaiclick/testing.py`; `aaiclick/conftest.py`
 imports them so pytest registers them at the root (a nested
-`pytest_plugins` is ignored under `--pyargs`).
-Subpackage conftests only hold subpackage-local fixtures.
+`pytest_plugins` is ignored under `--pyargs`). Subpackage conftests hold
+only subpackage-local fixtures:
 
 | Conftest                                         | Content                                          |
 |--------------------------------------------------|--------------------------------------------------|
@@ -21,9 +19,9 @@ Subpackage conftests only hold subpackage-local fixtures.
 
 ## Shared fixtures (from `aaiclick/testing.py`)
 
-**Session-scoped, autouse** — fire implicitly, never declared. Each conftest
-that needs it defines `_worker_databases`, wrapping the `worker_databases()`
-context manager:
+**Session-scoped, autouse** — fire implicitly, never declared. A conftest
+wraps the `worker_databases()` context manager in its own autouse session
+fixture, which composes:
 
 | Context manager       | Purpose                                                                |
 |-----------------------|------------------------------------------------------------------------|
@@ -62,12 +60,11 @@ intermittently trips a glibc pthread_mutex assertion inside
 
 Two independent mitigations compose to get a stable suite:
 
-1. **Nested `orch_context()` reuses the outer `ch_client`.** Inner
-   `orch_context` / inline `object_context()` calls don't create their own
-   chdb session; they reuse the existing one cached in
-   `aaiclick/data/object_context/chdb_client.py::_sessions`. Only the
-   outermost `orch_context` installs a `LazyChClient`, which opens chdb on
-   its first query.
+1. **Nested `orch_context()` reuses the outer ClickHouse client.** Inner
+   `orch_context` / inline `object_context()` calls reuse the process's
+   cached chdb session (`aaiclick/data/object_context/chdb_client.py`)
+   instead of opening one. Only the outermost `orch_context` installs a lazy
+   client, which opens chdb on its first query.
 
 2. **Module-scoped orch fixtures.** `orch_ctx` / `orch_ctx_no_ch` sit on
    top of `orch_module_ctx*`, not per-test `orch_context()`. Requires
@@ -75,12 +72,11 @@ Two independent mitigations compose to get a stable suite:
    in `pyproject.toml` so the async fixtures persist across the module's
    tests.
 
-Production aligned with this constraint: `orch_context.py` never
-closes the Session mid-process. It lives for the whole process and is
-closed exactly once at exit — see `_close_sessions()` in
-`aaiclick/data/object_context/chdb_client.py` for why bare process exit
-isn't safe (engine threads racing C++ static destructors — an
-intermittent shutdown SIGSEGV after a green run).
+Production follows the same constraint: `orch_context` never closes the
+Session mid-process. It lives for the whole process and is closed exactly
+once at exit (`chdb_client.py`), because a bare process exit lets engine
+threads race C++ static destructors — an intermittent shutdown SIGSEGV
+after a green run.
 
 # mp-worker Module Split
 
@@ -128,9 +124,7 @@ engine gets it. `reset_sql_tables` therefore deletes children before parents.
 
 # Adding New Tests
 
-1. Put the test next to the module it tests
-   (`aaiclick/data/test_context.py` tests
-   `aaiclick/data/object_context.py`).
+1. Put the test next to the module it tests (`test_<module>.py`).
 2. Declare fixtures by parameter name (`orch_ctx`, `ctx`, `fast_poll`).
    Autouse worker-isolation fixtures fire implicitly.
 3. mp-worker tests go in a dedicated `_mp.py` module.

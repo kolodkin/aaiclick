@@ -6,8 +6,8 @@ job: a **vocabulary** of tagged dicts and a **file data plane** for inputs
 and results. Python and Java are bindings of it
 ([Python](../user_guide/task_api_python.md), [Java](../user_guide/task_api_java.md)).
 The user-facing contract — files, vocabulary, spawn example, `task` fields,
-limits — is in the [user guide](../user_guide/task_interface.md); this
-document covers mechanics and decisions.
+limits — is in the [user guide](../user_guide/task_interface.md); this doc
+covers mechanics and decisions.
 
 # Vocabulary
 
@@ -44,7 +44,6 @@ Lifecycle of the user guide's fan-out (`w1`, `w2` → `fin`; ids illustrative):
 | `fin` launches              | `in.json`: `{"values": [2, 4]}`                                |
 
 Handles live only in that `out.json`; the parent's result points at 7303.
-
 
 # File data plane
 
