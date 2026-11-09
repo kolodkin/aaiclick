@@ -14,7 +14,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.names import name_error
+from aaiclick.names import VALID_JOB_NAME_RE, name_error
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.graph import DependencyRow, upstream_task_ids
 from aaiclick.orchestration.models import TASK_COMPLETED, Dependency, Group, Job, Task, TaskRun
@@ -272,7 +272,7 @@ async def run_job(request: RunJobRequest) -> JobView:
         entrypoint = registered.entrypoint if registered is not None else request.name
     # Registered names were checked at registration (or predate the rule), so only new names are.
     if registered is None:
-        error = name_error("job", name)
+        error = name_error("job", name, VALID_JOB_NAME_RE)
         if error:
             raise Invalid(error)
 
