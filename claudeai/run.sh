@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Start (or `stop`) the local distributed-backend services the CI test jobs
-# use: ClickHouse on :8123 and PostgreSQL on :5432, then apply migrations.
+# use: ClickHouse on :8123, PostgreSQL on :5432 and MinIO (S3) on :9100, then
+# apply migrations.
 # Binaries/clusters come from claudeai/setup.sh (run here if missing);
 # processes do not survive a container resume, so run this each session.
 set -euo pipefail
@@ -12,11 +13,13 @@ cache="$here/../.cache"
 ch_bin="$cache/clickhouse/clickhouse"
 pg_bin="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
 pg_dir="$cache/postgres"
+minio_bin="$cache/minio/minio"
 export PGPASSWORD=secret
 
 stop() {
   runuser -u postgres -- "$pg_bin/pg_ctl" -D "$pg_dir/data" -m fast stop 2>/dev/null || true
   [ -f "$cache/clickhouse/clickhouse.pid" ] && kill "$(cat "$cache/clickhouse/clickhouse.pid")" 2>/dev/null || true
+  [ -f "$cache/minio/minio.pid" ] && kill "$(cat "$cache/minio/minio.pid")" 2>/dev/null || true
   echo "[run] all services stopped"
 }
 
@@ -26,7 +29,7 @@ case "${1:-start}" in
   *) echo "usage: $0 [start|stop]" >&2; exit 2 ;;
 esac
 
-[ -x "$ch_bin" ] && [ -f "$pg_dir/data/PG_VERSION" ] || "$here/setup.sh"
+[ -x "$ch_bin" ] && [ -f "$pg_dir/data/PG_VERSION" ] && [ -x "$minio_bin" ] || "$here/setup.sh"
 
 if curl -fs localhost:8123/ping >/dev/null; then
   echo "[clickhouse] already up"
@@ -51,7 +54,10 @@ else
   </users>
 </clickhouse>
 XML
-  nohup "$ch_bin" server --config-file="$cache/clickhouse/config.xml" --pid-file="$cache/clickhouse/clickhouse.pid" \
+  # The AWS pair is MinIO's (see env.sh): the server reads it as its ambient S3
+  # credentials for queries that set s3_allow_server_credentials_in_user_queries.
+  AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+    nohup "$ch_bin" server --config-file="$cache/clickhouse/config.xml" --pid-file="$cache/clickhouse/clickhouse.pid" \
     >"$cache/clickhouse.log" 2>&1 &
   disown
   for _ in $(seq 1 60); do curl -fs localhost:8123/ping >/dev/null && break; sleep 1; done
@@ -68,6 +74,25 @@ fi
 psql -h localhost -U aaiclick -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'aaiclick'" | grep -q 1 \
   || "$pg_bin/createdb" -h localhost -U aaiclick aaiclick
 echo "[postgres] up on :5432"
+
+# MinIO on :9100 (ClickHouse's TCP port holds :9000). Credentials match the
+# env.sh exports; the bucket is created with curl's SigV4 since mc is gone.
+if curl -fs localhost:9100/minio/health/live >/dev/null; then
+  echo "[minio] already up"
+else
+  mkdir -p "$cache/minio/data"
+  MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+    nohup "$minio_bin" server "$cache/minio/data" --address :9100 --console-address :9101 \
+    >"$cache/minio.log" 2>&1 &
+  echo $! >"$cache/minio/minio.pid"
+  disown
+  for _ in $(seq 1 30); do curl -fs localhost:9100/minio/health/live >/dev/null && break; sleep 1; done
+  curl -fs localhost:9100/minio/health/live >/dev/null || { echo "[minio] error: not ready; see $cache/minio.log" >&2; exit 1; }
+fi
+curl -fs -X PUT --aws-sigv4 aws:amz:us-east-1:s3 --user minioadmin:minioadmin localhost:9100/aaiclick-test >/dev/null \
+  || curl -fs --aws-sigv4 aws:amz:us-east-1:s3 --user minioadmin:minioadmin localhost:9100/aaiclick-test >/dev/null \
+  || { echo "[minio] error: cannot create bucket aaiclick-test" >&2; exit 1; }
+echo "[minio] up on :9100"
 
 (cd "$here/.." && uv run --frozen --extra distributed python -m aaiclick migrate upgrade head >"$cache/migrate.log" 2>&1) \
   || { echo "[migrate] error: see $cache/migrate.log" >&2; exit 1; }
