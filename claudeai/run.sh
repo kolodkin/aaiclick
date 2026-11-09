@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start (or `stop`) the local distributed-backend services the CI test jobs
 # use: ClickHouse on :8123 and PostgreSQL on :5432, then apply migrations.
-# Binaries/clusters come from claudeai/setup_*.sh (run here if missing);
+# Binaries/clusters come from claudeai/setup.sh (run here if missing);
 # processes do not survive a container resume, so run this each session.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +16,7 @@ export PGPASSWORD=secret
 
 stop() {
   runuser -u postgres -- "$pg_bin/pg_ctl" -D "$pg_dir/data" -m fast stop 2>/dev/null || true
-  pkill -f "clickhouse server --config-file" || true
+  [ -f "$cache/clickhouse/clickhouse.pid" ] && kill "$(cat "$cache/clickhouse/clickhouse.pid")" 2>/dev/null || true
   echo "[run] all services stopped"
 }
 
@@ -26,20 +26,19 @@ case "${1:-start}" in
   *) echo "usage: $0 [start|stop]" >&2; exit 2 ;;
 esac
 
-[ -x "$ch_bin" ] || "$here/setup_clickhouse.sh"
-[ -f "$pg_dir/data/PG_VERSION" ] || "$here/setup_postgres.sh"
+[ -x "$ch_bin" ] && [ -f "$pg_dir/data/PG_VERSION" ] || "$here/setup.sh"
 
 if curl -fs localhost:8123/ping >/dev/null; then
   echo "[clickhouse] already up"
 else
   # Minimal server config: the CI credentials, data under .cache/clickhouse/data.
-  cat >"$cache/clickhouse/config.xml" <<'XML'
+  cat >"$cache/clickhouse/config.xml" <<XML
 <clickhouse>
   <logger><level>warning</level><console>1</console></logger>
   <listen_host>127.0.0.1</listen_host>
   <http_port>8123</http_port>
   <tcp_port>9000</tcp_port>
-  <path>data/</path>
+  <path>$cache/clickhouse/data/</path>
   <profiles><default/></profiles>
   <quotas><default/></quotas>
   <users>
@@ -52,7 +51,9 @@ else
   </users>
 </clickhouse>
 XML
-  (cd "$cache/clickhouse" && nohup ./clickhouse server --config-file=config.xml >"$cache/clickhouse.log" 2>&1 &)
+  nohup "$ch_bin" server --config-file="$cache/clickhouse/config.xml" --pid-file="$cache/clickhouse/clickhouse.pid" \
+    >"$cache/clickhouse.log" 2>&1 &
+  disown
   for _ in $(seq 1 60); do curl -fs localhost:8123/ping >/dev/null && break; sleep 1; done
   curl -fs localhost:8123/ping >/dev/null || { echo "[clickhouse] error: not ready; see $cache/clickhouse.log" >&2; exit 1; }
 fi
