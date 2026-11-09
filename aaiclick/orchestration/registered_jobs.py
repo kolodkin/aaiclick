@@ -13,7 +13,7 @@ from sqlmodel import select
 
 from ..backend import is_local
 from ..datetime_utils import utc_now
-from ..names import name_error
+from ..names import VALID_JOB_NAME_RE, name_error
 from ..snowflake import get_snowflake_id
 from .docker_config import requested_image_kind, resolve_image_source
 from .factories import create_container_job, create_job, create_task
@@ -173,7 +173,7 @@ async def register_job(
         RegisteredJobAlreadyExists: If a job with this name already exists
             and ``replace`` is false.
     """
-    error = name_error("job", name)
+    error = name_error("job", name, VALID_JOB_NAME_RE)
     if error:
         raise ValueError(error)
     _validate_registration_fields(

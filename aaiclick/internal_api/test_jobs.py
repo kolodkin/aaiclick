@@ -184,9 +184,15 @@ async def test_resolve_job_by_id_and_name_and_missing(orch_ctx):
         await jobs.resolve_job("no_such_job")
 
 
-async def test_run_job_rejects_an_unregistered_name_objects_would_reject(orch_ctx):
+async def test_run_job_rejects_an_invalid_unregistered_name(orch_ctx):
     with pytest.raises(errors.Invalid):
-        await jobs.run_job(RunJobRequest(name="my-job", entry_type="shell", command=["true"]))
+        await jobs.run_job(RunJobRequest(name="my job", entry_type="shell", command=["true"]))
+
+
+async def test_run_job_accepts_a_hyphenated_name(orch_ctx):
+    view = await jobs.run_job(RunJobRequest(name="my-job", entry_type="shell", command=["true"]))
+
+    assert view.name == "my-job"
 
 
 async def test_run_job_still_runs_a_registered_name_from_before_the_rule(orch_ctx):
