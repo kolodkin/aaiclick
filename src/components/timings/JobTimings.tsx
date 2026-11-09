@@ -28,7 +28,8 @@ export function JobTimings({
   const { origin, end, rows } = timelineRows(tasks, now);
   const scale = end - origin;
   const pos = (s: Span) => ({
-    left: `${((s.start - origin) / scale) * 100}%`,
+    // clamp so a zero-width span at the axis end (.tl-bar min-width 2px) stays inside the track
+    left: `min(${((s.start - origin) / scale) * 100}%, calc(100% - 2px))`,
     width: `${((s.end - s.start) / scale) * 100}%`,
   });
   const tickStep = niceStep(scale / 8);
