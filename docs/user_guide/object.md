@@ -461,28 +461,30 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
 URLs never carry credentials; ClickHouse resolves them from its own
 environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or an IAM role).
 
-| Backend           | Where the credentials go         | Extra setting                    |
-|-------------------|----------------------------------|----------------------------------|
-| chdb (embedded)   | the aaiclick process environment | none                             |
-| ClickHouse server | the server process environment   | `AAICLICK_S3_CREDENTIALS=server` |
+| Backend           | Where the credentials go         | Extra setup                |
+|-------------------|----------------------------------|----------------------------|
+| chdb (embedded)   | the aaiclick process environment | none                       |
+| ClickHouse server | the server process environment   | a `users.xml` profile line |
 
-!!! warning "A ClickHouse server needs `AAICLICK_S3_CREDENTIALS=server`"
-    A server refuses to use its own S3 identity for user queries unless the
-    session opts in; without the variable a private bucket fails with
-    `ACCESS_DENIED`. Unset, only public buckets work.
+A ClickHouse server refuses to use its own S3 identity for user queries unless
+the user's profile opts in. Mount this as
+`/etc/clickhouse-server/users.d/s3.xml` (the repo ships it at
+`docker/clickhouse/users.d/s3.xml`):
 
-??? info "Alternative: opt in from ClickHouse's `users.xml`"
-    Operators who manage the server config can set the opt-in there and
-    leave `AAICLICK_S3_CREDENTIALS` unset. The keys still go in the server's
-    environment.
+```xml
+<clickhouse>
+  <profiles>
+    <default>
+      <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
+    </default>
+  </profiles>
+</clickhouse>
+```
 
-    ```xml
-    <profiles>
-      <default>
-        <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
-      </default>
-    </profiles>
-    ```
+!!! warning "Without the profile line a private bucket fails with `ACCESS_DENIED`"
+    Only public buckets work on a server that has not opted in. aaiclick has
+    no setting of its own for this: lending the server's identity is the
+    ClickHouse operator's decision.
 
 # Views
 

@@ -384,7 +384,7 @@ async def create_object(
         )
     if schema.location is not None:
         # Located Object: a pointer over files in object storage. No credentials
-        # here — ClickHouse resolves them (see AAICLICK_S3_CREDENTIALS).
+        # here — ClickHouse resolves them (docs/designs/blob_storage.md).
         engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
     else:
         engine_clause = get_engine_clause(effective_engine, order_by=order_by)

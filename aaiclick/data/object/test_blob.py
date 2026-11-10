@@ -19,8 +19,9 @@ import pytest
 from moto.server import ThreadedMotoServer
 
 from aaiclick import ColumnInfo, Schema, create_object, create_object_from_value, open_object_from_url
-from aaiclick.backend import get_s3_credentials, is_chdb
+from aaiclick.backend import is_chdb
 from aaiclick.data.models import FIELDTYPE_ARRAY
+from aaiclick.data.object_context import get_ch_client
 from aaiclick.orchestration.execution.runner import deserialize_task_params
 
 SAMPLE = {
@@ -31,13 +32,6 @@ SAMPLE = {
 _BUCKET = "aaiclick-test"
 _HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 _KEYS = {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing"}
-
-# A remote ClickHouse reaches the bucket with its own identity, which a stack
-# that never opted in (AAICLICK_S3_CREDENTIALS unset) does not lend to queries.
-pytestmark = pytest.mark.skipif(
-    not is_chdb() and get_s3_credentials() is None,
-    reason="remote ClickHouse without AAICLICK_S3_CREDENTIALS=server",
-)
 
 
 class Bucket:
@@ -76,6 +70,19 @@ def bucket() -> Iterator[Bucket]:
         else:
             os.environ[k] = v
     server.stop()
+
+
+@pytest.fixture(autouse=True)
+async def server_lends_s3_identity(ctx) -> None:
+    """Skip on a remote ClickHouse whose profile does not lend its S3 identity
+    to queries (docker/clickhouse/users.d/s3.xml); chdb has no such guard."""
+    if is_chdb():
+        return
+    result = await get_ch_client().query(
+        "SELECT value FROM system.settings WHERE name = 's3_allow_server_credentials_in_user_queries'"
+    )
+    if [tuple(row) for row in result.result_rows] != [("1",)]:
+        pytest.skip("ClickHouse profile lacks s3_allow_server_credentials_in_user_queries")
 
 
 # =============================================================================

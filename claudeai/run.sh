@@ -42,7 +42,12 @@ else
   <http_port>8123</http_port>
   <tcp_port>9000</tcp_port>
   <path>$cache/clickhouse/data/</path>
-  <profiles><default/></profiles>
+  <profiles>
+    <default>
+      <!-- as docker/clickhouse/users.d/s3.xml: lend the server's S3 identity to queries -->
+      <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
+    </default>
+  </profiles>
   <quotas><default/></quotas>
   <users>
     <default>
@@ -54,8 +59,8 @@ else
   </users>
 </clickhouse>
 XML
-  # The AWS pair is MinIO's (see env.sh): the server reads it as its ambient S3
-  # credentials for queries that set s3_allow_server_credentials_in_user_queries.
+  # The AWS pair is MinIO's (see env.sh): the server's own S3 identity, lent to
+  # queries by the profile setting above.
   AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
     nohup "$ch_bin" server --config-file="$cache/clickhouse/config.xml" --pid-file="$cache/clickhouse/clickhouse.pid" \
     >"$cache/clickhouse.log" 2>&1 &

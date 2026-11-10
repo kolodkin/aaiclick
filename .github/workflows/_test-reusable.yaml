@@ -222,10 +222,6 @@ jobs:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
-          # The server's S3 identity for the blob-storage tests (moto accepts
-          # any pair); used only by sessions that set AAICLICK_S3_CREDENTIALS.
-          AWS_ACCESS_KEY_ID: testing
-          AWS_SECRET_ACCESS_KEY: testing
         ports:
           - 8123:8123
           - 9000:9000
@@ -299,7 +295,6 @@ jobs:
           # secret (app_client mints an admin token from it).
           AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
-          AAICLICK_S3_CREDENTIALS: server
           # Leak-detection harness (nightly only). Empty string = off, so the
           # per-PR suite is unaffected. See aaiclick/testing.py:gc_leak_check.
           AAICLICK_GC_LEAK_CHECK: ${{ inputs.gc-leak-check && '1' || '' }}
@@ -317,6 +312,62 @@ jobs:
         with:
           path: ${{ env.DURATIONS_FILE }}
           key: ${{ env.DURATIONS_KEY }}-${{ matrix.split }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  test-blob-dist:
+    # Blob storage needs a ClickHouse whose profile lends its S3 identity to
+    # queries (docker/clickhouse/users.d/s3.xml). `services:` containers start
+    # before checkout and cannot mount a repo file, so this job starts
+    # ClickHouse itself. The same tests skip in the Data dist groups.
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: Blob storage dist
+
+    services:
+      postgres: *postgres-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Start ClickHouse with the S3 profile
+        run: |
+          docker run -d --name clickhouse -p 8123:8123 \
+            -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=click123 \
+            -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=0 \
+            -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
+            -v "$PWD/docker/clickhouse/users.d/s3.xml:/etc/clickhouse-server/users.d/s3.xml:ro" \
+            --add-host=host.docker.internal:host-gateway \
+            clickhouse/clickhouse-server:26.7
+          for _ in $(seq 1 30); do
+            if curl -fs localhost:8123/ping >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs clickhouse
+          exit 1
+
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
+        with:
+          python-version: ${{ inputs.python-version }}
+          sync-args: "--extra distributed --extra test"
+
+      - name: Run database migrations
+        env:
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+        run: uv run python -m aaiclick migrate upgrade head
+
+      # A skip here means the profile was not applied: fail instead of passing empty.
+      - name: Run blob storage tests
+        env:
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
+          AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
+        run: |
+          uv run pytest aaiclick/data/object/test_blob.py -v | tee blob.log
+          ! grep -q " SKIPPED" blob.log
 
   test-ui-e2e-dist:
     # Single browser smoke pass against the distributed backend: builds the

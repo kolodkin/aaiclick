@@ -21,9 +21,8 @@ Compose and Kubernetes are the distributed modes:
 - Every component reads `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` for shared
   servers; the worker's `AAICLICK_RUNNER` (`docker` or `kubernetes`) decides
   where a task runs — see [Orchestration — Runner modes](orchestration.md#runner-modes).
-- For private buckets, give the ClickHouse server its S3 identity and set
-  `AAICLICK_S3_CREDENTIALS=server` on every component — see
-  [Object — Blob Storage](object.md#blob-storage).
+- For private buckets, give the ClickHouse server its S3 identity and a
+  `users.xml` profile line — see [Object — Blob Storage](object.md#credentials).
 - Both scaffolds fill every credential with a random value. The raw templates
   spell them `change-me-...`, and the server refuses to start while any is
   still a placeholder.

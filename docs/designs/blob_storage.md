@@ -46,15 +46,11 @@ process environment, or an IAM role.
 | ClickHouse server | Refuses its ambient identity for user queries unless the session opts in  |
 
 The server check runs on every statement that touches an S3 table (`CREATE`,
-`DESCRIBE`, `SELECT`), so the opt-in is a connection default, not SQL:
-`AAICLICK_S3_CREDENTIALS=server` makes the remote client send
-`s3_allow_server_credentials_in_user_queries=1` with every query
-(`aaiclick/backend.py`). Unset, only public buckets work.
-
-The same setting in the default profile of the server's `users.xml` has the
-same effect with the variable unset. aaiclick uses the variable because every
-shipped environment (compose, Helm, CI) configures the stock ClickHouse image
-through environment variables only, with no mounted config.
+`DESCRIBE`, `SELECT`), so the opt-in is a profile setting, not SQL:
+`s3_allow_server_credentials_in_user_queries=1` in the user's profile,
+shipped as `docker/clickhouse/users.d/s3.xml`. aaiclick has no setting of its
+own — lending the server's identity is the operator's decision, and a client
+that could switch it on per connection would make the guard moot.
 
 `s3://bucket/key` resolves to AWS; S3-compatible servers (MinIO) take
 bucket-style `http(s)://host/bucket/key`.
@@ -63,5 +59,9 @@ bucket-style `http(s)://host/bucket/key`.
 
 `aaiclick/data/object/test_blob.py` runs against an in-process moto server on
 both backends; a remote ClickHouse reaches it through
-`AAICLICK_TEST_FILESERVER_HOST`. The module skips on a remote server that has
-not opted in. `claudeai/run.sh` starts a real MinIO for manual checks.
+`AAICLICK_TEST_FILESERVER_HOST`. On a remote server the module probes
+`system.settings` and skips unless the profile opts in, so it runs in the
+dedicated `Blob storage dist` CI job — which starts ClickHouse with the
+`users.d` file mounted and fails on a skip — and skips in the jobs that use
+stock service containers. `claudeai/run.sh` writes the same profile line and
+starts a real MinIO for manual checks.
