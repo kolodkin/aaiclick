@@ -673,7 +673,7 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def export(self, path: str, overwrite: bool = False) -> str:
+    async def export(self, path: str, overwrite: bool = False, ch_settings: dict[str, str | int] | None = None) -> str:
         """Export the object's data to a local file or a bucket URL.
 
         The format is picked from the file extension. Supported text formats:
@@ -691,7 +691,8 @@ class Object:
         An ``http(s)://`` or ``s3://`` *path* is written to object storage by
         ClickHouse itself (``INSERT INTO FUNCTION s3()``) on both backends.
         Writing to an existing key raises unless ``overwrite=True``; a local
-        file is always replaced.
+        file is always replaced. ``ch_settings`` are ClickHouse settings passed
+        to the one statement that writes a URL target; local files ignore them.
 
         Returns the absolute path, or the URL, written.
         """
@@ -701,7 +702,7 @@ class Object:
         fmt = format_for_extension(path)
         select_sql = self._build_select(columns="*")
         if is_url(path):
-            return await export_query_to_url(select_sql, path, fmt, overwrite)
+            return await export_query_to_url(select_sql, path, fmt, overwrite, ch_settings)
         return await export_query_to_file(select_sql, path, fmt)
 
     async def execute(

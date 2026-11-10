@@ -56,6 +56,11 @@ same effect with the variable unset. aaiclick uses the variable because every
 shipped environment (compose, Helm, CI) configures the stock ClickHouse image
 through environment variables only, with no mounted config.
 
+`export` and `open_object_from_url` also take `ch_settings`, passed to the
+statements that call runs. It does not follow a located Object into later
+queries, so it can lend the identity to one export but not make a located
+Object readable.
+
 `s3://bucket/key` resolves to AWS; S3-compatible servers (MinIO) take
 bucket-style `http(s)://host/bucket/key`.
 
