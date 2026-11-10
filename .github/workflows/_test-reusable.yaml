@@ -217,7 +217,7 @@ jobs:
       # spawned by the suite reach back to the runner), but it is harmless
       # for the aliasing jobs, so all three share one anchored definition.
       clickhouse: &clickhouse-service
-        image: clickhouse/clickhouse-server:26.7
+        image: clickhouse/clickhouse-server:26.10
         env:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
