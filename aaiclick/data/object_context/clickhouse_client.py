@@ -9,7 +9,7 @@ pooling is owned by ``aiohttp.ClientSession`` / ``TCPConnector`` per
 client.
 """
 
-from aaiclick.backend import parse_ch_url
+from aaiclick.backend import parse_ch_url, s3_client_settings
 
 
 async def create_clickhouse_client():
@@ -23,4 +23,4 @@ async def create_clickhouse_client():
             "Install with: pip install aaiclick[distributed]"
         ) from e
 
-    return await get_async_client(**parse_ch_url())
+    return await get_async_client(**parse_ch_url(), settings=s3_client_settings())
