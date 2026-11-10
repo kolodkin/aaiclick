@@ -368,6 +368,11 @@ class Object:
             or self.exploded_columns
         )
 
+    def _check_writable(self) -> None:
+        """Raise when this Object points at object storage instead of owning a table."""
+        if self._schema.location is not None:
+            raise ValueError("located objects are read-only; copy() into a regular Object to modify the data")
+
     def checkstale(self):
         """
         Check if object is stale and raise error if so.
@@ -1115,6 +1120,7 @@ class Object:
             raise ValueError("insert requires at least one argument")
 
         self.checkstale()
+        self._check_writable()
 
         # Convert all arguments to IngestQueryInfo
         query_infos = []
@@ -1185,6 +1191,7 @@ class Object:
         """
         self.checkstale()
 
+        self._check_writable()
         _validate_url(url)
         _validate_url_format(format)
 

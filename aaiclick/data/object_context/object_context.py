@@ -56,7 +56,7 @@ from ..scope import (
     make_scoped_table_name,
     name_from_table,
 )
-from ..sql_utils import naive_utc, quote_identifier
+from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -335,6 +335,8 @@ async def create_object(
     """
     if isinstance(schema, ViewSchema):
         raise TypeError("create_object() takes a Schema, not a ViewSchema; materialize a View with copy()")
+    if schema.location is not None and name is not None:
+        raise ValueError("located objects cannot be named yet")
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
@@ -374,7 +376,12 @@ async def create_object(
             UserWarning,
             stacklevel=2,
         )
-    engine_clause = get_engine_clause(effective_engine, order_by=order_by)
+    if schema.location is not None:
+        # Located Object: a pointer over files in object storage. No credentials
+        # here — ClickHouse resolves them (see AAICLICK_S3_CREDENTIALS).
+        engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
+    else:
+        engine_clause = get_engine_clause(effective_engine, order_by=order_by)
 
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
     create_query = f"""
