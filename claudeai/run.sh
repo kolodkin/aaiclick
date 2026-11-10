@@ -34,7 +34,11 @@ esac
 if curl -fs localhost:8123/ping >/dev/null; then
   echo "[clickhouse] already up"
 else
-  # Minimal server config: the CI credentials, data under .cache/clickhouse/data.
+  # Minimal server config with the CI credentials, laid out like the stock
+  # image: users.xml plus users.d/, which gets the same S3 profile file the CI
+  # blob job mounts (docker/clickhouse/users.d/s3.xml).
+  mkdir -p "$cache/clickhouse/users.d"
+  cp "$here/../docker/clickhouse/users.d/s3.xml" "$cache/clickhouse/users.d/s3.xml"
   cat >"$cache/clickhouse/config.xml" <<XML
 <clickhouse>
   <logger><level>warning</level><console>1</console></logger>
@@ -42,12 +46,12 @@ else
   <http_port>8123</http_port>
   <tcp_port>9000</tcp_port>
   <path>$cache/clickhouse/data/</path>
-  <profiles>
-    <default>
-      <!-- as docker/clickhouse/users.d/s3.xml: lend the server's S3 identity to queries -->
-      <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
-    </default>
-  </profiles>
+  <user_directories><users_xml><path>users.xml</path></users_xml></user_directories>
+</clickhouse>
+XML
+  cat >"$cache/clickhouse/users.xml" <<XML
+<clickhouse>
+  <profiles><default/></profiles>
   <quotas><default/></quotas>
   <users>
     <default>
@@ -60,7 +64,7 @@ else
 </clickhouse>
 XML
   # The AWS pair is MinIO's (see env.sh): the server's own S3 identity, lent to
-  # queries by the profile setting above.
+  # queries by users.d/s3.xml.
   AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
     nohup "$ch_bin" server --config-file="$cache/clickhouse/config.xml" --pid-file="$cache/clickhouse/clickhouse.pid" \
     >"$cache/clickhouse.log" 2>&1 &
