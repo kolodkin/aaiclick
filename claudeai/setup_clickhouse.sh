@@ -4,9 +4,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_guard.sh"
 
-# The release branch the CI images use (clickhouse/clickhouse-server:26.7 in
+# The release branch the CI images use (clickhouse/clickhouse-server:26.10 in
 # .github/workflows/_test-reusable.yaml); bump the two together.
-version="${CLICKHOUSE_VERSION:-26.7}"
+version="${CLICKHOUSE_VERSION:-26.10}"
 dir="$here/../.cache/clickhouse"
 if [ -x "$dir/clickhouse" ]; then
   echo "[clickhouse] binary present: $dir/clickhouse"

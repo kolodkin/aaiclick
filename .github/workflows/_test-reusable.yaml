@@ -338,7 +338,7 @@ jobs:
             -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
             -v "$PWD/docker/clickhouse/users.d/s3.xml:/etc/clickhouse-server/users.d/s3.xml:ro" \
             --add-host=host.docker.internal:host-gateway \
-            clickhouse/clickhouse-server:26.7
+            clickhouse/clickhouse-server:26.10
 
       - name: Setup uv
         uses: ./.github/actions/setup-uv
