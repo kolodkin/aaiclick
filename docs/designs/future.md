@@ -109,6 +109,27 @@ or neither.
 **When to revisit**: when re-running a single task of a finished job,
 without re-running its upstream, becomes a supported workflow.
 
+## ClickHouse Settings Pass-Through
+
+A general way to send ClickHouse settings with the queries an Object runs.
+Today only `create_object_from_url` / `insert_from_url` take `ch_settings`,
+for their one load statement.
+
+- **Per call**: `ch_settings=` on calls that run a single statement
+  (`export`, `data`, `open_object_from_url`).
+- **Per Object**: `ch_settings` stored on the Object and in `schema_doc`, so
+  it survives task boundaries; every statement reading its table passes it.
+- Views inherit; an operator result is a plain table and inherits nothing;
+  mixed operands merge, and a conflicting value for one setting raises.
+
+Not a credential mechanism: ClickHouse checks
+`s3_allow_server_credentials_in_user_queries` on every read, and a per-Object
+value would let any caller lend themselves the server's identity
+(`docs/designs/blob_storage.md` — "Credentials").
+
+**When to revisit**: when a workload needs per-query tuning (memory limits,
+format or inference settings) that a connection default cannot express.
+
 ## Quote Column Names in Generated SQL
 
 `join` quotes its identifiers; other Object operations still splice raw
