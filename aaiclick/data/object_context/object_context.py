@@ -57,7 +57,8 @@ from ..scope import (
     make_scoped_table_name,
     name_from_table,
 )
-from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal, validate_blob_url
+from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal
+from ..url_utils import validate_blob_url
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,

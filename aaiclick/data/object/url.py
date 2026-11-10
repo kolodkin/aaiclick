@@ -15,7 +15,8 @@ from urllib.parse import urlparse
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS, format_for_extension
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
-from ..sql_utils import quote_identifier, quote_sql_literal, validate_blob_url, validate_where_expression
+from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
+from ..url_utils import validate_blob_url
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
