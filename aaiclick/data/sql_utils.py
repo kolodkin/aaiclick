@@ -4,6 +4,7 @@ aaiclick.data.sql_utils - SQL utility functions for safe identifier and literal 
 
 import re
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 # --- SQL text guards (shared by the lineage query sandbox and the viewer) ---
 
@@ -58,6 +59,23 @@ def validate_where_expression(expr: str) -> str | None:
     if SUBQUERY_KEYWORDS_RE.search(bare):
         return "Subqueries are not allowed in a where expression."
     return None
+
+
+BLOB_URL_SCHEMES = ("http", "https", "s3")
+
+
+def is_url(path: str) -> bool:
+    """True when *path* names a URL rather than a local file."""
+    return "://" in path
+
+
+def validate_blob_url(url: str) -> None:
+    """Reject a URL the ClickHouse ``s3`` function / ``S3`` engine cannot address."""
+    parsed = urlparse(url)
+    if parsed.scheme not in BLOB_URL_SCHEMES:
+        raise ValueError(f"Blob URL must use http, https or s3 scheme, got '{parsed.scheme}'")
+    if not parsed.netloc:
+        raise ValueError("Blob URL must have a valid host or bucket")
 
 
 def quote_identifier(name: str) -> str:

@@ -58,9 +58,9 @@ from ..object_context import (
     incref,
     register_object,
 )
-from ..object_context.ch_client import ChClient, execute_for_stats, export_query_to_file
+from ..object_context.ch_client import ChClient, execute_for_stats, export_query_to_file, export_query_to_url
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
-from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
+from ..sql_utils import is_url, quote_identifier, quote_sql_literal, validate_blob_url, validate_where_expression
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
@@ -667,8 +667,8 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def export(self, path: str) -> str:
-        """Export the object's data to a local file.
+    async def export(self, path: str, overwrite: bool = False) -> str:
+        """Export the object's data to a local file or a bucket URL.
 
         The format is picked from the file extension. Supported text formats:
         ``.csv``, ``.tsv``, ``.json`` / ``.jsonl`` / ``.ndjson``, ``.md``,
@@ -682,11 +682,20 @@ class Object:
         file()`` from the embedded engine; remote ClickHouse streams the
         formatted bytes over HTTP.
 
-        Returns the absolute path written.
+        An ``http(s)://`` or ``s3://`` *path* is written to object storage by
+        ClickHouse itself (``INSERT INTO FUNCTION s3()``) on both backends.
+        Writing to an existing key raises unless ``overwrite=True``; a local
+        file is always replaced.
+
+        Returns the absolute path, or the URL, written.
         """
         self.checkstale()
+        if is_url(path):
+            validate_blob_url(path)
         fmt = format_for_extension(path)
         select_sql = self._build_select(columns="*")
+        if is_url(path):
+            return await export_query_to_url(select_sql, path, fmt, overwrite)
         return await export_query_to_file(select_sql, path, fmt)
 
     async def execute(

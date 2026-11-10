@@ -174,6 +174,20 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     return abs_path
 
 
+async def export_query_to_url(query: str, url: str, fmt: str, overwrite: bool = False) -> str:
+    """Write a ``SELECT`` query result to a bucket URL in *fmt*, server-side.
+
+    ``INSERT INTO FUNCTION s3(url, fmt) <query>`` on both backends: the bytes
+    never pass through Python and the SQL carries no credentials — ClickHouse
+    resolves them itself. An existing key is an error unless *overwrite*.
+    """
+    await get_ch_client().command(
+        f"INSERT INTO FUNCTION s3({quote_sql_literal(url)}, '{fmt}') {query}",
+        settings={"s3_truncate_on_insert": int(overwrite)},
+    )
+    return url
+
+
 DEFAULT_MAX_EXECUTION_TIME = 30
 JSON_COMPACT = "JSONCompact"
 CSV_WITH_NAMES = "CSVWithNames"
