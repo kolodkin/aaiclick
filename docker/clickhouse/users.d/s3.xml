@@ -1,0 +1,14 @@
+<!--
+  Lets queries reach object storage with the ClickHouse server's own S3
+  identity (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in its environment, or an
+  IAM role). ClickHouse refuses that for user queries unless the profile opts
+  in. Mount at /etc/clickhouse-server/users.d/s3.xml.
+  See docs/user_guide/object.md, "Blob Storage".
+-->
+<clickhouse>
+  <profiles>
+    <default>
+      <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
+    </default>
+  </profiles>
+</clickhouse>

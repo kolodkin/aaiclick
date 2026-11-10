@@ -78,3 +78,20 @@ devDependencies:
     image: clickhouse/clickhouse-server:26.10
     user: default
     password: change-me-clickhouse
+    # Blob storage: extra container env for the server's S3 identity, e.g.
+    #   - name: AWS_ACCESS_KEY_ID
+    #     valueFrom: {secretKeyRef: {name: s3-keys, key: access-key-id}}
+    extraEnv: []
+    # Mounted at /etc/clickhouse-server/users.d/s3.xml.
+    s3UsersXml: |
+      <clickhouse>
+        <!-- Blob storage (export to a bucket, open_object_from_url): uncomment
+             to let queries use this server's own S3 identity, and give the
+             server AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or an IAM role.
+        <profiles>
+          <default>
+            <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
+          </default>
+        </profiles>
+        -->
+      </clickhouse>

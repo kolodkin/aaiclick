@@ -5,11 +5,25 @@ Planned work across aaiclick, ordered by priority.
 
 # Blob Storage Support
 
-Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's
-object-store table engines, plus `export` to a bucket; the MergeTree default
-is unchanged. External parquet is queried in place without ingestion, and a
-job's exported result is opened by the next job on any cluster. Full design:
-`docs/drafts/blob_storage_support.md`.
+Shipped: export to a bucket and read-only located Objects
+(`docs/designs/blob_storage.md`). Still open:
+
+- **Named located Objects** — `name` / `scope` so a pointer is reopenable by
+  name on another server (`schema_doc` already carries the location).
+- **GCS and Azure** — `gs://` via the `S3` engine with HMAC keys, `az://` via
+  `AzureBlobStorage`.
+- **Per-object credentials** — a named collection chosen per object, e.g.
+  `open_object_from_url(url, connection="lake")` rendering
+  `s3(lake, url=...)`: keys in ClickHouse config, several buckets per
+  deploy; needs `named_collection_control` grants. Or the caller's own keys
+  in SQL, which needs oplog redaction.
+- **Lake formats** (Iceberg, Delta) as further schemes.
+
+Rejected: a writable located Object. The S3 engine's only append is a new file
+per insert read back through a glob — export to a new key under a prefix gives
+the same layout without unverified read-after-write, concurrent-writer hazards
+or orphan files. Revisit only if several tasks must append in place to one
+bucket-backed table.
 
 # Coverage Reporting
 
@@ -91,6 +105,27 @@ or neither.
 
 **When to revisit**: when re-running a single task of a finished job,
 without re-running its upstream, becomes a supported workflow.
+
+## ClickHouse Settings Pass-Through
+
+A general way to send ClickHouse settings with the queries an Object runs.
+Today only `create_object_from_url` / `insert_from_url` take `ch_settings`,
+for their one load statement.
+
+- **Per call**: `ch_settings=` on calls that run a single statement
+  (`export`, `data`, `open_object_from_url`).
+- **Per Object**: `ch_settings` stored on the Object and in `schema_doc`, so
+  it survives task boundaries; every statement reading its table passes it.
+- Views inherit; an operator result is a plain table and inherits nothing;
+  mixed operands merge, and a conflicting value for one setting raises.
+
+Not a credential mechanism: ClickHouse checks
+`s3_allow_server_credentials_in_user_queries` on every read, and a per-Object
+value would let any caller lend themselves the server's identity
+(`docs/designs/blob_storage.md` — "Credentials").
+
+**When to revisit**: when a workload needs per-query tuning (memory limits,
+format or inference settings) that a connection default cannot express.
 
 ## Quote Column Names in Generated SQL
 

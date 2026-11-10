@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 import yaml
@@ -121,3 +122,19 @@ def test_init_helm_builds_on_isolated_buildkitd(tmp_path):
     buildkitd = (target / "templates" / "buildkitd.yaml").read_text()
     assert "kind: NetworkPolicy" in buildkitd and "app: aaiclick-worker" in buildkitd
     assert "tcp://aaiclick-buildkitd:1234" in (target / "templates" / "worker.yaml").read_text()
+
+
+def test_init_helm_ships_the_s3_profile_switched_off(tmp_path):
+    """Same contract as the compose scaffold: the users.d file is mounted into
+    ClickHouse as documentation, with the profile commented out."""
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+
+    values = yaml.safe_load((target / "values.yaml").read_text())
+    content = values["devDependencies"]["clickhouse"]["s3UsersXml"]
+    assert "s3_allow_server_credentials_in_user_queries" in content
+    assert list(ET.fromstring(content)) == []
+
+    clickhouse = (target / "templates" / "clickhouse.yaml").read_text()
+    assert "/etc/clickhouse-server/users.d/s3.xml" in clickhouse
+    assert ".Values.devDependencies.clickhouse.s3UsersXml" in clickhouse

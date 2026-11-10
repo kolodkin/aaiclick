@@ -96,6 +96,12 @@ JSON_BLOB_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.blob)
 EXTENSION_TO_FORMAT: dict[str, str] = {ext: f.name for f in FORMATS for ext in f.extensions if f.output}
 
 
+def validate_input_format(fmt: str | None) -> None:
+    """Reject a format ClickHouse cannot read. Callers inline the name into SQL."""
+    if fmt not in INPUT_FORMATS:
+        raise ValueError(f"Unsupported format {fmt!r}. Supported formats: {sorted(INPUT_FORMATS)}")
+
+
 def format_for_extension(path: str) -> str:
     """Return the ClickHouse output format matching the file extension of *path*.
 

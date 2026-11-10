@@ -16,6 +16,7 @@ from .object import (
     cast,
     create_object_from_url,
     literal,
+    open_object_from_url,
     split_by_char,
 )
 

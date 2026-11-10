@@ -7,3 +7,4 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 "$here/setup_clickhouse.sh"
 "$here/setup_postgres.sh"
+"$here/setup_minio.sh"

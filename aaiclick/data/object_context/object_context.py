@@ -27,6 +27,7 @@ from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
 from .. import object as object_module
+from ..formats import validate_input_format
 from ..models import (
     AAI_ID_COLUMN,
     AAI_ID_INFO,
@@ -56,7 +57,8 @@ from ..scope import (
     make_scoped_table_name,
     name_from_table,
 )
-from ..sql_utils import naive_utc, quote_identifier
+from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal
+from ..url_utils import validate_blob_url
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -335,6 +337,11 @@ async def create_object(
     """
     if isinstance(schema, ViewSchema):
         raise TypeError("create_object() takes a Schema, not a ViewSchema; materialize a View with copy()")
+    if schema.location is not None:
+        if name is not None:
+            raise ValueError("located objects cannot be named yet")
+        validate_blob_url(schema.location)
+        validate_input_format(schema.format)
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
@@ -353,28 +360,33 @@ async def create_object(
 
     column_defs = [_column_ddl(name, info) for name, info in schema.columns.items()]
 
-    # Persistent tables always use MergeTree regardless of engine param or schema.engine.
-    if obj.persistent:
-        effective_engine = "MergeTree"
+    if schema.location is not None:
+        # Located Object: a pointer over files in object storage. No credentials
+        # here — ClickHouse resolves them (docs/designs/blob_storage.md).
+        engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
     else:
-        effective_engine = engine or schema.engine or get_engine()
+        # Persistent tables always use MergeTree regardless of engine param or schema.engine.
+        if obj.persistent:
+            effective_engine = "MergeTree"
+        else:
+            effective_engine = engine or schema.engine or get_engine()
 
-    if schema.order_by is not None:
-        order_by = schema.order_by
-    elif AAI_ID_COLUMN in schema.columns:
-        order_by = f"({AAI_ID_COLUMN})"
-    else:
-        order_by = "tuple()"
+        if schema.order_by is not None:
+            order_by = schema.order_by
+        elif AAI_ID_COLUMN in schema.columns:
+            order_by = f"({AAI_ID_COLUMN})"
+        else:
+            order_by = "tuple()"
 
-    # Memory engine ignores ORDER BY — warn when both are combined.
-    if effective_engine == "Memory" and schema.order_by:
-        warnings.warn(
-            f"order_by={schema.order_by!r} has no effect with Memory engine. "
-            "Use engine='MergeTree' for ORDER BY support.",
-            UserWarning,
-            stacklevel=2,
-        )
-    engine_clause = get_engine_clause(effective_engine, order_by=order_by)
+        # Memory engine ignores ORDER BY — warn when both are combined.
+        if effective_engine == "Memory" and schema.order_by:
+            warnings.warn(
+                f"order_by={schema.order_by!r} has no effect with Memory engine. "
+                "Use engine='MergeTree' for ORDER BY support.",
+                UserWarning,
+                stacklevel=2,
+            )
+        engine_clause = get_engine_clause(effective_engine, order_by=order_by)
 
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
     create_query = f"""
@@ -707,10 +719,9 @@ async def open_object(
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     try:
-        fieldtype, columns = await read_table_schema(table_name)
+        schema = await read_table_schema(table_name)
     except LookupError as exc:
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})") from exc
-    schema = Schema(fieldtype=fieldtype, columns=columns)
     obj = object_module.Object(table=table_name, schema=schema)
     register_object(obj)
     return obj
