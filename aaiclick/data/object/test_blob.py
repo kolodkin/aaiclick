@@ -73,9 +73,12 @@ def bucket() -> Iterator[Bucket]:
 
 
 @pytest.fixture(autouse=True)
-async def server_lends_s3_identity(ctx) -> None:
-    """Skip on a remote ClickHouse whose profile does not lend its S3 identity
-    to queries (docker/clickhouse/users.d/s3.xml); chdb has no such guard."""
+async def server_lends_s3_identity(request, ctx) -> None:
+    """Skip bucket tests on a remote ClickHouse whose profile does not lend its
+    S3 identity to queries (docker/clickhouse/users.d/s3.xml); chdb has no such
+    guard, and tests that never reach a bucket run everywhere."""
+    if "bucket" not in request.fixturenames:
+        return
     if is_chdb():
         return
     result = await get_ch_client().query(
@@ -150,6 +153,14 @@ async def test_open_selected_columns(ctx, sample_url):
     assert await opened.data() == {"id": [1, 2, 3], "name": ["alice", "bob", "charlie"]}
 
 
+async def test_open_single_character_glob(ctx, bucket):
+    """``?`` is a ClickHouse glob, not the start of a query string."""
+    for part in (1, 2):
+        await (await create_object_from_value([part])).export(f"{bucket.url}/glob/part-{part}.parquet", overwrite=True)
+    opened = await open_object_from_url(f"{bucket.url}/glob/part-?.parquet")
+    assert sorted(await opened.data()) == [1, 2]
+
+
 async def test_open_url_with_quote_in_key(ctx, bucket):
     obj = await create_object_from_value([1, 2, 3])
     url = await obj.export(f"{bucket.url}/open/it's.parquet", overwrite=True)
@@ -172,7 +183,13 @@ async def test_located_object_rejects_insert_from_url(ctx, sample_url):
     "url, kwargs, match",
     [
         pytest.param("ftp://example.com/data.parquet", {}, "http, https or s3", id="bad-scheme"),
-        pytest.param("s3://bucket/data", {}, "extension", id="no-extension-no-format"),
+        pytest.param("s3://bucket/data", {}, "pass format=", id="no-extension-no-format"),
+        pytest.param(
+            "s3://bucket/data.parquet",
+            {"columns": ["id"], "column_types": {}},
+            "column_types",
+            id="column-missing-from-types",
+        ),
         pytest.param("s3://bucket/data", {"format": "Nope"}, "Unsupported format", id="unknown-format"),
         pytest.param("s3://bucket/data.parquet", {"columns": []}, "non-empty", id="empty-columns"),
     ],
@@ -214,7 +231,9 @@ async def test_create_object_validates_location_and_format(ctx, overrides, match
     "url, match",
     [
         pytest.param("https://KEY:SECRET@example.com/bucket/data.parquet", "credentials", id="userinfo"),
-        pytest.param("https://example.com/bucket/data.parquet?X-Amz-Signature=abc", "query string", id="signed-url"),
+        pytest.param(
+            "https://example.com/bucket/data.parquet?X-Amz-Signature=abc", "query parameters", id="signed-url"
+        ),
     ],
 )
 async def test_urls_carrying_credentials_are_rejected(ctx, url, match):

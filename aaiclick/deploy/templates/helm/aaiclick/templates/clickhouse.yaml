@@ -14,6 +14,9 @@ spec:
     metadata:
       labels:
         app: aaiclick-clickhouse
+      annotations:
+        # A subPath mount never sees ConfigMap updates: roll the pod instead.
+        checksum/users-d: {{ .Values.devDependencies.clickhouse.s3UsersXml | sha256sum }}
     spec:
       containers:
         - name: clickhouse

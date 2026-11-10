@@ -366,6 +366,7 @@ jobs:
           AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
+          set -o pipefail
           uv run pytest aaiclick/data/object/test_blob.py -v | tee blob.log
           ! grep -q " SKIPPED" blob.log
 

@@ -17,7 +17,7 @@ from typing import Any, NamedTuple, Self, TypedDict, Union
 
 from aaiclick.snowflake import get_snowflake_id
 
-from ..formats import format_for_extension
+from ..formats import format_for_extension, validate_input_format
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
@@ -81,7 +81,7 @@ from .schema_compute import (
     _preview_unique_schema,
 )
 from .transforms import cast, split_by_char
-from .url import _validate_url, _validate_url_columns, _validate_url_format
+from .url import _validate_url, _validate_url_columns
 
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
@@ -1194,7 +1194,7 @@ class Object:
 
         self._check_writable()
         _validate_url(url)
-        _validate_url_format(format)
+        validate_input_format(format)
 
         # aai_id comes from its DEFAULT, never from the URL source.
         target_columns = [c for c in self.schema.columns if c != AAI_ID_COLUMN]

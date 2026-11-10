@@ -22,8 +22,9 @@ def validate_blob_url(url: str) -> None:
     if not parsed.netloc:
         raise ValueError("Blob URL must have a valid host or bucket")
     # The URL is rendered into SQL and stored in the registry, so it must not
-    # be able to carry a secret: no userinfo, no (possibly signed) query string.
+    # be able to carry a secret: no userinfo, no query parameters.
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("Blob URL must not carry credentials; ClickHouse resolves them itself")
-    if parsed.query:
-        raise ValueError("Blob URL must not carry a query string")
+    # A bare ``?`` is a ClickHouse glob; ``key=value`` is a (possibly signed) query.
+    if "=" in parsed.query:
+        raise ValueError("Blob URL must not carry query parameters")

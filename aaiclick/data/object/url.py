@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS, format_for_extension
+from ..formats import JSON_BLOB_FORMATS, format_for_extension, validate_input_format
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
@@ -39,12 +39,6 @@ def _validate_url_columns(columns: list[str]) -> None:
     """Validate column list is non-empty and has no reserved names."""
     if not columns:
         raise ValueError("columns must be a non-empty list")
-
-
-def _validate_url_format(fmt: str) -> None:
-    """Validate format is a supported ClickHouse URL format."""
-    if fmt not in INPUT_FORMATS:
-        raise ValueError(f"Unsupported format '{fmt}'. Supported formats: {sorted(INPUT_FORMATS)}")
 
 
 def _validate_json_path(path: str, param: str) -> None:
@@ -195,7 +189,7 @@ async def create_object_from_url(
         RuntimeError: If no active ObjectContext
     """
     _validate_url(url)
-    _validate_url_format(format)
+    validate_input_format(format)
     if limit is not None and (not isinstance(limit, int) or limit <= 0):
         raise ValueError(f"limit must be a positive integer, got {limit}")
     if where is not None and (err := validate_where_expression(where)):
@@ -390,8 +384,11 @@ async def open_object_from_url(
     if columns is not None:
         _validate_url_columns(columns)
     if format is None:
-        format = format_for_extension(url)
-    _validate_url_format(format)
+        try:
+            format = format_for_extension(url)
+        except ValueError:
+            raise ValueError(f"Cannot tell the format of {url!r} from its extension; pass format=") from None
+    validate_input_format(format)
 
     if column_types is None:
         select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"
@@ -399,6 +396,8 @@ async def open_object_from_url(
         described = await get_ch_client().query(f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)")
         column_types = {row[0]: parse_ch_type(row[1]) for row in described.result_rows}
     names = columns or list(column_types)
+    if missing := [name for name in names if name not in column_types]:
+        raise ValueError(f"column_types has no entry for columns {missing}")
 
     # The pointer table must keep the file's column names, so only a file whose
     # single column is already ``value`` reads back as an array.

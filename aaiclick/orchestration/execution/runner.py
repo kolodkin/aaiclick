@@ -185,7 +185,8 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession, job_id: int) -
 async def _rehydrated_schema(table: str) -> Schema:
     """Schema of an Object arriving by ref: its shape, plus where a located one points."""
     stored = await read_table_schema(table)
-    return Schema(fieldtype=stored.fieldtype, columns=stored.columns, location=stored.location, format=stored.format)
+    # Everything survives by default; only what described the creation is dropped.
+    return stored.model_copy(update={"table": None, "engine": None, "order_by": None})
 
 
 async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> Any:
