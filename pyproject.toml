@@ -35,7 +35,7 @@ dependencies = [
     # SQLAlchemy 2.1 defaults postgresql:// to psycopg v3; images install unpinned and lack it.
     "sqlalchemy>=2.0,<2.1",
     "alembic>=1.18.0",
-    "chdb>=4.3.0",
+    "chdb>=4.4.0",
     "aiosqlite>=0.22.0",
     "greenlet>=3.0.0",
     "croniter>=6.0.0",
