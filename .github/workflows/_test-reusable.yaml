@@ -222,6 +222,10 @@ jobs:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
           CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+          # The server's S3 identity for the blob-storage tests (moto accepts
+          # any pair); used only by sessions that set AAICLICK_S3_CREDENTIALS.
+          AWS_ACCESS_KEY_ID: testing
+          AWS_SECRET_ACCESS_KEY: testing
         ports:
           - 8123:8123
           - 9000:9000
@@ -295,6 +299,7 @@ jobs:
           # secret (app_client mints an admin token from it).
           AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
+          AAICLICK_S3_CREDENTIALS: server
           # Leak-detection harness (nightly only). Empty string = off, so the
           # per-PR suite is unaffected. See aaiclick/testing.py:gc_leak_check.
           AAICLICK_GC_LEAK_CHECK: ${{ inputs.gc-leak-check && '1' || '' }}

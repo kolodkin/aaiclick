@@ -9,3 +9,4 @@ export AAICLICK_JWT_SECRET="local-dev-jwt-secret-key-at-least-32-bytes-long"
 export AAICLICK_BLOB_TEST_URL="http://localhost:9100/aaiclick-test"
 export AWS_ACCESS_KEY_ID=minioadmin
 export AWS_SECRET_ACCESS_KEY=minioadmin
+export AAICLICK_S3_CREDENTIALS=server
