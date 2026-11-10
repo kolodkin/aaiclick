@@ -63,10 +63,9 @@ XML
   </users>
 </clickhouse>
 XML
-  # The AWS pair is MinIO's (see env.sh): the server's own S3 identity, lent to
-  # queries by users.d/s3.xml.
-  AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
-    nohup "$ch_bin" server --config-file="$cache/clickhouse/config.xml" --pid-file="$cache/clickhouse/clickhouse.pid" \
+  # The server's S3 identity is the AWS pair env.sh exports (MinIO's),
+  # lent to queries by users.d/s3.xml.
+  nohup "$ch_bin" server --config-file="$cache/clickhouse/config.xml" --pid-file="$cache/clickhouse/clickhouse.pid" \
     >"$cache/clickhouse.log" 2>&1 &
   disown
   for _ in $(seq 1 60); do curl -fs localhost:8123/ping >/dev/null && break; sleep 1; done

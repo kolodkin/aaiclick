@@ -339,18 +339,22 @@ jobs:
             -v "$PWD/docker/clickhouse/users.d/s3.xml:/etc/clickhouse-server/users.d/s3.xml:ro" \
             --add-host=host.docker.internal:host-gateway \
             clickhouse/clickhouse-server:26.7
-          for _ in $(seq 1 30); do
-            if curl -fs localhost:8123/ping >/dev/null; then exit 0; fi
-            sleep 2
-          done
-          docker logs clickhouse
-          exit 1
 
       - name: Setup uv
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
           sync-args: "--extra distributed --extra test"
+
+      # ClickHouse booted while uv synced.
+      - name: Wait for ClickHouse
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fs localhost:8123/ping >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs clickhouse
+          exit 1
 
       - name: Run database migrations
         env:

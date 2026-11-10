@@ -61,15 +61,13 @@ def bucket() -> Iterator[Bucket]:
         port = s.getsockname()[1]
     server = ThreadedMotoServer(ip_address="0.0.0.0", port=port, verbose=False)
     server.start()
-    saved = {k: os.environ.get(k) for k in _KEYS}
-    os.environ.update(_KEYS)
-    yield Bucket(port)
-    for k, v in saved.items():
-        if v is None:
-            os.environ.pop(k, None)
-        else:
-            os.environ[k] = v
-    server.stop()
+    try:
+        with pytest.MonkeyPatch.context() as env:
+            for name, value in _KEYS.items():
+                env.setenv(name, value)
+            yield Bucket(port)
+    finally:
+        server.stop()
 
 
 @pytest.fixture(autouse=True)

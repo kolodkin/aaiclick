@@ -63,8 +63,9 @@ async def read_table_schema(table: str) -> Schema:
         )
 
     # The whole Schema, not just its shape: ``location`` marks a located Object
-    # read-only, and that must survive a task boundary.
-    return Schema.model_validate_json(row[0])
+    # read-only, and that must survive a task boundary. Only what described
+    # the table's creation is dropped.
+    return Schema.model_validate_json(row[0]).model_copy(update={"engine": None, "order_by": None})
 
 
 class LifecycleHandler(ABC):

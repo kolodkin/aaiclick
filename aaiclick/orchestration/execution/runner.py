@@ -23,7 +23,6 @@ from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.data.models import Schema
 from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.refs import (
     AAICLICK_TYPE,
@@ -182,13 +181,6 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession, job_id: int) -
     return result
 
 
-async def _rehydrated_schema(table: str) -> Schema:
-    """Schema of an Object arriving by ref: its shape, plus where a located one points."""
-    stored = await read_table_schema(table)
-    # Everything survives by default; only what described the creation is dropped.
-    return stored.model_copy(update={"table": None, "engine": None, "order_by": None})
-
-
 async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> Any:
     """Recursively deserialize a value from JSON format.
 
@@ -243,7 +235,7 @@ async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> 
 
     if kind == OBJECT:
         ref = ObjectRef.model_validate(value)
-        schema = await _rehydrated_schema(ref.table)
+        schema = await read_table_schema(ref.table)
         obj = Object(table=ref.table, schema=schema)
         if not ref.persistent:
             obj._register()  # enqueues INCREF
@@ -252,7 +244,7 @@ async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> 
 
     if kind == VIEW:
         ref = ViewRef.model_validate(value)
-        schema = await _rehydrated_schema(ref.table)
+        schema = await read_table_schema(ref.table)
         source = Object(table=ref.table, schema=schema)
         source._register()  # enqueues INCREF
         register_object(source)

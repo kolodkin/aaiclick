@@ -360,32 +360,32 @@ async def create_object(
 
     column_defs = [_column_ddl(name, info) for name, info in schema.columns.items()]
 
-    # Persistent tables always use MergeTree regardless of engine param or schema.engine.
-    if obj.persistent:
-        effective_engine = "MergeTree"
-    else:
-        effective_engine = engine or schema.engine or get_engine()
-
-    if schema.order_by is not None:
-        order_by = schema.order_by
-    elif AAI_ID_COLUMN in schema.columns:
-        order_by = f"({AAI_ID_COLUMN})"
-    else:
-        order_by = "tuple()"
-
-    # Memory engine ignores ORDER BY — warn when both are combined.
-    if effective_engine == "Memory" and schema.order_by:
-        warnings.warn(
-            f"order_by={schema.order_by!r} has no effect with Memory engine. "
-            "Use engine='MergeTree' for ORDER BY support.",
-            UserWarning,
-            stacklevel=2,
-        )
     if schema.location is not None:
         # Located Object: a pointer over files in object storage. No credentials
         # here — ClickHouse resolves them (docs/designs/blob_storage.md).
         engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
     else:
+        # Persistent tables always use MergeTree regardless of engine param or schema.engine.
+        if obj.persistent:
+            effective_engine = "MergeTree"
+        else:
+            effective_engine = engine or schema.engine or get_engine()
+
+        if schema.order_by is not None:
+            order_by = schema.order_by
+        elif AAI_ID_COLUMN in schema.columns:
+            order_by = f"({AAI_ID_COLUMN})"
+        else:
+            order_by = "tuple()"
+
+        # Memory engine ignores ORDER BY — warn when both are combined.
+        if effective_engine == "Memory" and schema.order_by:
+            warnings.warn(
+                f"order_by={schema.order_by!r} has no effect with Memory engine. "
+                "Use engine='MergeTree' for ORDER BY support.",
+                UserWarning,
+                stacklevel=2,
+            )
         engine_clause = get_engine_clause(effective_engine, order_by=order_by)
 
     create_or = "CREATE TABLE IF NOT EXISTS" if obj.persistent else "CREATE TABLE"
@@ -719,10 +719,9 @@ async def open_object(
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     try:
-        stored = await read_table_schema(table_name)
+        schema = await read_table_schema(table_name)
     except LookupError as exc:
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})") from exc
-    schema = Schema(fieldtype=stored.fieldtype, columns=stored.columns)
     obj = object_module.Object(table=table_name, schema=schema)
     register_object(obj)
     return obj

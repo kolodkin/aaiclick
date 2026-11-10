@@ -696,6 +696,7 @@ class Object:
         Returns the absolute path, or the URL, written.
         """
         self.checkstale()
+        # Before the extension lookup: a URL carrying a secret must fail as such.
         if is_url(path):
             validate_blob_url(path)
         fmt = format_for_extension(path)
