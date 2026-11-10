@@ -1,6 +1,6 @@
 ---
 name: claudeai-run
-description: Start the local ClickHouse and PostgreSQL services the distributed-backend tests and examples need by running claudeai/run.sh. Use at the start of a new session, or whenever the services are down (e.g. after a container suspend/resume) and distributed tests need them up.
+description: Start the local ClickHouse, PostgreSQL and MinIO (S3) services the distributed-backend and blob-storage tests need by running claudeai/run.sh. Use at the start of a new session, whenever the services are down (e.g. after a container suspend/resume), or when a test or spike needs an S3 endpoint.
 disable-model-invocation: true
 ---
 
@@ -37,7 +37,10 @@ the CI services in `.github/workflows/_test-reusable.yaml`:
 
 1. **ClickHouse** — `:8123` (`default`/`click123`)
 2. **PostgreSQL** — `:5432` (`aaiclick`/`secret`, db `aaiclick`)
-3. **Migrations** — `aaiclick migrate upgrade head` against both
+3. **MinIO** — `:9100` (`minioadmin`/`minioadmin`, bucket `aaiclick-test`);
+   built from source by `claudeai/setup_minio.sh` (~2 min once — MinIO no
+   longer publishes binaries, images or `mc`)
+4. **Migrations** — `aaiclick migrate upgrade head` against both
 
 Prints `[run] all services up` on success. A failure exits non-zero with a
 `[<svc>] error:` line pointing at its log under `.cache/`.
@@ -45,8 +48,17 @@ Prints `[run] all services up` on success. A failure exits non-zero with a
 ## Use
 
 ```bash
-source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET
+source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET, AWS_*
 uv run --frozen --extra distributed --extra test pytest aaiclick/
+```
+
+Blob URLs carry no credentials: ClickHouse and chdb read `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` from the environment by default. MinIO needs
+bucket-style `http://localhost:9100/bucket/key` URLs; `s3://` resolves to AWS.
+List a bucket without `mc`:
+
+```bash
+curl --aws-sigv4 aws:amz:us-east-1:s3 --user minioadmin:minioadmin http://localhost:9100/aaiclick-test/
 ```
 
 ## Stop
@@ -58,8 +70,8 @@ claudeai/run.sh stop
 ## If a service won't start
 
 `run.sh` runs `claudeai/setup.sh` itself when the binary or cluster is missing
-(fresh container). To start over, stop the services, delete `.cache/clickhouse`
-or `.cache/postgres`, then re-run.
+(fresh container). To start over, stop the services, delete `.cache/clickhouse`,
+`.cache/postgres` or `.cache/minio`, then re-run.
 
 Per-service logs: `.cache/clickhouse.log`, `.cache/postgres/postgres.log`,
-`.cache/migrate.log`.
+`.cache/minio.log`, `.cache/migrate.log`.

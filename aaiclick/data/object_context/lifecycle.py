@@ -13,7 +13,7 @@ from contextvars import ContextVar
 
 from sqlmodel import select
 
-from ..models import ColumnInfo, Schema
+from ..models import Schema
 from .ch_client import ChClient
 from .table_worker import AsyncTableWorker
 
@@ -38,8 +38,8 @@ def register_table(table_name: str, schema_doc: str | None = None) -> None:
         lc.register_table(table_name, schema_doc=schema_doc)
 
 
-async def read_table_schema(table: str) -> tuple[str, dict[str, ColumnInfo]]:
-    """Read ``(fieldtype, columns)`` back from a table's ``table_registry`` row.
+async def read_table_schema(table: str) -> Schema:
+    """Read the ``Schema`` back from a table's ``table_registry`` row.
 
     Rehydrates the ``schema_doc`` that :func:`register_table` wrote. Raises
     ``LookupError`` if the table has no registry row or a null ``schema_doc``
@@ -62,8 +62,10 @@ async def read_table_schema(table: str) -> tuple[str, dict[str, ColumnInfo]]:
             "by a version that predates the schema_doc registry."
         )
 
-    schema = Schema.model_validate_json(row[0])
-    return schema.fieldtype, schema.columns
+    # The whole Schema, not just its shape: ``location`` marks a located Object
+    # read-only, and that must survive a task boundary. Only what described
+    # the table's creation is dropped.
+    return Schema.model_validate_json(row[0]).model_copy(update={"engine": None, "order_by": None})
 
 
 class LifecycleHandler(ABC):

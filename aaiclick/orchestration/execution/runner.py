@@ -23,7 +23,6 @@ from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.data.models import Schema
 from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.refs import (
     AAICLICK_TYPE,
@@ -236,8 +235,7 @@ async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> 
 
     if kind == OBJECT:
         ref = ObjectRef.model_validate(value)
-        fieldtype, columns = await read_table_schema(ref.table)
-        schema = Schema(fieldtype=fieldtype, columns=columns)
+        schema = await read_table_schema(ref.table)
         obj = Object(table=ref.table, schema=schema)
         if not ref.persistent:
             obj._register()  # enqueues INCREF
@@ -246,8 +244,7 @@ async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> 
 
     if kind == VIEW:
         ref = ViewRef.model_validate(value)
-        fieldtype, columns = await read_table_schema(ref.table)
-        schema = Schema(fieldtype=fieldtype, columns=columns)
+        schema = await read_table_schema(ref.table)
         source = Object(table=ref.table, schema=schema)
         source._register()  # enqueues INCREF
         register_object(source)

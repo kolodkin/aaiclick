@@ -17,7 +17,7 @@ from typing import Any, NamedTuple, Self, TypedDict, Union
 
 from aaiclick.snowflake import get_snowflake_id
 
-from ..formats import format_for_extension
+from ..formats import format_for_extension, validate_input_format
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
@@ -58,9 +58,10 @@ from ..object_context import (
     incref,
     register_object,
 )
-from ..object_context.ch_client import ChClient, execute_for_stats, export_query_to_file
+from ..object_context.ch_client import ChClient, execute_for_stats, export_query_to_file, export_query_to_url
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
+from ..url_utils import is_url, validate_blob_url
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
@@ -80,7 +81,7 @@ from .schema_compute import (
     _preview_unique_schema,
 )
 from .transforms import cast, split_by_char
-from .url import _validate_url, _validate_url_columns, _validate_url_format
+from .url import _validate_url, _validate_url_columns
 
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
@@ -367,6 +368,11 @@ class Object:
             or self.renamed_columns
             or self.exploded_columns
         )
+
+    def _check_writable(self) -> None:
+        """Raise when this Object points at object storage instead of owning a table."""
+        if self._schema.location is not None:
+            raise ValueError("located objects are read-only; copy() into a regular Object to modify the data")
 
     def checkstale(self):
         """
@@ -667,8 +673,8 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def export(self, path: str) -> str:
-        """Export the object's data to a local file.
+    async def export(self, path: str, overwrite: bool = False) -> str:
+        """Export the object's data to a local file or a bucket URL.
 
         The format is picked from the file extension. Supported text formats:
         ``.csv``, ``.tsv``, ``.json`` / ``.jsonl`` / ``.ndjson``, ``.md``,
@@ -682,11 +688,21 @@ class Object:
         file()`` from the embedded engine; remote ClickHouse streams the
         formatted bytes over HTTP.
 
-        Returns the absolute path written.
+        An ``http(s)://`` or ``s3://`` *path* is written to object storage by
+        ClickHouse itself (``INSERT INTO FUNCTION s3()``) on both backends.
+        Writing to an existing key raises unless ``overwrite=True``; a local
+        file is always replaced.
+
+        Returns the absolute path, or the URL, written.
         """
         self.checkstale()
+        # Before the extension lookup: a URL carrying a secret must fail as such.
+        if is_url(path):
+            validate_blob_url(path)
         fmt = format_for_extension(path)
         select_sql = self._build_select(columns="*")
+        if is_url(path):
+            return await export_query_to_url(select_sql, path, fmt, overwrite)
         return await export_query_to_file(select_sql, path, fmt)
 
     async def execute(
@@ -1106,6 +1122,7 @@ class Object:
             raise ValueError("insert requires at least one argument")
 
         self.checkstale()
+        self._check_writable()
 
         # Convert all arguments to IngestQueryInfo
         query_infos = []
@@ -1176,8 +1193,9 @@ class Object:
         """
         self.checkstale()
 
+        self._check_writable()
         _validate_url(url)
-        _validate_url_format(format)
+        validate_input_format(format)
 
         # aai_id comes from its DEFAULT, never from the URL source.
         target_columns = [c for c in self.schema.columns if c != AAI_ID_COLUMN]

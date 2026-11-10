@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 import yaml
@@ -125,3 +126,16 @@ def test_init_compose_builds_on_rootless_buildkitd(tmp_path):
     assert parsed["services"]["worker"]["environment"]["AAICLICK_BUILDKIT_ADDR"] == "tcp://buildkitd:1234"
     toml = parsed["configs"]["buildkitd_toml"]["content"]
     assert '[registry."host.docker.internal:5000"]' in toml and "http = true" in toml
+
+
+def test_init_compose_ships_the_s3_profile_switched_off(tmp_path):
+    """ClickHouse gets the users.d file that documents the S3 opt-in, but the
+    scaffold has no bucket credentials, so the profile itself stays commented out."""
+    target = tmp_path / "docker-compose.yaml"
+    init_compose(target, image_tag="v1.0.0")
+    parsed = yaml.safe_load(target.read_text())
+
+    mounts = {c["target"]: c["source"] for c in parsed["services"]["clickhouse"]["configs"]}
+    content = parsed["configs"][mounts["/etc/clickhouse-server/users.d/s3.xml"]]["content"]
+    assert "s3_allow_server_credentials_in_user_queries" in content
+    assert list(ET.fromstring(content)) == []

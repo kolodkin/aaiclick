@@ -48,5 +48,6 @@ from .data import (
     literal,
     object_context,
     open_object,
+    open_object_from_url,
     split_by_char,
 )

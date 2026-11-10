@@ -1,6 +1,8 @@
 """
 aaiclick.data.url - Load data from external URLs into ClickHouse Objects.
 
+See docs/designs/blob_storage.md — "Located Objects".
+
 Uses ClickHouse's native url() table function for zero Python memory footprint.
 Supports both tabular formats (Parquet, CSV, JSONEachRow) and nested JSON APIs
 via RawBLOB/JSONAsString with JSONExtract-based column extraction.
@@ -10,10 +12,11 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
+from ..formats import JSON_BLOB_FORMATS, format_for_extension, validate_input_format
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
+from ..url_utils import validate_blob_url
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
@@ -36,12 +39,6 @@ def _validate_url_columns(columns: list[str]) -> None:
     """Validate column list is non-empty and has no reserved names."""
     if not columns:
         raise ValueError("columns must be a non-empty list")
-
-
-def _validate_url_format(fmt: str) -> None:
-    """Validate format is a supported ClickHouse URL format."""
-    if fmt not in INPUT_FORMATS:
-        raise ValueError(f"Unsupported format '{fmt}'. Supported formats: {sorted(INPUT_FORMATS)}")
 
 
 def _validate_json_path(path: str, param: str) -> None:
@@ -192,7 +189,7 @@ async def create_object_from_url(
         RuntimeError: If no active ObjectContext
     """
     _validate_url(url)
-    _validate_url_format(format)
+    validate_input_format(format)
     if limit is not None and (not isinstance(limit, int) or limit <= 0):
         raise ValueError(f"limit must be a positive integer, got {limit}")
     if where is not None and (err := validate_where_expression(where)):
@@ -344,3 +341,71 @@ async def _create_from_json(
     )
 
     return obj
+
+
+async def open_object_from_url(
+    url: str,
+    columns: list[str] | None = None,
+    format: str | None = None,
+    column_types: dict[str, ColumnInfo] | None = None,
+) -> object_module.Object:
+    """
+    Open a file in object storage as a read-only Object, queried in place.
+
+    Nothing is copied: the Object's table is a ClickHouse ``S3`` engine pointer
+    over ``url``, so operators, views and aggregations read the file directly.
+    The located counterpart of ``create_object_from_url``, which ingests.
+
+    The Object is temporary (the pointer is dropped at context exit; the file
+    is never touched) and read-only: ``insert`` and ``insert_from_url`` raise.
+    ``url`` carries no credentials — ClickHouse resolves them itself.
+
+    Args:
+        url: ``http(s)://`` or ``s3://`` URL of the file. Globs are passed through.
+        columns: Columns to expose. Defaults to every column in the file.
+        format: ClickHouse input format, e.g. ``"Parquet"``. Defaults to the
+            format the URL's extension names.
+        column_types: Column types, skipping schema inference. Keys are the
+            columns to expose when ``columns`` is omitted.
+
+    Returns:
+        Object: array-shaped when the only column is ``value`` (the shape an
+        exported array has), dict-shaped otherwise.
+
+    Raises:
+        ValueError: If the URL, columns or format are invalid.
+
+    Examples:
+        >>> url = await daily.export("s3://lake/reports/daily.parquet")
+        >>> daily = await open_object_from_url(url)
+        >>> await daily.view(where="country = 'US'")["revenue"].sum().data()
+    """
+    validate_blob_url(url)
+    if columns is not None:
+        _validate_url_columns(columns)
+    if format is None:
+        try:
+            format = format_for_extension(url)
+        except ValueError:
+            raise ValueError(f"Cannot tell the format of {url!r} from its extension; pass format=") from None
+    validate_input_format(format)
+
+    if column_types is None:
+        select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"
+        source = f"s3({quote_sql_literal(url)}, '{format}')"
+        described = await get_ch_client().query(f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)")
+        column_types = {row[0]: parse_ch_type(row[1]) for row in described.result_rows}
+    names = columns or list(column_types)
+    if missing := [name for name in names if name not in column_types]:
+        raise ValueError(f"column_types has no entry for columns {missing}")
+
+    # The pointer table must keep the file's column names, so only a file whose
+    # single column is already ``value`` reads back as an array.
+    fieldtype = FIELDTYPE_ARRAY if names == ["value"] else FIELDTYPE_DICT
+    schema = Schema(
+        fieldtype=fieldtype,
+        columns={name: column_types[name].with_fieldtype(FIELDTYPE_ARRAY) for name in names},
+        location=url,
+        format=format,
+    )
+    return await create_object(schema)
