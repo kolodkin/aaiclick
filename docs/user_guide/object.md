@@ -53,7 +53,8 @@ See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment mo
 | `.markdown(truncate=…)`                         | Data Retrieval   | Render data as markdown table                                          | [markdown()](#markdown)                                              |
 | `.execute(order_by, limit, offset)`             | Data Retrieval   | Run full query, discard rows → `QueryStats`                            | [execute()](#execute)                                                |
 | `await .stats()`                                | Data Retrieval   | `QueryStats` of the query that made this Object                        | [stats()](#stats)                                                    |
-| `.export(path)`                                 | Export           | Stream data to a file (extension → format)                             | [export()](#export)                                                  |
+| `.export(path, overwrite)`                      | Export           | Stream data to a file or bucket URL (extension → format)               | [export()](#export)                                                  |
+| `open_object_from_url(url)`                     | Blob Storage     | Read-only Object over a bucket file, queried in place                  | [Blob Storage](#blob-storage)                                        |
 
 # Operator Support
 
@@ -416,6 +417,58 @@ await obj.export("/tmp/data.json.xz")
   copied to the local file in 64 KB chunks on a worker thread, through
   `gzip` / `lzma` if the path asks for it. `INSERT INTO FUNCTION file()`
   would write to the *server's* `user_files_path`, not the client.
+
+## Bucket targets
+
+An `http(s)://` or `s3://` path is written to object storage by ClickHouse
+itself, on both backends, and `export` returns the URL:
+
+```python
+url = await daily.export("s3://lake/reports/daily_2026_10.parquet")
+await daily.export(url, overwrite=True)  # an existing key raises without it
+```
+
+Compression suffixes and view constraints work as for local files.
+Credentials: [Blob Storage](#blob-storage).
+
+# Blob Storage
+
+`open_object_from_url` opens a file in S3-compatible storage as an Object and
+queries it in place — nothing is ingested. With `export` it lets one job hand
+a result to the next as a plain URL:
+
+```python
+url = await daily.export("s3://lake/reports/daily.parquet")
+
+# next job, any cluster
+daily = await open_object_from_url(url)
+await daily.view(where="country = 'US'")["revenue"].sum().data()
+```
+
+- **Schema** is inferred from the file; `columns=` narrows it, `format=`
+  overrides the extension, `column_types=` skips inference.
+- **Read-only**: `insert` and `insert_from_url` raise.
+- **Temporary**: the Object is a pointer dropped at context exit; the file is
+  never touched.
+- **Shape**: a dict Object, or an array when the file's only column is
+  `value` (what an exported array has).
+- **URLs**: `s3://bucket/key` for AWS, `http(s)://host/bucket/key` for
+  S3-compatible servers such as MinIO. Globs pass through to ClickHouse.
+
+## Credentials
+
+URLs never carry credentials; ClickHouse resolves them from its own
+environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or an IAM role).
+
+| Backend           | Where the credentials go         | Extra setting                    |
+|-------------------|----------------------------------|----------------------------------|
+| chdb (embedded)   | the aaiclick process environment | none                             |
+| ClickHouse server | the server process environment   | `AAICLICK_S3_CREDENTIALS=server` |
+
+!!! warning "A ClickHouse server needs `AAICLICK_S3_CREDENTIALS=server`"
+    A server refuses to use its own S3 identity for user queries unless the
+    session opts in; without the variable a private bucket fails with
+    `ACCESS_DENIED`. Unset, only public buckets work.
 
 # Views
 

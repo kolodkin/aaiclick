@@ -5,11 +5,26 @@ Planned work across aaiclick, ordered by priority.
 
 # Blob Storage Support
 
-Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's
-object-store table engines, plus `export` to a bucket; the MergeTree default
-is unchanged. External parquet is queried in place without ingestion, and a
-job's exported result is opened by the next job on any cluster. Full design:
-`docs/drafts/blob_storage_support.md`.
+Shipped: export to a bucket and read-only located Objects
+(`docs/designs/blob_storage.md`). Still open:
+
+- **Named located Objects** — `name` / `scope` so a pointer is reopenable by
+  name on another server (`schema_doc` already carries the location).
+- **GCS and Azure** — `gs://` via the `S3` engine with HMAC keys, `az://` via
+  `AzureBlobStorage`.
+- **More credential modes** for `AAICLICK_S3_CREDENTIALS`: `user` (the
+  caller's keys in SQL, per-user access on a shared server; needs oplog
+  redaction) and `collection:<name>` (a ClickHouse named collection; needs
+  `named_collection_control` grants).
+- **Deploy templates** — pass the S3 identity to ClickHouse in the compose
+  and Helm scaffolds, so the release-stage suite stops skipping blob tests.
+- **Lake formats** (Iceberg, Delta) as further schemes.
+
+Rejected: a writable located Object. The S3 engine's only append is a new file
+per insert read back through a glob — export to a new key under a prefix gives
+the same layout without unverified read-after-write, concurrent-writer hazards
+or orphan files. Revisit only if several tasks must append in place to one
+bucket-backed table.
 
 # Coverage Reporting
 

@@ -1,6 +1,8 @@
 """
 aaiclick.data.url - Load data from external URLs into ClickHouse Objects.
 
+See docs/designs/blob_storage.md — "Located Objects".
+
 Uses ClickHouse's native url() table function for zero Python memory footprint.
 Supports both tabular formats (Parquet, CSV, JSONEachRow) and nested JSON APIs
 via RawBLOB/JSONAsString with JSONExtract-based column extraction.

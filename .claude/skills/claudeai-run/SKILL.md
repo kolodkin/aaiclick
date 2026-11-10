@@ -48,7 +48,7 @@ Prints `[run] all services up` on success. A failure exits non-zero with a
 ## Use
 
 ```bash
-source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET, AAICLICK_BLOB_TEST_URL, AWS_*
+source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET, AAICLICK_S3_CREDENTIALS, AWS_*
 uv run --frozen --extra distributed --extra test pytest aaiclick/
 ```
 
