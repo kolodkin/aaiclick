@@ -29,9 +29,16 @@ Chosen: 1.
   none.
 - The 26.x server refuses ambient credentials in user queries unless the
   session setting `s3_allow_server_credentials_in_user_queries=1` is set.
-  Every statement touching an S3 table needs it (CREATE, DESCRIBE, SELECT), so
-  the remote client sends it as a **client-default setting** on every query
-  (one line in `clickhouse_client.py`); chdb accepts and ignores it.
+  Every statement touching an S3 table needs it (CREATE, DESCRIBE, SELECT).
+- **`AAICLICK_S3_CREDENTIALS=server`** opts in: a getter in
+  `aaiclick/backend.py` validates it and `create_clickhouse_client` passes the
+  setting as a connection default, so no SQL carries it. Unset: public buckets
+  only. Any other value: `ValueError`. chdb ignores the variable — the
+  embedded engine already uses the aaiclick process's own `AWS_*`.
+- Credentials are given to the ClickHouse server process (env pair or IAM
+  role), never to aaiclick. Deferred modes: `user` (keys in SQL, needs oplog
+  redaction) and `collection:<name>` (named collection; verified to work on
+  26.11 without the setting, but needs `users.xml` grants).
 - MinIO / moto use bucket-style `http://host:port/bucket/key`; `s3://` resolves
   to AWS. Both are accepted; `url()` is not involved.
 
