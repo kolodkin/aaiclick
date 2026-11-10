@@ -312,7 +312,6 @@ async def create_object(
     engine: EngineType | None = None,
     name: str | None = None,
     scope: NamedScope | None = None,
-    ch_settings: dict[str, str | int] | None = None,
 ) -> object_module.Object:
     """Create a new Object with a ClickHouse table using the specified schema.
 
@@ -329,8 +328,6 @@ async def create_object(
               (lives only as long as the active orch job; raises if no job is
               active). ``"global"`` → ``p_<name>`` (user-managed, removed only
               by ``delete_persistent_object()``).
-
-        ch_settings: ClickHouse settings for the ``CREATE TABLE`` statement only.
 
     Returns:
         Object: New Object instance with created table
@@ -402,7 +399,7 @@ async def create_object(
     if not obj.persistent:
         obj._register()  # Write-ahead incref: register before CREATE TABLE
     register_object(obj)  # Object lifecycle: track for stale marking on exit
-    await get_ch_client().command(create_query, settings=ch_settings)
+    await get_ch_client().command(create_query)
 
     # Register table in table_registry for cleanup worker.
     # In orch mode this records the job_id so all tables (including persistent)

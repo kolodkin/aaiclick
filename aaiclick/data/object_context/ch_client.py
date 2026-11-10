@@ -174,19 +174,16 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     return abs_path
 
 
-async def export_query_to_url(
-    query: str, url: str, fmt: str, overwrite: bool = False, settings: dict[str, str | int] | None = None
-) -> str:
+async def export_query_to_url(query: str, url: str, fmt: str, overwrite: bool = False) -> str:
     """Write a ``SELECT`` query result to a bucket URL in *fmt*, server-side.
 
     ``INSERT INTO FUNCTION s3(url, fmt) <query>`` on both backends: the bytes
     never pass through Python and the SQL carries no credentials — ClickHouse
     resolves them itself. An existing key is an error unless *overwrite*.
-    *settings* are ClickHouse settings for this one statement.
     """
     await get_ch_client().command(
         f"INSERT INTO FUNCTION s3({quote_sql_literal(url)}, '{fmt}') {query}",
-        settings={"s3_truncate_on_insert": int(overwrite), **(settings or {})},
+        settings={"s3_truncate_on_insert": int(overwrite)},
     )
     return url
 

@@ -354,7 +354,6 @@ async def open_object_from_url(
     columns: list[str] | None = None,
     format: str | None = None,
     column_types: dict[str, ColumnInfo] | None = None,
-    ch_settings: dict[str, str | int] | None = None,
 ) -> object_module.Object:
     """
     Open a file in object storage as a read-only Object, queried in place.
@@ -374,9 +373,6 @@ async def open_object_from_url(
             format the URL's extension names.
         column_types: Column types, skipping schema inference. Keys are the
             columns to expose when ``columns`` is omitted.
-        ch_settings: ClickHouse settings for the statements that open the file
-            (schema inference and table creation). They do not follow the
-            Object into later queries.
 
     Returns:
         Object: array-shaped when the only column is ``value`` (the shape an
@@ -400,9 +396,7 @@ async def open_object_from_url(
     if column_types is None:
         select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"
         source = f"s3({quote_sql_literal(url)}, '{format}')"
-        described = await get_ch_client().query(
-            f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)", settings=ch_settings
-        )
+        described = await get_ch_client().query(f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)")
         column_types = {row[0]: parse_ch_type(row[1]) for row in described.result_rows}
     names = columns or list(column_types)
 
@@ -415,4 +409,4 @@ async def open_object_from_url(
         location=url,
         format=format,
     )
-    return await create_object(schema, ch_settings=ch_settings)
+    return await create_object(schema)

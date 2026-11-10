@@ -471,47 +471,18 @@ environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or an IAM role).
     session opts in; without the variable a private bucket fails with
     `ACCESS_DENIED`. Unset, only public buckets work.
 
-## Per-call settings
+??? info "Alternative: opt in from ClickHouse's `users.xml`"
+    Operators who manage the server config can set the opt-in there and
+    leave `AAICLICK_S3_CREDENTIALS` unset. The keys still go in the server's
+    environment.
 
-`export` and `open_object_from_url` take `ch_settings`, ClickHouse settings
-passed straight to the statements that call runs — for example the same opt-in
-for a single export, with `AAICLICK_S3_CREDENTIALS` unset:
-
-```python
-lend = {"s3_allow_server_credentials_in_user_queries": 1}
-
-url = await daily.export("s3://lake/reports/daily.parquet", ch_settings=lend)
-```
-
-The settings do not follow an Object into later queries, which is the downside
-against the two deployment-level switches:
-
-| Where the opt-in is set                | Covers                                                      |
-|----------------------------------------|-------------------------------------------------------------|
-| `ch_settings=` on the call             | That call only: one export, or opening (not reading) a file |
-| `AAICLICK_S3_CREDENTIALS=server` (env) | Every query from that aaiclick component                    |
-| `users.xml` profile                    | Every query from that ClickHouse user, any client           |
-
-!!! warning "`ch_settings` cannot make a located Object readable"
-    ClickHouse checks the opt-in on every statement that reads the bucket.
-    `open_object_from_url(url, ch_settings=lend)` opens the file, but the next
-    `.data()` or operator fails with `ACCESS_DENIED` unless the opt-in is also
-    set at deployment level. Use `ch_settings` there for inference and format
-    settings such as `schema_inference_make_columns_nullable`.
-
-## Opt-in from `users.xml`
-
-Operators who manage the server config can set the opt-in there and leave
-`AAICLICK_S3_CREDENTIALS` unset. The keys still go in the server's
-environment.
-
-```xml
-<profiles>
-  <default>
-    <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
-  </default>
-</profiles>
-```
+    ```xml
+    <profiles>
+      <default>
+        <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
+      </default>
+    </profiles>
+    ```
 
 # Views
 

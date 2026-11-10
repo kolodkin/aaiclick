@@ -107,13 +107,6 @@ async def test_export_to_existing_key_needs_overwrite(ctx, bucket):
     assert bucket.read_parquet("export/twice.parquet") == {"value": [7, 8, 9]}
 
 
-async def test_export_passes_ch_settings_to_the_query(ctx, bucket):
-    url = f"{bucket.url}/export/settings.parquet"
-    await (await create_object_from_value([1, 2])).export(url)
-    await (await create_object_from_value([7])).export(url, ch_settings={"s3_truncate_on_insert": 1})
-    assert bucket.read_parquet("export/settings.parquet") == {"value": [7]}
-
-
 async def test_export_rejects_unsupported_scheme(ctx):
     obj = await create_object_from_value([1])
     with pytest.raises(ValueError, match="http, https or s3"):
@@ -143,18 +136,6 @@ async def test_export_open_round_trip(ctx, bucket, extension):
 async def test_located_object_filters_and_aggregates_in_place(ctx, sample_url):
     opened = await open_object_from_url(sample_url)
     assert await opened.view(where="score > 15")["score"].sum().data() == 50.25
-
-
-@pytest.mark.parametrize(
-    "ch_settings, nullable",
-    [
-        pytest.param(None, False, id="default-inference"),
-        pytest.param({"schema_inference_make_columns_nullable": 1}, True, id="setting-reaches-inference"),
-    ],
-)
-async def test_open_passes_ch_settings_to_schema_inference(ctx, sample_url, ch_settings, nullable):
-    opened = await open_object_from_url(sample_url, ch_settings=ch_settings)
-    assert opened.schema.columns["id"].nullable is nullable
 
 
 async def test_open_selected_columns(ctx, sample_url):
