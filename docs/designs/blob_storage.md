@@ -52,6 +52,10 @@ shipped as `docker/clickhouse/users.d/s3.xml`. aaiclick has no setting of its
 own — lending the server's identity is the operator's decision, and a client
 that could switch it on per connection would make the guard moot.
 
+The compose and Helm scaffolds ship the file too, mounted but with the profile
+commented out: a scaffold has no bucket credentials, so there is nothing to
+lend until the operator supplies them.
+
 `s3://bucket/key` resolves to AWS; S3-compatible servers (MinIO) take
 bucket-style `http(s)://host/bucket/key`.
 

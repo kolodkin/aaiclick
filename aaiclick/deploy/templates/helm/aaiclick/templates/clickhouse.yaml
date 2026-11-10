@@ -25,6 +25,13 @@ spec:
               value: {{ .Values.devDependencies.clickhouse.password | quote }}
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "0"
+            {{- with .Values.devDependencies.clickhouse.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: users-d
+              mountPath: /etc/clickhouse-server/users.d/s3.xml
+              subPath: s3.xml
           ports:
             - containerPort: 8123
             - containerPort: 9000
@@ -36,6 +43,18 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 12
+      volumes:
+        - name: users-d
+          configMap:
+            name: aaiclick-clickhouse-users
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aaiclick-clickhouse-users
+data:
+  s3.xml: |
+    {{- .Values.devDependencies.clickhouse.s3UsersXml | nindent 4 }}
 ---
 apiVersion: v1
 kind: Service

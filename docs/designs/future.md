@@ -17,10 +17,6 @@ Shipped: export to a bucket and read-only located Objects
   `s3(lake, url=...)`: keys in ClickHouse config, several buckets per
   deploy; needs `named_collection_control` grants. Or the caller's own keys
   in SQL, which needs oplog redaction.
-- **Deploy templates** — mount `docker/clickhouse/users.d/s3.xml` and pass
-  the S3 identity to ClickHouse in the compose and Helm scaffolds, so the
-  release-stage suite stops skipping blob tests. Opt-in, since it lends the
-  server's identity to every query.
 - **Lake formats** (Iceberg, Delta) as further schemes.
 
 Rejected: a writable located Object. The S3 engine's only append is a new file

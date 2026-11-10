@@ -481,6 +481,10 @@ the user's profile opts in. Mount this as
 </clickhouse>
 ```
 
+The compose and Helm scaffolds mount the same file with the profile commented
+out, next to commented `AWS_*` entries for the ClickHouse container: uncomment
+both once you have bucket credentials.
+
 !!! warning "Without the profile line a private bucket fails with `ACCESS_DENIED`"
     Only public buckets work on a server that has not opted in. aaiclick has
     no setting of its own for this: lending the server's identity is the
