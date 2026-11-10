@@ -22,7 +22,7 @@ table name as for any Object, and computed results land in temp tables.
 - **Read-only**: `insert` and `insert_from_url` raise on `Schema.location`.
 - **Temp only**: a `t_` pointer dropped at context exit; `name` raises. The
   bucket is never touched.
-- **No `aai_id`**; rows come back in file order.
+- **No `aai_id`** and no guaranteed row order.
 
 # Export to a Bucket
 
@@ -35,15 +35,16 @@ which streams over HTTP for a remote server. `s3_truncate_on_insert` follows
 
 # Credentials
 
-aaiclick never handles object-store secrets: no SQL it renders carries them,
-so the operation log and ClickHouse's query log stay clean. ClickHouse uses
+aaiclick never handles object-store secrets: no SQL it renders carries them
+(a URL with userinfo or query parameters is rejected), so the operation log
+and ClickHouse's query log stay clean. ClickHouse uses
 its own identity — `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in its
 process environment, or an IAM role.
 
 | Backend           | Behavior                                                                  |
 |-------------------|---------------------------------------------------------------------------|
 | chdb              | Reads the aaiclick process environment; no setting needed                 |
-| ClickHouse server | Refuses its ambient identity for user queries unless the session opts in  |
+| ClickHouse server | Refuses its ambient identity for user queries unless the profile opts in  |
 
 The server check runs on every statement that touches an S3 table (`CREATE`,
 `DESCRIBE`, `SELECT`), so the opt-in is a profile setting, not SQL:
@@ -67,5 +68,5 @@ both backends; a remote ClickHouse reaches it through
 `system.settings` and skips unless the profile opts in, so it runs in the
 dedicated `Blob storage dist` CI job — which starts ClickHouse with the
 `users.d` file mounted and fails on a skip — and skips in the jobs that use
-stock service containers. `claudeai/run.sh` writes the same profile line and
+stock service containers. `claudeai/run.sh` uses the same `users.d` file and
 starts a real MinIO for manual checks.
