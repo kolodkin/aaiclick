@@ -14,8 +14,10 @@ Shipped: export to a bucket and read-only located Objects
   `AzureBlobStorage`.
 - **More credential modes** for `AAICLICK_S3_CREDENTIALS`: `user` (the
   caller's keys in SQL, per-user access on a shared server; needs oplog
-  redaction) and `collection:<name>` (a ClickHouse named collection; needs
-  `named_collection_control` grants).
+  redaction) and a named collection chosen per object, e.g.
+  `open_object_from_url(url, connection="lake")` rendering
+  `s3(lake, url=...)` — keys in ClickHouse config, several buckets per
+  deploy; needs `named_collection_control` grants.
 - **Deploy templates** — pass the S3 identity to ClickHouse in the compose
   and Helm scaffolds, so the release-stage suite stops skipping blob tests.
 - **Lake formats** (Iceberg, Delta) as further schemes.

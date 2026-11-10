@@ -51,6 +51,11 @@ The server check runs on every statement that touches an S3 table (`CREATE`,
 `s3_allow_server_credentials_in_user_queries=1` with every query
 (`aaiclick/backend.py`). Unset, only public buckets work.
 
+The same setting in the default profile of the server's `users.xml` has the
+same effect with the variable unset. aaiclick uses the variable because every
+shipped environment (compose, Helm, CI) configures the stock ClickHouse image
+through environment variables only, with no mounted config.
+
 `s3://bucket/key` resolves to AWS; S3-compatible servers (MinIO) take
 bucket-style `http(s)://host/bucket/key`.
 

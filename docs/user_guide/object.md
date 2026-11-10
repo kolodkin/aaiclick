@@ -471,6 +471,19 @@ environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or an IAM role).
     session opts in; without the variable a private bucket fails with
     `ACCESS_DENIED`. Unset, only public buckets work.
 
+??? info "Alternative: opt in from ClickHouse's `users.xml`"
+    Operators who manage the server config can set the opt-in there and
+    leave `AAICLICK_S3_CREDENTIALS` unset. The keys still go in the server's
+    environment.
+
+    ```xml
+    <profiles>
+      <default>
+        <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
+      </default>
+    </profiles>
+    ```
+
 # Views
 
 Read-only filtered projection of an Object — same table, no data copy. Created via `obj.view(where=..., limit=..., offset=..., order_by=...)`. Supports all read operations; cannot `insert()`. See `examples/view_examples.py`.
