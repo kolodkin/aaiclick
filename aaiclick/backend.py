@@ -17,22 +17,15 @@ All local-mode paths derive from a single root directory:
 
 - AAICLICK_LOCAL_ROOT: Base directory for local state (default: ~/.aaiclick)
 
-- AAICLICK_S3_CREDENTIALS: Where a remote ClickHouse gets bucket credentials.
-    Unset: public buckets only. ``server``: the server's own identity.
-
 Helper functions detect the backend type from the URL scheme.
 """
 
 import os
 from pathlib import Path
-from typing import Literal
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
 """Loopback names, as a bind address (``::1``) or a ``Host`` header (``[::1]``)."""
-
-S3_CREDENTIALS_SERVER = "server"
-S3CredentialsMode = Literal["server"]
 
 
 def get_root() -> Path:
@@ -113,28 +106,6 @@ def parse_ch_url() -> dict:
         "password": unquote(parsed.password or ""),
         "database": parsed.path.lstrip("/") or "default",
     }
-
-
-def get_s3_credentials() -> S3CredentialsMode | None:
-    """Return the AAICLICK_S3_CREDENTIALS mode, or ``None`` when unset."""
-    mode = os.getenv("AAICLICK_S3_CREDENTIALS")
-    if not mode:
-        return None
-    if mode != S3_CREDENTIALS_SERVER:
-        raise ValueError(f"AAICLICK_S3_CREDENTIALS must be unset or '{S3_CREDENTIALS_SERVER}', got {mode!r}")
-    return S3_CREDENTIALS_SERVER
-
-
-def s3_client_settings() -> dict[str, int]:
-    """ClickHouse settings a remote connection sends with every query.
-
-    A ClickHouse server refuses to use its own S3 identity (environment keys,
-    IAM role) for user queries unless the session opts in, and the check runs
-    on every statement that touches an S3 table — hence a connection default.
-    """
-    if get_s3_credentials() == S3_CREDENTIALS_SERVER:
-        return {"s3_allow_server_credentials_in_user_queries": 1}
-    return {}
 
 
 def redact_url(url: str) -> str:
