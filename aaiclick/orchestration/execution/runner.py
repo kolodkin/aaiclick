@@ -182,6 +182,12 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession, job_id: int) -
     return result
 
 
+async def _rehydrated_schema(table: str) -> Schema:
+    """Schema of an Object arriving by ref: its shape, plus where a located one points."""
+    stored = await read_table_schema(table)
+    return Schema(fieldtype=stored.fieldtype, columns=stored.columns, location=stored.location, format=stored.format)
+
+
 async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> Any:
     """Recursively deserialize a value from JSON format.
 
@@ -236,8 +242,7 @@ async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> 
 
     if kind == OBJECT:
         ref = ObjectRef.model_validate(value)
-        fieldtype, columns = await read_table_schema(ref.table)
-        schema = Schema(fieldtype=fieldtype, columns=columns)
+        schema = await _rehydrated_schema(ref.table)
         obj = Object(table=ref.table, schema=schema)
         if not ref.persistent:
             obj._register()  # enqueues INCREF
@@ -246,8 +251,7 @@ async def _deserialize_value(value: Any, session: AsyncSession, job_id: int) -> 
 
     if kind == VIEW:
         ref = ViewRef.model_validate(value)
-        fieldtype, columns = await read_table_schema(ref.table)
-        schema = Schema(fieldtype=fieldtype, columns=columns)
+        schema = await _rehydrated_schema(ref.table)
         source = Object(table=ref.table, schema=schema)
         source._register()  # enqueues INCREF
         register_object(source)

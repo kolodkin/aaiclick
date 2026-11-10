@@ -76,6 +76,12 @@ def validate_blob_url(url: str) -> None:
         raise ValueError(f"Blob URL must use http, https or s3 scheme, got '{parsed.scheme}'")
     if not parsed.netloc:
         raise ValueError("Blob URL must have a valid host or bucket")
+    # The URL is rendered into SQL and stored in the registry, so it must not
+    # be able to carry a secret: no userinfo, no (possibly signed) query string.
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Blob URL must not carry credentials; ClickHouse resolves them itself")
+    if parsed.query:
+        raise ValueError("Blob URL must not carry a query string")
 
 
 def quote_identifier(name: str) -> str:

@@ -27,6 +27,7 @@ from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
 from .. import object as object_module
+from ..formats import INPUT_FORMATS
 from ..models import (
     AAI_ID_COLUMN,
     AAI_ID_INFO,
@@ -56,7 +57,7 @@ from ..scope import (
     make_scoped_table_name,
     name_from_table,
 )
-from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal
+from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal, validate_blob_url
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -335,8 +336,12 @@ async def create_object(
     """
     if isinstance(schema, ViewSchema):
         raise TypeError("create_object() takes a Schema, not a ViewSchema; materialize a View with copy()")
-    if schema.location is not None and name is not None:
-        raise ValueError("located objects cannot be named yet")
+    if schema.location is not None:
+        if name is not None:
+            raise ValueError("located objects cannot be named yet")
+        validate_blob_url(schema.location)
+        if schema.format not in INPUT_FORMATS:
+            raise ValueError(f"Unsupported format {schema.format!r}. Supported formats: {sorted(INPUT_FORMATS)}")
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
@@ -714,10 +719,10 @@ async def open_object(
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     try:
-        fieldtype, columns = await read_table_schema(table_name)
+        stored = await read_table_schema(table_name)
     except LookupError as exc:
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})") from exc
-    schema = Schema(fieldtype=fieldtype, columns=columns)
+    schema = Schema(fieldtype=stored.fieldtype, columns=stored.columns)
     obj = object_module.Object(table=table_name, schema=schema)
     register_object(obj)
     return obj

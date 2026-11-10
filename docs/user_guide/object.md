@@ -453,7 +453,8 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
 - **Shape**: a dict Object, or an array when the file's only column is
   `value` (what an exported array has).
 - **URLs**: `s3://bucket/key` for AWS, `http(s)://host/bucket/key` for
-  S3-compatible servers such as MinIO. Globs pass through to ClickHouse.
+  S3-compatible servers such as MinIO. Globs pass through to ClickHouse;
+  userinfo and query strings (signed URLs) are rejected.
 
 ## Credentials
 

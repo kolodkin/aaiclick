@@ -21,6 +21,7 @@ from moto.server import ThreadedMotoServer
 from aaiclick import ColumnInfo, Schema, create_object, create_object_from_value, open_object_from_url
 from aaiclick.backend import get_s3_credentials, is_chdb
 from aaiclick.data.models import FIELDTYPE_ARRAY
+from aaiclick.orchestration.execution.runner import deserialize_task_params
 
 SAMPLE = {
     "id": [1, 2, 3],
@@ -174,12 +175,52 @@ async def test_open_rejects_bad_arguments(ctx, url, kwargs, match):
         await open_object_from_url(url, **kwargs)
 
 
-async def test_located_object_cannot_be_named(ctx, sample_url):
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={"value": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY)},
-        location=sample_url,
-        format="Parquet",
-    )
+def _located_schema(**overrides) -> Schema:
+    fields = {
+        "fieldtype": FIELDTYPE_ARRAY,
+        "columns": {"value": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY)},
+        "location": "s3://bucket/data.parquet",
+        "format": "Parquet",
+    }
+    return Schema(**(fields | overrides))
+
+
+async def test_located_object_cannot_be_named(ctx):
     with pytest.raises(ValueError, match="cannot be named"):
-        await create_object(schema, name="lake_sample")
+        await create_object(_located_schema(), name="lake_sample")
+
+
+@pytest.mark.parametrize(
+    "overrides, match",
+    [
+        pytest.param({"format": "Parquet') COMMENT 'injected' --"}, "Unsupported format", id="format-injection"),
+        pytest.param({"format": None}, "Unsupported format", id="format-missing"),
+        pytest.param({"location": "not a url"}, "http, https or s3", id="location-not-a-url"),
+    ],
+)
+async def test_create_object_validates_location_and_format(ctx, overrides, match):
+    with pytest.raises(ValueError, match=match):
+        await create_object(_located_schema(**overrides))
+
+
+@pytest.mark.parametrize(
+    "url, match",
+    [
+        pytest.param("https://KEY:SECRET@example.com/bucket/data.parquet", "credentials", id="userinfo"),
+        pytest.param("https://example.com/bucket/data.parquet?X-Amz-Signature=abc", "query string", id="signed-url"),
+    ],
+)
+async def test_urls_carrying_credentials_are_rejected(ctx, url, match):
+    """No SQL aaiclick renders may carry a secret, so such URLs never reach ClickHouse."""
+    obj = await create_object_from_value([1])
+    with pytest.raises(ValueError, match=match):
+        await obj.export(url)
+    with pytest.raises(ValueError, match=match):
+        await open_object_from_url(url)
+
+
+async def test_located_object_stays_read_only_across_a_task_boundary(ctx, sample_url):
+    opened = await open_object_from_url(sample_url)
+    params = await deserialize_task_params({"data": opened._serialize_ref()}, job_id=0)
+    with pytest.raises(ValueError, match="read-only"):
+        await params["data"].insert({"id": [4], "name": ["dave"], "score": [1.0]})
