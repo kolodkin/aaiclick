@@ -19,6 +19,7 @@ import pytest
 from moto.server import ThreadedMotoServer
 
 from aaiclick import ColumnInfo, Schema, create_object, create_object_from_value, open_object_from_url
+from aaiclick.backend import get_s3_credentials, is_chdb
 from aaiclick.data.models import FIELDTYPE_ARRAY
 
 SAMPLE = {
@@ -29,6 +30,13 @@ SAMPLE = {
 _BUCKET = "aaiclick-test"
 _HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 _KEYS = {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing"}
+
+# A remote ClickHouse reaches the bucket with its own identity, which a stack
+# that never opted in (AAICLICK_S3_CREDENTIALS unset) does not lend to queries.
+pytestmark = pytest.mark.skipif(
+    not is_chdb() and get_s3_credentials() is None,
+    reason="remote ClickHouse without AAICLICK_S3_CREDENTIALS=server",
+)
 
 
 class Bucket:
