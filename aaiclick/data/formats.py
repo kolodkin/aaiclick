@@ -44,7 +44,7 @@ class FormatSpec(NamedTuple):
 FORMATS: tuple[FormatSpec, ...] = (
     # Columnar / binary
     FormatSpec("Parquet",              (".parquet",),                  input=True,  output=True),
-    FormatSpec("Arrow",                (".arrow",),                    input=False, output=True),
+    FormatSpec("Arrow",                (".arrow",),                    input=True,  output=True),
     FormatSpec("ORC",                  (".orc",),                      input=True,  output=True),
     FormatSpec("Avro",                 (".avro",),                     input=True,  output=True),
     # CSV family

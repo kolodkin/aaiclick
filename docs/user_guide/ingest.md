@@ -36,7 +36,7 @@ Headerless formats expose columns as `c1`, `c2`, ….
 |-----------------------------|------------------------------------------------------------|
 | `Parquet`                   | columnar, type-rich (default)                              |
 | `ORC`                       | Apache ORC columnar                                        |
-| `Arrow`                     | reading not supported — use Parquet/ORC                    |
+| `Arrow`                     | Apache Arrow IPC file                                      |
 | `Avro`                      | container file with embedded schema                        |
 | `CSV`                       | no header — columns must be `c1`, `c2`, …                  |
 | `CSVWithNames`              | header row provides column names                           |

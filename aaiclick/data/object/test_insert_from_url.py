@@ -106,6 +106,7 @@ async def test_url_input_validation_raises(ctx, url, kwargs, match):
         ),
         pytest.param("sample.jsonl", "JSONEachRow", ["id", "price", "name"], id="JSONEachRow"),
         pytest.param("sample_compact.jsonl", "JSONCompactEachRow", ["c1", "c2", "c3"], id="JSONCompactEachRow"),
+        pytest.param("sample.arrow", "Arrow", ["id", "price", "name"], id="Arrow"),
         pytest.param("sample.orc", "ORC", ["id", "price", "name"], id="ORC"),
         pytest.param("sample.avro", "Avro", ["id", "price", "name"], id="Avro"),
     ],

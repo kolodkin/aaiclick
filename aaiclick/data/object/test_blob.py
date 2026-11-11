@@ -133,7 +133,7 @@ async def sample_url(ctx, bucket) -> str:
     return await obj.export(f"{bucket.url}/open/sample.parquet", overwrite=True)
 
 
-@pytest.mark.parametrize("extension", [".parquet", ".csv", ".tsv", ".jsonl", ".orc", ".avro"])
+@pytest.mark.parametrize("extension", [".parquet", ".arrow", ".csv", ".tsv", ".jsonl", ".orc", ".avro"])
 async def test_export_open_round_trip(ctx, bucket, extension):
     obj = await create_object_from_value(SAMPLE)
     url = await obj.export(f"{bucket.url}/roundtrip/sample{extension}", overwrite=True)
@@ -205,7 +205,7 @@ _chdb_only = pytest.mark.skipif(not is_chdb(), reason="local file locations need
 
 
 @_chdb_only
-@pytest.mark.parametrize("extension", [".parquet", ".csv"])
+@pytest.mark.parametrize("extension", [".parquet", ".arrow", ".csv"])
 async def test_export_open_local_round_trip(ctx, tmp_path, extension):
     obj = await create_object_from_value(SAMPLE)
     path = await obj.export(str(tmp_path / f"sample{extension}"))
