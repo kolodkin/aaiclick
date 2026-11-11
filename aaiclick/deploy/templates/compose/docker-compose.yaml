@@ -22,7 +22,7 @@ name: aaiclick
 
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:26.7
+    image: clickhouse/clickhouse-server:26.10
     environment:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: "${AAICLICK_CH_PASSWORD:?run python -m aaiclick compose init}"

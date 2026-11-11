@@ -1,12 +1,12 @@
 Technical Debt
 ---
 
-# ClickHouse Mishandles Path-Relative Redirects
+# chdb Mishandles Path-Relative Redirects
 
 - **Site**: the EPSS loader, `example_projects/cyber_threat_feeds/cyber_threat_feeds/epss.py`
-  - **Issue**: The engine resolves a path-relative `Location` (`sample.parquet`) against the full request path rather than its parent directory, so `/dir/entry.parquet` redirects to `/dir/entry.parquet/sample.parquet` and the fetch fails. Absolute and root-relative `Location` headers resolve correctly. Both backends share the engine's HTTP client, so neither escapes it.
+  - **Issue**: The engine resolves a path-relative `Location` (`sample.parquet`) against the full request path rather than its parent directory, so `/dir/entry.parquet` redirects to `/dir/entry.parquet/sample.parquet` and the fetch fails. Absolute and root-relative `Location` headers resolve correctly. ClickHouse server fixed this in 26.10; chdb 26.9 has not.
   - **Workaround**: The loader issues a `HEAD` in Python and passes the resolved final URL to `url()`. Its feed 301s cross-host, then 302s path-relative.
-  - **Debt**: Drop the pre-resolution once the engine resolves relative redirects per RFC 3986. `test_url_path_relative_redirect_unsupported` pins the current behavior and will fail when that lands. Track at [ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse).
+  - **Debt**: Drop the pre-resolution once chdb ships a 26.10+ engine. `test_url_path_relative_redirect_unsupported` (chdb-only) pins the bug and will fail when that lands. Track at [ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse).
 
 # chdb Missing `HTML` Output Format
 

@@ -5,7 +5,7 @@ postgres:
   db: aaiclick
   nodePort: 30432
 clickhouse:
-  image: clickhouse/clickhouse-server:26.7
+  image: clickhouse/clickhouse-server:26.10
   user: default
   password: click123
   nodePort: 30123
