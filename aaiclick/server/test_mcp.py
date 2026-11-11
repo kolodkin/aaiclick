@@ -245,8 +245,8 @@ async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, rev
 
 async def test_instructions_carry_the_triage_method(mcp_client):
     """The server instructions name every lineage tool, in the order the agent should use them."""
-    assert mcp_client.initialize_result.serverInfo.version == API_VERSION
-    instructions = mcp_client.initialize_result.instructions
+    assert mcp_client.server_info.version == API_VERSION
+    instructions = mcp_client.instructions
     order = ["lineage_graph", "lineage_nodes", "lineage_schema", "lineage_query"]
     positions = [instructions.index(name) for name in order]
     assert positions == sorted(positions)
