@@ -226,6 +226,21 @@ async def test_export_unsupported_extension_raises(ctx, tmp_path, filename):
         await obj.export(str(tmp_path / filename))
 
 
+@pytest.mark.parametrize(
+    "filename, read",
+    [
+        pytest.param("data.csv", lambda path: Path(path).read_text().split(), id="csv"),
+        pytest.param("data.parquet", lambda path: pq.read_table(path).column("value").to_pylist(), id="parquet"),
+    ],
+)
+async def test_export_replaces_existing_file(ctx, tmp_path, filename, read):
+    path = str(tmp_path / filename)
+    await (await create_object_from_value([1, 2])).export(path)
+    first = read(path)
+    await (await create_object_from_value([1, 2])).export(path)
+    assert read(path) == first
+
+
 async def test_export_returns_absolute_path(ctx, tmp_path, monkeypatch):
     """Even when given a relative path, the returned path is absolute."""
     obj = await create_object_from_value(SAMPLE)

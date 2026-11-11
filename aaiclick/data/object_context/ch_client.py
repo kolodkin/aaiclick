@@ -164,7 +164,11 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     abs_path = str(Path(path).resolve())
     client = get_ch_client()
     if is_chdb():
-        await client.command(f"INSERT INTO FUNCTION file({quote_sql_literal(abs_path)}, '{fmt}') {query}")
+        # file() appends to an existing file by default; export replaces it.
+        await client.command(
+            f"INSERT INTO FUNCTION file({quote_sql_literal(abs_path)}, '{fmt}') {query}",
+            settings={"engine_file_truncate_on_insert": 1},
+        )
         return abs_path
 
     async with await client.raw_stream(query=query, fmt=fmt) as stream:  # type: ignore[attr-defined]
