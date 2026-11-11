@@ -4,7 +4,10 @@ aaiclick.data.url_utils - Checks on the URLs aaiclick hands to ClickHouse.
 See docs/designs/blob_storage.md — "Credentials".
 """
 
+from pathlib import Path
 from urllib.parse import urlparse
+
+from aaiclick.backend import is_chdb
 
 BLOB_URL_SCHEMES = ("http", "https", "s3")
 
@@ -28,3 +31,16 @@ def validate_blob_url(url: str) -> None:
     # A bare ``?`` is a ClickHouse glob; ``key=value`` is a (possibly signed) query.
     if "=" in parsed.query:
         raise ValueError("Blob URL must not carry query parameters")
+
+
+def validate_location(location: str) -> None:
+    """Reject a location a located Object cannot point at: a bad blob URL, or a
+    local path that is relative or used without the embedded chdb backend."""
+    if is_url(location):
+        validate_blob_url(location)
+        return
+    if not is_chdb():
+        # A remote server would resolve the path on its own disk, not ours.
+        raise ValueError("Local file locations need the chdb backend; use an http, https or s3 URL")
+    if not Path(location).is_absolute():
+        raise ValueError(f"Local file location must be an absolute path, got {location!r}")

@@ -10,13 +10,14 @@ via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import urlparse
 
 from ..formats import JSON_BLOB_FORMATS, format_for_extension, validate_input_format
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
-from ..url_utils import validate_blob_url
+from ..url_utils import is_url, validate_location
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
@@ -350,18 +351,21 @@ async def open_object_from_url(
     column_types: dict[str, ColumnInfo] | None = None,
 ) -> object_module.Object:
     """
-    Open a file in object storage as a read-only Object, queried in place.
+    Open a file in object storage, or on local disk, as a read-only Object,
+    queried in place.
 
-    Nothing is copied: the Object's table is a ClickHouse ``S3`` engine pointer
-    over ``url``, so operators, views and aggregations read the file directly.
-    The located counterpart of ``create_object_from_url``, which ingests.
+    Nothing is copied: the Object's table is a ClickHouse ``S3`` (or, for a
+    local path, ``File``) engine pointer over ``url``, so operators, views and
+    aggregations read the file directly. The located counterpart of
+    ``create_object_from_url``, which ingests.
 
     The Object is temporary (the pointer is dropped at context exit; the file
     is never touched) and read-only: ``insert`` and ``insert_from_url`` raise.
     ``url`` carries no credentials — ClickHouse resolves them itself.
 
     Args:
-        url: ``http(s)://`` or ``s3://`` URL of the file. Globs are passed through.
+        url: ``http(s)://`` or ``s3://`` URL of the file, or a local path
+            (chdb backend only). Globs are passed through.
         columns: Columns to expose. Defaults to every column in the file.
         format: ClickHouse input format, e.g. ``"Parquet"``. Defaults to the
             format the URL's extension names.
@@ -380,7 +384,9 @@ async def open_object_from_url(
         >>> daily = await open_object_from_url(url)
         >>> await daily.view(where="country = 'US'")["revenue"].sum().data()
     """
-    validate_blob_url(url)
+    if not is_url(url):
+        url = str(Path(url).resolve())
+    validate_location(url)
     if columns is not None:
         _validate_url_columns(columns)
     if format is None:
@@ -392,7 +398,7 @@ async def open_object_from_url(
 
     if column_types is None:
         select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"
-        source = f"s3({quote_sql_literal(url)}, '{format}')"
+        source = f"{'s3' if is_url(url) else 'file'}({quote_sql_literal(url)}, '{format}')"
         described = await get_ch_client().query(f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)")
         column_types = {row[0]: parse_ch_type(row[1]) for row in described.result_rows}
     names = columns or list(column_types)

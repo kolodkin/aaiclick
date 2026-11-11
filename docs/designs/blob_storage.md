@@ -23,6 +23,10 @@ table name as for any Object, and computed results land in temp tables.
 - **Temp only**: a `t_` pointer dropped at context exit; `name` raises. The
   bucket is never touched.
 - **No `aai_id`** and no guaranteed row order.
+- **Local files (chdb only)**: a path instead of a URL makes the pointer
+  `ENGINE = File(format, path)` and the schema `DESCRIBE file(...)`. The path
+  is resolved to absolute on open. A remote server would read its own disk,
+  so a path raises there.
 
 # Export to a Bucket
 

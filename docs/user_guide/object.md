@@ -456,6 +456,17 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
   S3-compatible servers such as MinIO. Globs pass through to ClickHouse;
   userinfo and query parameters (signed URLs) are rejected.
 
+## Local files
+
+On the embedded chdb backend the same call opens a file on local disk, so an
+exported path feeds straight back in. A remote ClickHouse raises `ValueError`:
+the server cannot see the client's disk.
+
+```python
+path = await daily.export("/data/reports/daily.parquet")
+daily = await open_object_from_url(path)
+```
+
 ## Credentials
 
 URLs never carry credentials; ClickHouse resolves them from its own
