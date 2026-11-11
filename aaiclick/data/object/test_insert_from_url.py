@@ -698,8 +698,8 @@ async def test_url_compressed_input(ctx, fileserver, filename):
 # ClickHouse resolves absolute and root-relative ``Location`` headers, but
 # resolves a path-relative one against the full request path instead of the
 # parent directory — ``/dir/entry.parquet`` + ``sample.parquet`` becomes
-# ``/dir/entry.parquet/sample.parquet``. Both backends share the engine's HTTP
-# client, so this is not backend-specific.
+# ``/dir/entry.parquet/sample.parquet``. Fixed in ClickHouse server 26.10;
+# chdb (26.9) still has the bug.
 _LOCATION_STYLES = {
     "absolute": "http://{host}/dir/sample.parquet",
     "root-relative": "/dir/sample.parquet",
@@ -770,7 +770,16 @@ async def _load_via_redirect(base: str, **kwargs):
     )
 
 
-@pytest.mark.parametrize("style", ["absolute", "root-relative"])
+@pytest.mark.parametrize(
+    "style",
+    [
+        "absolute",
+        "root-relative",
+        pytest.param(
+            "path-relative", marks=pytest.mark.skipif(is_chdb(), reason="chdb mis-resolves path-relative redirects")
+        ),
+    ],
+)
 async def test_url_follows_redirect(ctx, redirect_server, style):
     """A 302 is followed when ``max_http_get_redirects`` allows it."""
     _RedirectHandler.location_style = style
@@ -780,12 +789,13 @@ async def test_url_follows_redirect(ctx, redirect_server, style):
     assert data["id"][0] == 1
 
 
+@pytest.mark.skipif(not is_chdb(), reason="fixed in ClickHouse server 26.10")
 async def test_url_path_relative_redirect_unsupported(ctx, redirect_server):
-    """A path-relative ``Location`` is resolved wrong by the engine and fails.
+    """A path-relative ``Location`` is resolved wrong by chdb and fails.
 
     Callers must resolve such redirects before handing the URL over — the
     cyber_threat_feeds EPSS loader does exactly that. Pinned here so the day
-    the engine fixes it, this test fails and the workaround can go.
+    chdb catches up, this test fails and the workaround can go.
     """
     _RedirectHandler.location_style = "path-relative"
     with pytest.raises(Exception, match="[Rr]edirect"):
