@@ -272,7 +272,7 @@ async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster,
         return sorted([(await _task(t.id)).run_epoch - t.run_epoch for t in tasks])
 
     async def released() -> bool:
-        return (await epochs())[-1] > 0
+        return max(await epochs()) > 0
 
     async def claim_after_release(*args, **kwargs) -> Task | None:
         nonlocal calls
@@ -287,9 +287,10 @@ async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster,
     assert await cluster.start() == 0  # backing off: the empty polls end the loop
 
     assert await epochs() == [0, 1, 1]
-    other = await claim_next_task((await register_execution_worker()).id)
-    assert other is not None and other.run_epoch == 0
-    assert await claim_next_task((await register_execution_worker()).id) is None
+    replica = (await register_execution_worker()).id
+    untouched = await claim_next_task(replica)
+    assert untouched is not None and untouched.run_epoch == 0
+    assert await claim_next_task(replica) is None
 
 
 async def test_cancel_pending_pod(orch_ctx, cluster):
