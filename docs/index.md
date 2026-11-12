@@ -1,13 +1,13 @@
 aaiclick
 ---
 
-A data orchestration framework that makes distributed computing easy, built on five principles:
+aaiclick is an agent-first data framework: orchestration and a ClickHouse data warehouse in one, driven by your coding agent over MCP.
 
-1. **Simplicity** — Plain Python, no SQL. Decorate functions into tasks and jobs, run with zero setup on your laptop, scale out unchanged.
-2. **Dynamic Graphs** — Tasks spawn tasks. The pipeline shapes itself to the data while it runs instead of being declared up front.
-3. **Performance** — Data lives and computes in ClickHouse. Python only orchestrates; nothing is shuffled through Python memory.
-4. **Containerized Runs** — Pin a container image, by tag or git SHA, per job or per task. Host and container tasks mix in one pipeline.
-5. **Lineage over MCP** — Every operation is recorded. Your coding agent (Claude Code, Codex, any MCP client) answers "how did this value get here?" straight from the lineage.
+1. **Agent First (MCP)** — Your coding agent runs jobs, queries data, traces [lineage](user_guide/lineage.md), and builds dashboards.
+2. **Pandas-like Objects at ClickHouse Scale** — Tables behave like Python [objects](user_guide/object.md); the data never leaves ClickHouse.
+3. **Dynamic Task Allocation** — Tasks spawn tasks, so the pipeline shapes itself to the data at runtime.
+4. **Hybrid Agentic Flow** — Human control via [visibility](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/ui.md) and decision making.
+5. **Multiple Languages** — [Python](user_guide/task_api_python.md), [Java](user_guide/task_api_java.md), or any language through the JSON [Task Interface](user_guide/task_interface.md).
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
 

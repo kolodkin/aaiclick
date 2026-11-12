@@ -2,13 +2,13 @@
 
 # aaiclick
 
-aaiclick is a data orchestration framework built to make distributed computing easy. Platform advantages:
+aaiclick is an agent-first data framework: orchestration and a ClickHouse data warehouse in one, driven by your coding agent over MCP.
 
-1. **Dynamic Task Allocation** — Tasks spawn tasks, so the pipeline shapes itself to the data while it runs. A task is simply a Python function callback, or a [container](docs/user_guide/container_images.md) pinned by image tag or git SHA; both mix in one pipeline.
-2. **Multiple Languages** — Write tasks as plain functions in [Python](docs/user_guide/task_api_python.md) or [Java](docs/user_guide/task_api_java.md) — or bring any language you like through the simple JSON [Task Interface](docs/user_guide/task_interface.md).
-3. **Pandas-like Objects on ClickHouse** — ClickHouse tables behave like ordinary Python [objects](docs/user_guide/object.md): pass them between tasks, operate on them pandas-style, and let [lifecycle management](docs/user_guide/object_context.md) clean them up. The data never leaves ClickHouse.
-4. **Agent Friendly (MCP)** — Every operation is recorded. Your coding agent (Claude Code, Codex, any MCP client) answers "how did this value get here?" straight from the [lineage](docs/user_guide/lineage.md).
-5. **Data Visualization Included** — A built-in [web UI](docs/designs/ui.md) to browse objects, run queries, watch job graphs, and view agent-authored dashboards over your data.
+1. **Agent First (MCP)** — Your coding agent runs jobs, queries data, traces [lineage](docs/user_guide/lineage.md), and builds dashboards.
+2. **Pandas-like Objects at ClickHouse Scale** — Tables behave like Python [objects](docs/user_guide/object.md); the data never leaves ClickHouse.
+3. **Dynamic Task Allocation** — Tasks spawn tasks, so the pipeline shapes itself to the data at runtime.
+4. **Hybrid Agentic Flow** — Human control via [visibility](docs/designs/ui.md) and decision making.
+5. **Multiple Languages** — [Python](docs/user_guide/task_api_python.md), [Java](docs/user_guide/task_api_java.md), or any language through the JSON [Task Interface](docs/user_guide/task_interface.md).
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
 
