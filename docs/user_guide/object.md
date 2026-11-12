@@ -424,7 +424,8 @@ first, the second would write to a different key, and the third stays a
 ## Compression
 
 Append a compression suffix and ClickHouse compresses the file: `.gz`, `.xz`,
-`.zst`, `.br`, `.lz4`, `.snappy`, or `.bz2` where the build supports it.
+`.zst`, `.br`, `.lz4`, `.snappy`. `.bz2` works on a ClickHouse server only;
+chdb cannot write it and raises `ValueError`.
 
 ```python
 await obj.export("/tmp/data.csv.gz")

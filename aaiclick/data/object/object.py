@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from enum import Enum
 from typing import Any, NamedTuple, Self, TypedDict, Union
 
+from aaiclick.backend import is_chdb
 from aaiclick.snowflake import get_snowflake_id
 
 from ..formats import format_for_extension, validate_format_name
@@ -689,7 +690,8 @@ class Object:
         ClickHouse output format — ``"CSVWithNames"`` writes a header row.
         ClickHouse picks the compression scheme from a trailing ``.gz`` /
         ``.xz`` / ``.zst`` / ``.br`` / ``.lz4`` suffix — e.g. ``data.csv.gz``
-        writes a gzipped CSV.
+        writes a gzipped CSV. ``.bz2`` needs a ClickHouse server; chdb raises
+        ``ValueError``.
 
         View constraints (``where``, ``limit``, ``order_by``) are honored.
         A local file needs the embedded chdb backend, which writes it via
@@ -715,6 +717,9 @@ class Object:
             validate_blob_url(path)
         fmt = format or format_for_extension(path)
         validate_format_name(fmt)
+        # The chdb build has no bzip2 writer; its own error names neither the suffix nor the path.
+        if is_chdb() and path.lower().endswith(".bz2"):
+            raise ValueError("chdb cannot write .bz2 files; use .gz, .xz, .zst, .br, .lz4 or .snappy")
         select_sql = self._build_select(columns="*")
         if is_url(path):
             return await export_query_to_url(select_sql, path, fmt, overwrite, ch_settings)
