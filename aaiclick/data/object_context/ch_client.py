@@ -19,9 +19,9 @@ import pyarrow as pa
 
 from aaiclick.backend import is_chdb
 
-from ..formats import open_export_writer
 from ..models import QueryStats
 from ..sql_utils import quote_sql_literal
+from ..url_utils import require_local_backend
 
 
 class QueryResult(Protocol):
@@ -145,36 +145,19 @@ async def execute_for_stats(
 
 
 async def export_query_to_file(query: str, path: str, fmt: str) -> str:
-    """Stream a ``SELECT`` query result to a local file in *fmt*.
+    """Write a ``SELECT`` query result to a local file in *fmt*, replacing it.
 
-    - **chdb (embedded):** ``INSERT INTO FUNCTION file('path', fmt) <query>``
-      — the embedded engine writes directly to disk. Compression is inferred
-      from the path suffix by ClickHouse's ``file()``.
-    - **clickhouse-connect (remote HTTP):** ``raw_stream`` yields uncompressed
-      formatted byte chunks via an async ``StreamContext``; they are written
-      to the local file via :func:`aaiclick.data.formats.open_export_writer`,
-      which re-applies ``.gz`` / ``.xz`` compression client-side so output is
-      byte-equivalent across backends. Awaiting each chunk keeps the event
-      loop responsive between network reads.
-
-    ``INSERT INTO FUNCTION file()`` is unusable against a remote server
-    because it would write to the server's ``user_files_path`` rather than
-    the client's filesystem.
+    chdb only: ``INSERT INTO FUNCTION file('path', fmt) <query>`` — the embedded
+    engine writes straight to disk, with compression inferred from the path
+    suffix. A remote server cannot reach the client's disk, so it raises.
     """
+    require_local_backend()
     abs_path = str(Path(path).resolve())
-    client = get_ch_client()
-    if is_chdb():
-        # file() appends to an existing file by default; export replaces it.
-        await client.command(
-            f"INSERT INTO FUNCTION file({quote_sql_literal(abs_path)}, '{fmt}') {query}",
-            settings={"engine_file_truncate_on_insert": 1},
-        )
-        return abs_path
-
-    async with await client.raw_stream(query=query, fmt=fmt) as stream:  # type: ignore[attr-defined]
-        with open_export_writer(abs_path) as f:
-            async for chunk in stream:
-                f.write(chunk)
+    # file() appends to an existing file by default; export replaces it.
+    await get_ch_client().command(
+        f"INSERT INTO FUNCTION file({quote_sql_literal(abs_path)}, '{fmt}') {query}",
+        settings={"engine_file_truncate_on_insert": 1},
+    )
     return abs_path
 
 
@@ -290,10 +273,6 @@ class LazyChClient:
 
     async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None:
         await (await self._get()).insert_arrow(table, arrow_table)
-
-    async def raw_stream(self, query: str, fmt: str) -> object:
-        """clickhouse-connect only — used by ``export_query_to_file``."""
-        return await (await self._get()).raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]
 
     async def close(self) -> None:
         # A call after close must fail, not reconnect — even if nothing connected yet.

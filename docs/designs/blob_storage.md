@@ -33,8 +33,9 @@ table name as for any Object, and computed results land in temp tables.
 **Implementation**: `aaiclick/data/object_context/ch_client.py`
 
 A URL target runs `INSERT INTO FUNCTION s3(url, format) SELECT ...` on both
-backends, so bytes never pass through Python — unlike the local-file path,
-which streams over HTTP for a remote server. `s3_truncate_on_insert` follows
+backends, so bytes never pass through Python. A local path is chdb-only
+(`INSERT INTO FUNCTION file()`): a remote server cannot reach the client's
+disk, so it raises. `s3_truncate_on_insert` follows
 `overwrite`; an existing key is otherwise ClickHouse's error.
 
 # Credentials

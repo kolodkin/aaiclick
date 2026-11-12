@@ -684,9 +684,9 @@ class Object:
         — e.g. ``data.csv.gz`` writes a gzipped CSV.
 
         View constraints (``where``, ``limit``, ``order_by``) are honored.
-        Backends stream directly: chdb writes via ``INSERT INTO FUNCTION
-        file()`` from the embedded engine; remote ClickHouse streams the
-        formatted bytes over HTTP.
+        A local file needs the embedded chdb backend, which writes it via
+        ``INSERT INTO FUNCTION file()``; a remote ClickHouse cannot reach the
+        client's disk and raises ``ValueError`` — export to a bucket URL there.
 
         An ``http(s)://`` or ``s3://`` *path* is written to object storage by
         ClickHouse itself (``INSERT INTO FUNCTION s3()``) on both backends.

@@ -20,6 +20,9 @@ import pyarrow.parquet as pq
 import pytest
 
 from aaiclick import create_object_from_value
+from aaiclick.backend import is_chdb
+
+pytestmark = pytest.mark.skipif(not is_chdb(), reason="local file export needs the chdb backend")
 
 # Sample data used by every test — small enough to inline-validate.
 SAMPLE = {

@@ -14,11 +14,8 @@ Adding a new format is a single edit to ``FORMATS``.
 
 from __future__ import annotations
 
-import gzip
-import lzma
-from collections.abc import Callable
 from pathlib import Path
-from typing import IO, NamedTuple, cast
+from typing import NamedTuple
 
 
 class FormatSpec(NamedTuple):
@@ -70,23 +67,9 @@ FORMATS: tuple[FormatSpec, ...] = (
 # fmt: on
 
 
-# Compression codecs supported on both backends. chdb delegates to
-# ClickHouse's ``file()`` auto-detection; remote compresses client-side via
-# the matching stdlib opener below. Only stdlib codecs are advertised so
-# both backends behave identically with zero extra dependencies.
-def _gzip_open(path: str) -> IO[bytes]:
-    return cast(IO[bytes], gzip.open(path, "wb"))
-
-
-def _lzma_open(path: str) -> IO[bytes]:
-    return cast(IO[bytes], lzma.open(path, "wb"))
-
-
-_COMPRESSION_OPENERS: dict[str, Callable[[str], IO[bytes]]] = {
-    ".gz": _gzip_open,
-    ".xz": _lzma_open,
-}
-COMPRESSION_SUFFIXES: frozenset[str] = frozenset(_COMPRESSION_OPENERS)
+# Compression suffixes stripped before the extension lookup; ClickHouse picks
+# the codec from the suffix itself.
+COMPRESSION_SUFFIXES: frozenset[str] = frozenset({".gz", ".xz"})
 
 
 # Derived lookups — built once at import.
@@ -124,14 +107,3 @@ def format_for_extension(path: str) -> str:
             f"(optionally with {', '.join(sorted(COMPRESSION_SUFFIXES))} compression)"
         )
     return fmt
-
-
-def open_export_writer(path: str) -> IO[bytes]:
-    """Return a binary writer for *path*, transparently wrapping compressed suffixes.
-
-    Matches the set in :data:`COMPRESSION_SUFFIXES`. Unknown suffixes fall
-    through to a plain binary ``open`` — the caller is expected to have
-    already validated the extension via :func:`format_for_extension`.
-    """
-    opener = _COMPRESSION_OPENERS.get(Path(path).suffix.lower())
-    return opener(path) if opener else open(path, "wb")

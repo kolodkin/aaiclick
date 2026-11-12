@@ -1,4 +1,4 @@
-"""Tests for ``open_object_from_url()`` over a local file, a chdb-only path.
+"""Tests for local files as located Objects, a chdb-only path.
 
 Kept out of ``test_blob.py``: its dist CI job fails on any skipped test.
 """
@@ -45,7 +45,10 @@ async def test_open_local_relative_path(ctx, tmp_path, monkeypatch):
     assert await (await open_object_from_url("rel.parquet")).data() == [1, 2, 3]
 
 
-@pytest.mark.skipif(is_chdb(), reason="chdb opens local files")
-async def test_open_local_path_rejected_on_remote_server(ctx, tmp_path):
+@pytest.mark.skipif(is_chdb(), reason="chdb reads and writes local files")
+async def test_local_paths_rejected_on_remote_server(ctx, tmp_path):
+    path = str(tmp_path / "sample.parquet")
     with pytest.raises(ValueError, match="chdb backend"):
-        await open_object_from_url(str(tmp_path / "sample.parquet"))
+        await open_object_from_url(path)
+    with pytest.raises(ValueError, match="chdb backend"):
+        await (await create_object_from_value([1])).export(path)

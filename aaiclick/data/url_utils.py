@@ -33,14 +33,18 @@ def validate_blob_url(url: str) -> None:
         raise ValueError("Blob URL must not carry query parameters")
 
 
+def require_local_backend() -> None:
+    """Reject a local path on a remote ClickHouse, which cannot reach our disk."""
+    if not is_chdb():
+        raise ValueError("Local file paths need the chdb backend; use an http, https or s3 URL")
+
+
 def validate_location(location: str) -> None:
     """Reject a location a located Object cannot point at: a bad blob URL, or a
     local path that is relative or used without the embedded chdb backend."""
     if is_url(location):
         validate_blob_url(location)
         return
-    if not is_chdb():
-        # A remote server would resolve the path on its own disk, not ours.
-        raise ValueError("Local file locations need the chdb backend; use an http, https or s3 URL")
+    require_local_backend()
     if not Path(location).is_absolute():
         raise ValueError(f"Local file location must be an absolute path, got {location!r}")

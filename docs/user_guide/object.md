@@ -373,10 +373,11 @@ print(stats.read_rows)      # how many it scanned to produce them
 
 # Export
 
-Export data to a local file, in the format its extension names. Data streams
-straight from ClickHouse with no Python round-trip, so multi-million-row exports
-stay memory-bounded. View constraints (`where`, `limit`, `order_by`) are
-honored. Returns the absolute path written.
+Export data to a local file, in the format its extension names. The embedded
+chdb engine writes straight to disk with no Python round-trip, so
+multi-million-row exports stay memory-bounded. View constraints (`where`,
+`limit`, `order_by`) are honored. An existing file is replaced. Returns the
+absolute path written.
 
 ```python
 await obj.export("/tmp/data.csv")
@@ -409,14 +410,9 @@ await obj.export("/tmp/data.parquet.gz")
 await obj.export("/tmp/data.json.xz")
 ```
 
-## Backend behavior
-
-- **chdb (embedded):** `INSERT INTO FUNCTION file('path', fmt)` streams
-  straight to disk, with the codec picked from the path suffix.
-- **clickhouse-connect (remote):** `raw_stream(query, fmt=fmt)` bytes are
-  copied to the local file in 64 KB chunks on a worker thread, through
-  `gzip` / `lzma` if the path asks for it. `INSERT INTO FUNCTION file()`
-  would write to the *server's* `user_files_path`, not the client.
+!!! warning "Local files need the chdb backend"
+    A remote ClickHouse cannot reach the client's disk, so a local path raises
+    `ValueError` there. Export to a [bucket](#bucket-targets) instead.
 
 ## Bucket targets
 
@@ -459,8 +455,8 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
 ## Local files
 
 On the embedded chdb backend the same call opens a file on local disk, so an
-exported path feeds straight back in. A remote ClickHouse raises `ValueError`:
-the server cannot see the client's disk.
+exported path feeds straight back in. A remote ClickHouse raises `ValueError`,
+as local export does.
 
 ```python
 path = await daily.export("/data/reports/daily.parquet")
