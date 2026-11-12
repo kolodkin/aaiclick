@@ -7,7 +7,7 @@ aaiclick is an agent-first data framework: orchestration and a ClickHouse data w
 1. **Agent First (MCP)** — Your coding agent runs jobs, queries data, traces [lineage](docs/user_guide/lineage.md), and builds dashboards.
 2. **Pandas-like Objects at ClickHouse Scale** — Tables behave like Python [objects](docs/user_guide/object.md); the data never leaves ClickHouse.
 3. **Dynamic Task Allocation** — Tasks spawn tasks, so the pipeline shapes itself to the data at runtime.
-4. **Hybrid Agentic Flow** — You control via [visibility](docs/designs/ui.md) and decision making.
+4. **Hybrid Agentic Flow** — You stay in control through [visibility](docs/designs/ui.md) and decision making.
 5. **Multiple Languages** — [Python](docs/user_guide/task_api_python.md), [Java](docs/user_guide/task_api_java.md), or any language through the JSON [Task Interface](docs/user_guide/task_interface.md).
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
