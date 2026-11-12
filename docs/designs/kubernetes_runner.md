@@ -141,7 +141,8 @@ overshoot.
 Counts are namespace-wide, so with several worker replicas the limits —
 `max_pods` included — are shared, not per replica. A `ResourceQuota` rejection
 of `kubectl apply` (`exceeded quota`) releases the claim back to `PENDING` under
-a new epoch, with no attempt consumed, and pauses claiming for 30 s.
+a new epoch, with no attempt consumed. The task's `retry_after` keeps every
+replica off it for 30 s, and the refused worker claims nothing meanwhile.
 
 ## Deadlines
 

@@ -264,7 +264,8 @@ async def test_quota_backoff_pauses_claims(orch_ctx, cluster, monkeypatch):
 async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster, monkeypatch):
     """Race window: the claim issued right after a task starts is still in
     flight when that task is refused by quota — it must not re-claim the
-    release (a second refusal, a second epoch bump)."""
+    release (a second refusal, a second epoch bump), nor may another replica
+    during the backoff."""
     monkeypatch.setattr(loop_mod, "QUOTA_BACKOFF", 60.0)
     calls = 0
 
@@ -273,7 +274,7 @@ async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster,
         calls += 1
         if calls == 2:
             await cluster.refused.wait()
-            await asyncio.sleep(0.05)  # an unserialised release lands before this claim
+            await asyncio.sleep(0.05)  # the release lands before this claim
         return await claim_next_task(*args, **kwargs)
 
     monkeypatch.setattr(loop_mod, "claim_next_task", slow_second_claim)
@@ -284,6 +285,7 @@ async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster,
 
     after = await _task(task.id)
     assert after.status == TASK_PENDING and after.run_epoch == task.run_epoch + 1
+    assert await claim_next_task((await register_execution_worker()).id) is None
 
 
 async def test_cancel_pending_pod(orch_ctx, cluster):
