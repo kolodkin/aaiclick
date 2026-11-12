@@ -119,6 +119,7 @@ def cluster(monkeypatch):
 
     async def create(manifest: dict, verb: str = "create") -> dict:
         if state.quota_error and manifest["kind"] == "Pod":
+            state.refused.set()
             raise cli.CommandError(("kubectl",), 1, "pods is forbidden: exceeded quota: compute")
         created.append(manifest)
         return {**manifest, "metadata": {**manifest["metadata"], "uid": "u"}}
@@ -157,6 +158,7 @@ def cluster(monkeypatch):
     state = SimpleNamespace(
         limits=LIMITS,
         quota_error=False,
+        refused=asyncio.Event(),
         preload=[],
         created=created,
         deleted=deleted,
@@ -265,25 +267,15 @@ async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster,
     release (a second refusal, a second epoch bump)."""
     monkeypatch.setattr(loop_mod, "QUOTA_BACKOFF", 60.0)
     calls = 0
-    refused = asyncio.Event()
-    create = kw._kubectl_create_from_file
-
-    async def refusing_create(manifest: dict, verb: str = "create") -> dict:
-        try:
-            return await create(manifest, verb)
-        except cli.CommandError:
-            refused.set()
-            raise
 
     async def slow_second_claim(*args, **kwargs) -> Task | None:
         nonlocal calls
         calls += 1
         if calls == 2:
-            await refused.wait()
+            await cluster.refused.wait()
             await asyncio.sleep(0.05)  # an unserialised release lands before this claim
         return await claim_next_task(*args, **kwargs)
 
-    monkeypatch.setattr(kw, "_kubectl_create_from_file", refusing_create)
     monkeypatch.setattr(loop_mod, "claim_next_task", slow_second_claim)
     (task,) = await _image_job("quota_race")
     cluster.quota_error = True
