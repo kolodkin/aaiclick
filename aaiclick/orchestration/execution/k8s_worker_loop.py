@@ -116,6 +116,8 @@ class _Reconciler:
         self.shutdown = False
         self.detached = False
         self.quota_pause_until = 0.0
+        # A quota release waits out a claim in flight, which would re-claim the released task.
+        self._claim_lock = asyncio.Lock()
         self.started = 0
         self.executed = 0
         # Pods whose delete was already requested; forgotten once the watch drops them.
@@ -153,16 +155,20 @@ class _Reconciler:
         return any(item.pod_name is None and not item.aio.done() for item in self.in_flight.values())
 
     async def _dispatch_tick(self) -> bool:
-        if self.shutdown or self.detached or time.monotonic() < self.quota_pause_until:
+        if self.shutdown or self.detached:
             return False
         claimed = False
         while self.max_tasks is None or self.started < self.max_tasks:
+            # Re-read per claim: a task started earlier in this tick may have set the pause.
+            if time.monotonic() < self.quota_pause_until:
+                break
             decision = gate(self._gate_states(), self.limits)
             if not decision.open:
                 break
-            task = await claim_next_task(
-                self.worker_id, exclude_job_ids=decision.blocked_jobs, allow_host_tasks=not self._host_busy()
-            )
+            async with self._claim_lock:
+                task = await claim_next_task(
+                    self.worker_id, exclude_job_ids=decision.blocked_jobs, allow_host_tasks=not self._host_busy()
+                )
             if task is None:
                 break
             self._start(task)
@@ -193,8 +199,9 @@ class _Reconciler:
                 success, result_ref, error = await self._run(task, detach, adopted=adopted)
             except QuotaExceeded as e:
                 logger.warning("ExecutionWorker %s task %s refused by quota; releasing: %s", self.worker_id, task.id, e)
-                await shielded(release_claim(RunKey(task.id, task.run_epoch)))
+                # Pause first: the dispatcher must see it before the task is claimable again.
                 self.quota_pause_until = time.monotonic() + QUOTA_BACKOFF
+                await shielded(self._release_refused(RunKey(task.id, task.run_epoch)))
                 return
             except WorkerStopped:
                 self.shutdown = True
@@ -217,6 +224,10 @@ class _Reconciler:
             if item is not None and item.pod_name and not detach[0]:
                 self._deleting.add(item.pod_name)
             self.wake.set()
+
+    async def _release_refused(self, run: RunKey) -> None:
+        async with self._claim_lock:
+            await release_claim(run)
 
     async def _release_if_no_pod(self, task: Task) -> None:
         """A detached Pod task whose Pod never reached the cluster (shutdown
