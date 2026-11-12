@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -152,13 +153,19 @@ async def export_query_to_file(query: str, path: str, fmt: str, settings: dict[s
     suffix. A remote server cannot reach the client's disk, so it raises.
     """
     require_local_backend()
-    abs_path = str(Path(path).resolve())
-    # file() appends to an existing file by default; export replaces it.
-    await get_ch_client().command(
-        f"INSERT INTO FUNCTION file({quote_sql_literal(abs_path)}, '{fmt}') {query}",
-        settings={**(settings or {}), "engine_file_truncate_on_insert": 1},
-    )
-    return abs_path
+    target = Path(path).resolve()
+    # Written beside the target and swapped in, so a failed export — or one
+    # reading the target itself — leaves the existing file intact. The name
+    # keeps its suffixes: ClickHouse picks the compression from them.
+    partial = target.with_name(f".{uuid.uuid4().hex}-{target.name}")
+    try:
+        await get_ch_client().command(
+            f"INSERT INTO FUNCTION file({quote_sql_literal(str(partial))}, '{fmt}') {query}", settings=settings
+        )
+        os.replace(partial, target)
+    finally:
+        partial.unlink(missing_ok=True)
+    return str(target)
 
 
 async def export_query_to_url(

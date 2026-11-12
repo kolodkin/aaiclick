@@ -232,6 +232,21 @@ async def test_export_ch_settings_cannot_stop_replacing(ctx, tmp_path):
     assert Path(path).read_text().split() == ["7"]
 
 
+async def test_export_rejects_setting_name_carrying_sql(ctx, tmp_path):
+    obj = await create_object_from_value([1])
+    with pytest.raises(ValueError, match="setting name"):
+        await obj.export(str(tmp_path / "data.csv"), ch_settings={"max_threads=1 --": 1})
+
+
+async def test_failed_export_keeps_existing_file(ctx, tmp_path):
+    path = str(tmp_path / "data.csv")
+    await (await create_object_from_value([1, 2])).export(path)
+    with pytest.raises(Exception, match="Unknown format"):
+        await (await create_object_from_value([7])).export(path, format="Nope")
+    assert Path(path).read_text().split() == ["1", "2"]
+    assert [p.name for p in tmp_path.iterdir()] == ["data.csv"]
+
+
 # =============================================================================
 # Error cases
 # =============================================================================

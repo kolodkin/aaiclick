@@ -133,10 +133,11 @@ async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
     assert bucket.parquet_compression("export/settings.parquet") == "SNAPPY"
 
 
-async def test_export_ch_settings_cannot_lend_s3_identity(ctx):
+@pytest.mark.parametrize("setting", ["s3_allow_server_credentials_in_user_queries", "s3_create_new_file_on_insert"])
+async def test_export_rejects_reserved_ch_settings(ctx, setting):
     obj = await create_object_from_value([1])
-    with pytest.raises(ValueError, match="ClickHouse profile"):
-        await obj.export("s3://bucket/data.parquet", ch_settings={"s3_allow_server_credentials_in_user_queries": 1})
+    with pytest.raises(ValueError, match="cannot set"):
+        await obj.export("s3://bucket/data.parquet", ch_settings={setting: 1})
 
 
 async def test_export_rejects_unsupported_scheme(ctx):

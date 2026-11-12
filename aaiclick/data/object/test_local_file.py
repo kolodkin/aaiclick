@@ -33,6 +33,18 @@ async def test_export_open_local_round_trip(ctx, tmp_path, extension):
 
 
 @_chdb_only
+async def test_export_view_back_to_its_own_file(ctx, tmp_path):
+    path = await (await create_object_from_value(SAMPLE)).export(str(tmp_path / "sample.parquet"))
+    opened = await open_object_from_url(path)
+    await opened.view(where="score > 15").export(path)
+    assert await (await open_object_from_url(path)).data() == {
+        "id": [2, 3],
+        "name": ["bob", "charlie"],
+        "score": [20.0, 30.25],
+    }
+
+
+@_chdb_only
 async def test_open_local_glob_aggregates_in_place(ctx, tmp_path):
     for part in (1, 2):
         await (await create_object_from_value([part])).export(str(tmp_path / f"part-{part}.parquet"))

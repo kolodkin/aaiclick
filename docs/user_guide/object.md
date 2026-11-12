@@ -376,8 +376,8 @@ print(stats.read_rows)      # how many it scanned to produce them
 Export data to a local file, in the format its extension names. The embedded
 chdb engine writes straight to disk with no Python round-trip, so
 multi-million-row exports stay memory-bounded. View constraints (`where`,
-`limit`, `order_by`) are honored. An existing file is replaced. Returns the
-absolute path written.
+`limit`, `order_by`) are honored. An existing file is replaced only once the
+export has succeeded. Returns the absolute path written.
 
 ```python
 await obj.export("/tmp/data.csv")
@@ -417,8 +417,9 @@ await obj.export(url, ch_settings={"output_format_parquet_compression_method": "
 ```
 
 It cannot change whether an existing target is replaced (`overwrite` does, for
-buckets), and `s3_allow_server_credentials_in_user_queries` raises: that stays
-a [profile setting](#credentials).
+buckets). `s3_create_new_file_on_insert` and
+`s3_allow_server_credentials_in_user_queries` raise: the first would write to
+a different key, the second stays a [profile setting](#credentials).
 
 ## Compression
 
@@ -468,7 +469,8 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
   `format=` takes any ClickHouse input format; with an unmapped or missing
   extension ClickHouse detects it from the content.
 - **CSV / TSV headers**: ClickHouse detects a header row; a headerless file
-  exposes columns as `c1`, `c2`, ….
+  exposes columns as `c1`, `c2`, …. Detection cannot tell a header from data
+  when every column is a string — pass `format="CSVWithNames"` there.
 - **Read-only**: `insert` and `insert_from_url` raise.
 - **Temporary**: the Object is a pointer dropped at context exit; the file is
   never touched.
