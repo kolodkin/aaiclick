@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..formats import FORMAT_AUTO, JSON_BLOB_FORMATS, format_for_extension, validate_input_format
+from ..formats import FORMAT_AUTO, JSON_BLOB_FORMATS, format_for_extension, validate_format_name
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
@@ -190,7 +190,7 @@ async def create_object_from_url(
         RuntimeError: If no active ObjectContext
     """
     _validate_url(url)
-    validate_input_format(format)
+    validate_format_name(format)
     if limit is not None and (not isinstance(limit, int) or limit <= 0):
         raise ValueError(f"limit must be a positive integer, got {limit}")
     if where is not None and (err := validate_where_expression(where)):
@@ -395,7 +395,7 @@ async def open_object_from_url(
             format = format_for_extension(url)
         except ValueError:
             format = FORMAT_AUTO
-    validate_input_format(format)
+    validate_format_name(format)
 
     if column_types is None:
         select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"

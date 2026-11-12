@@ -35,10 +35,11 @@ FORMATS: tuple[FormatSpec, ...] = (
     FormatSpec("Arrow",        (".arrow",)),
     FormatSpec("ORC",          (".orc",)),
     FormatSpec("Avro",         (".avro",)),
-    # Text, with a header row
-    FormatSpec("CSVWithNames", (".csv",)),
-    FormatSpec("TSVWithNames", (".tsv",)),
-    FormatSpec("JSONEachRow",  (".json", ".jsonl", ".ndjson")),
+    # Text — the formats ClickHouse itself picks for these extensions
+    FormatSpec("CSV",          (".csv",)),
+    FormatSpec("TSV",          (".tsv",)),
+    FormatSpec("JSON",         (".json",)),
+    FormatSpec("JSONEachRow",  (".jsonl", ".ndjson")),
     # Text reports — ClickHouse writes these but cannot read them back
     FormatSpec("Markdown",     (".md",)),
     FormatSpec("XML",          (".xml",)),
@@ -65,7 +66,7 @@ JSON_BLOB_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.blob)
 EXTENSION_TO_FORMAT: dict[str, str] = {ext: f.name for f in FORMATS for ext in f.extensions}
 
 
-def validate_input_format(fmt: str | None) -> None:
+def validate_format_name(fmt: str | None) -> None:
     """Reject a format name that is not a bare identifier.
 
     Callers inline the name into SQL, so this keeps it injection-safe. Whether
@@ -79,7 +80,7 @@ def format_for_extension(path: str) -> str:
     """Return the ClickHouse format matching the file extension of *path*.
 
     A trailing compression suffix from :data:`COMPRESSION_SUFFIXES` is stripped
-    before lookup, so ``data.csv.gz`` resolves to ``CSVWithNames``.
+    before lookup, so ``data.csv.gz`` resolves to ``CSV``.
 
     Raises:
         ValueError: If no supported extension is present.
@@ -94,6 +95,6 @@ def format_for_extension(path: str) -> str:
         raise ValueError(
             f"Unsupported export extension {suffix!r}. "
             f"Supported: {', '.join(supported)} "
-            f"(optionally with {', '.join(sorted(COMPRESSION_SUFFIXES))} compression)"
+            f"(optionally with {', '.join(sorted(COMPRESSION_SUFFIXES))} compression), or pass format="
         )
     return fmt

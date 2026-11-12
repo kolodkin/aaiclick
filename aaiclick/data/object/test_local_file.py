@@ -22,7 +22,7 @@ _chdb_only = pytest.mark.skipif(not is_chdb(), reason="local file locations need
 
 
 @_chdb_only
-@pytest.mark.parametrize("extension", [".parquet", ".arrow", ".csv", ".csv.zst", ".jsonl.lz4"])
+@pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl.zst", ".jsonl.lz4"])
 async def test_export_open_local_round_trip(ctx, tmp_path, extension):
     obj = await create_object_from_value(SAMPLE)
     path = await obj.export(str(tmp_path / f"sample{extension}"))
@@ -50,7 +50,8 @@ async def test_open_local_without_extension_detects_format(ctx, tmp_path):
 @_chdb_only
 async def test_open_local_with_any_clickhouse_format(ctx, tmp_path):
     """``format=`` is not limited to the names aaiclick maps extensions to."""
-    path = await (await create_object_from_value(SAMPLE)).export(str(tmp_path / "sample.tsv"))
+    obj = await create_object_from_value(SAMPLE)
+    path = await obj.export(str(tmp_path / "sample.tsv"), format="TSVWithNames")
     opened = await open_object_from_url(path, format="TabSeparatedWithNames")
     assert await opened.data() == SAMPLE
 

@@ -17,7 +17,7 @@ from typing import Any, NamedTuple, Self, TypedDict, Union
 
 from aaiclick.snowflake import get_snowflake_id
 
-from ..formats import format_for_extension, validate_input_format
+from ..formats import format_for_extension, validate_format_name
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
@@ -673,15 +673,17 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def export(self, path: str, overwrite: bool = False) -> str:
+    async def export(self, path: str, overwrite: bool = False, format: str | None = None) -> str:
         """Export the object's data to a local file or a bucket URL.
 
-        The format is picked from the file extension. Supported text formats:
-        ``.csv``, ``.tsv``, ``.json`` / ``.jsonl`` / ``.ndjson``, ``.md``,
-        ``.xml``, ``.sql``. Supported binary/columnar formats: ``.parquet``,
-        ``.arrow``, ``.orc``, ``.avro``. ClickHouse picks the compression
-        scheme from a trailing ``.gz`` / ``.xz`` / ``.zst`` / ``.br`` / ``.lz4`` suffix
-        — e.g. ``data.csv.gz`` writes a gzipped CSV.
+        The format is picked from the file extension, as ClickHouse itself
+        maps it: ``.csv`` / ``.tsv`` (no header row), ``.json`` (one document),
+        ``.jsonl`` / ``.ndjson``, ``.md``, ``.xml``, ``.sql``, ``.parquet``,
+        ``.arrow``, ``.orc``, ``.avro``. *format* overrides it with any
+        ClickHouse output format — ``"CSVWithNames"`` writes a header row.
+        ClickHouse picks the compression scheme from a trailing ``.gz`` /
+        ``.xz`` / ``.zst`` / ``.br`` / ``.lz4`` suffix — e.g. ``data.csv.gz``
+        writes a gzipped CSV.
 
         View constraints (``where``, ``limit``, ``order_by``) are honored.
         A local file needs the embedded chdb backend, which writes it via
@@ -699,7 +701,8 @@ class Object:
         # Before the extension lookup: a URL carrying a secret must fail as such.
         if is_url(path):
             validate_blob_url(path)
-        fmt = format_for_extension(path)
+        fmt = format or format_for_extension(path)
+        validate_format_name(fmt)
         select_sql = self._build_select(columns="*")
         if is_url(path):
             return await export_query_to_url(select_sql, path, fmt, overwrite)
@@ -1195,7 +1198,7 @@ class Object:
 
         self._check_writable()
         _validate_url(url)
-        validate_input_format(format)
+        validate_format_name(format)
 
         # aai_id comes from its DEFAULT, never from the URL source.
         target_columns = [c for c in self.schema.columns if c != AAI_ID_COLUMN]

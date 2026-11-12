@@ -27,7 +27,7 @@ from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
 from .. import object as object_module
-from ..formats import validate_input_format
+from ..formats import validate_format_name
 from ..models import (
     AAI_ID_COLUMN,
     AAI_ID_INFO,
@@ -341,7 +341,7 @@ async def create_object(
         if name is not None:
             raise ValueError("located objects cannot be named yet")
         validate_location(schema.location)
-        validate_input_format(schema.format)
+        validate_format_name(schema.format)
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None

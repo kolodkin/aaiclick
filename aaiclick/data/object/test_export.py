@@ -40,18 +40,14 @@ SAMPLE = {
 def _validate_csv(path: str) -> None:
     text = Path(path).read_text()
     lines = text.strip().splitlines()
-    assert lines[0] == '"id","name","score"'
-    assert lines[1] == '1,"alice",10.5'
-    assert lines[2] == '2,"bob",20'
-    assert lines[3] == '3,"charlie",30.25'
+    assert lines == ['1,"alice",10.5', '2,"bob",20', '3,"charlie",30.25']
 
 
 def _validate_tsv(path: str) -> None:
     text = Path(path).read_text()
     lines = text.strip().splitlines()
-    assert lines[0].split("\t") == ["id", "name", "score"]
-    assert lines[1].split("\t") == ["1", "alice", "10.5"]
-    assert lines[3].split("\t") == ["3", "charlie", "30.25"]
+    assert lines[0].split("\t") == ["1", "alice", "10.5"]
+    assert lines[2].split("\t") == ["3", "charlie", "30.25"]
 
 
 def _validate_json(path: str) -> None:
@@ -61,6 +57,17 @@ def _validate_json(path: str) -> None:
         {"id": 2, "name": "bob", "score": 20.0},
         {"id": 3, "name": "charlie", "score": 30.25},
     ]
+
+
+def _validate_json_document(path: str) -> None:
+    _validate_json_document_text(Path(path).read_text())
+
+
+def _validate_json_document_text(text: str) -> None:
+    # ClickHouse's JSON format: one document with the rows under "data".
+    document = json.loads(text)
+    assert [row["name"] for row in document["data"]] == ["alice", "bob", "charlie"]
+    assert document["rows"] == 3
 
 
 def _validate_parquet(path: str) -> None:
@@ -130,15 +137,13 @@ def _validate_parquet_gz(path: str) -> None:
 
 def _validate_csv_text(text: str) -> None:
     lines = text.strip().splitlines()
-    assert lines[0] == '"id","name","score"'
-    assert lines[3] == '3,"charlie",30.25'
+    assert lines[0] == '1,"alice",10.5'
+    assert lines[2] == '3,"charlie",30.25'
 
 
 def _validate_json_gz(path: str) -> None:
     with gzip.open(path, "rt") as f:
-        rows = [json.loads(line) for line in f.read().splitlines() if line]
-    assert len(rows) == 3
-    assert rows[0]["name"] == "alice"
+        _validate_json_document_text(f.read())
 
 
 # =============================================================================
@@ -149,7 +154,7 @@ def _validate_json_gz(path: str) -> None:
 FORMATS: list[tuple[str, Callable[[str], None]]] = [
     ("data.csv", _validate_csv),
     ("data.tsv", _validate_tsv),
-    ("data.json", _validate_json),
+    ("data.json", _validate_json_document),
     ("data.jsonl", _validate_json),
     ("data.ndjson", _validate_json),
     ("data.parquet", _validate_parquet),
@@ -195,20 +200,23 @@ async def test_export_view_constraints(ctx, tmp_path):
     path = str(tmp_path / "filtered.csv")
     await view.export(path)
     lines = Path(path).read_text().strip().splitlines()
-    assert lines[0] == '"id","name","score"'
     # Rows are ordered by score DESC and filtered to score >= 20
-    assert lines[1] == '3,"charlie",30.25'
-    assert lines[2] == '2,"bob",20'
-    assert len(lines) == 3  # header + 2 matching rows
+    assert lines == ['3,"charlie",30.25', '2,"bob",20']
 
 
 async def test_export_limit(ctx, tmp_path):
     """``limit`` must propagate to the export query."""
     obj = await create_object_from_value(SAMPLE)
-    path = str(tmp_path / "limited.json")
+    path = str(tmp_path / "limited.jsonl")
     await obj.view(limit=2).export(path)
     rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line]
     assert len(rows) == 2
+
+
+async def test_export_format_overrides_extension(ctx, tmp_path):
+    obj = await create_object_from_value(SAMPLE)
+    path = await obj.export(str(tmp_path / "data.csv"), format="CSVWithNames")
+    assert Path(path).read_text().splitlines()[0] == '"id","name","score"'
 
 
 # =============================================================================

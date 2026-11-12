@@ -137,12 +137,26 @@ async def sample_url(ctx, bucket) -> str:
     return await obj.export(f"{bucket.url}/open/sample.parquet", overwrite=True)
 
 
-@pytest.mark.parametrize("extension", [".parquet", ".arrow", ".csv", ".tsv", ".jsonl", ".orc", ".avro"])
+@pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl", ".orc", ".avro"])
 async def test_export_open_round_trip(ctx, bucket, extension):
     obj = await create_object_from_value(SAMPLE)
     url = await obj.export(f"{bucket.url}/roundtrip/sample{extension}", overwrite=True)
     opened = await open_object_from_url(url)
     assert await opened.data() == SAMPLE
+
+
+@pytest.mark.parametrize(
+    "format, expected",
+    [
+        pytest.param("CSVWithNames", SAMPLE, id="header-detected"),
+        # ClickHouse's own default for ``.csv``: no header, positional names.
+        pytest.param(None, dict(zip(("c1", "c2", "c3"), SAMPLE.values(), strict=True)), id="headerless"),
+    ],
+)
+async def test_csv_round_trip(ctx, bucket, format, expected):
+    obj = await create_object_from_value(SAMPLE)
+    url = await obj.export(f"{bucket.url}/roundtrip/header.csv", overwrite=True, format=format)
+    assert await (await open_object_from_url(url)).data() == expected
 
 
 async def test_located_object_filters_and_aggregates_in_place(ctx, sample_url):

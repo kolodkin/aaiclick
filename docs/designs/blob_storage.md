@@ -41,6 +41,9 @@ backends, so bytes never pass through Python. A local path is chdb-only
 disk, so it raises. `s3_truncate_on_insert` follows
 `overwrite`; an existing key is otherwise ClickHouse's error.
 
+The format comes from the extension, mapped as ClickHouse maps it (`.csv` is
+headerless `CSV`), or from `format=`, which takes any output format.
+
 # Credentials
 
 aaiclick never handles object-store secrets: no SQL it renders carries them

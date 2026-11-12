@@ -53,7 +53,7 @@ See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment mo
 | `.markdown(truncate=…)`                         | Data Retrieval   | Render data as markdown table                                          | [markdown()](#markdown)                                              |
 | `.execute(order_by, limit, offset)`             | Data Retrieval   | Run full query, discard rows → `QueryStats`                            | [execute()](#execute)                                                |
 | `await .stats()`                                | Data Retrieval   | `QueryStats` of the query that made this Object                        | [stats()](#stats)                                                    |
-| `.export(path, overwrite)`                      | Export           | Stream data to a file or bucket URL (extension → format)               | [export()](#export)                                                  |
+| `.export(path, overwrite, format)`              | Export           | Stream data to a file or bucket URL (extension → format)               | [export()](#export)                                                  |
 | `open_object_from_url(url)`                     | Blob Storage     | Read-only Object over a bucket file, queried in place                  | [Blob Storage](#blob-storage)                                        |
 
 # Operator Support
@@ -389,9 +389,10 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 
 | Extension                       | ClickHouse format | Notes                                  |
 |---------------------------------|-------------------|----------------------------------------|
-| `.csv`                          | `CSVWithNames`    | header row included                    |
-| `.tsv`                          | `TSVWithNames`    | header row included                    |
-| `.json` / `.jsonl` / `.ndjson`  | `JSONEachRow`     | newline-delimited JSON                 |
+| `.csv`                          | `CSV`             | no header row                          |
+| `.tsv`                          | `TSV`             | no header row                          |
+| `.json`                         | `JSON`            | one document: `meta`, `data`, `rows`   |
+| `.jsonl` / `.ndjson`            | `JSONEachRow`     | newline-delimited JSON                 |
 | `.parquet`                      | `Parquet`         | columnar, best for large datasets      |
 | `.arrow`                        | `Arrow`           | Apache Arrow IPC stream                |
 | `.orc`                          | `ORC`             | Apache ORC columnar                    |
@@ -399,6 +400,14 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 | `.md`                           | `Markdown`        | pipe-delimited markdown table          |
 | `.xml`                          | `XML`             | one `<row>` element per record         |
 | `.sql`                          | `SQLInsert`       | `INSERT INTO table VALUES (...)`       |
+
+These are the formats ClickHouse itself picks for each extension. `format=`
+overrides the extension with any ClickHouse output format:
+
+```python
+await obj.export("/tmp/data.csv", format="CSVWithNames")  # with a header row
+await obj.export("/tmp/data.bin", format="Native")
+```
 
 ## Compression
 
@@ -444,9 +453,11 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
 
 - **Schema** is inferred from the file; `columns=` narrows it,
   `column_types=` skips inference.
-- **Format** follows the extension as in [Export](#supported-extensions), so
-  `.csv` expects a header row. `format=` takes any ClickHouse input format;
-  with an unmapped or missing extension ClickHouse detects it from the content.
+- **Format** follows the extension as in [Export](#supported-extensions).
+  `format=` takes any ClickHouse input format; with an unmapped or missing
+  extension ClickHouse detects it from the content.
+- **CSV / TSV headers**: ClickHouse detects a header row; a headerless file
+  exposes columns as `c1`, `c2`, ….
 - **Read-only**: `insert` and `insert_from_url` raise.
 - **Temporary**: the Object is a pointer dropped at context exit; the file is
   never touched.
