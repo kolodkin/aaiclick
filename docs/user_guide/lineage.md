@@ -24,9 +24,10 @@ completes.
 | `lineage_query(sql, target_table)`    | A read-only, row-capped `SELECT` scoped to the graph                                           |
 
 All four take `direction` (`"backward"` default, or `"forward"`) and
-`max_depth`. The server's instructions give the agent the triage order:
-graph SQL first, `lineage_nodes` for dropped tables, `lineage_schema`
-before any query, `lineage_query` rows as evidence.
+`max_depth`. The server's `aaiclick` skill (resource
+`skill://aaiclick/SKILL.md`, named in the server instructions) gives the
+agent the triage order: graph SQL first, `lineage_nodes` for dropped
+tables, `lineage_schema` before any query, `lineage_query` rows as evidence.
 
 !!! warning "`lineage_query` reaches only the target's lineage"
     The scope is resolved server-side from `target_table`; a SQL string

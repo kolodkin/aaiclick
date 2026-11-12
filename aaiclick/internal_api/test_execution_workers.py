@@ -10,7 +10,7 @@ from aaiclick.orchestration.execution.execution_worker import (
 )
 from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE, EXECUTION_WORKER_STOPPED, EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.view_models import ExecutionWorkerView
-from aaiclick.view_models import ExecutionWorkerFilter, Page, StartExecutionWorkerRequest
+from aaiclick.view_models import ExecutionWorkerFilter, Page
 
 from . import errors, execution_workers
 
@@ -86,52 +86,3 @@ async def test_stop_worker_already_stopped_raises_conflict(orch_ctx):
 
     with pytest.raises(errors.Conflict):
         await execution_workers.stop_execution_worker(execution_worker.id)
-
-
-async def test_start_worker_local_mode_raises_invalid(monkeypatch):
-    monkeypatch.setattr(execution_workers, "is_local", lambda: True)
-
-    with pytest.raises(errors.Invalid, match="distributed"):
-        await execution_workers.start_execution_worker()
-
-
-async def test_start_worker_spawns_detached_process(monkeypatch):
-    monkeypatch.setattr(execution_workers, "is_local", lambda: False)
-    captured: dict = {}
-
-    async def fake_exec(*cmd, **kwargs):
-        captured["cmd"] = cmd
-        captured["kwargs"] = kwargs
-
-    monkeypatch.setattr(execution_workers.asyncio, "create_subprocess_exec", fake_exec)
-
-    await execution_workers.start_execution_worker(StartExecutionWorkerRequest(max_tasks=7))
-
-    assert captured["cmd"][1:] == ("-m", "aaiclick", "execution-worker", "start", "--max-tasks", "7")
-    assert captured["kwargs"]["start_new_session"] is True
-
-
-async def test_start_worker_omits_max_tasks_when_unset(monkeypatch):
-    monkeypatch.setattr(execution_workers, "is_local", lambda: False)
-    captured: dict = {}
-
-    async def fake_exec(*cmd, **kwargs):
-        captured["cmd"] = cmd
-
-    monkeypatch.setattr(execution_workers.asyncio, "create_subprocess_exec", fake_exec)
-
-    await execution_workers.start_execution_worker()
-
-    assert "--max-tasks" not in captured["cmd"]
-
-
-async def test_start_worker_exec_failure_raises_worker_spawn_failed(monkeypatch):
-    monkeypatch.setattr(execution_workers, "is_local", lambda: False)
-
-    async def boom(*cmd, **kwargs):
-        raise FileNotFoundError("python not found")
-
-    monkeypatch.setattr(execution_workers.asyncio, "create_subprocess_exec", boom)
-
-    with pytest.raises(errors.ExecutionWorkerSpawnFailed):
-        await execution_workers.start_execution_worker()

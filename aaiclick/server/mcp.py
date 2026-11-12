@@ -34,9 +34,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastmcp import FastMCP
+from fastmcp.server.providers.skills import SkillProvider
 from pydantic import Field
 
 from aaiclick.data.view_models import ObjectDetail, ObjectView
@@ -79,7 +81,6 @@ from aaiclick.view_models import (
     RegisterJobRequest,
     RunJobRequest,
     SetupResult,
-    StartExecutionWorkerRequest,
     TaskListFilter,
 )
 from aaiclick.viewer.view_models import (
@@ -95,6 +96,9 @@ from aaiclick.viewer.view_models import (
 )
 
 from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_WRITE, McpRbacMiddleware
+
+SKILL_DIR = Path(__file__).parent / "skills" / "aaiclick"
+SKILL_URI = "skill://aaiclick/SKILL.md"
 
 
 @asynccontextmanager
@@ -113,19 +117,14 @@ mcp: FastMCP = FastMCP(
     name="aaiclick",
     version=API_VERSION,
     instructions=(
-        "Tools mirror aaiclick's CLI verbs (the lineage tools have none) and run against "
-        "the same backends as the REST surface under /api/v0 (docs/designs/api_server.md).\n"
-        "\n"
-        "Lineage triage (why does table X look wrong?), in this order: lineage_graph — "
-        "read each node's sql_template and form a hypothesis before querying; "
-        "lineage_nodes — a table with live=false cannot be queried: say so and stop, "
-        "or re-run the job with full preservation (run_job) and retry; lineage_schema "
-        "before querying any table, using only the column names it returns; lineage_query "
-        "for evidence, citing the rows it returns."
+        "aaiclick: data orchestration on ClickHouse. Tools mirror the CLI verbs and the "
+        "REST surface under /api/v0. Before using them, read the skill resource "
+        f"{SKILL_URI}: how to use each tool family and the lineage triage method."
     ),
     lifespan=_mcp_lifespan,
     middleware=[McpRbacMiddleware()],
 )
+mcp.add_provider(SkillProvider(SKILL_DIR))
 
 
 # --- jobs -------------------------------------------------------------
@@ -242,20 +241,6 @@ async def list_execution_workers(filter: ExecutionWorkerFilter | None = None) ->
     """Return a page of execution workers ordered by ``started_at`` descending."""
     async with orch_context():
         return await execution_workers_api.list_execution_workers(filter)
-
-
-@mcp.tool(tags={TAG_ADMIN})
-async def start_execution_worker(request: StartExecutionWorkerRequest | None = None) -> None:
-    """Spawn a detached worker process (distributed mode only; errors in local mode)."""
-    async with orch_context():
-        await execution_workers_api.start_execution_worker(request)
-
-
-@mcp.tool(tags={TAG_ADMIN})
-async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView:
-    """Request a worker to stop gracefully after its current task."""
-    async with orch_context():
-        return await execution_workers_api.stop_execution_worker(execution_worker_id)
 
 
 # --- objects ----------------------------------------------------------

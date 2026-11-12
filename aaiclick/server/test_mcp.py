@@ -22,7 +22,6 @@ from aaiclick.orchestration.execution.execution_worker import register_execution
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
@@ -36,7 +35,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import API_VERSION, Page
 from aaiclick.viewer.view_models import ObjectQueryResult
 
-from .mcp import mcp
+from .mcp import SKILL_URI, mcp
 
 # Exact match, so a new tool fails this test until it is listed here on
 # purpose. One name must never appear: a job *waiter*. ``job_stats`` reports
@@ -58,8 +57,6 @@ EXPECTED_TOOLS = {
     "list_tasks",
     "clear_task",
     "list_execution_workers",
-    "start_execution_worker",
-    "stop_execution_worker",
     "list_objects",
     "get_object",
     "delete_object",
@@ -193,15 +190,6 @@ async def test_list_workers_returns_page(orch_ctx, mcp_client):
     assert any(w.hostname == "mcp_worker" for w in page.items)
 
 
-async def test_stop_worker_transitions_to_stopping(orch_ctx, mcp_client):
-    worker = await register_execution_worker(hostname="mcp_stop")
-
-    result = await mcp_client.call_tool("stop_execution_worker", {"execution_worker_id": worker.id})
-
-    view = ExecutionWorkerView.model_validate(result.structured_content)
-    assert view.status == EXECUTION_WORKER_STOPPING
-
-
 async def test_list_objects_returns_page(orch_ctx, mcp_client):
     await create_object_from_value([1, 2, 3], name="mcp_obj_a", scope="global")
 
@@ -243,12 +231,15 @@ async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, rev
     assert all(n.live for n in nodes)
 
 
-async def test_instructions_carry_the_triage_method(mcp_client):
-    """The server instructions name every lineage tool, in the order the agent should use them."""
-    assert mcp_client.initialize_result.serverInfo.version == API_VERSION
-    instructions = mcp_client.initialize_result.instructions
+async def test_instructions_point_to_the_skill(mcp_client):
+    """The instructions stay minimal and name the skill, which covers every tool and
+    lists the lineage tools in the order the agent should use them."""
+    assert mcp_client.server_info.version == API_VERSION
+    assert SKILL_URI in mcp_client.instructions
+    skill = (await mcp_client.read_resource(SKILL_URI))[0].text
+    assert {name for name in EXPECTED_TOOLS if f"`{name}`" not in skill} == set()
     order = ["lineage_graph", "lineage_nodes", "lineage_schema", "lineage_query"]
-    positions = [instructions.index(name) for name in order]
+    positions = [skill.index(name) for name in order]
     assert positions == sorted(positions)
 
 

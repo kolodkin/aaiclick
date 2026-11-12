@@ -249,31 +249,7 @@ export interface paths {
         /** List Execution Workers */
         get: operations["list_execution_workers_api_v0_execution_workers_get"];
         put?: never;
-        /**
-         * Start Execution Worker
-         * @description Spawn a detached execution worker subprocess (distributed mode only).
-         *
-         *     Returns ``202 Accepted`` with an empty body once the fork/exec succeeds;
-         *     the caller polls ``GET /execution-workers`` to observe the new execution worker row.
-         */
-        post: operations["start_execution_worker_api_v0_execution_workers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v0/execution-workers/{execution_worker_id}/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stop Execution Worker */
-        post: operations["stop_execution_worker_api_v0_execution_workers__execution_worker_id__stop_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1818,7 +1794,7 @@ export interface components {
          * @description Stable machine-readable code attached to every ``Problem`` response.
          * @enum {string}
          */
-        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "mfa_required" | "forbidden" | "execution_worker_spawn_failed" | "sandbox_unavailable";
+        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "mfa_required" | "forbidden" | "sandbox_unavailable";
         /**
          * PurgeObjectsRequest
          * @description Inputs for ``internal_api.purge_objects``.
@@ -2177,17 +2153,6 @@ export interface components {
              * @enum {string}
              */
             role: "viewer" | "member" | "admin";
-        };
-        /**
-         * StartExecutionWorkerRequest
-         * @description Inputs for ``internal_api.start_execution_worker``.
-         *
-         *     ``max_tasks`` caps how many tasks the spawned execution worker executes
-         *     before it exits; ``None`` means unlimited (run until stopped).
-         */
-        StartExecutionWorkerRequest: {
-            /** Max Tasks */
-            max_tasks?: number | null;
         };
         /**
          * SubmitSandboxRequest
@@ -3026,115 +2991,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ExecutionWorkerView_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    start_execution_worker_api_v0_execution_workers_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartExecutionWorkerRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Invalid Request */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description ExecutionWorker Spawn Failed */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    stop_execution_worker_api_v0_execution_workers__execution_worker_id__stop_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                execution_worker_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionWorkerView"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
                 };
             };
             /** @description Validation Error */
