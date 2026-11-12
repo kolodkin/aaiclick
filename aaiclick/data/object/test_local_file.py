@@ -11,12 +11,7 @@ import pytest
 
 from aaiclick import create_object_from_value, open_object_from_url
 from aaiclick.backend import is_chdb
-
-SAMPLE = {
-    "id": [1, 2, 3],
-    "name": ["alice", "bob", "charlie"],
-    "score": [10.5, 20.0, 30.25],
-}
+from aaiclick.testing import SAMPLE_TABLE
 
 _chdb_only = pytest.mark.skipif(not is_chdb(), reason="local file locations need the chdb backend")
 
@@ -24,17 +19,17 @@ _chdb_only = pytest.mark.skipif(not is_chdb(), reason="local file locations need
 @_chdb_only
 @pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl.zst", ".jsonl.lz4"])
 async def test_export_open_local_round_trip(ctx, tmp_path, extension):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     path = await obj.export(str(tmp_path / f"sample{extension}"))
     opened = await open_object_from_url(path)
-    assert await opened.data() == SAMPLE
+    assert await opened.data() == SAMPLE_TABLE
     with pytest.raises(ValueError, match="read-only"):
         await opened.insert({"id": [4], "name": ["dave"], "score": [1.0]})
 
 
 @_chdb_only
 async def test_export_view_back_to_its_own_file(ctx, tmp_path):
-    path = await (await create_object_from_value(SAMPLE)).export(str(tmp_path / "sample.parquet"))
+    path = await (await create_object_from_value(SAMPLE_TABLE)).export(str(tmp_path / "sample.parquet"))
     opened = await open_object_from_url(path)
     await opened.view(where="score > 15").export(path)
     assert await (await open_object_from_url(path)).data() == {
@@ -54,18 +49,18 @@ async def test_open_local_glob_aggregates_in_place(ctx, tmp_path):
 
 @_chdb_only
 async def test_open_local_without_extension_detects_format(ctx, tmp_path):
-    exported = await (await create_object_from_value(SAMPLE)).export(str(tmp_path / "sample.parquet"))
+    exported = await (await create_object_from_value(SAMPLE_TABLE)).export(str(tmp_path / "sample.parquet"))
     path = str(Path(exported).rename(tmp_path / "sample"))
-    assert await (await open_object_from_url(path)).data() == SAMPLE
+    assert await (await open_object_from_url(path)).data() == SAMPLE_TABLE
 
 
 @_chdb_only
 async def test_open_local_with_any_clickhouse_format(ctx, tmp_path):
     """``format=`` is not limited to the names aaiclick maps extensions to."""
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     path = await obj.export(str(tmp_path / "sample.tsv"), format="TSVWithNames")
     opened = await open_object_from_url(path, format="TabSeparatedWithNames")
-    assert await opened.data() == SAMPLE
+    assert await opened.data() == SAMPLE_TABLE
 
 
 @_chdb_only

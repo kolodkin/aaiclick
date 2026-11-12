@@ -23,12 +23,8 @@ from aaiclick.backend import is_chdb
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.data.object_context import get_ch_client
 from aaiclick.orchestration.execution.runner import deserialize_task_params
+from aaiclick.testing import SAMPLE_TABLE
 
-SAMPLE = {
-    "id": [1, 2, 3],
-    "name": ["alice", "bob", "charlie"],
-    "score": [10.5, 20.0, 30.25],
-}
 _BUCKET = "aaiclick-test"
 _HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 _KEYS = {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing"}
@@ -100,14 +96,14 @@ async def server_lends_s3_identity(request, ctx) -> None:
 
 
 async def test_export_to_bucket(ctx, bucket):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     url = f"{bucket.url}/export/sample.parquet"
     assert await obj.export(url) == url
-    assert bucket.read_parquet("export/sample.parquet") == SAMPLE
+    assert bucket.read_parquet("export/sample.parquet") == SAMPLE_TABLE
 
 
 async def test_export_to_bucket_honors_view_constraints(ctx, bucket):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     await obj.view(where="score > 15", order_by="id", limit=1).export(f"{bucket.url}/export/view.parquet")
     assert bucket.read_parquet("export/view.parquet") == {"id": [2], "name": ["bob"], "score": [20.0]}
 
@@ -124,7 +120,7 @@ async def test_export_to_existing_key_needs_overwrite(ctx, bucket):
 
 
 async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     await obj.export(
         f"{bucket.url}/export/settings.parquet",
         overwrite=True,
@@ -156,29 +152,29 @@ async def test_export_rejects_unsupported_scheme(ctx):
 
 @pytest.fixture
 async def sample_url(ctx, bucket) -> str:
-    """SAMPLE exported as parquet; the key is replaced on every test."""
-    obj = await create_object_from_value(SAMPLE)
+    """SAMPLE_TABLE exported as parquet; the key is replaced on every test."""
+    obj = await create_object_from_value(SAMPLE_TABLE)
     return await obj.export(f"{bucket.url}/open/sample.parquet", overwrite=True)
 
 
 @pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl", ".orc", ".avro"])
 async def test_export_open_round_trip(ctx, bucket, extension):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     url = await obj.export(f"{bucket.url}/roundtrip/sample{extension}", overwrite=True)
     opened = await open_object_from_url(url)
-    assert await opened.data() == SAMPLE
+    assert await opened.data() == SAMPLE_TABLE
 
 
 @pytest.mark.parametrize(
     "format, expected",
     [
-        pytest.param("CSVWithNames", SAMPLE, id="header-detected"),
+        pytest.param("CSVWithNames", SAMPLE_TABLE, id="header-detected"),
         # ClickHouse's own default for ``.csv``: no header, positional names.
-        pytest.param(None, dict(zip(("c1", "c2", "c3"), SAMPLE.values(), strict=True)), id="headerless"),
+        pytest.param(None, dict(zip(("c1", "c2", "c3"), SAMPLE_TABLE.values(), strict=True)), id="headerless"),
     ],
 )
 async def test_csv_round_trip(ctx, bucket, format, expected):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     url = await obj.export(f"{bucket.url}/roundtrip/header.csv", overwrite=True, format=format)
     assert await (await open_object_from_url(url)).data() == expected
 
@@ -204,7 +200,7 @@ async def test_open_single_character_glob(ctx, bucket):
 async def test_open_without_extension_detects_format(ctx, bucket, sample_url):
     """ClickHouse detects the format from the content when no extension names it."""
     opened = await open_object_from_url(bucket.copy("open/sample.parquet", "open/sample"))
-    assert await opened.data() == SAMPLE
+    assert await opened.data() == SAMPLE_TABLE
 
 
 async def test_open_unknown_format_is_clickhouse_error(ctx):

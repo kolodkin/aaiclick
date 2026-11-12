@@ -21,15 +21,9 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.backend import is_chdb
+from aaiclick.testing import SAMPLE_TABLE
 
 pytestmark = pytest.mark.skipif(not is_chdb(), reason="local file export needs the chdb backend")
-
-# Sample data used by every test — small enough to inline-validate.
-SAMPLE = {
-    "id": [1, 2, 3],
-    "name": ["alice", "bob", "charlie"],
-    "score": [10.5, 20.0, 30.25],
-}
 
 
 # =============================================================================
@@ -175,7 +169,7 @@ FORMATS: list[tuple[str, Callable[[str], None]]] = [
 )
 async def test_export_format(ctx, tmp_path, filename, validator):
     """Export the sample dataset to *filename* and run its validator."""
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     path = str(tmp_path / filename)
     written = await obj.export(path)
     assert written == str(Path(path).resolve())
@@ -191,7 +185,7 @@ async def test_export_format(ctx, tmp_path, filename, validator):
 
 async def test_export_view_constraints(ctx, tmp_path):
     """View predicates must apply to the exported rows."""
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     view = obj.view(where="score >= 20", order_by="score DESC", limit=10)
     path = str(tmp_path / "filtered.csv")
     await view.export(path)
@@ -202,7 +196,7 @@ async def test_export_view_constraints(ctx, tmp_path):
 
 async def test_export_limit(ctx, tmp_path):
     """``limit`` must propagate to the export query."""
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     path = str(tmp_path / "limited.jsonl")
     await obj.view(limit=2).export(path)
     rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line]
@@ -210,13 +204,13 @@ async def test_export_limit(ctx, tmp_path):
 
 
 async def test_export_format_overrides_extension(ctx, tmp_path):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     path = await obj.export(str(tmp_path / "data.csv"), format="CSVWithNames")
     assert Path(path).read_text().splitlines()[0] == '"id","name","score"'
 
 
 async def test_export_ch_settings_reach_the_statement(ctx, tmp_path):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     path = await obj.export(str(tmp_path / "data.csv"), ch_settings={"format_csv_delimiter": ";"})
     assert Path(path).read_text().splitlines()[0] == '1;"alice";10.5'
 
@@ -256,7 +250,7 @@ async def test_failed_export_keeps_existing_file(ctx, tmp_path):
     ],
 )
 async def test_export_unsupported_extension_raises(ctx, tmp_path, filename):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     with pytest.raises(ValueError, match="Unsupported export extension"):
         await obj.export(str(tmp_path / filename))
 
@@ -279,7 +273,7 @@ async def test_export_replaces_existing_file(ctx, tmp_path, filename, read, expe
 
 async def test_export_returns_absolute_path(ctx, tmp_path, monkeypatch):
     """Even when given a relative path, the returned path is absolute."""
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     monkeypatch.chdir(tmp_path)
     written = await obj.export("relative.csv")
     assert Path(written).is_absolute()
