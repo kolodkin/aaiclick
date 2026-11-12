@@ -30,7 +30,7 @@ Insert data from a URL into an existing Object. For `create_object_from_url()`, 
 
 Both functions accept any format ClickHouse's `url()` table function reads.
 Pass it explicitly with `format=...`; the file extension is not consulted.
-Headerless formats expose columns as `c1`, `c2`, ….
+Headerless formats expose columns as `c1`, `c2`, …. The common ones:
 
 | Format                      | Notes                                                      |
 |-----------------------------|------------------------------------------------------------|

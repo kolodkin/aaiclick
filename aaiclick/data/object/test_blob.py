@@ -48,6 +48,10 @@ class Bucket:
         )
         self._s3.create_bucket(Bucket=_BUCKET)
 
+    def copy(self, key: str, new_key: str) -> str:
+        self._s3.copy_object(Bucket=_BUCKET, Key=new_key, CopySource={"Bucket": _BUCKET, "Key": key})
+        return f"{self.url}/{new_key}"
+
     def read_parquet(self, key: str) -> dict[str, list]:
         body = self._s3.get_object(Bucket=_BUCKET, Key=key)["Body"].read()
         return pq.read_table(io.BytesIO(body)).to_pydict()
@@ -159,6 +163,18 @@ async def test_open_single_character_glob(ctx, bucket):
     assert sorted(await opened.data()) == [1, 2]
 
 
+async def test_open_without_extension_detects_format(ctx, bucket, sample_url):
+    """ClickHouse detects the format from the content when no extension names it."""
+    opened = await open_object_from_url(bucket.copy("open/sample.parquet", "open/sample"))
+    assert await opened.data() == SAMPLE
+
+
+async def test_open_unknown_format_is_clickhouse_error(ctx):
+    """Format names pass through; ClickHouse rejects one it does not know, before any request."""
+    with pytest.raises(Exception, match="Unknown format"):
+        await open_object_from_url("s3://bucket/data", format="Nope")
+
+
 async def test_open_url_with_quote_in_key(ctx, bucket):
     obj = await create_object_from_value([1, 2, 3])
     url = await obj.export(f"{bucket.url}/open/it's.parquet", overwrite=True)
@@ -181,14 +197,13 @@ async def test_located_object_rejects_insert_from_url(ctx, sample_url):
     "url, kwargs, match",
     [
         pytest.param("ftp://example.com/data.parquet", {}, "http, https or s3", id="bad-scheme"),
-        pytest.param("s3://bucket/data", {}, "pass format=", id="no-extension-no-format"),
         pytest.param(
             "s3://bucket/data.parquet",
             {"columns": ["id"], "column_types": {}},
             "column_types",
             id="column-missing-from-types",
         ),
-        pytest.param("s3://bucket/data", {"format": "Nope"}, "Unsupported format", id="unknown-format"),
+        pytest.param("s3://bucket/data", {"format": "Parquet') --"}, "Invalid format name", id="format-injection"),
         pytest.param("s3://bucket/data.parquet", {"columns": []}, "non-empty", id="empty-columns"),
     ],
 )
@@ -215,8 +230,8 @@ async def test_located_object_cannot_be_named(ctx):
 @pytest.mark.parametrize(
     "overrides, match",
     [
-        pytest.param({"format": "Parquet') COMMENT 'injected' --"}, "Unsupported format", id="format-injection"),
-        pytest.param({"format": None}, "Unsupported format", id="format-missing"),
+        pytest.param({"format": "Parquet') COMMENT 'injected' --"}, "Invalid format name", id="format-injection"),
+        pytest.param({"format": None}, "Invalid format name", id="format-missing"),
         pytest.param({"location": "relative/data.parquet"}, "absolute path|chdb backend", id="location-relative"),
         pytest.param({"location": "ftp://example.com/data.parquet"}, "http, https or s3", id="location-bad-scheme"),
     ],

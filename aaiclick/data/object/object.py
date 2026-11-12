@@ -680,7 +680,7 @@ class Object:
         ``.csv``, ``.tsv``, ``.json`` / ``.jsonl`` / ``.ndjson``, ``.md``,
         ``.xml``, ``.sql``. Supported binary/columnar formats: ``.parquet``,
         ``.arrow``, ``.orc``, ``.avro``. ClickHouse picks the compression
-        scheme from a trailing ``.gz`` / ``.zst`` / ``.br`` / ``.xz`` suffix
+        scheme from a trailing ``.gz`` / ``.xz`` / ``.zst`` / ``.br`` / ``.lz4`` suffix
         — e.g. ``data.csv.gz`` writes a gzipped CSV.
 
         View constraints (``where``, ``limit``, ``order_by``) are honored.

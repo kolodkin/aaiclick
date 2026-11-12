@@ -62,9 +62,9 @@ def fileserver():
         pytest.param("https://example.com/data.parquet", {"columns": []}, "non-empty", id="empty-columns"),
         pytest.param(
             "https://example.com/data.parquet",
-            {"format": "InvalidFormat"},
-            "Unsupported format",
-            id="unsupported-format",
+            {"format": "Parquet') --"},
+            "Invalid format name",
+            id="format-not-an-identifier",
         ),
         pytest.param("https://example.com/data.parquet", {"limit": -1}, "positive integer", id="negative-limit"),
         pytest.param("https://example.com/data.parquet", {"limit": 0}, "positive integer", id="zero-limit"),
@@ -226,9 +226,9 @@ async def test_url_aggregation_on_result(ctx, fileserver):
         pytest.param("ftp://example.com/data.parquet", {}, "http or https", id="invalid-scheme"),
         pytest.param(
             "https://example.com/data.parquet",
-            {"format": "InvalidFormat"},
-            "Unsupported format",
-            id="unsupported-format",
+            {"format": "Parquet') --"},
+            "Invalid format name",
+            id="format-not-an-identifier",
         ),
         pytest.param("https://example.com/data.parquet", {"limit": -1}, "positive integer", id="negative-limit"),
         # Semicolons in WHERE are rejected as SQL injection.

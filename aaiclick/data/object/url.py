@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..formats import JSON_BLOB_FORMATS, format_for_extension, validate_input_format
+from ..formats import FORMAT_AUTO, JSON_BLOB_FORMATS, format_for_extension, validate_input_format
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
@@ -367,8 +367,9 @@ async def open_object_from_url(
         url: ``http(s)://`` or ``s3://`` URL of the file, or a local path
             (chdb backend only). Globs are passed through.
         columns: Columns to expose. Defaults to every column in the file.
-        format: ClickHouse input format, e.g. ``"Parquet"``. Defaults to the
-            format the URL's extension names.
+        format: Any ClickHouse input format, e.g. ``"Parquet"``. Defaults to
+            the format the URL's extension names; for an extension aaiclick
+            does not map, ClickHouse detects the format itself.
         column_types: Column types, skipping schema inference. Keys are the
             columns to expose when ``columns`` is omitted.
 
@@ -393,7 +394,7 @@ async def open_object_from_url(
         try:
             format = format_for_extension(url)
         except ValueError:
-            raise ValueError(f"Cannot tell the format of {url!r} from its extension; pass format=") from None
+            format = FORMAT_AUTO
     validate_input_format(format)
 
     if column_types is None:

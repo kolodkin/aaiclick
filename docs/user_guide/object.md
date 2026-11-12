@@ -402,7 +402,8 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 
 ## Compression
 
-Append `.gz` or `.xz` and the writer compresses automatically:
+Append a compression suffix and ClickHouse compresses the file: `.gz`, `.xz`,
+`.zst`, `.br`, `.lz4`, `.snappy`, or `.bz2` where the build supports it.
 
 ```python
 await obj.export("/tmp/data.csv.gz")
@@ -441,8 +442,11 @@ daily = await open_object_from_url(url)
 await daily.view(where="country = 'US'")["revenue"].sum().data()
 ```
 
-- **Schema** is inferred from the file; `columns=` narrows it, `format=`
-  overrides the extension, `column_types=` skips inference.
+- **Schema** is inferred from the file; `columns=` narrows it,
+  `column_types=` skips inference.
+- **Format** follows the extension as in [Export](#supported-extensions), so
+  `.csv` expects a header row. `format=` takes any ClickHouse input format;
+  with an unmapped or missing extension ClickHouse detects it from the content.
 - **Read-only**: `insert` and `insert_from_url` raise.
 - **Temporary**: the Object is a pointer dropped at context exit; the file is
   never touched.

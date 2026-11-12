@@ -19,6 +19,9 @@ table name as for any Object, and computed results land in temp tables.
 
 - **Schema**: `DESCRIBE s3(url, format)`; the pointer keeps the file's column
   names, so the Object is dict-shaped unless the only column is `value`.
+- **Format**: the extension's mapped format, else `auto` so ClickHouse
+  detects it. A `format=` name is only checked to be a bare identifier —
+  it is inlined into SQL — and ClickHouse rejects one it cannot read.
 - **Read-only**: `insert` and `insert_from_url` raise on `Schema.location`.
 - **Temp only**: a `t_` pointer dropped at context exit; `name` raises. The
   bucket is never touched.
