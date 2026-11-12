@@ -36,7 +36,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import API_VERSION, Page
 from aaiclick.viewer.view_models import ObjectQueryResult
 
-from .mcp import mcp
+from .mcp import SKILL_URI, mcp
 
 # Exact match, so a new tool fails this test until it is listed here on
 # purpose. One name must never appear: a job *waiter*. ``job_stats`` reports
@@ -243,12 +243,14 @@ async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, rev
     assert all(n.live for n in nodes)
 
 
-async def test_instructions_carry_the_triage_method(mcp_client):
-    """The server instructions name every lineage tool, in the order the agent should use them."""
+async def test_instructions_point_to_the_skill(mcp_client):
+    """The instructions stay minimal and end by naming the skill, which carries the
+    lineage tools in the order the agent should use them."""
     assert mcp_client.server_info.version == API_VERSION
-    instructions = mcp_client.instructions
+    assert SKILL_URI in mcp_client.instructions
+    skill = (await mcp_client.read_resource(SKILL_URI))[0].text
     order = ["lineage_graph", "lineage_nodes", "lineage_schema", "lineage_query"]
-    positions = [instructions.index(name) for name in order]
+    positions = [skill.index(name) for name in order]
     assert positions == sorted(positions)
 
 

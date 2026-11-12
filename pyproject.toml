@@ -102,7 +102,7 @@ aaiclick = ["py.typed"]
 # Vite SPA build output. The directory is gitignored and produced by
 # `npm run build` — release CI builds it before `uv build` so the wheel
 # ships a working /api/v0 + SPA out of the box.
-"aaiclick.server" = ["static/**/*"]
+"aaiclick.server" = ["static/**/*", "skills/**/*"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
