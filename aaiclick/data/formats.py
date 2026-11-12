@@ -2,54 +2,35 @@
 aaiclick.data.formats - File-extension and format-name handling for ClickHouse data formats.
 
 ``Object.export()`` and ``open_object_from_url()`` pick a format from a file
-extension through this registry. Explicit ``format=`` names are passed to
+extension through ``EXTENSION_TO_FORMAT``. Explicit ``format=`` names are passed to
 ClickHouse as-is: any format it knows works, and it rejects the rest.
 
-Adding an extension is a single edit to ``FORMATS``.
+Adding an extension is a single entry there.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import NamedTuple
 
-
-class FormatSpec(NamedTuple):
-    """A ClickHouse data format aaiclick maps a file extension to, or treats specially."""
-
-    name: str
-    """ClickHouse format identifier — passed verbatim to ``FORMAT`` / ``file()`` / ``url()``."""
-
-    extensions: tuple[str, ...]
-    """Natural file extensions, lowercase, including the leading dot."""
-
-    blob: bool = False
-    """Format reads the whole document as a single string (JSON-blob mode)."""
-
-
-# fmt: off
-FORMATS: tuple[FormatSpec, ...] = (
-    # Columnar / binary
-    FormatSpec("Parquet",      (".parquet",)),
-    FormatSpec("Arrow",        (".arrow",)),
-    FormatSpec("ORC",          (".orc",)),
-    FormatSpec("Avro",         (".avro",)),
-    # Text — the formats ClickHouse itself picks for these extensions
-    FormatSpec("CSV",          (".csv",)),
-    FormatSpec("TSV",          (".tsv",)),
-    FormatSpec("JSON",         (".json",)),
-    FormatSpec("JSONEachRow",  (".jsonl", ".ndjson")),
+# Extension → the format ClickHouse itself picks for it; ``.sql`` is ours.
+EXTENSION_TO_FORMAT: dict[str, str] = {
+    ".parquet": "Parquet",
+    ".arrow": "Arrow",
+    ".orc": "ORC",
+    ".avro": "Avro",
+    ".csv": "CSV",
+    ".tsv": "TSV",
+    ".json": "JSON",
+    ".jsonl": "JSONEachRow",
+    ".ndjson": "JSONEachRow",
     # Text reports — ClickHouse writes these but cannot read them back
-    FormatSpec("Markdown",     (".md",)),
-    FormatSpec("XML",          (".xml",)),
-    FormatSpec("SQLInsert",    (".sql",)),
-    # JSON blob mode — read whole document, extract via JSONExtract
-    FormatSpec("RawBLOB",      (), blob=True),
-    FormatSpec("JSONAsString", (), blob=True),
-)
-# fmt: on
+    ".md": "Markdown",
+    ".xml": "XML",
+    ".sql": "SQLInsert",
+}
 
+# Formats that read the whole document as one string, for JSONExtract.
+JSON_BLOB_FORMATS: frozenset[str] = frozenset({"RawBLOB", "JSONAsString"})
 
 # Compression suffixes stripped before the extension lookup; ClickHouse picks
 # the codec from the suffix itself, and rejects one its build lacks.
@@ -58,13 +39,6 @@ COMPRESSION_SUFFIXES: frozenset[str] = frozenset({".gz", ".xz", ".zst", ".br", "
 # ClickHouse resolves the format itself: from the extension, else the content.
 FORMAT_AUTO = "auto"
 
-_FORMAT_NAME = re.compile(r"[A-Za-z0-9_]+")
-
-
-# Derived lookups — built once at import.
-JSON_BLOB_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.blob)
-EXTENSION_TO_FORMAT: dict[str, str] = {ext: f.name for f in FORMATS for ext in f.extensions}
-
 
 def validate_format_name(fmt: str | None) -> None:
     """Reject a format name that is not a bare identifier.
@@ -72,7 +46,7 @@ def validate_format_name(fmt: str | None) -> None:
     Callers inline the name into SQL, so this keeps it injection-safe. Whether
     the format exists and can be read is ClickHouse's call.
     """
-    if fmt is None or not _FORMAT_NAME.fullmatch(fmt):
+    if fmt is None or not fmt.isidentifier():
         raise ValueError(f"Invalid format name {fmt!r}: expected a ClickHouse format such as 'Parquet'")
 
 

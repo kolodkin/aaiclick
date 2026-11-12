@@ -38,9 +38,7 @@ SAMPLE = {
 
 
 def _validate_csv(path: str) -> None:
-    text = Path(path).read_text()
-    lines = text.strip().splitlines()
-    assert lines == ['1,"alice",10.5', '2,"bob",20', '3,"charlie",30.25']
+    _validate_csv_text(Path(path).read_text())
 
 
 def _validate_tsv(path: str) -> None:
@@ -136,9 +134,7 @@ def _validate_parquet_gz(path: str) -> None:
 
 
 def _validate_csv_text(text: str) -> None:
-    lines = text.strip().splitlines()
-    assert lines[0] == '1,"alice",10.5'
-    assert lines[2] == '3,"charlie",30.25'
+    assert text.strip().splitlines() == ['1,"alice",10.5', '2,"bob",20', '3,"charlie",30.25']
 
 
 def _validate_json_gz(path: str) -> None:
@@ -266,18 +262,19 @@ async def test_export_unsupported_extension_raises(ctx, tmp_path, filename):
 
 
 @pytest.mark.parametrize(
-    "filename, read",
+    "filename, read, expected",
     [
-        pytest.param("data.csv", lambda path: Path(path).read_text().split(), id="csv"),
-        pytest.param("data.parquet", lambda path: pq.read_table(path).column("value").to_pylist(), id="parquet"),
+        pytest.param("data.csv", lambda path: Path(path).read_text().split(), ["7", "8", "9"], id="csv"),
+        pytest.param(
+            "data.parquet", lambda path: pq.read_table(path).column("value").to_pylist(), [7, 8, 9], id="parquet"
+        ),
     ],
 )
-async def test_export_replaces_existing_file(ctx, tmp_path, filename, read):
+async def test_export_replaces_existing_file(ctx, tmp_path, filename, read, expected):
     path = str(tmp_path / filename)
     await (await create_object_from_value([1, 2])).export(path)
-    first = read(path)
-    await (await create_object_from_value([1, 2])).export(path)
-    assert read(path) == first
+    await (await create_object_from_value([7, 8, 9])).export(path)
+    assert read(path) == expected
 
 
 async def test_export_returns_absolute_path(ctx, tmp_path, monkeypatch):

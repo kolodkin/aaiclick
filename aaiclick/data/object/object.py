@@ -94,11 +94,6 @@ class _Unset(Enum):
 
 _UNSET = _Unset.UNSET
 
-# Settings export keeps for itself: lending the server's S3 identity is the
-# operator's call (docs/designs/blob_storage.md), and the other would write to
-# a different key than the URL export returns.
-_EXPORT_RESERVED_SETTINGS = frozenset({"s3_allow_server_credentials_in_user_queries", "s3_create_new_file_on_insert"})
-
 
 def _require_explicit_order_for_cross_table(a: QueryInfo, b: QueryInfo) -> None:
     """Enforce the cross-table operator contract.
@@ -708,7 +703,7 @@ class Object:
 
         *ch_settings* are ClickHouse settings sent with the export statement,
         e.g. ``{"output_format_parquet_compression_method": "snappy"}``. They
-        cannot change where the data lands or whether an existing target is
+        cannot change where a bucket export lands or whether its key is
         replaced, nor lend the server's S3 identity: those settings raise
         ``ValueError``.
 
@@ -720,8 +715,6 @@ class Object:
             validate_blob_url(path)
         fmt = format or format_for_extension(path)
         validate_format_name(fmt)
-        if reserved := _EXPORT_RESERVED_SETTINGS.intersection(ch_settings or ()):
-            raise ValueError(f"ch_settings cannot set {sorted(reserved)} on export")
         select_sql = self._build_select(columns="*")
         if is_url(path):
             return await export_query_to_url(select_sql, path, fmt, overwrite, ch_settings)

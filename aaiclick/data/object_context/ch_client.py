@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -19,6 +18,7 @@ from typing import Protocol, cast
 import pyarrow as pa
 
 from aaiclick.backend import is_chdb
+from aaiclick.snowflake import get_snowflake_id
 
 from ..models import QueryStats
 from ..sql_utils import quote_sql_literal
@@ -157,7 +157,7 @@ async def export_query_to_file(query: str, path: str, fmt: str, settings: dict[s
     # Written beside the target and swapped in, so a failed export — or one
     # reading the target itself — leaves the existing file intact. The name
     # keeps its suffixes: ClickHouse picks the compression from them.
-    partial = target.with_name(f".{uuid.uuid4().hex}-{target.name}")
+    partial = target.with_name(f".{get_snowflake_id()}-{target.name}")
     try:
         await get_ch_client().command(
             f"INSERT INTO FUNCTION file({quote_sql_literal(str(partial))}, '{fmt}') {query}", settings=settings
@@ -166,6 +166,14 @@ async def export_query_to_file(query: str, path: str, fmt: str, settings: dict[s
     finally:
         partial.unlink(missing_ok=True)
     return str(target)
+
+
+# Settings a bucket export keeps for itself: ``overwrite`` owns truncation,
+# creating a new file would write to a key other than the URL returned, and
+# lending the server's S3 identity is the operator's call (blob_storage.md).
+_S3_EXPORT_RESERVED_SETTINGS = frozenset(
+    {"s3_truncate_on_insert", "s3_create_new_file_on_insert", "s3_allow_server_credentials_in_user_queries"}
+)
 
 
 async def export_query_to_url(
@@ -177,6 +185,8 @@ async def export_query_to_url(
     never pass through Python and the SQL carries no credentials — ClickHouse
     resolves them itself. An existing key is an error unless *overwrite*.
     """
+    if reserved := _S3_EXPORT_RESERVED_SETTINGS.intersection(settings or ()):
+        raise ValueError(f"ch_settings cannot set {sorted(reserved)} on export")
     await get_ch_client().command(
         f"INSERT INTO FUNCTION s3({quote_sql_literal(url)}, '{fmt}') {query}",
         settings={**(settings or {}), "s3_truncate_on_insert": int(overwrite)},

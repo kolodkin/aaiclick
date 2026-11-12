@@ -133,7 +133,10 @@ async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
     assert bucket.parquet_compression("export/settings.parquet") == "SNAPPY"
 
 
-@pytest.mark.parametrize("setting", ["s3_allow_server_credentials_in_user_queries", "s3_create_new_file_on_insert"])
+@pytest.mark.parametrize(
+    "setting",
+    ["s3_allow_server_credentials_in_user_queries", "s3_create_new_file_on_insert", "s3_truncate_on_insert"],
+)
 async def test_export_rejects_reserved_ch_settings(ctx, setting):
     obj = await create_object_from_value([1])
     with pytest.raises(ValueError, match="cannot set"):

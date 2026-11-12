@@ -416,10 +416,10 @@ await obj.export("/tmp/data.csv", ch_settings={"format_csv_delimiter": ";"})
 await obj.export(url, ch_settings={"output_format_parquet_compression_method": "snappy"})
 ```
 
-It cannot change whether an existing target is replaced (`overwrite` does, for
-buckets). `s3_create_new_file_on_insert` and
-`s3_allow_server_credentials_in_user_queries` raise: the first would write to
-a different key, the second stays a [profile setting](#credentials).
+On a bucket export, `s3_truncate_on_insert`, `s3_create_new_file_on_insert` and
+`s3_allow_server_credentials_in_user_queries` raise: `overwrite` owns the
+first, the second would write to a different key, and the third stays a
+[profile setting](#credentials).
 
 ## Compression
 
