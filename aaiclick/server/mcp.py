@@ -98,7 +98,6 @@ from aaiclick.viewer.view_models import (
 
 from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_WRITE, McpRbacMiddleware
 
-
 SKILL_DIR = Path(__file__).parent / "skills" / "aaiclick"
 SKILL_URI = "skill://aaiclick/SKILL.md"
 
