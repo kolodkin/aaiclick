@@ -42,6 +42,9 @@ def _with_settings(query: str, settings: dict | None) -> str:
         return query
     parts = []
     for key, val in settings.items():
+        # The name is inlined unquoted, so it must not be able to carry SQL.
+        if not key.isidentifier():
+            raise ValueError(f"Invalid ClickHouse setting name {key!r}")
         if isinstance(val, bool):
             parts.append(f"{key}={1 if val else 0}")
         elif isinstance(val, (int, float)):

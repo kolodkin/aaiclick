@@ -27,7 +27,7 @@ from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
 from .. import object as object_module
-from ..formats import validate_input_format
+from ..formats import validate_format_name
 from ..models import (
     AAI_ID_COLUMN,
     AAI_ID_INFO,
@@ -58,7 +58,7 @@ from ..scope import (
     name_from_table,
 )
 from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal
-from ..url_utils import validate_blob_url
+from ..url_utils import is_url, validate_location
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -340,8 +340,8 @@ async def create_object(
     if schema.location is not None:
         if name is not None:
             raise ValueError("located objects cannot be named yet")
-        validate_blob_url(schema.location)
-        validate_input_format(schema.format)
+        validate_location(schema.location)
+        validate_format_name(schema.format)
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
@@ -361,9 +361,13 @@ async def create_object(
     column_defs = [_column_ddl(name, info) for name, info in schema.columns.items()]
 
     if schema.location is not None:
-        # Located Object: a pointer over files in object storage. No credentials
-        # here — ClickHouse resolves them (docs/designs/blob_storage.md).
-        engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
+        # Located Object: a pointer over files in object storage or on local
+        # disk. No credentials here — ClickHouse resolves them
+        # (docs/designs/blob_storage.md).
+        if is_url(schema.location):
+            engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
+        else:
+            engine_clause = f"ENGINE = File('{schema.format}', {quote_sql_literal(schema.location)})"
     else:
         # Persistent tables always use MergeTree regardless of engine param or schema.engine.
         if obj.persistent:

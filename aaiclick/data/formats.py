@@ -1,112 +1,60 @@
 """
-aaiclick.data.formats - Single source of truth for ClickHouse data formats.
+aaiclick.data.formats - File-extension and format-name handling for ClickHouse data formats.
 
-Both ``Object.export()`` (output side) and ``create_object_from_url()`` (input
-side) consume this registry. Each ``FormatSpec`` records:
+``Object.export()`` and ``open_object_from_url()`` pick a format from a file
+extension through ``EXTENSION_TO_FORMAT``. Explicit ``format=`` names are passed to
+ClickHouse as-is: any format it knows works, and it rejects the rest.
 
-- the ClickHouse format identifier (passed verbatim to ``FORMAT`` / ``file()`` /
-  ``url()``),
-- the natural file extensions for the format,
-- whether ClickHouse supports the format as input and/or output.
-
-Adding a new format is a single edit to ``FORMATS``.
+Adding an extension is a single entry there.
 """
 
 from __future__ import annotations
 
-import gzip
-import lzma
-from collections.abc import Callable
 from pathlib import Path
-from typing import IO, NamedTuple, cast
 
-
-class FormatSpec(NamedTuple):
-    """A ClickHouse data format known to aaiclick."""
-
-    name: str
-    """ClickHouse format identifier — passed verbatim to ``FORMAT`` / ``file()`` / ``url()``."""
-
-    extensions: tuple[str, ...]
-    """Natural file extensions, lowercase, including the leading dot."""
-
-    input: bool
-    """Format can be read by ``create_object_from_url`` / file ingestion."""
-
-    output: bool
-    """Format can be written by ``Object.export``."""
-
-    blob: bool = False
-    """Format reads the whole document as a single string (JSON-blob mode)."""
-
-
-# fmt: off
-FORMATS: tuple[FormatSpec, ...] = (
-    # Columnar / binary
-    FormatSpec("Parquet",              (".parquet",),                  input=True,  output=True),
-    FormatSpec("Arrow",                (".arrow",),                    input=False, output=True),
-    FormatSpec("ORC",                  (".orc",),                      input=True,  output=True),
-    FormatSpec("Avro",                 (".avro",),                     input=True,  output=True),
-    # CSV family
-    FormatSpec("CSV",                  (),                             input=True,  output=False),
-    FormatSpec("CSVWithNames",         (".csv",),                      input=True,  output=True),
-    FormatSpec("CSVWithNamesAndTypes", (),                             input=True,  output=False),
-    # TSV family
-    FormatSpec("TSV",                  (),                             input=True,  output=False),
-    FormatSpec("TSVWithNames",         (".tsv",),                      input=True,  output=True),
-    FormatSpec("TSVWithNamesAndTypes", (),                             input=True,  output=False),
-    # JSON family
-    FormatSpec("JSON",                 (),                             input=True,  output=False),
-    FormatSpec("JSONEachRow",          (".json", ".jsonl", ".ndjson"), input=True,  output=True),
-    FormatSpec("JSONCompactEachRow",   (),                             input=True,  output=False),
-    # Text reports
-    FormatSpec("Markdown",             (".md",),                       input=False, output=True),
-    FormatSpec("XML",                  (".xml",),                      input=False, output=True),
-    FormatSpec("SQLInsert",            (".sql",),                      input=False, output=True),
-    # JSON blob mode — read whole document, extract via JSONExtract
-    FormatSpec("RawBLOB",              (),                             input=True,  output=False, blob=True),
-    FormatSpec("JSONAsString",         (),                             input=True,  output=False, blob=True),
-)
-# fmt: on
-
-
-# Compression codecs supported on both backends. chdb delegates to
-# ClickHouse's ``file()`` auto-detection; remote compresses client-side via
-# the matching stdlib opener below. Only stdlib codecs are advertised so
-# both backends behave identically with zero extra dependencies.
-def _gzip_open(path: str) -> IO[bytes]:
-    return cast(IO[bytes], gzip.open(path, "wb"))
-
-
-def _lzma_open(path: str) -> IO[bytes]:
-    return cast(IO[bytes], lzma.open(path, "wb"))
-
-
-_COMPRESSION_OPENERS: dict[str, Callable[[str], IO[bytes]]] = {
-    ".gz": _gzip_open,
-    ".xz": _lzma_open,
+# Extension → the format ClickHouse itself picks for it; ``.sql`` is ours.
+EXTENSION_TO_FORMAT: dict[str, str] = {
+    ".parquet": "Parquet",
+    ".arrow": "Arrow",
+    ".orc": "ORC",
+    ".avro": "Avro",
+    ".csv": "CSV",
+    ".tsv": "TSV",
+    ".json": "JSON",
+    ".jsonl": "JSONEachRow",
+    ".ndjson": "JSONEachRow",
+    # Text reports — ClickHouse writes these but cannot read them back
+    ".md": "Markdown",
+    ".xml": "XML",
+    ".sql": "SQLInsert",
 }
-COMPRESSION_SUFFIXES: frozenset[str] = frozenset(_COMPRESSION_OPENERS)
+
+# Formats that read the whole document as one string, for JSONExtract.
+JSON_BLOB_FORMATS: frozenset[str] = frozenset({"RawBLOB", "JSONAsString"})
+
+# Compression suffixes stripped before the extension lookup; ClickHouse picks
+# the codec from the suffix itself, and rejects one its build lacks.
+COMPRESSION_SUFFIXES: frozenset[str] = frozenset({".gz", ".xz", ".zst", ".br", ".lz4", ".bz2", ".snappy"})
+
+# ClickHouse resolves the format itself: from the extension, else the content.
+FORMAT_AUTO = "auto"
 
 
-# Derived lookups — built once at import.
-INPUT_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.input)
-OUTPUT_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.output)
-JSON_BLOB_FORMATS: frozenset[str] = frozenset(f.name for f in FORMATS if f.blob)
-EXTENSION_TO_FORMAT: dict[str, str] = {ext: f.name for f in FORMATS for ext in f.extensions if f.output}
+def validate_format_name(fmt: str | None) -> None:
+    """Reject a format name that is not a bare identifier.
 
-
-def validate_input_format(fmt: str | None) -> None:
-    """Reject a format ClickHouse cannot read. Callers inline the name into SQL."""
-    if fmt not in INPUT_FORMATS:
-        raise ValueError(f"Unsupported format {fmt!r}. Supported formats: {sorted(INPUT_FORMATS)}")
+    Callers inline the name into SQL, so this keeps it injection-safe. Whether
+    the format exists and can be read is ClickHouse's call.
+    """
+    if fmt is None or not fmt.isidentifier():
+        raise ValueError(f"Invalid format name {fmt!r}: expected a ClickHouse format such as 'Parquet'")
 
 
 def format_for_extension(path: str) -> str:
-    """Return the ClickHouse output format matching the file extension of *path*.
+    """Return the ClickHouse format matching the file extension of *path*.
 
     A trailing compression suffix from :data:`COMPRESSION_SUFFIXES` is stripped
-    before lookup, so ``data.csv.gz`` resolves to ``CSVWithNames``.
+    before lookup, so ``data.csv.gz`` resolves to ``CSV``.
 
     Raises:
         ValueError: If no supported extension is present.
@@ -121,17 +69,6 @@ def format_for_extension(path: str) -> str:
         raise ValueError(
             f"Unsupported export extension {suffix!r}. "
             f"Supported: {', '.join(supported)} "
-            f"(optionally with {', '.join(sorted(COMPRESSION_SUFFIXES))} compression)"
+            f"(optionally with {', '.join(sorted(COMPRESSION_SUFFIXES))} compression), or pass format="
         )
     return fmt
-
-
-def open_export_writer(path: str) -> IO[bytes]:
-    """Return a binary writer for *path*, transparently wrapping compressed suffixes.
-
-    Matches the set in :data:`COMPRESSION_SUFFIXES`. Unknown suffixes fall
-    through to a plain binary ``open`` — the caller is expected to have
-    already validated the extension via :func:`format_for_extension`.
-    """
-    opener = _COMPRESSION_OPENERS.get(Path(path).suffix.lower())
-    return opener(path) if opener else open(path, "wb")

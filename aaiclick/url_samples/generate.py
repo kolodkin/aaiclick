@@ -20,6 +20,7 @@ import lzma
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.feather as feather
 import pyarrow.orc as orc
 import pyarrow.parquet as pq
 
@@ -137,6 +138,11 @@ def generate_parquet() -> None:
     pq.write_table(_arrow_table(), OUT_DIR / "sample.parquet")
 
 
+def generate_arrow() -> None:
+    """Arrow IPC file sample; uncompressed, as ClickHouse's ``Arrow`` output is."""
+    feather.write_feather(_arrow_table(), OUT_DIR / "sample.arrow", compression="uncompressed")
+
+
 def generate_orc() -> None:
     orc.write_table(_arrow_table(), OUT_DIR / "sample.orc")
 
@@ -166,6 +172,7 @@ if __name__ == "__main__":
     generate_json_compact_each_row()
     generate_json()
     generate_parquet()
+    generate_arrow()
     generate_orc()
     generate_avro()
     print(f"Generated {NUM_ROWS}-row sample files in {OUT_DIR}")

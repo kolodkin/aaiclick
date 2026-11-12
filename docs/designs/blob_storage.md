@@ -19,19 +19,30 @@ table name as for any Object, and computed results land in temp tables.
 
 - **Schema**: `DESCRIBE s3(url, format)`; the pointer keeps the file's column
   names, so the Object is dict-shaped unless the only column is `value`.
+- **Format**: the extension's mapped format, else `auto` so ClickHouse
+  detects it. A `format=` name is only checked to be a bare identifier —
+  it is inlined into SQL — and ClickHouse rejects one it cannot read.
 - **Read-only**: `insert` and `insert_from_url` raise on `Schema.location`.
 - **Temp only**: a `t_` pointer dropped at context exit; `name` raises. The
   bucket is never touched.
 - **No `aai_id`** and no guaranteed row order.
+- **Local files (chdb only)**: a path instead of a URL makes the pointer
+  `ENGINE = File(format, path)` and the schema `DESCRIBE file(...)`. The path
+  is resolved to absolute on open. A remote server would read its own disk,
+  so a path raises there.
 
 # Export to a Bucket
 
 **Implementation**: `aaiclick/data/object_context/ch_client.py`
 
 A URL target runs `INSERT INTO FUNCTION s3(url, format) SELECT ...` on both
-backends, so bytes never pass through Python — unlike the local-file path,
-which streams over HTTP for a remote server. `s3_truncate_on_insert` follows
+backends, so bytes never pass through Python. A local path is chdb-only
+(`INSERT INTO FUNCTION file()`): a remote server cannot reach the client's
+disk, so it raises. `s3_truncate_on_insert` follows
 `overwrite`; an existing key is otherwise ClickHouse's error.
+
+The format comes from the extension, mapped as ClickHouse maps it (`.csv` is
+headerless `CSV`), or from `format=`, which takes any output format.
 
 # Credentials
 

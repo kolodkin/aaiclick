@@ -15,9 +15,10 @@ from collections.abc import Awaitable, Callable, Sequence
 from enum import Enum
 from typing import Any, NamedTuple, Self, TypedDict, Union
 
+from aaiclick.backend import is_chdb
 from aaiclick.snowflake import get_snowflake_id
 
-from ..formats import format_for_extension, validate_input_format
+from ..formats import format_for_extension, validate_format_name
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
@@ -370,7 +371,7 @@ class Object:
         )
 
     def _check_writable(self) -> None:
-        """Raise when this Object points at object storage instead of owning a table."""
+        """Raise when this Object points at a file instead of owning a table."""
         if self._schema.location is not None:
             raise ValueError("located objects are read-only; copy() into a regular Object to modify the data")
 
@@ -673,25 +674,40 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def export(self, path: str, overwrite: bool = False) -> str:
+    async def export(
+        self,
+        path: str,
+        overwrite: bool = False,
+        format: str | None = None,
+        ch_settings: dict[str, str | int] | None = None,
+    ) -> str:
         """Export the object's data to a local file or a bucket URL.
 
-        The format is picked from the file extension. Supported text formats:
-        ``.csv``, ``.tsv``, ``.json`` / ``.jsonl`` / ``.ndjson``, ``.md``,
-        ``.xml``, ``.sql``. Supported binary/columnar formats: ``.parquet``,
-        ``.arrow``, ``.orc``, ``.avro``. ClickHouse picks the compression
-        scheme from a trailing ``.gz`` / ``.zst`` / ``.br`` / ``.xz`` suffix
-        — e.g. ``data.csv.gz`` writes a gzipped CSV.
+        The format is picked from the file extension, as ClickHouse itself
+        maps it: ``.csv`` / ``.tsv`` (no header row), ``.json`` (one document),
+        ``.jsonl`` / ``.ndjson``, ``.md``, ``.xml``, ``.sql``, ``.parquet``,
+        ``.arrow``, ``.orc``, ``.avro``. *format* overrides it with any
+        ClickHouse output format — ``"CSVWithNames"`` writes a header row.
+        ClickHouse picks the compression scheme from a trailing ``.gz`` /
+        ``.xz`` / ``.zst`` / ``.br`` / ``.lz4`` suffix — e.g. ``data.csv.gz``
+        writes a gzipped CSV. ``.bz2`` needs a ClickHouse server; chdb raises
+        ``ValueError``.
 
         View constraints (``where``, ``limit``, ``order_by``) are honored.
-        Backends stream directly: chdb writes via ``INSERT INTO FUNCTION
-        file()`` from the embedded engine; remote ClickHouse streams the
-        formatted bytes over HTTP.
+        A local file needs the embedded chdb backend, which writes it via
+        ``INSERT INTO FUNCTION file()``; a remote ClickHouse cannot reach the
+        client's disk and raises ``ValueError`` — export to a bucket URL there.
 
         An ``http(s)://`` or ``s3://`` *path* is written to object storage by
         ClickHouse itself (``INSERT INTO FUNCTION s3()``) on both backends.
         Writing to an existing key raises unless ``overwrite=True``; a local
         file is always replaced.
+
+        *ch_settings* are ClickHouse settings sent with the export statement,
+        e.g. ``{"output_format_parquet_compression_method": "snappy"}``. They
+        cannot change where a bucket export lands or whether its key is
+        replaced, nor lend the server's S3 identity: those settings raise
+        ``ValueError``.
 
         Returns the absolute path, or the URL, written.
         """
@@ -699,11 +715,15 @@ class Object:
         # Before the extension lookup: a URL carrying a secret must fail as such.
         if is_url(path):
             validate_blob_url(path)
-        fmt = format_for_extension(path)
+        fmt = format or format_for_extension(path)
+        validate_format_name(fmt)
+        # The chdb build has no bzip2 writer; its own error names neither the suffix nor the path.
+        if is_chdb() and path.lower().endswith(".bz2"):
+            raise ValueError("chdb cannot write .bz2 files; use .gz, .xz, .zst, .br, .lz4 or .snappy")
         select_sql = self._build_select(columns="*")
         if is_url(path):
-            return await export_query_to_url(select_sql, path, fmt, overwrite)
-        return await export_query_to_file(select_sql, path, fmt)
+            return await export_query_to_url(select_sql, path, fmt, overwrite, ch_settings)
+        return await export_query_to_file(select_sql, path, fmt, ch_settings)
 
     async def execute(
         self,
@@ -1195,7 +1215,7 @@ class Object:
 
         self._check_writable()
         _validate_url(url)
-        validate_input_format(format)
+        validate_format_name(format)
 
         # aai_id comes from its DEFAULT, never from the URL source.
         target_columns = [c for c in self.schema.columns if c != AAI_ID_COLUMN]

@@ -2112,9 +2112,10 @@ export interface components {
          *         table: ClickHouse table name (empty for blueprints, set for realized objects)
          *         engine: ClickHouse table engine. If None, uses context's engine setting.
          *         order_by: ORDER BY key for MergeTree-family engines. If None, defaults to tuple().
-         *         location: Bucket URL of a located (read-only, object-storage backed) Object.
-         *                   When set, the table is an ``S3`` engine pointer and ``engine`` /
-         *                   ``order_by`` do not apply.
+         *         location: Bucket URL, or on chdb an absolute local path, of a located
+         *                   (read-only, file backed) Object. When set, the table is an
+         *                   ``S3`` / ``File`` engine pointer and ``engine`` / ``order_by``
+         *                   do not apply.
          *         format: ClickHouse format of the file(s) at ``location``.
          */
         Schema: {

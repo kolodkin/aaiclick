@@ -109,11 +109,11 @@ without re-running its upstream, becomes a supported workflow.
 ## ClickHouse Settings Pass-Through
 
 A general way to send ClickHouse settings with the queries an Object runs.
-Today only `create_object_from_url` / `insert_from_url` take `ch_settings`,
-for their one load statement.
+Today `create_object_from_url`, `insert_from_url` and `export` take
+`ch_settings`, for their one statement.
 
-- **Per call**: `ch_settings=` on calls that run a single statement
-  (`export`, `data`, `open_object_from_url`).
+- **Per call**: `ch_settings=` on the other calls that run a single statement
+  (`data`, `open_object_from_url`).
 - **Per Object**: `ch_settings` stored on the Object and in `schema_doc`, so
   it survives task boundaries; every statement reading its table passes it.
 - Views inherit; an operator result is a plain table and inherits nothing;
