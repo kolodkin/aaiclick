@@ -265,7 +265,7 @@ The app mounts it at `/mcp` and chains `mcp.http_app()`'s lifespan into its own.
 
 **Stack**: the standalone `fastmcp` package (4.x) on the official `mcp` SDK v2. Not the SDK's own `MCPServer` (v1's `mcp.server.fastmcp`): the RBAC gate needs FastMCP's typed `on_list_tools` / `on_call_tool` middleware and tool tags. The server negotiates the newest protocol (`2026-07-28`) and still answers the legacy `initialize` handshake.
 
-**Skill**: the usage guide (tool scope, lineage triage order) ships as an agent skill in `aaiclick/server/skills/aaiclick/SKILL.md`, served by FastMCP's `SkillProvider` as the resource `skill://aaiclick/SKILL.md`. The server `instructions` stay a two-sentence summary that ends by pointing at that resource, so clients that inline instructions into every prompt pay for two sentences, not the whole method.
+**Skill**: the usage guide (every tool family, the lineage triage order) ships as an agent skill in `aaiclick/server/skills/aaiclick/SKILL.md`, served by FastMCP's `SkillProvider` as the resource `skill://aaiclick/SKILL.md`. The server `instructions` stay a two-sentence summary that ends by pointing at that resource, so clients that inline instructions into every prompt pay for two sentences, not the whole method.
 
 **Testing**: FastMCP's in-process client against the same `mcp` instance — no HTTP, no uvicorn. Internal-API errors surface as `fastmcp.exceptions.ToolError`:
 

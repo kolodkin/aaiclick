@@ -244,11 +244,12 @@ async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, rev
 
 
 async def test_instructions_point_to_the_skill(mcp_client):
-    """The instructions stay minimal and end by naming the skill, which carries the
-    lineage tools in the order the agent should use them."""
+    """The instructions stay minimal and name the skill, which covers every tool and
+    lists the lineage tools in the order the agent should use them."""
     assert mcp_client.server_info.version == API_VERSION
     assert SKILL_URI in mcp_client.instructions
     skill = (await mcp_client.read_resource(SKILL_URI))[0].text
+    assert {name for name in EXPECTED_TOOLS if f"`{name}`" not in skill} == set()
     order = ["lineage_graph", "lineage_nodes", "lineage_schema", "lineage_query"]
     positions = [skill.index(name) for name in order]
     assert positions == sorted(positions)

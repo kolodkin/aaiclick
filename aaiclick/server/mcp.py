@@ -120,7 +120,7 @@ mcp: FastMCP = FastMCP(
     instructions=(
         "aaiclick: data orchestration on ClickHouse. Tools mirror the CLI verbs and the "
         "REST surface under /api/v0. Before using them, read the skill resource "
-        f"{SKILL_URI} for the lineage triage method."
+        f"{SKILL_URI}: how to use each tool family and the lineage triage method."
     ),
     lifespan=_mcp_lifespan,
     middleware=[McpRbacMiddleware()],
