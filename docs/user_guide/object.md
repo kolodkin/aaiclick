@@ -53,7 +53,7 @@ See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment mo
 | `.markdown(truncate=…)`                         | Data Retrieval   | Render data as markdown table                                          | [markdown()](#markdown)                                              |
 | `.execute(order_by, limit, offset)`             | Data Retrieval   | Run full query, discard rows → `QueryStats`                            | [execute()](#execute)                                                |
 | `await .stats()`                                | Data Retrieval   | `QueryStats` of the query that made this Object                        | [stats()](#stats)                                                    |
-| `.export(path, overwrite)`                      | Export           | Stream data to a file or bucket URL (extension → format)               | [export()](#export)                                                  |
+| `.export(path, overwrite, format, ch_settings)` | Export           | Stream data to a file or bucket URL (extension → format)               | [export()](#export)                                                  |
 | `open_object_from_url(url)`                     | Blob Storage     | Read-only Object over a bucket file, queried in place                  | [Blob Storage](#blob-storage)                                        |
 
 # Operator Support
@@ -373,10 +373,11 @@ print(stats.read_rows)      # how many it scanned to produce them
 
 # Export
 
-Export data to a local file, in the format its extension names. Data streams
-straight from ClickHouse with no Python round-trip, so multi-million-row exports
-stay memory-bounded. View constraints (`where`, `limit`, `order_by`) are
-honored. Returns the absolute path written.
+Export data to a local file, in the format its extension names. The embedded
+chdb engine writes straight to disk with no Python round-trip, so
+multi-million-row exports stay memory-bounded. View constraints (`where`,
+`limit`, `order_by`) are honored. An existing file is replaced only once the
+export has succeeded. Returns the absolute path written.
 
 ```python
 await obj.export("/tmp/data.csv")
@@ -388,9 +389,10 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 
 | Extension                       | ClickHouse format | Notes                                  |
 |---------------------------------|-------------------|----------------------------------------|
-| `.csv`                          | `CSVWithNames`    | header row included                    |
-| `.tsv`                          | `TSVWithNames`    | header row included                    |
-| `.json` / `.jsonl` / `.ndjson`  | `JSONEachRow`     | newline-delimited JSON                 |
+| `.csv`                          | `CSV`             | no header row                          |
+| `.tsv`                          | `TSV`             | no header row                          |
+| `.json`                         | `JSON`            | one document: `meta`, `data`, `rows`   |
+| `.jsonl` / `.ndjson`            | `JSONEachRow`     | newline-delimited JSON                 |
 | `.parquet`                      | `Parquet`         | columnar, best for large datasets      |
 | `.arrow`                        | `Arrow`           | Apache Arrow IPC stream                |
 | `.orc`                          | `ORC`             | Apache ORC columnar                    |
@@ -399,9 +401,31 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 | `.xml`                          | `XML`             | one `<row>` element per record         |
 | `.sql`                          | `SQLInsert`       | `INSERT INTO table VALUES (...)`       |
 
+These are the formats ClickHouse itself picks for each extension. `format=`
+overrides the extension with any ClickHouse output format:
+
+```python
+await obj.export("/tmp/data.csv", format="CSVWithNames")  # with a header row
+await obj.export("/tmp/data.bin", format="Native")
+```
+
+`ch_settings=` sends ClickHouse settings with the export statement:
+
+```python
+await obj.export("/tmp/data.csv", ch_settings={"format_csv_delimiter": ";"})
+await obj.export(url, ch_settings={"output_format_parquet_compression_method": "snappy"})
+```
+
+On a bucket export, `s3_truncate_on_insert`, `s3_create_new_file_on_insert` and
+`s3_allow_server_credentials_in_user_queries` raise: `overwrite` owns the
+first, the second would write to a different key, and the third stays a
+[profile setting](#credentials).
+
 ## Compression
 
-Append `.gz` or `.xz` and the writer compresses automatically:
+Append a compression suffix and ClickHouse compresses the file: `.gz`, `.xz`,
+`.zst`, `.br`, `.lz4`, `.snappy`. `.bz2` works on a ClickHouse server only;
+chdb cannot write it and raises `ValueError`.
 
 ```python
 await obj.export("/tmp/data.csv.gz")
@@ -409,14 +433,9 @@ await obj.export("/tmp/data.parquet.gz")
 await obj.export("/tmp/data.json.xz")
 ```
 
-## Backend behavior
-
-- **chdb (embedded):** `INSERT INTO FUNCTION file('path', fmt)` streams
-  straight to disk, with the codec picked from the path suffix.
-- **clickhouse-connect (remote):** `raw_stream(query, fmt=fmt)` bytes are
-  copied to the local file in 64 KB chunks on a worker thread, through
-  `gzip` / `lzma` if the path asks for it. `INSERT INTO FUNCTION file()`
-  would write to the *server's* `user_files_path`, not the client.
+!!! warning "Local files need the chdb backend"
+    A remote ClickHouse cannot reach the client's disk, so a local path raises
+    `ValueError` there. Export to a [bucket](#bucket-targets) instead.
 
 ## Bucket targets
 
@@ -445,8 +464,14 @@ daily = await open_object_from_url(url)
 await daily.view(where="country = 'US'")["revenue"].sum().data()
 ```
 
-- **Schema** is inferred from the file; `columns=` narrows it, `format=`
-  overrides the extension, `column_types=` skips inference.
+- **Schema** is inferred from the file; `columns=` narrows it,
+  `column_types=` skips inference.
+- **Format** follows the extension as in [Export](#supported-extensions).
+  `format=` takes any ClickHouse input format; with an unmapped or missing
+  extension ClickHouse detects it from the content.
+- **CSV / TSV headers**: ClickHouse detects a header row; a headerless file
+  exposes columns as `c1`, `c2`, …. Detection cannot tell a header from data
+  when every column is a string — pass `format="CSVWithNames"` there.
 - **Read-only**: `insert` and `insert_from_url` raise.
 - **Temporary**: the Object is a pointer dropped at context exit; the file is
   never touched.
@@ -455,6 +480,17 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
 - **URLs**: `s3://bucket/key` for AWS, `http(s)://host/bucket/key` for
   S3-compatible servers such as MinIO. Globs pass through to ClickHouse;
   userinfo and query parameters (signed URLs) are rejected.
+
+## Local files
+
+On the embedded chdb backend the same call opens a file on local disk, so an
+exported path feeds straight back in. A remote ClickHouse raises `ValueError`,
+as local export does.
+
+```python
+path = await daily.export("/data/reports/daily.parquet")
+daily = await open_object_from_url(path)
+```
 
 ## Credentials
 

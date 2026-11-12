@@ -23,12 +23,8 @@ from aaiclick.backend import is_chdb
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.data.object_context import get_ch_client
 from aaiclick.orchestration.execution.runner import deserialize_task_params
+from aaiclick.testing import SAMPLE_TABLE
 
-SAMPLE = {
-    "id": [1, 2, 3],
-    "name": ["alice", "bob", "charlie"],
-    "score": [10.5, 20.0, 30.25],
-}
 _BUCKET = "aaiclick-test"
 _HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 _KEYS = {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing"}
@@ -47,6 +43,14 @@ class Bucket:
             aws_secret_access_key=_KEYS["AWS_SECRET_ACCESS_KEY"],
         )
         self._s3.create_bucket(Bucket=_BUCKET)
+
+    def copy(self, key: str, new_key: str) -> str:
+        self._s3.copy_object(Bucket=_BUCKET, Key=new_key, CopySource={"Bucket": _BUCKET, "Key": key})
+        return f"{self.url}/{new_key}"
+
+    def parquet_compression(self, key: str) -> str:
+        body = self._s3.get_object(Bucket=_BUCKET, Key=key)["Body"].read()
+        return pq.ParquetFile(io.BytesIO(body)).metadata.row_group(0).column(0).compression
 
     def read_parquet(self, key: str) -> dict[str, list]:
         body = self._s3.get_object(Bucket=_BUCKET, Key=key)["Body"].read()
@@ -92,14 +96,14 @@ async def server_lends_s3_identity(request, ctx) -> None:
 
 
 async def test_export_to_bucket(ctx, bucket):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     url = f"{bucket.url}/export/sample.parquet"
     assert await obj.export(url) == url
-    assert bucket.read_parquet("export/sample.parquet") == SAMPLE
+    assert bucket.read_parquet("export/sample.parquet") == SAMPLE_TABLE
 
 
 async def test_export_to_bucket_honors_view_constraints(ctx, bucket):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     await obj.view(where="score > 15", order_by="id", limit=1).export(f"{bucket.url}/export/view.parquet")
     assert bucket.read_parquet("export/view.parquet") == {"id": [2], "name": ["bob"], "score": [20.0]}
 
@@ -115,6 +119,26 @@ async def test_export_to_existing_key_needs_overwrite(ctx, bucket):
     assert bucket.read_parquet("export/twice.parquet") == {"value": [7, 8, 9]}
 
 
+async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
+    obj = await create_object_from_value(SAMPLE_TABLE)
+    await obj.export(
+        f"{bucket.url}/export/settings.parquet",
+        overwrite=True,
+        ch_settings={"output_format_parquet_compression_method": "snappy"},
+    )
+    assert bucket.parquet_compression("export/settings.parquet") == "SNAPPY"
+
+
+@pytest.mark.parametrize(
+    "setting",
+    ["s3_allow_server_credentials_in_user_queries", "s3_create_new_file_on_insert", "s3_truncate_on_insert"],
+)
+async def test_export_rejects_reserved_ch_settings(ctx, setting):
+    obj = await create_object_from_value([1])
+    with pytest.raises(ValueError, match="cannot set"):
+        await obj.export("s3://bucket/data.parquet", ch_settings={setting: 1})
+
+
 async def test_export_rejects_unsupported_scheme(ctx):
     obj = await create_object_from_value([1])
     with pytest.raises(ValueError, match="http, https or s3"):
@@ -128,17 +152,31 @@ async def test_export_rejects_unsupported_scheme(ctx):
 
 @pytest.fixture
 async def sample_url(ctx, bucket) -> str:
-    """SAMPLE exported as parquet; the key is replaced on every test."""
-    obj = await create_object_from_value(SAMPLE)
+    """SAMPLE_TABLE exported as parquet; the key is replaced on every test."""
+    obj = await create_object_from_value(SAMPLE_TABLE)
     return await obj.export(f"{bucket.url}/open/sample.parquet", overwrite=True)
 
 
-@pytest.mark.parametrize("extension", [".parquet", ".csv", ".tsv", ".jsonl", ".orc", ".avro"])
+@pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl", ".orc", ".avro"])
 async def test_export_open_round_trip(ctx, bucket, extension):
-    obj = await create_object_from_value(SAMPLE)
+    obj = await create_object_from_value(SAMPLE_TABLE)
     url = await obj.export(f"{bucket.url}/roundtrip/sample{extension}", overwrite=True)
     opened = await open_object_from_url(url)
-    assert await opened.data() == SAMPLE
+    assert await opened.data() == SAMPLE_TABLE
+
+
+@pytest.mark.parametrize(
+    "format, expected",
+    [
+        pytest.param("CSVWithNames", SAMPLE_TABLE, id="header-detected"),
+        # ClickHouse's own default for ``.csv``: no header, positional names.
+        pytest.param(None, dict(zip(("c1", "c2", "c3"), SAMPLE_TABLE.values(), strict=True)), id="headerless"),
+    ],
+)
+async def test_csv_round_trip(ctx, bucket, format, expected):
+    obj = await create_object_from_value(SAMPLE_TABLE)
+    url = await obj.export(f"{bucket.url}/roundtrip/header.csv", overwrite=True, format=format)
+    assert await (await open_object_from_url(url)).data() == expected
 
 
 async def test_located_object_filters_and_aggregates_in_place(ctx, sample_url):
@@ -157,6 +195,18 @@ async def test_open_single_character_glob(ctx, bucket):
         await (await create_object_from_value([part])).export(f"{bucket.url}/glob/part-{part}.parquet", overwrite=True)
     opened = await open_object_from_url(f"{bucket.url}/glob/part-?.parquet")
     assert sorted(await opened.data()) == [1, 2]
+
+
+async def test_open_without_extension_detects_format(ctx, bucket, sample_url):
+    """ClickHouse detects the format from the content when no extension names it."""
+    opened = await open_object_from_url(bucket.copy("open/sample.parquet", "open/sample"))
+    assert await opened.data() == SAMPLE_TABLE
+
+
+async def test_open_unknown_format_is_clickhouse_error(ctx):
+    """Format names pass through; ClickHouse rejects one it does not know, before any request."""
+    with pytest.raises(Exception, match="Unknown format"):
+        await open_object_from_url("s3://bucket/data", format="Nope")
 
 
 async def test_open_url_with_quote_in_key(ctx, bucket):
@@ -181,14 +231,13 @@ async def test_located_object_rejects_insert_from_url(ctx, sample_url):
     "url, kwargs, match",
     [
         pytest.param("ftp://example.com/data.parquet", {}, "http, https or s3", id="bad-scheme"),
-        pytest.param("s3://bucket/data", {}, "pass format=", id="no-extension-no-format"),
         pytest.param(
             "s3://bucket/data.parquet",
             {"columns": ["id"], "column_types": {}},
             "column_types",
             id="column-missing-from-types",
         ),
-        pytest.param("s3://bucket/data", {"format": "Nope"}, "Unsupported format", id="unknown-format"),
+        pytest.param("s3://bucket/data", {"format": "Parquet') --"}, "Invalid format name", id="format-injection"),
         pytest.param("s3://bucket/data.parquet", {"columns": []}, "non-empty", id="empty-columns"),
     ],
 )
@@ -215,9 +264,10 @@ async def test_located_object_cannot_be_named(ctx):
 @pytest.mark.parametrize(
     "overrides, match",
     [
-        pytest.param({"format": "Parquet') COMMENT 'injected' --"}, "Unsupported format", id="format-injection"),
-        pytest.param({"format": None}, "Unsupported format", id="format-missing"),
-        pytest.param({"location": "not a url"}, "http, https or s3", id="location-not-a-url"),
+        pytest.param({"format": "Parquet') COMMENT 'injected' --"}, "Invalid format name", id="format-injection"),
+        pytest.param({"format": None}, "Invalid format name", id="format-missing"),
+        pytest.param({"location": "relative/data.parquet"}, "absolute path|chdb backend", id="location-relative"),
+        pytest.param({"location": "ftp://example.com/data.parquet"}, "http, https or s3", id="location-bad-scheme"),
     ],
 )
 async def test_create_object_validates_location_and_format(ctx, overrides, match):

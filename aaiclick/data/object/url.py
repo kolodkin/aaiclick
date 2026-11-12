@@ -10,13 +10,14 @@ via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import urlparse
 
-from ..formats import JSON_BLOB_FORMATS, format_for_extension, validate_input_format
+from ..formats import FORMAT_AUTO, JSON_BLOB_FORMATS, format_for_extension, validate_format_name
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
-from ..url_utils import validate_blob_url
+from ..url_utils import is_url, validate_location
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
@@ -189,7 +190,7 @@ async def create_object_from_url(
         RuntimeError: If no active ObjectContext
     """
     _validate_url(url)
-    validate_input_format(format)
+    validate_format_name(format)
     if limit is not None and (not isinstance(limit, int) or limit <= 0):
         raise ValueError(f"limit must be a positive integer, got {limit}")
     if where is not None and (err := validate_where_expression(where)):
@@ -350,21 +351,25 @@ async def open_object_from_url(
     column_types: dict[str, ColumnInfo] | None = None,
 ) -> object_module.Object:
     """
-    Open a file in object storage as a read-only Object, queried in place.
+    Open a file in object storage, or on local disk, as a read-only Object,
+    queried in place.
 
-    Nothing is copied: the Object's table is a ClickHouse ``S3`` engine pointer
-    over ``url``, so operators, views and aggregations read the file directly.
-    The located counterpart of ``create_object_from_url``, which ingests.
+    Nothing is copied: the Object's table is a ClickHouse ``S3`` (or, for a
+    local path, ``File``) engine pointer over ``url``, so operators, views and
+    aggregations read the file directly. The located counterpart of
+    ``create_object_from_url``, which ingests.
 
     The Object is temporary (the pointer is dropped at context exit; the file
     is never touched) and read-only: ``insert`` and ``insert_from_url`` raise.
     ``url`` carries no credentials — ClickHouse resolves them itself.
 
     Args:
-        url: ``http(s)://`` or ``s3://`` URL of the file. Globs are passed through.
+        url: ``http(s)://`` or ``s3://`` URL of the file, or a local path
+            (chdb backend only). Globs are passed through.
         columns: Columns to expose. Defaults to every column in the file.
-        format: ClickHouse input format, e.g. ``"Parquet"``. Defaults to the
-            format the URL's extension names.
+        format: Any ClickHouse input format, e.g. ``"Parquet"``. Defaults to
+            the format the URL's extension names; for an extension aaiclick
+            does not map, ClickHouse detects the format itself.
         column_types: Column types, skipping schema inference. Keys are the
             columns to expose when ``columns`` is omitted.
 
@@ -380,19 +385,21 @@ async def open_object_from_url(
         >>> daily = await open_object_from_url(url)
         >>> await daily.view(where="country = 'US'")["revenue"].sum().data()
     """
-    validate_blob_url(url)
+    if not is_url(url):
+        url = str(Path(url).resolve())
+    validate_location(url)
     if columns is not None:
         _validate_url_columns(columns)
     if format is None:
         try:
             format = format_for_extension(url)
         except ValueError:
-            raise ValueError(f"Cannot tell the format of {url!r} from its extension; pass format=") from None
-    validate_input_format(format)
+            format = FORMAT_AUTO
+    validate_format_name(format)
 
     if column_types is None:
         select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"
-        source = f"s3({quote_sql_literal(url)}, '{format}')"
+        source = f"{'s3' if is_url(url) else 'file'}({quote_sql_literal(url)}, '{format}')"
         described = await get_ch_client().query(f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)")
         column_types = {row[0]: parse_ch_type(row[1]) for row in described.result_rows}
     names = columns or list(column_types)

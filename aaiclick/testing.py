@@ -56,6 +56,13 @@ _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 # it; the per-PR suite leaves it off because the per-test collect is slow.
 _GC_LEAK_CHECK = bool(os.environ.get("AAICLICK_GC_LEAK_CHECK"))
 
+# Small dict-shaped dataset shared by the export / open-in-place tests.
+SAMPLE_TABLE = {
+    "id": [1, 2, 3],
+    "name": ["alice", "bob", "charlie"],
+    "score": [10.5, 20.0, 30.25],
+}
+
 
 @pytest.fixture(autouse=_GC_LEAK_CHECK)
 def gc_leak_check():
