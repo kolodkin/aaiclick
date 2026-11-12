@@ -211,11 +211,11 @@ async def list_jobs(filter: JobListFilter = Depends()) -> Page[JobView]:
 
 **Implementation**: `aaiclick/internal_api/execution_workers.py`
 
-REST and MCP only list workers (`GET /execution-workers`, `list_execution_workers`). Starting and stopping stay on the CLI (`execution-worker start` / `stop`) and the deployment (Compose, Helm replicas):
+REST and MCP only list workers. Start and stop stay on the CLI and the deployment (Compose, Helm replicas):
 
-- **Stop is one-way**: `STOPPING` → `STOPPED` never goes back; the worker rejoins only as a new row. In local mode the one worker lives in the server process and cannot be started remotely, so a remote stop strands every job in `PENDING` until the server restarts.
-- **Start belongs to the deployment**: a server-spawned worker is an untracked process on the API host, outside the replica count the deployment declares.
-- **No remote workflow needs either**: agents and the UI run jobs, read data and triage; none of that changes the worker pool. An `admin` token exists for `run_job` / `cancel_job`, so the scope ladder alone would not keep an agent away from them.
+- **Stop is one-way**: a stopped worker never resumes. In local mode it is the only worker, so a remote stop strands every job in `PENDING` until the server restarts.
+- **Start belongs to the deployment**: a server-spawned worker is an untracked process on the API host.
+- **No remote workflow needs either**, and the `admin` scope alone would not keep an agent away from them.
 
 ## Live updates — `GET /api/v0/events`
 
