@@ -673,7 +673,13 @@ class Object:
             lines.append(row)
         return "\n".join(lines)
 
-    async def export(self, path: str, overwrite: bool = False, format: str | None = None) -> str:
+    async def export(
+        self,
+        path: str,
+        overwrite: bool = False,
+        format: str | None = None,
+        ch_settings: dict[str, str | int] | None = None,
+    ) -> str:
         """Export the object's data to a local file or a bucket URL.
 
         The format is picked from the file extension, as ClickHouse itself
@@ -695,6 +701,12 @@ class Object:
         Writing to an existing key raises unless ``overwrite=True``; a local
         file is always replaced.
 
+        *ch_settings* are ClickHouse settings sent with the export statement,
+        e.g. ``{"output_format_parquet_compression_method": "snappy"}``. They
+        cannot change whether an existing target is replaced, nor lend the
+        server's S3 identity (``s3_allow_server_credentials_in_user_queries``
+        raises ``ValueError``).
+
         Returns the absolute path, or the URL, written.
         """
         self.checkstale()
@@ -703,10 +715,13 @@ class Object:
             validate_blob_url(path)
         fmt = format or format_for_extension(path)
         validate_format_name(fmt)
+        # Lending the server's S3 identity is the operator's call (blob_storage.md).
+        if ch_settings and "s3_allow_server_credentials_in_user_queries" in ch_settings:
+            raise ValueError("s3_allow_server_credentials_in_user_queries is set in the ClickHouse profile, not here")
         select_sql = self._build_select(columns="*")
         if is_url(path):
-            return await export_query_to_url(select_sql, path, fmt, overwrite)
-        return await export_query_to_file(select_sql, path, fmt)
+            return await export_query_to_url(select_sql, path, fmt, overwrite, ch_settings)
+        return await export_query_to_file(select_sql, path, fmt, ch_settings)
 
     async def execute(
         self,

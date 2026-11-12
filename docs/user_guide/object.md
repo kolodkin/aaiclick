@@ -53,7 +53,7 @@ See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment mo
 | `.markdown(truncate=…)`                         | Data Retrieval   | Render data as markdown table                                          | [markdown()](#markdown)                                              |
 | `.execute(order_by, limit, offset)`             | Data Retrieval   | Run full query, discard rows → `QueryStats`                            | [execute()](#execute)                                                |
 | `await .stats()`                                | Data Retrieval   | `QueryStats` of the query that made this Object                        | [stats()](#stats)                                                    |
-| `.export(path, overwrite, format)`              | Export           | Stream data to a file or bucket URL (extension → format)               | [export()](#export)                                                  |
+| `.export(path, overwrite, format, ch_settings)` | Export           | Stream data to a file or bucket URL (extension → format)               | [export()](#export)                                                  |
 | `open_object_from_url(url)`                     | Blob Storage     | Read-only Object over a bucket file, queried in place                  | [Blob Storage](#blob-storage)                                        |
 
 # Operator Support
@@ -408,6 +408,17 @@ overrides the extension with any ClickHouse output format:
 await obj.export("/tmp/data.csv", format="CSVWithNames")  # with a header row
 await obj.export("/tmp/data.bin", format="Native")
 ```
+
+`ch_settings=` sends ClickHouse settings with the export statement:
+
+```python
+await obj.export("/tmp/data.csv", ch_settings={"format_csv_delimiter": ";"})
+await obj.export(url, ch_settings={"output_format_parquet_compression_method": "snappy"})
+```
+
+It cannot change whether an existing target is replaced (`overwrite` does, for
+buckets), and `s3_allow_server_credentials_in_user_queries` raises: that stays
+a [profile setting](#credentials).
 
 ## Compression
 

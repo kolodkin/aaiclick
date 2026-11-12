@@ -52,6 +52,10 @@ class Bucket:
         self._s3.copy_object(Bucket=_BUCKET, Key=new_key, CopySource={"Bucket": _BUCKET, "Key": key})
         return f"{self.url}/{new_key}"
 
+    def parquet_compression(self, key: str) -> str:
+        body = self._s3.get_object(Bucket=_BUCKET, Key=key)["Body"].read()
+        return pq.ParquetFile(io.BytesIO(body)).metadata.row_group(0).column(0).compression
+
     def read_parquet(self, key: str) -> dict[str, list]:
         body = self._s3.get_object(Bucket=_BUCKET, Key=key)["Body"].read()
         return pq.read_table(io.BytesIO(body)).to_pydict()
@@ -117,6 +121,22 @@ async def test_export_to_existing_key_needs_overwrite(ctx, bucket):
     assert bucket.read_parquet("export/twice.parquet") == {"value": [1, 2]}
     await replacement.export(url, overwrite=True)
     assert bucket.read_parquet("export/twice.parquet") == {"value": [7, 8, 9]}
+
+
+async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
+    obj = await create_object_from_value(SAMPLE)
+    await obj.export(
+        f"{bucket.url}/export/settings.parquet",
+        overwrite=True,
+        ch_settings={"output_format_parquet_compression_method": "snappy"},
+    )
+    assert bucket.parquet_compression("export/settings.parquet") == "SNAPPY"
+
+
+async def test_export_ch_settings_cannot_lend_s3_identity(ctx):
+    obj = await create_object_from_value([1])
+    with pytest.raises(ValueError, match="ClickHouse profile"):
+        await obj.export("s3://bucket/data.parquet", ch_settings={"s3_allow_server_credentials_in_user_queries": 1})
 
 
 async def test_export_rejects_unsupported_scheme(ctx):

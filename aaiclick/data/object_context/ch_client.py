@@ -144,7 +144,7 @@ async def execute_for_stats(
     return QueryStats.from_clickhouse_summary(summary)
 
 
-async def export_query_to_file(query: str, path: str, fmt: str) -> str:
+async def export_query_to_file(query: str, path: str, fmt: str, settings: dict[str, str | int] | None = None) -> str:
     """Write a ``SELECT`` query result to a local file in *fmt*, replacing it.
 
     chdb only: ``INSERT INTO FUNCTION file('path', fmt) <query>`` — the embedded
@@ -156,12 +156,14 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     # file() appends to an existing file by default; export replaces it.
     await get_ch_client().command(
         f"INSERT INTO FUNCTION file({quote_sql_literal(abs_path)}, '{fmt}') {query}",
-        settings={"engine_file_truncate_on_insert": 1},
+        settings={**(settings or {}), "engine_file_truncate_on_insert": 1},
     )
     return abs_path
 
 
-async def export_query_to_url(query: str, url: str, fmt: str, overwrite: bool = False) -> str:
+async def export_query_to_url(
+    query: str, url: str, fmt: str, overwrite: bool = False, settings: dict[str, str | int] | None = None
+) -> str:
     """Write a ``SELECT`` query result to a bucket URL in *fmt*, server-side.
 
     ``INSERT INTO FUNCTION s3(url, fmt) <query>`` on both backends: the bytes
@@ -170,7 +172,7 @@ async def export_query_to_url(query: str, url: str, fmt: str, overwrite: bool = 
     """
     await get_ch_client().command(
         f"INSERT INTO FUNCTION s3({quote_sql_literal(url)}, '{fmt}') {query}",
-        settings={"s3_truncate_on_insert": int(overwrite)},
+        settings={**(settings or {}), "s3_truncate_on_insert": int(overwrite)},
     )
     return url
 

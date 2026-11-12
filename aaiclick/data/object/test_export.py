@@ -219,6 +219,19 @@ async def test_export_format_overrides_extension(ctx, tmp_path):
     assert Path(path).read_text().splitlines()[0] == '"id","name","score"'
 
 
+async def test_export_ch_settings_reach_the_statement(ctx, tmp_path):
+    obj = await create_object_from_value(SAMPLE)
+    path = await obj.export(str(tmp_path / "data.csv"), ch_settings={"format_csv_delimiter": ";"})
+    assert Path(path).read_text().splitlines()[0] == '1;"alice";10.5'
+
+
+async def test_export_ch_settings_cannot_stop_replacing(ctx, tmp_path):
+    path = str(tmp_path / "data.csv")
+    await (await create_object_from_value([1, 2])).export(path)
+    await (await create_object_from_value([7])).export(path, ch_settings={"engine_file_truncate_on_insert": 0})
+    assert Path(path).read_text().split() == ["7"]
+
+
 # =============================================================================
 # Error cases
 # =============================================================================
