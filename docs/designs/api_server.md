@@ -263,6 +263,8 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
 
 The app mounts it at `/mcp` and chains `mcp.http_app()`'s lifespan into its own. FastMCP generates tool schemas from the pydantic types, so inputs and outputs match REST.
 
+**Stack**: the standalone `fastmcp` package (4.x) on the official `mcp` SDK v2. Not the SDK's own `MCPServer` (v1's `mcp.server.fastmcp`): the RBAC gate needs FastMCP's typed `on_list_tools` / `on_call_tool` middleware and tool tags. The server negotiates the newest protocol (`2026-07-28`) and still answers the legacy `initialize` handshake.
+
 **Testing**: FastMCP's in-process client against the same `mcp` instance — no HTTP, no uvicorn. Internal-API errors surface as `fastmcp.exceptions.ToolError`:
 
 ```python
