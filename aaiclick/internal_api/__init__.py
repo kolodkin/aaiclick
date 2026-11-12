@@ -13,7 +13,6 @@ See ``docs/designs/api_server.md`` for the full contract.
 
 from .errors import (
     Conflict,
-    ExecutionWorkerSpawnFailed,
     Forbidden,
     InternalApiError,
     Invalid,
@@ -21,7 +20,7 @@ from .errors import (
     SandboxUnavailable,
     Unauthorized,
 )
-from .execution_workers import list_execution_workers, start_execution_worker, stop_execution_worker
+from .execution_workers import list_execution_workers, stop_execution_worker
 from .jobs import cancel_job, get_job, job_stats, list_jobs, run_job
 from .lineage import (
     get_table_schema,

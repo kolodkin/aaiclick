@@ -81,7 +81,6 @@ from aaiclick.view_models import (
     RegisterJobRequest,
     RunJobRequest,
     SetupResult,
-    StartExecutionWorkerRequest,
     TaskListFilter,
 )
 from aaiclick.viewer.view_models import (
@@ -242,20 +241,6 @@ async def list_execution_workers(filter: ExecutionWorkerFilter | None = None) ->
     """Return a page of execution workers ordered by ``started_at`` descending."""
     async with orch_context():
         return await execution_workers_api.list_execution_workers(filter)
-
-
-@mcp.tool(tags={TAG_ADMIN})
-async def start_execution_worker(request: StartExecutionWorkerRequest | None = None) -> None:
-    """Spawn a detached worker process (distributed mode only; errors in local mode)."""
-    async with orch_context():
-        await execution_workers_api.start_execution_worker(request)
-
-
-@mcp.tool(tags={TAG_ADMIN})
-async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView:
-    """Request a worker to stop gracefully after its current task."""
-    async with orch_context():
-        return await execution_workers_api.stop_execution_worker(execution_worker_id)
 
 
 # --- objects ----------------------------------------------------------

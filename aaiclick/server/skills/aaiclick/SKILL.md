@@ -35,9 +35,9 @@ schemas.
 
 # Workers
 
-`list_execution_workers`; `start_execution_worker` (distributed mode only,
-local mode runs workers in-process) and `stop_execution_worker`, which stops
-after the current task.
+`list_execution_workers` is read-only. Starting and stopping workers is not
+exposed here: it belongs to the CLI and the deployment. If no worker is
+`ACTIVE`, jobs stay `PENDING` — report it instead of retrying.
 
 # Objects
 

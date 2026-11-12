@@ -71,7 +71,6 @@ class ProblemCode(str, Enum):
     UNAUTHORIZED = "unauthorized"
     MFA_REQUIRED = "mfa_required"
     FORBIDDEN = "forbidden"
-    EXECUTION_WORKER_SPAWN_FAILED = "execution_worker_spawn_failed"
     SANDBOX_UNAVAILABLE = "sandbox_unavailable"
 
 
@@ -196,16 +195,6 @@ class ExecutionWorkerFilter(ApiModel):
     limit: PageLimit = 50
     offset: PageOffset = 0
     cursor: str | None = None
-
-
-class StartExecutionWorkerRequest(ApiModel):
-    """Inputs for ``internal_api.start_execution_worker``.
-
-    ``max_tasks`` caps how many tasks the spawned execution worker executes
-    before it exits; ``None`` means unlimited (run until stopped).
-    """
-
-    max_tasks: int | None = None
 
 
 SCOPE_ALL = "all"  # listing-only scope: global plus every job's objects

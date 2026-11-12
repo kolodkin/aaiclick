@@ -122,8 +122,8 @@ async def list_jobs(filter: JobListFilter = JobListFilter()) -> Page[JobView]: .
 | `job enable <name>`          | `enable_job(name)`                 | `POST /registered-jobs/{n}/enable`   | `enable_job`             |
 | `job disable <name>`         | `disable_job(name)`                | `POST /registered-jobs/{n}/disable`  | `disable_job`            |
 | `execution-worker list`      | `list_execution_workers(filter)`   | `GET /execution-workers`             | `list_execution_workers` |
-| `execution-worker start`     | `start_execution_worker()`         | `POST /execution-workers`            | `start_execution_worker` |
-| `execution-worker stop <id>` | `stop_execution_worker(id)`        | `POST /execution-workers/{id}/stop`  | `stop_execution_worker`  |
+| `execution-worker start`     | — (blocking CLI loop)              | —                                    | —                        |
+| `execution-worker stop <id>` | `stop_execution_worker(id)`        | —                                    | —                        |
 | `data list`                  | `list_objects(filter)`             | `GET /objects`                       | `list_objects`           |
 | `data get <name>`            | `get_object(name)`                 | `GET /objects/{name}`                | `get_object`             |
 | `data delete <name>`         | `delete_object(name)`              | `DELETE /objects/{name}`             | `delete_object`          |
@@ -194,7 +194,7 @@ async def list_jobs(filter: JobListFilter = Depends()) -> Page[JobView]:
     return await jobs_api.list_jobs(filter)          # → GET /api/v0/jobs
 ```
 
-**Error mapping** — one exception handler maps each `internal_api.errors` type to a `Problem` with a stable `ProblemCode`. `ExecutionWorkerSpawnFailed` subclasses `Conflict`, so `except Conflict` still catches it, but it maps to its own status and code.
+**Error mapping** — one exception handler maps each `internal_api.errors` type to a `Problem` with a stable `ProblemCode`.
 
 | Error                        | HTTP |
 |------------------------------|------|
@@ -203,44 +203,19 @@ async def list_jobs(filter: JobListFilter = Depends()) -> Page[JobView]:
 | `Invalid`                    | 422  |
 | `Unauthorized`               | 401  |
 | `Forbidden`                  | 403  |
-| `ExecutionWorkerSpawnFailed` | 503  |
 
 - **OpenAPI** — derived from the view models; served at `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
 - **Logs** — `GET /tasks/{id}/logs` returns a `TaskLogsView` whose `lines` carry `stream` (`stdout`/`stderr`) and `text`, read from the host-independent ClickHouse `task_logs` stream. `?tail=N` keeps the last N lines; `?attempt=N` (1-based, default latest, 404 if out of range) picks the run; `attempts` lists every run with its status.
 
-## Spawning workers — `POST /api/v0/execution-workers`
+## Worker lifecycle — CLI only
 
-**Implementation**: `aaiclick/server/routers/execution_workers.py`
+**Implementation**: `aaiclick/internal_api/execution_workers.py`
 
-The CLI's `execution-worker start` is a blocking loop that runs until SIGTERM, which does not fit request/response. The endpoint instead spawns a **detached subprocess** and returns `202 Accepted` once fork/exec succeeds:
+REST and MCP only list workers (`GET /execution-workers`, `list_execution_workers`). Starting and stopping stay on the CLI (`execution-worker start` / `stop`) and the deployment (Compose, Helm replicas):
 
-```
-POST /api/v0/execution-workers
-Content-Type: application/json
-
-{ "max_tasks": 100 }          # optional → unlimited if omitted
-```
-
-1. `start_execution_worker` refuses in local mode (`Invalid`), as the CLI does.
-2. It spawns `python -m aaiclick execution-worker start [--max-tasks N]` with `start_new_session=True`, so the child survives the request. POSIX-only, matching the project's Linux / macOS scope.
-3. An exec failure (missing binary, no permission) becomes `ExecutionWorkerSpawnFailed` → `503`.
-4. The router returns `202` with `Location: /api/v0/execution-workers` and an empty body.
-
-The caller polls `GET /api/v0/execution-workers` for the new row; whether the child has registered (or already crashed) is an orchestration concern, not an HTTP one. This keeps the endpoint idempotent in intent ("ensure one more worker is running"), avoids a new DB column, and sidesteps two concurrent spawns both claiming "the next id".
-
-| Scenario                                | HTTP | `Problem.code`                  |
-|-----------------------------------------|------|---------------------------------|
-| Local mode (chdb + SQLite)              | 422  | `invalid`                       |
-| Subprocess exec raises (missing binary) | 503  | `execution_worker_spawn_failed` |
-| Caller lacks the admin scope            | 403  | `forbidden`                     |
-
-The server does **not** track child PIDs: shutdown uses the cooperative `stop_execution_worker` path (a stop signal in SQL that the worker's own loop polls). Orphan reaping stays with the orchestration layer, as for CLI-spawned workers.
-
-!!! warning "`start_execution_worker` requires distributed backends"
-    The endpoint raises `422 Invalid` in local mode (chdb + SQLite),
-    where every process shares one chdb data path and a spawned child
-    would deadlock on the file lock. Use the CLI's `local start` verb in
-    local mode — it runs worker + background in a single process.
+- **Stop is one-way**: `STOPPING` → `STOPPED` never goes back; the worker rejoins only as a new row. In local mode the one worker lives in the server process and cannot be started remotely, so a remote stop strands every job in `PENDING` until the server restarts.
+- **Start belongs to the deployment**: a server-spawned worker is an untracked process on the API host, outside the replica count the deployment declares.
+- **No remote workflow needs either**: agents and the UI run jobs, read data and triage; none of that changes the worker pool. An `admin` token exists for `run_job` / `cancel_job`, so the scope ladder alone would not keep an agent away from them.
 
 ## Live updates — `GET /api/v0/events`
 

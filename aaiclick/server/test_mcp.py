@@ -22,7 +22,6 @@ from aaiclick.orchestration.execution.execution_worker import register_execution
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
@@ -58,8 +57,6 @@ EXPECTED_TOOLS = {
     "list_tasks",
     "clear_task",
     "list_execution_workers",
-    "start_execution_worker",
-    "stop_execution_worker",
     "list_objects",
     "get_object",
     "delete_object",
@@ -191,15 +188,6 @@ async def test_list_workers_returns_page(orch_ctx, mcp_client):
 
     page = Page[ExecutionWorkerView].model_validate(result.structured_content)
     assert any(w.hostname == "mcp_worker" for w in page.items)
-
-
-async def test_stop_worker_transitions_to_stopping(orch_ctx, mcp_client):
-    worker = await register_execution_worker(hostname="mcp_stop")
-
-    result = await mcp_client.call_tool("stop_execution_worker", {"execution_worker_id": worker.id})
-
-    view = ExecutionWorkerView.model_validate(result.structured_content)
-    assert view.status == EXECUTION_WORKER_STOPPING
 
 
 async def test_list_objects_returns_page(orch_ctx, mcp_client):
