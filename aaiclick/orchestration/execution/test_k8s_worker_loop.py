@@ -599,7 +599,7 @@ async def test_sweep_leaves_live_owner_pod(orch_ctx, cluster):
     await create_job("sweep_live", create_task(SIMPLE, image="img:1"))
     task = await claim_next_task(live.id)
     loop = cluster.start(max_empty_polls=100)
-    await asyncio.sleep(0.1)
+    await until(lambda: cluster.watches)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
     await asyncio.sleep(0.6)  # several heartbeat ticks
 
