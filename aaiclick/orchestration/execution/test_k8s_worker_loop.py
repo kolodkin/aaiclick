@@ -119,7 +119,6 @@ def cluster(monkeypatch):
 
     async def create(manifest: dict, verb: str = "create") -> dict:
         if state.quota_error and manifest["kind"] == "Pod":
-            state.refused.set()
             raise cli.CommandError(("kubectl",), 1, "pods is forbidden: exceeded quota: compute")
         created.append(manifest)
         return {**manifest, "metadata": {**manifest["metadata"], "uid": "u"}}
@@ -158,7 +157,6 @@ def cluster(monkeypatch):
     state = SimpleNamespace(
         limits=LIMITS,
         quota_error=False,
-        refused=asyncio.Event(),
         preload=[],
         created=created,
         deleted=deleted,
@@ -263,28 +261,34 @@ async def test_quota_backoff_pauses_claims(orch_ctx, cluster, monkeypatch):
 
 async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster, monkeypatch):
     """Race window: the claim issued right after a task starts is still in
-    flight when that task is refused by quota — it must not re-claim the
-    release (a second refusal, a second epoch bump), nor may another replica
-    during the backoff."""
+    flight when that task is refused by quota. It must not re-claim the
+    release (a second refusal, a second epoch bump), and the worker claims
+    nothing more in that tick; the untouched task is another replica's to take."""
     monkeypatch.setattr(loop_mod, "QUOTA_BACKOFF", 60.0)
+    tasks = await _image_job("quota_race", 3)
     calls = 0
 
-    async def slow_second_claim(*args, **kwargs) -> Task | None:
+    async def epochs() -> list[int]:
+        return sorted([(await _task(t.id)).run_epoch - t.run_epoch for t in tasks])
+
+    async def released() -> bool:
+        return (await epochs())[-1] > 0
+
+    async def claim_after_release(*args, **kwargs) -> Task | None:
         nonlocal calls
         calls += 1
         if calls == 2:
-            await cluster.refused.wait()
-            await asyncio.sleep(0.05)  # the release lands before this claim
+            await until(released)
         return await claim_next_task(*args, **kwargs)
 
-    monkeypatch.setattr(loop_mod, "claim_next_task", slow_second_claim)
-    (task,) = await _image_job("quota_race")
+    monkeypatch.setattr(loop_mod, "claim_next_task", claim_after_release)
     cluster.quota_error = True
 
     assert await cluster.start() == 0  # backing off: the empty polls end the loop
 
-    after = await _task(task.id)
-    assert after.status == TASK_PENDING and after.run_epoch == task.run_epoch + 1
+    assert await epochs() == [0, 1, 1]
+    other = await claim_next_task((await register_execution_worker()).id)
+    assert other is not None and other.run_epoch == 0
     assert await claim_next_task((await register_execution_worker()).id) is None
 
 
