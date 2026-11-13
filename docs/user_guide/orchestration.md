@@ -397,11 +397,12 @@ clone authenticates on its own:
 Setup per deployment: [Docker Compose](deployment.md#docker-compose-mode),
 [Kubernetes](deployment.md#kubernetes-mode).
 
-!!! warning "Submit private-repo jobs with `--git-sha`"
-    With a remote passed or registered and no SHA, the submitter asks the
-    remote for the branch head — without the App's credentials, so it fails.
-    Pass `--git-sha`, or submit from a checkout with no remote passed or
-    registered (the working tree supplies the SHA).
+!!! warning "Submit private-repo jobs from the CLI"
+    The App key authenticates the worker's clone only. Resolving a branch to
+    a commit happens where the job is submitted, with that process's own git
+    access: the CLI on a machine that can reach the repo works as usual. The
+    API server and the scheduler have no such access, so there pass
+    `--git-sha`.
 
 !!! warning "Tasks that run on the worker can read the key"
     A task with no image runs as a subprocess of the worker and can read the
