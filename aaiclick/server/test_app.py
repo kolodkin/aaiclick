@@ -177,7 +177,7 @@ async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, mo
     assert spy.call_count == 1
 
 
-async def test_lifespan_distributed_mode_is_a_no_op():
+async def test_lifespan_distributed_mode_is_a_no_op(no_leftover_work):
     """In distributed mode, the lifespan must enter and exit cleanly without
     starting workers — workers run as separate processes there.
 

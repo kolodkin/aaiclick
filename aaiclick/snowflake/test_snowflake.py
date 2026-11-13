@@ -192,7 +192,7 @@ def test_get_snowflake_ids_max_size():
     assert ids == sorted(ids)
 
 
-def test_chdb_mode_does_not_touch_shared_session():
+def test_chdb_mode_does_not_touch_shared_session(monkeypatch):
     """In chdb mode, ID generation must not import or open the shared chdb Session.
 
     SQL-only callers of orch_context() must be able to mint
@@ -204,7 +204,7 @@ def test_chdb_mode_does_not_touch_shared_session():
         pytest.skip("only relevant for chdb backend")
 
     # Drop any cached chdb client module so we can detect a fresh import.
-    sys.modules.pop("aaiclick.data.object_context.chdb_client", None)
+    monkeypatch.delitem(sys.modules, "aaiclick.data.object_context.chdb_client", raising=False)
 
     gen = SnowflakeGenerator(buffer_size=4)
     ids = gen.generate_bulk(10)
