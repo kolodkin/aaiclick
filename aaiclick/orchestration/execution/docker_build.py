@@ -11,8 +11,9 @@ Cache check, then build (first hit short-circuits):
 
 1. registry mode: ``docker buildx imagetools inspect <tag>`` finds it.
 2. local mode: ``docker image inspect <tag>`` finds it in the host daemon.
-3. Fall through: ``git clone`` at SHA, ``docker buildx build`` with
-   ``--push`` (registry) or ``--load`` (local).
+3. Fall through: ``git clone`` at SHA (with GitHub App credentials when
+   configured, see ``github_app``), ``docker buildx build`` with ``--push``
+   (registry) or ``--load`` (local).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from ..docker_config import add_host_flags, compute_image_tag, get_buildkit_addr
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
 from .docker_scaffold import detect_manifest, render_default_dockerfile
+from .github_app import git_auth_env
 
 
 def _docker_bin() -> str:
@@ -130,13 +132,15 @@ async def _host_gateway_ip() -> str:
     return out.strip()
 
 
-async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
+async def _git_clone_at_sha(remote: str, sha: str, workdir: str, env: dict[str, str] | None = None) -> None:
     """Clone the SHA into ``workdir``. Uses ``git init`` + ``fetch`` + ``checkout``
     so we avoid pulling the full default branch when only one commit is needed,
-    and so the remote can be a non-default-branch SHA."""
+    and so the remote can be a non-default-branch SHA. ``env`` (credentials,
+    see ``github_app``) goes to the fetch alone, the one step that talks to
+    the remote."""
     await cli.run("git", "init", "--quiet", workdir)
     await cli.run("git", "-C", workdir, "remote", "add", "origin", "--", remote)
-    await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", "--", sha)
+    await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", "--", sha, env=env)
     await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
 
 
@@ -280,7 +284,8 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
 
     await _require_builder()
     with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
-        await _git_clone_at_sha(source.git_remote, source.git_sha, workdir)
+        auth_env = await git_auth_env(source.git_remote)
+        await _git_clone_at_sha(source.git_remote, source.git_sha, workdir, env=auth_env)
 
         context_dir = Path(workdir)
         dockerfile = _resolve_dockerfile(source, context_dir)
