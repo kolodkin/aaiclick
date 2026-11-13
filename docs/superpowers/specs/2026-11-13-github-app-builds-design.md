@@ -131,13 +131,18 @@ could not read a root-owned `0400` file otherwise. Exactly one set fails
 
 # Docs
 
-Each fact lives where the neighbouring build settings already do:
+Each fact lives where the neighbouring build settings already do. The
+orchestration guide explains the feature once; each deployment mode's section
+carries its own steps and links back, so a compose or Kubernetes reader never
+has to translate the other's instructions.
 
 | File                                  | Place                                              | Content                                                                                                                                                                                |
 |---------------------------------------|----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `docs/user_guide/orchestration.md`    | "Image source (docker / kubernetes)", after the build-mode table | The main entry: the two settings; the App needs `Contents: read` and installation on the repo; the remote must be `https://github.com/...`; tokens are per build, read-only, one repo |
 | same                                  | same, as a `!!! warning`                           | Submitting by branch without a checkout runs `git ls-remote` on the submitter, which has no App credentials: pass `--git-sha` or submit from a checkout                                |
-| `docs/user_guide/deployment.md`       | compose and Kubernetes **Configure** tables        | One row each: compose — uncomment the worker's `AAICLICK_GITHUB_APP_*` lines and key mount; helm — `githubApp.appId`, `githubApp.secretName`; both link to the section above           |
+| `docs/user_guide/deployment.md`       | "Docker Compose mode"                              | The compose how-to, as copy-paste steps: put the key at `./secrets/github-app.pem` (`chmod 600`, git-ignored), uncomment the three worker lines, `docker compose up -d worker`; plus a **Configure** row |
+| same                                  | "Kubernetes mode"                                  | The helm how-to: `kubectl create secret generic ...`, then `--set githubApp.appId=...,githubApp.secretName=...` on install/upgrade; plus a **Configure** row for `githubApp.*`           |
+| `docs/designs/deploy_scaffold.md`     | "Compose template" and "Helm chart template"       | One line each: the block ships switched off, the key never enters a scaffolded file, and (helm) `fsGroup: 1000` is set so the non-root worker can read it                              |
 | `docs/designs/orchestration.md`       | the "Builds run on buildkitd" paragraph            | One sentence: where the token is minted, its scope, and that it reaches only the `git fetch`                                                                                           |
 | `docs/designs/future.md`              | "GitHub Actions Image Builder"                     | The "until then" line points at this instead of a hand-rolled credential helper                                                                                                        |
 | `execution/github_app.py`             | module docstring                                   | `See docs/designs/orchestration.md — "Image source".`                                                                                                                                  |
