@@ -125,19 +125,14 @@ engine gets it. `reset_sql_tables` therefore deletes children before parents.
 # Isolation and Seeding
 
 Tests in one pytest process share that process's databases, so a test sees
-whatever the previous one left unless it starts from a known state.
+whatever the previous one left unless it starts from a known state. Two rules
+follow; the `python-testing-style` skill holds the details and examples.
 
-- **Isolated**: a test never depends on, or trips over, rows another test
-  left. It declares a resetting fixture (`orch_ctx`, `orch_shared_ctx`,
-  `ctx`) or resets explicitly. A test that starts a worker or the server
-  lifespan must reset first: a worker claims and runs any pending task it
-  finds.
+- **Isolated**: every test resets or declares a resetting fixture. A test
+  that starts a worker or the server lifespan must: a worker claims and runs
+  any pending task it finds.
 - **Seed first**: build the state once in a module fixture on
-  `orch_shared_ctx` — jobs, objects, several task runs started together —
-  then let each test only assert on it. One seed proves the concurrent case
-  and costs one run instead of one per test.
-- **Own setup** only when the test mutates the state, its inputs vary, or it
-  must watch a fresh run.
+  `orch_shared_ctx`, several task runs started together, then only assert.
 
 # Adding New Tests
 

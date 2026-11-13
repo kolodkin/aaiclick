@@ -145,9 +145,7 @@ async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
 
 ## Seed first — heavy setup once, tests only assert
 
-Default for any suite that needs real state: seed it once, up front, then assert. Seed everything the module's tests need in that one fixture, including several jobs or task runs started together, so the concurrent case is exercised by the seed rather than by a separate run per test.
-
-When 2+ tests run the same heavy setup (a job run, seeded objects, a server) and then each assert something different, run the setup once in a module-scoped fixture. Each test then holds only its assertions — the setup unit and the test unit stay separate.
+Default for any suite that needs real state: seed it once in a module-scoped fixture, then assert. Seed everything the module's tests need there, including several jobs or task runs started together, so the seed exercises the concurrent case instead of one run per test. Each test then holds only its assertions.
 
 - **Extend, don't add a run**: a new behavior on an existing flow gets an assertion test on that flow's fixture, not a new run.
 - **Fixture base**: in `aaiclick/`, build on `orch_shared_ctx` (resets once per module), or `orch_shared_ctx_no_ch` in an mp-worker `_mp.py` module. Never mix it with the per-test `orch_ctx` / `orch_ctx_no_ch` in one module — they reset before every test and wipe the shared state, so move the tests to their own module. `test_e2e/web` has no per-test reset; plain module fixtures work.
