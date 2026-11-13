@@ -88,12 +88,19 @@ what a container may ask for.
 
 # Docs
 
-- `docs/user_guide/container_images.md`: a short "Private GitHub repos"
-  section (the two settings, App needs `Contents: read` and installation on
-  the repo).
-- `docs/designs/orchestration.md`: one sentence in the build paragraph.
-- `docs/designs/future.md`: the GitHub Actions builder entry's "until then"
-  line points at this instead of a hand-rolled credential helper.
+Each fact lives where the neighbouring build settings already do:
+
+| File                                  | Place                                              | Content                                                                                                                                                                                |
+|---------------------------------------|----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `docs/user_guide/orchestration.md`    | "Image source (docker / kubernetes)", after the build-mode table | The main entry: the two settings; the App needs `Contents: read` and installation on the repo; the remote must be `https://github.com/...`; tokens are per build, read-only, one repo |
+| same                                  | same, as a `!!! warning`                           | Submitting by branch without a checkout runs `git ls-remote` on the submitter, which has no App credentials: pass `--git-sha` or submit from a checkout                                |
+| `docs/user_guide/deployment.md`       | compose and Kubernetes **Configure** tables        | One row each: the two variables on the worker, with the PEM mounted read-only, linking to the section above                                                                            |
+| `docs/designs/orchestration.md`       | the "Builds run on buildkitd" paragraph            | One sentence: where the token is minted, its scope, and that it reaches only the `git fetch`                                                                                           |
+| `docs/designs/future.md`              | "GitHub Actions Image Builder"                     | The "until then" line points at this instead of a hand-rolled credential helper                                                                                                        |
+| `execution/github_app.py`             | module docstring                                   | `See docs/designs/orchestration.md — "Image source".`                                                                                                                                  |
+
+`docs/user_guide/container_images.md` is not touched: it describes the
+released images, not build settings.
 
 # Left to the builder
 
