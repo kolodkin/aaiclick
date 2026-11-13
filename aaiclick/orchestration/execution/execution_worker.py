@@ -41,10 +41,12 @@ from ..models import (
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
 from .claiming import (
+    RunKey,
     check_run_aborted,
     claim_next_task,
     complete_task_and_roll_up,
     release_cancelled_run,
+    release_claim,
     renew_claim,
 )
 from .runner import (
@@ -632,6 +634,7 @@ async def _execution_worker_loop(
     install_signal_handlers: bool = True,
     max_empty_polls: int | None = None,
     mode_label: str = "async",
+    stop: asyncio.Event | None = None,
 ) -> int:
     """Shared execution_worker loop used by both async and multiprocessing execution_workers.
 
@@ -645,10 +648,14 @@ async def _execution_worker_loop(
         install_signal_handlers: Install SIGTERM/SIGINT handlers.
         max_empty_polls: Exit after N consecutive empty polls (test helper).
         mode_label: Label for log messages (e.g. "async", "mp").
+        stop: Set to end the loop between DB writes. Cancelling the loop
+            instead can land inside a transaction, which strands SQLite's
+            write lock.
 
     Returns:
         Number of tasks successfully executed.
     """
+    stop = stop or asyncio.Event()
     shutdown_requested = False
 
     def signal_handler(signum, frame):
@@ -677,7 +684,7 @@ async def _execution_worker_loop(
     empty_polls = 0
 
     try:
-        while not shutdown_requested:
+        while not shutdown_requested and not stop.is_set():
             if max_tasks is not None and tasks_executed >= max_tasks:
                 break
 
@@ -705,8 +712,12 @@ async def _execution_worker_loop(
 
             if task is None:
                 empty_polls += 1
-                await asyncio.sleep(POLL_INTERVAL)
+                await wait_or_timeout(stop, POLL_INTERVAL)
                 continue
+            if stop.is_set():
+                # Claimed as the stop arrived: hand it back unrun.
+                await release_claim(RunKey(task.id, task.run_epoch))
+                break
 
             empty_polls = 0
             logger.info("ExecutionWorker %s executing task %s: %s", execution_worker_id, task.id, task.entrypoint)
@@ -781,6 +792,7 @@ async def execution_worker_main_loop(
     max_tasks: int | None = None,
     install_signal_handlers: bool = True,
     max_empty_polls: int | None = None,
+    stop: asyncio.Event | None = None,
 ) -> int:
     """Main execution_worker execution loop (in-process async execution).
 
@@ -792,6 +804,7 @@ async def execution_worker_main_loop(
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
+        stop: Set to end the loop between DB writes instead of cancelling it
 
     Returns:
         int: Number of tasks executed
@@ -802,4 +815,5 @@ async def execution_worker_main_loop(
         max_tasks=max_tasks,
         install_signal_handlers=install_signal_handlers,
         max_empty_polls=max_empty_polls,
+        stop=stop,
     )
