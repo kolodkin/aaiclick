@@ -9,7 +9,7 @@ The engine is set by orch_context() and accessed via get_sql_session().
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 
 from sqlalchemy import event
@@ -28,11 +28,21 @@ def _enable_sqlite_foreign_keys(dbapi_connection, _record) -> None:
     cursor.close()
 
 
+def _rollback_discarded_sqlite(dbapi_connection, connection_record, exception) -> None:
+    """Roll back a connection SQLAlchemy is discarding (a cancel landed inside
+    a DBAPI call). SQLite only closes it once the interrupted query's cursor is
+    garbage collected; until then its open transaction holds the write lock."""
+    with suppress(Exception):
+        dbapi_connection.rollback()
+
+
 def create_sql_engine(url: str) -> AsyncEngine:
-    """Async engine for ``url``; on SQLite, turns on ``PRAGMA foreign_keys`` and WAL per connection."""
+    """Async engine for ``url``; on SQLite, turns on ``PRAGMA foreign_keys`` and
+    WAL per connection, and rolls back connections discarded mid-transaction."""
     engine = create_async_engine(url, echo=False)
     if engine.dialect.name == "sqlite":
         event.listen(engine.sync_engine, "connect", _enable_sqlite_foreign_keys)
+        event.listen(engine.sync_engine, "invalidate", _rollback_discarded_sqlite)
     return engine
 
 

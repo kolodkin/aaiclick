@@ -41,8 +41,8 @@ class _RaisingWorker:
         raise _StopEarly
 
 
-async def _idle_forever(*, stop: asyncio.Event, **_kwargs) -> None:
-    await stop.wait()
+async def _idle_forever(**_kwargs) -> None:
+    await asyncio.Event().wait()
 
 
 def _set_up_local_db(monkeypatch) -> None:
@@ -111,13 +111,12 @@ async def test_local_runtime_opens_one_sql_engine(monkeypatch):
     assert spy.call_count == 1
 
 
-async def test_local_runtime_stops_the_worker_between_db_writes(monkeypatch):
+async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatch):
     """Race window: the block ends while the worker's claim has written but
-    not committed. A cancel landing inside one of its driver calls makes
-    SQLAlchemy abandon the connection without a rollback, which strands
-    SQLite's write lock: the worker's own STOPPED write then fails with
-    "database is locked". The worker must finish the claim, hand the task
-    back and stop cleanly."""
+    not committed, so the cancel lands inside one of its driver calls and
+    SQLAlchemy discards the connection. Its open transaction must not keep
+    SQLite's write lock: the worker's own STOPPED write would then fail with
+    "database is locked"."""
     if not is_local():
         pytest.skip("the local runtime runs only on chdb + SQLite")
     async with reset_test_state(orch_context(), reset_sql=True):

@@ -31,9 +31,6 @@ from .background import BackgroundWorker
 from .execution import execution_worker_main_loop
 from .orch_context import orch_context
 
-# How long an idle or claiming worker gets to notice the stop before it is cancelled.
-WORKER_STOP_GRACE = 1.0
-
 
 @asynccontextmanager
 async def local_runtime() -> AsyncIterator[None]:
@@ -65,17 +62,11 @@ async def local_runtime() -> AsyncIterator[None]:
         await background.start()
         try:
             # uvicorn (or the outer process) owns SIGTERM/SIGINT — the worker must not steal them.
-            stop = asyncio.Event()
-            worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False, stop=stop))
+            worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False))
             try:
                 yield
             finally:
-                # Let the worker stop between DB writes: a cancel landing inside
-                # one strands SQLite's write lock. Only a running task is cancelled.
-                stop.set()
-                done, _ = await asyncio.wait({worker_task}, timeout=WORKER_STOP_GRACE)
-                if not done:
-                    worker_task.cancel()
+                worker_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker_task
         finally:
