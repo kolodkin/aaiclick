@@ -10,6 +10,7 @@ import pytest
 
 from aaiclick.auth import config
 from aaiclick.orchestration.events import EventBus
+from aaiclick.testing import until
 
 from . import events
 from .app import API_PREFIX, app
@@ -28,10 +29,11 @@ async def bus() -> AsyncIterator[EventBus]:
     del app.state.event_bus
 
 
-async def _stream(client: httpx.AsyncClient) -> asyncio.Task[httpx.Response]:
-    """Open the stream and give the handler time to subscribe."""
+async def _stream(client: httpx.AsyncClient, bus: EventBus) -> asyncio.Task[httpx.Response]:
+    """Open the stream and wait for the handler to subscribe: a signal
+    published before that is dropped."""
     request = asyncio.create_task(client.get(EVENTS_URL))
-    await asyncio.sleep(0.2)
+    await until(lambda: bus._subs, what="stream subscribed")
     return request
 
 
@@ -47,7 +49,7 @@ async def test_event_frames_drops_its_subscriber_on_cancel():
     bus = EventBus()
     frames = events.event_frames(bus)
     consumer = asyncio.create_task(anext(frames))
-    await asyncio.sleep(0.05)
+    await until(lambda: bus._subs, what="consumer subscribed")
     consumer.cancel()
     with pytest.raises(asyncio.CancelledError):
         await consumer
@@ -62,7 +64,7 @@ async def test_events_requires_principal(anon_client):
 
 
 async def test_events_stream_frames_a_change(app_client, bus):
-    request = await _stream(app_client)
+    request = await _stream(app_client, bus)
     bus.publish()
     await asyncio.sleep(0.1)
     response = await _finish(request, bus)
@@ -74,7 +76,7 @@ async def test_events_stream_frames_a_change(app_client, bus):
 async def test_events_stream_rate_floor_collapses_bursts(app_client, bus, monkeypatch):
     """Signals that land while a stream sits out the floor become one frame."""
     monkeypatch.setattr(events, "MIN_FRAME_INTERVAL", 0.2)
-    request = await _stream(app_client)
+    request = await _stream(app_client, bus)
     bus.publish()
     await asyncio.sleep(0.05)
     for _ in range(5):
@@ -86,7 +88,8 @@ async def test_events_stream_rate_floor_collapses_bursts(app_client, bus, monkey
 
 async def test_events_stream_sends_keepalive_comments(app_client, bus, monkeypatch):
     monkeypatch.setattr(events, "KEEPALIVE_INTERVAL", 0.05)
-    request = await _stream(app_client)
+    request = await _stream(app_client, bus)
+    await asyncio.sleep(0.2)  # four keepalive intervals; the body is readable only once the stream ends
     response = await _finish(request, bus)
     assert ": keepalive" in response.text
     assert "event: changed" not in response.text
