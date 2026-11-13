@@ -1,8 +1,9 @@
 """Tests for GitHub App build credentials.
 
 ``git_auth_env`` is a pure function of the worker env, the remote and
-GitHub's replies: the returned overlay *is* the contract, so GitHub is
-stubbed at ``_api`` and git is exercised for real in one test.
+GitHub's replies: the returned overlay *is* the contract. GitHub is stubbed
+(at ``_api`` for the happy path, at ``urlopen`` for failures) and git is
+exercised for real in one test.
 """
 
 from __future__ import annotations
@@ -28,9 +29,11 @@ HELPER_KEY = "credential.https://github.com.helper"
 
 
 class _Reply(io.BytesIO):
-    """A 200 response body, as ``urlopen`` returns it."""
+    """A response body with its status, as ``urlopen`` returns it."""
 
-    status = 200
+    def __init__(self, body: bytes, status: int = 200) -> None:
+        super().__init__(body)
+        self.status = status
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +50,7 @@ def app_env(monkeypatch, tmp_path, private_key):
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
         )
     )
-    monkeypatch.setenv("AAICLICK_GITHUB_APP_ID", "123")
+    monkeypatch.setenv("AAICLICK_GITHUB_APP_ID", " 123\n")
     monkeypatch.setenv("AAICLICK_GITHUB_APP_PEM_FILE", str(pem))
     monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
     return pem
@@ -126,6 +129,7 @@ async def test_github_remotes_are_recognised(app_env, api, remote, repo_path):
         pytest.param("https://gitlab.com/o/r.git", id="other-host"),
         pytest.param("https://github.com/o", id="no-repo"),
         pytest.param("http://github.com/o/r", id="plain-http"),
+        pytest.param("https://user:pat@github.com/o/r.git", id="remote-carries-its-own-password"),
         pytest.param("https://github.com/o/r?x=1", id="query-in-path"),
         pytest.param("https://github.com/o/r#frag", id="fragment-in-path"),
         pytest.param("https://github.com/o/r r", id="space-in-name"),
@@ -147,7 +151,7 @@ async def test_token_request_is_scoped_to_the_repo_read_only(app_env, api, priva
     assert body == {"repositories": ["r"], "permissions": {"contents": "read"}}
     assert signed == signed_again
     claims = jwt.decode(signed, private_key.public_key(), algorithms=["RS256"])
-    assert claims["iss"] == "123"
+    assert claims["iss"] == "123"  # whitespace from an env file or Secret is dropped
     assert claims["exp"] - claims["iat"] == 600
 
 
@@ -188,106 +192,80 @@ async def test_overlay_numbers_after_existing_git_config(monkeypatch, app_env, a
     assert f"GIT_CONFIG_KEY_{first_index + 2}" not in env
 
 
-async def test_app_not_installed_warns_and_clones_anonymously(app_env, api, capsys):
-    api.replies["GET"] = (404, {"message": "Not Found"})
-
-    assert await git_auth_env("https://github.com/o/r") is None
-
-    assert [c[0] for c in api.calls] == ["GET"]
-    assert "o/r" in capsys.readouterr().err
-
-
-def _break_pem_missing(pem, api):
+def _break_pem_missing(pem):
     pem.unlink()
 
 
-def _break_pem_is_directory(pem, api):
+def _break_pem_is_directory(pem):
     pem.unlink()
     pem.mkdir()
 
 
-def _break_pem_is_garbage(pem, api):
+def _break_pem_is_garbage(pem):
     pem.write_text("not a key")
-
-
-def _break_installation_lookup(pem, api):
-    api.replies["GET"] = (500, {"message": "boom-lookup"})
-
-
-def _break_token_request(pem, api):
-    api.replies["POST"] = (403, {"message": "boom-token"})
-
-
-def _break_installation_reply_shape(pem, api):
-    api.replies["GET"] = (200, {})
-
-
-def _break_token_reply_shape(pem, api):
-    api.replies["POST"] = (201, {})
 
 
 @pytest.mark.parametrize(
     "break_it, match",
     [
-        pytest.param(_break_pem_missing, "AAICLICK_GITHUB_APP_PEM_FILE", id="pem-missing"),
+        pytest.param(_break_pem_missing, "cannot be read", id="pem-missing"),
         pytest.param(_break_pem_is_directory, "not a file", id="pem-is-directory"),
         pytest.param(_break_pem_is_garbage, "private key", id="pem-is-garbage"),
-        pytest.param(_break_installation_lookup, "500.*boom-lookup", id="installation-500"),
-        pytest.param(_break_token_request, "403.*boom-token", id="token-403"),
-        pytest.param(_break_installation_reply_shape, "installation lookup.*no id", id="installation-without-id"),
-        pytest.param(_break_token_reply_shape, "token request.*no token", id="reply-without-token"),
     ],
 )
-async def test_failures_raise_without_leaking_secrets(app_env, api, break_it, match):
-    break_it(app_env, api)
+async def test_unusable_key_fails_the_build(app_env, api, break_it, match):
+    """A worker whose key cannot sign is misconfigured: fail loudly, naming the setting."""
+    break_it(app_env)
 
-    with pytest.raises(RuntimeError, match=match) as excinfo:
+    with pytest.raises(RuntimeError, match=f"AAICLICK_GITHUB_APP_PEM_FILE.*{match}"):
         await git_auth_env("https://github.com/o/r")
 
-    message = str(excinfo.value)
-    assert TOKEN not in message
-    assert all(call[2] not in message for call in api.calls)
+    assert api.calls == []
+
+
+def _http_error(code: int, body: bytes) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://api.github.com/x", code, "x", Message(), io.BytesIO(body))
 
 
 @pytest.mark.parametrize(
-    "urlopen_result",
+    "make_replies, warning",
     [
-        pytest.param(urllib.error.URLError("no route"), id="network-down"),
-        pytest.param(_Reply(b"<html>not json</html>"), id="non-json-reply"),
-        pytest.param(_Reply(b"[1]"), id="json-but-not-an-object"),
-        pytest.param(ConnectionResetError("reset"), id="connection-reset"),
+        pytest.param(lambda: [urllib.error.URLError("no route")], "no route", id="network-down"),
+        pytest.param(lambda: [ConnectionResetError("reset")], "ConnectionResetError", id="connection-reset"),
+        pytest.param(lambda: [_Reply(b"<html>")], "not a JSON object", id="non-json-reply"),
+        pytest.param(lambda: [_Reply(b"[1]")], "not a JSON object", id="json-but-not-an-object"),
+        pytest.param(lambda: [_Reply(b"{}")], "no id", id="installation-without-id"),
+        pytest.param(
+            lambda: [_http_error(404, b'{"message": "Not Found"}')], "not installed on o/r", id="app-not-installed"
+        ),
+        pytest.param(lambda: [_http_error(502, b"<html>")], "502", id="proxy-error-page"),
+        pytest.param(lambda: [_http_error(500, b'{"message": "boom"}')], "500: boom", id="installation-500"),
+        pytest.param(
+            lambda: [_Reply(b'{"id": 42}'), _http_error(403, b'{"message": "nope"}')], "403: nope", id="token-403"
+        ),
+        pytest.param(lambda: [_Reply(b'{"id": 42}'), _Reply(b"{}", 201)], "no token", id="reply-without-token"),
     ],
 )
-def test_api_wraps_transport_failures(monkeypatch, urlopen_result):
+async def test_github_failure_warns_and_clones_anonymously(app_env, monkeypatch, capsys, make_replies, warning):
+    """Whatever GitHub's API does, a public repo still builds: the clone goes
+    ahead without credentials, and the log says why — never with the JWT in it."""
+    replies = make_replies()
+    sent: list[str] = []
+
     def fake_urlopen(request, timeout):
-        if isinstance(urlopen_result, Exception):
-            raise urlopen_result
-        return urlopen_result
+        sent.append(request.get_header("Authorization").removeprefix("Bearer "))
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    with pytest.raises(RuntimeError, match="api.github.com") as excinfo:
-        github_app._api("GET", "/repos/o/r/installation", "signed.jwt.value")
+    assert await git_auth_env("https://github.com/o/r") is None
 
-    assert "signed.jwt.value" not in str(excinfo.value)
-
-
-@pytest.mark.parametrize(
-    "body, expected",
-    [
-        pytest.param(b'{"message": "Not Found"}', {"message": "Not Found"}, id="json-body"),
-        pytest.param(b"<html>bad gateway</html>", {}, id="html-body"),
-    ],
-)
-def test_api_returns_error_statuses_instead_of_raising(monkeypatch, body, expected):
-    """The 404 "not installed" fallback depends on the status coming back."""
-
-    def fake_urlopen(request, timeout):
-        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", Message(), io.BytesIO(body))
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-
-    assert github_app._api("GET", "/repos/o/r/installation", "signed") == (404, expected)
+    err = capsys.readouterr().err
+    assert warning in err and "without credentials" in err
+    assert sent and all(signed not in err for signed in sent)
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs the git binary")

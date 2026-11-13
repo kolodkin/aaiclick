@@ -386,8 +386,11 @@ clone authenticates on its own:
   `git@github.com:org/repo.git`, `ssh://git@github.com/org/repo`. An SSH
   remote is fetched over HTTPS.
 - Each build mints its own one-hour token, limited to that repo, read-only.
-- A repo the App is not installed on is cloned without credentials, with a
-  warning in the build task's log.
+- When GitHub will not issue a token (App not installed on the repo, missing
+  permission, outage), the clone goes ahead without credentials and the build
+  task's log says why: a public repo still builds, a private one fails in git.
+- A remote that carries its own password (`https://user:token@github.com/...`)
+  is left alone.
 - Setting only one of the two fails every build that has to clone, naming
   the other.
 

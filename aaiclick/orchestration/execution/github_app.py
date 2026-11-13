@@ -33,23 +33,28 @@ _HELPER_KEY = "credential.https://github.com.helper"
 # the token is read from the environment, so it never appears in git's config.
 _HELPER = f'!f() {{ test "$1" = get && printf "username=x-access-token\\npassword=%s\\n" "${TOKEN_ENV}"; }}; f'
 
-# https (optional userinfo), ssh:// and scp-style remotes on github.com. The
+# https (optional user name, but no password: a remote carrying its own
+# credentials keeps them), ssh:// and scp-style remotes on github.com. The
 # host is followed by its separator, so "github.com.evil.test" cannot match.
 # Owner and repo are GitHub's name alphabet only: both land in an API path.
 _REMOTE_RE = re.compile(
-    r"^(?:https://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)"
+    r"^(?:https://(?:[^@/:]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)"
     r"(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?/?\Z",
     re.IGNORECASE,
 )
 
 
+class _ApiError(Exception):
+    """GitHub refused, misanswered or was unreachable. Never carries the JWT."""
+
+
 def _api(
     method: str, path: str, jwt_token: str, body: dict[str, object] | None = None
 ) -> tuple[int, dict[str, object]]:
-    """One GitHub API call authenticated as the App: ``(status, json)``.
+    """One GitHub API call authenticated as the App: ``(status, json object)``.
 
     HTTP error statuses are returned, not raised; a transport failure or a
-    non-JSON reply raises ``RuntimeError`` (which never carries the JWT)."""
+    2xx reply that is not a JSON object raises ``_ApiError``."""
     request = urllib.request.Request(
         _API + path,
         method=method,
@@ -69,7 +74,7 @@ def _api(
             status, raw = e.code, e.read()
     except (OSError, http.client.HTTPException) as e:
         reason = e.reason if isinstance(e, urllib.error.URLError) else type(e).__name__
-        raise RuntimeError(f"GitHub App: {method} api.github.com{path} failed: {reason}") from None
+        raise _ApiError(f"{method} api.github.com{path} failed: {reason}") from None
     try:
         data = json.loads(raw)
     except ValueError:
@@ -78,19 +83,18 @@ def _api(
         return status, data
     if status >= 400:
         return status, {}  # a proxy's HTML error page: the status is the message
-    raise RuntimeError(f"GitHub App: {method} api.github.com{path} failed: reply was not a JSON object")
+    raise _ApiError(f"{method} api.github.com{path} failed: reply was not a JSON object")
 
 
 def _sign(app_id: str, pem_file: str) -> str:
     """A 10-minute App JWT, backdated a minute against clock drift."""
-    path = Path(pem_file)
-    if path.exists() and not path.is_file():
+    try:
+        key = Path(pem_file).read_bytes()
+    except IsADirectoryError:
         raise RuntimeError(
             f"{PEM_FILE_ENV}={pem_file} is not a file. Compose creates a directory when the "
             f"mounted host file is missing: put the key there and recreate the worker."
-        )
-    try:
-        key = path.read_bytes()
+        ) from None
     except OSError as e:
         raise RuntimeError(f"{PEM_FILE_ENV}={pem_file} cannot be read: {e.strerror}") from None
     now = int(time.time())
@@ -104,12 +108,27 @@ def _sign(app_id: str, pem_file: str) -> str:
 
 
 def _expect(status: int, wanted: int, data: dict[str, object], field: str, what: str) -> object:
-    """``data[field]`` from a ``wanted`` reply; anything else raises."""
+    """``data[field]`` from a ``wanted`` reply; anything else raises ``_ApiError``."""
     if status != wanted:
-        raise RuntimeError(f"GitHub App: {what} returned {status}: {data.get('message', '')}")
+        raise _ApiError(f"{what} returned {status}: {data.get('message', '')}")
     if not data.get(field):
-        raise RuntimeError(f"GitHub App: {what} returned no {field}")
+        raise _ApiError(f"{what} returned no {field}")
     return data[field]
+
+
+def _mint(signed: str, app_id: str, owner: str, repo: str) -> str:
+    """An installation token for ``owner/repo`` alone, read-only. Blocking."""
+    status, data = _api("GET", f"/repos/{owner}/{repo}/installation", signed)
+    if status == 404:
+        raise _ApiError(f"App {app_id} is not installed on {owner}/{repo}")
+    installation = _expect(status, 200, data, "id", "installation lookup")
+    status, data = _api(
+        "POST",
+        f"/app/installations/{installation}/access_tokens",
+        signed,
+        {"repositories": [repo], "permissions": {"contents": "read"}},
+    )
+    return str(_expect(status, 201, data, "token", "token request"))
 
 
 def _git_env(remote: str, repo_path: str, token: str) -> dict[str, str]:
@@ -135,11 +154,14 @@ def _git_env(remote: str, repo_path: str, token: str) -> dict[str, str]:
 async def git_auth_env(remote: str) -> dict[str, str] | None:
     """Env overlay that lets git authenticate to ``remote``, or None.
 
-    None when the App is not configured, ``remote`` is not a ``github.com``
-    repo, or the App is not installed on it (the clone then proceeds
-    anonymously). A half-configured App raises whatever the remote."""
-    app_id = os.environ.get(APP_ID_ENV)
-    pem_file = os.environ.get(PEM_FILE_ENV)
+    None when the App is not configured or ``remote`` is not a ``github.com``
+    repo. Also None, with a warning in the task log, when GitHub will not
+    issue a token (App not installed on the repo, missing permission, outage):
+    the clone then goes ahead without credentials, so a public repo still
+    builds and a private one fails in git right under the warning. A worker
+    that is half-configured or whose key cannot sign raises instead."""
+    app_id = os.environ.get(APP_ID_ENV, "").strip()
+    pem_file = os.environ.get(PEM_FILE_ENV, "").strip()
     if not app_id and not pem_file:
         return None
     if not app_id or not pem_file:
@@ -148,26 +170,14 @@ async def git_auth_env(remote: str) -> dict[str, str] | None:
     match = _REMOTE_RE.match(remote)
     if match is None:
         return None
-    repo = match["repo"]
-    if repo in (".", "..") or match["owner"] in (".", ".."):
+    owner, repo = match["owner"], match["repo"]
+    if owner in (".", "..") or repo in (".", ".."):
         return None
-    repo_path = f"{match['owner']}/{repo}"
 
     signed = _sign(app_id, pem_file)
-    status, data = await asyncio.to_thread(_api, "GET", f"/repos/{repo_path}/installation", signed)
-    if status == 404:
-        print(
-            f"GitHub App {app_id} is not installed on {repo_path}; cloning without credentials.",
-            file=sys.stderr,
-        )
+    try:
+        token = await asyncio.to_thread(_mint, signed, app_id, owner, repo)
+    except _ApiError as e:
+        print(f"GitHub App: {e}; cloning {owner}/{repo} without credentials.", file=sys.stderr)
         return None
-    installation = _expect(status, 200, data, "id", f"installation lookup for {repo_path}")
-    status, data = await asyncio.to_thread(
-        _api,
-        "POST",
-        f"/app/installations/{installation}/access_tokens",
-        signed,
-        {"repositories": [repo], "permissions": {"contents": "read"}},
-    )
-    token = _expect(status, 201, data, "token", f"token request for {repo_path}")
-    return _git_env(remote, repo_path, str(token))
+    return _git_env(remote, f"{owner}/{repo}", token)
