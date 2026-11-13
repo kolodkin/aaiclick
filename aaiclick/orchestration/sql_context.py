@@ -28,7 +28,7 @@ def _enable_sqlite_foreign_keys(dbapi_connection, _record) -> None:
     cursor.close()
 
 
-def _rollback_discarded_sqlite(dbapi_connection, connection_record, exception) -> None:
+def _rollback_discarded_sqlite(dbapi_connection, _record, _exception) -> None:
     """Roll back a connection SQLAlchemy is discarding (a cancel landed inside
     a DBAPI call). SQLite only closes it once the interrupted query's cursor is
     garbage collected; until then its open transaction holds the write lock."""

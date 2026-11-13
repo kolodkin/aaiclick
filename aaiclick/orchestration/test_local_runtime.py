@@ -23,13 +23,12 @@ from aaiclick.testing import reset_test_state, until
 
 from . import local_runtime as lr
 from . import sql_context
-from .factories import create_job, create_task
+from .factories import create_job
+from .fixtures.sample_tasks import simple_task
 from .jobs.queries import get_tasks_for_job
 from .models import RUN_SCHEDULED, TASK_PENDING, Job, RegisteredJob
 from .orch_context import get_sql_session, orch_context
 from .registered_jobs import register_job
-
-SIMPLE = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 
 class _StopEarly(Exception):
@@ -120,7 +119,7 @@ async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatc
     if not is_local():
         pytest.skip("the local runtime runs only on chdb + SQLite")
     async with reset_test_state(orch_context(), reset_sql=True):
-        job = await create_job("claimed_at_shutdown", create_task(SIMPLE))
+        job = await create_job("claimed_at_shutdown", simple_task)
     mid_claim = asyncio.Event()
     claim_connections = []
     execute = aiosqlite.core.Connection._execute
