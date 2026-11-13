@@ -85,6 +85,10 @@ python -m aaiclick k8s init [--path ./aaiclick-chart] [--image-tag vX.Y.Z] [--fo
   jobs that need only the infra services run the full stack too — a little
   extra cost, but one invocation with no modes is simpler for users and CI.
 
+The worker ships the GitHub App key mount and its two `AAICLICK_GITHUB_APP_*`
+settings commented out: private-repo builds are opt-in, and the key is mounted
+from disk, never written into the scaffold.
+
 # Helm chart template (kubernetes setup)
 
 **Implementation**: `aaiclick/deploy/templates/helm/aaiclick/`
@@ -111,6 +115,11 @@ imagePullSecret, namespace-scoped RBAC toggles, resources. Empty
 `env.sqlUrl` / `env.chUrl` are built by `_helpers.tpl` from the
 `devDependencies` user and password (URL-encoded), so each database password
 is set in one place; a full URL overrides it for a managed database.
+
+`githubApp.appId` + `githubApp.secretName` (both empty by default) give the
+worker the same settings from a Secret the user creates, mounted `0440` with
+`fsGroup: 1000` so the image's non-root user can read it. Setting one alone
+fails the render.
 
 # Release pipeline restructure
 

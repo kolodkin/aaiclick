@@ -75,8 +75,8 @@ running buildx, so it holds no git credentials — only a token with
   does not run unless shipped as a reusable action, and pip index secrets
   move to GitHub secrets.
 
-Until then, a private repo builds through a git credential helper on the
-worker, or is submitted with a prebuilt `image=`.
+Until then, a private GitHub repo builds with a GitHub App key on the worker
+(`docs/user_guide/orchestration.md`, "Image source").
 
 ## Objects in Non-Python Tasks
 

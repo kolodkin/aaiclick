@@ -371,6 +371,40 @@ Setting both, or neither, fails the build task with an error naming the two
 variables. Kubernetes `build` sources need registry mode: the cluster cannot
 pull from a worker's daemon.
 
+**Private GitHub repos.** Give the worker a
+[GitHub App](https://docs.github.com/en/apps/creating-github-apps) key and its
+clone authenticates on its own:
+
+| Env var                        | Value                                            |
+|--------------------------------|--------------------------------------------------|
+| `AAICLICK_GITHUB_APP_ID`       | The App's ID                                     |
+| `AAICLICK_GITHUB_APP_PEM_FILE` | Path to the App's private key, mounted read-only |
+
+- The App needs the **Contents: read** repository permission and must be
+  installed on each repo to build.
+- Any `github.com` remote works: `https://github.com/org/repo`,
+  `git@github.com:org/repo.git`, `ssh://git@github.com/org/repo`. An SSH
+  remote is fetched over HTTPS.
+- Each build mints its own one-hour token, limited to that repo, read-only.
+- A repo the App is not installed on is cloned without credentials, with a
+  warning in the build task's log.
+- Setting only one of the two fails every build, naming the other.
+
+Setup per deployment: [Docker Compose](deployment.md#docker-compose-mode),
+[Kubernetes](deployment.md#kubernetes-mode).
+
+!!! warning "Submit private-repo jobs with `--git-sha`"
+    With a remote passed or registered and no SHA, the submitter asks the
+    remote for the branch head — without the App's credentials, so it fails.
+    Pass `--git-sha`, or submit from a checkout with no remote passed or
+    registered (the working tree supplies the SHA).
+
+!!! warning "Tasks that run on the worker can read the key"
+    A task with no image runs as a subprocess of the worker and can read the
+    key file, then mint tokens with everything the App is allowed. Install
+    the App only on the repos to build, grant it nothing beyond
+    **Contents: read**, and keep such jobs off a worker that holds the key.
+
 For the released `aaiclick` container images and their Docker/Kubernetes
 runtime requirements, see [Container Images](container_images.md).
 

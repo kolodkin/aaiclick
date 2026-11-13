@@ -108,10 +108,25 @@ docker compose exec server python -m aaiclick run-job my_pipeline --progress
 | `.env`: `AAICLICK_PG_PASSWORD`                              | PostgreSQL password, read by the service and every URL — use URL-safe characters (letters, digits, `-`, `_`)              |
 | `.env`: `AAICLICK_CH_PASSWORD`                              | ClickHouse password, same rule                                                                                            |
 | `worker.AAICLICK_REGISTRY`, `worker.AAICLICK_BUILDKIT_ADDR` | Preset to the stack's registry and rootless `buildkitd` — [Image source](orchestration.md#image-source-docker-kubernetes) |
+| `worker.AAICLICK_GITHUB_APP_ID`, `_PEM_FILE`                | Commented out: GitHub App key for private-repo builds — [Image source](orchestration.md#image-source-docker-kubernetes)   |
 | `server.AAICLICK_SANDBOX`                                   | Git remote that enables the [sandbox](sandbox.md) page                                                                    |
 
 Build steps run on `buildkitd`, never on the worker's Docker daemon, but can
 still reach host-published ports (Postgres, ClickHouse).
+
+**Private GitHub repos for `--build`**: put the GitHub App key beside the
+compose file, uncomment the worker's key mount and its two
+`AAICLICK_GITHUB_APP_*` lines (set the App ID), then recreate the worker:
+
+```bash
+mkdir -p secrets && cp /path/to/app.private-key.pem secrets/github-app.pem
+chmod 600 secrets/github-app.pem && echo "secrets/" >> .gitignore
+docker compose up -d worker
+```
+
+!!! warning "Place the key before `up`"
+    With the mount uncommented and no file at `./secrets/github-app.pem`,
+    Docker creates a directory there and builds fail with "is not a file".
 
 ## Kubernetes mode
 
@@ -143,12 +158,23 @@ The worker's ServiceAccount needs the RBAC in `rbac.yaml`, or every `kubectl`
 call returns 403 — see [Container Images](container_images.md). Run jobs with
 `kubectl exec` into the server Pod, the same commands as in compose.
 
+**Private GitHub repos for `--build`**: store the GitHub App key as a Secret
+with the key name `github-app.pem`, then name it and the App ID at install or
+upgrade:
+
+```bash
+kubectl create secret generic aaiclick-github-app --from-file=github-app.pem=/path/to/app.private-key.pem
+helm upgrade aaiclick ./aaiclick-chart --reuse-values \
+  --set githubApp.appId=123456 --set githubApp.secretName=aaiclick-github-app
+```
+
 **Configure** (`values.yaml`, or `--set` / `--set-file` at install):
 
 | Key                                                                               | Purpose                                                                         |
 |-----------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
 | `env.sqlUrl`, `env.chUrl`                                                         | Full URLs for managed databases; empty builds them from `devDependencies`       |
 | `env.registry`                                                                    | Registry the worker pushes `--build` images to; empty disables building         |
+| `githubApp.appId`, `githubApp.secretName`                                         | GitHub App key for private-repo builds; both or neither                         |
 | `auth.jwtSecret`, `auth.adminPassword`                                            | Token signing secret and seed admin password                                    |
 | `devDependencies.enabled` + `.postgres` / `.clickhouse`                           | In-chart dev databases without volumes; their passwords also feed the URLs      |
 | `images.*`, `imagePullSecrets`                                                    | Image repositories and tags, pull secret for private registries                 |

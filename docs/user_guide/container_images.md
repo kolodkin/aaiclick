@@ -8,7 +8,7 @@ non-pre-releases, `latest`.
 | Image                               | Bundles              | Role                                             |
 |-------------------------------------|----------------------|--------------------------------------------------|
 | `ghcr.io/kolodkin/aaiclick`         | wheel only           | API server (default), task base, local/mp worker |
-| `ghcr.io/kolodkin/aaiclick-docker`  | `+ docker` CLI       | Docker-dispatching worker                        |
+| `ghcr.io/kolodkin/aaiclick-docker`  | `+ docker` CLI, git  | Docker-dispatching worker                        |
 | `ghcr.io/kolodkin/aaiclick-kubectl` | `+ docker + kubectl` | Kubernetes-dispatching worker                    |
 
 Each image builds on the one above it in the table, sharing its layers. Only
@@ -71,7 +71,7 @@ never `pip install .`-ed. Limits:
   runtime, so `-e .` points nowhere (a `uv.lock` export already skips the
   project). The mount has no `.git`, so a setuptools-scm project cannot build.
 - Builds run on a buildkitd (`AAICLICK_BUILDKIT_ADDR`); a custom worker image
-  needs the docker CLI with `buildx` like the shipped ones.
+  needs `git` and the docker CLI with `buildx` like the shipped ones.
 - A `.dockerignore` that excludes the manifest hides it from the install.
 - Python code next to a `pom.xml` with no Python manifest gets the JVM image;
   a mixed repo adds a Python manifest.
