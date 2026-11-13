@@ -347,7 +347,7 @@ def migrate(action: MigrationAction, revision: str | None = None) -> MigrationRe
     return setup_api.migrate(action, revision)
 
 
-# --- viewer: object queries, dashboards --------------- ------------------
+# --- viewer: object queries, dashboards ---------------------------------
 
 
 @mcp.tool(tags={TAG_READ})

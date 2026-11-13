@@ -38,11 +38,6 @@ export function objectScope(o: ObjectView): string {
   return o.job_id != null ? scopeKey(String(o.job_id)) : PERSISTENT;
 }
 
-// "job - <name>" or "persistent" — the Scope column / picker suffix.
-export function objectScopeLabel(o: ObjectView): string {
-  return o.job_id != null ? `job - ${o.job_name ?? o.job_id}` : "persistent";
-}
-
 // `@data [persistent | job <ref>] [<object>]` — the prompt for a scope; bare
 // `@data` is all scopes.
 export function dataPrompt(scope: string, object?: string): string {

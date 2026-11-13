@@ -196,7 +196,7 @@ def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[Principal]]:
 
 
 require_write = require_scope(SCOPE_WRITE)
-"""A member's own mutations — saved queries, dashboards."""
+"""A member's own mutations — dashboards."""
 require_admin = require_scope(SCOPE_ADMIN)
 """Everything else that mutates or administers: jobs, objects, tasks, users, workers, audit."""
 

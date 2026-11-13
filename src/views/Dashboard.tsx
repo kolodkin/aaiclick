@@ -53,8 +53,11 @@ export function Dashboard({ name, onPrompt }: { name: string | null; onPrompt: (
     queryFn: () => runPanels(d!, values.current),
     enabled: !!d,
     refetchInterval: false,
-    // A refetch must rebuild the frame even when the rows are unchanged.
+    // A refetch rebuilds the frame even when the rows are unchanged, so only
+    // Refresh may trigger one.
     structuralSharing: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const frameRef = useRef<HTMLIFrameElement>(null);
 

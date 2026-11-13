@@ -138,5 +138,14 @@ async def test_save_dashboard_validates_panels():
         await viewer.save_dashboard(DashboardIn(name="bad", html="<p/>", queries={}))
     with pytest.raises(errors.Invalid):
         await viewer.save_dashboard(
+            DashboardIn(
+                name="bad",
+                html="<p/>",
+                queries={"p": ObjectQuery(object="orders")},
+                params=[DashboardParam(name="x", options_sql="SELECT 1")],
+            )
+        )
+    with pytest.raises(errors.Invalid):
+        await viewer.save_dashboard(
             DashboardIn(name="bad", html="<p/>", queries={"p": ObjectQuery(object="orders", where="x IN (SELECT 1)")})
         )

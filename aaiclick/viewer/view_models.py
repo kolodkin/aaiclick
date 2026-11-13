@@ -67,12 +67,17 @@ class DashboardParam(ApiModel):
     default: Literal["none"] | None = None  # "none": start unselected
 
 
-class DashboardIn(ApiModel):
-    name: str
+class RunQueriesRequest(ApiModel):
+    """Panels to run under one scope — a dashboard's queries with its params substituted."""
+
     scope: str = "persistent"
-    html: str
-    # panel name → query, run under the dashboard's scope; capped since every panel runs at once
+    # panel name → query; capped since every panel runs at once
     queries: dict[str, ObjectQuery] = Field(max_length=MAX_DASHBOARD_PANELS)
+
+
+class DashboardIn(RunQueriesRequest):
+    name: str
+    html: str
     # {name} placeholders in a panel's where take the selected value
     params: list[DashboardParam] = Field(default_factory=list, max_length=MAX_DASHBOARD_PANELS)
 
@@ -82,13 +87,6 @@ class Dashboard(DashboardIn):
     queries: dict[str, ObjectQuery]
     params: list[DashboardParam] = Field(default_factory=list)
     updated_at: datetime
-
-
-class RunQueriesRequest(ApiModel):
-    """Panels to run under one scope — a dashboard's queries with its params substituted."""
-
-    scope: str = "persistent"
-    queries: dict[str, ObjectQuery] = Field(max_length=MAX_DASHBOARD_PANELS)
 
 
 class DashboardSummary(ApiModel):

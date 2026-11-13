@@ -149,6 +149,9 @@ def _validate_dashboard(dashboard: DashboardIn) -> None:
     _scope_job(dashboard.scope)
     for panel, query in dashboard.queries.items():
         _check_where(query.where, f"{panel}: ")
+    for param in dashboard.params:
+        if param.options_sql is not None:
+            raise Invalid(f"param {param.name}: options_sql is not supported")
 
 
 async def list_dashboards() -> Page[DashboardSummary]:
@@ -160,8 +163,12 @@ async def list_dashboards() -> Page[DashboardSummary]:
     )
 
 
+async def _find_dashboard(session: AsyncSession, name: str) -> DashboardRow | None:
+    return (await session.execute(select(DashboardRow).where(DashboardRow.name == name))).scalar_one_or_none()
+
+
 async def _dashboard_row(session: AsyncSession, name: str) -> DashboardRow:
-    row = (await session.execute(select(DashboardRow).where(DashboardRow.name == name))).scalar_one_or_none()
+    row = await _find_dashboard(session, name)
     if row is None:
         raise NotFound(f"Dashboard not found: {name}")
     return row
@@ -176,8 +183,7 @@ async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
     """Upsert a dashboard by ``name``."""
     _validate_dashboard(dashboard)
     async with get_sql_session() as session:
-        stmt = select(DashboardRow).where(DashboardRow.name == dashboard.name)
-        row = (await session.execute(stmt)).scalar_one_or_none()
+        row = await _find_dashboard(session, dashboard.name)
         if row is None:
             row = DashboardRow(
                 id=get_snowflake_id(),
@@ -205,13 +211,9 @@ async def delete_dashboard(name: str) -> Deleted:
     return Deleted(name=name)
 
 
-async def run_queries(request: RunQueriesRequest) -> DashboardResults:
-    """Run every panel under ``request.scope``; column-oriented results."""
-    panels = list(request.queries)
-    requests = [
-        ObjectQueryRequest(**{**request.queries[p].model_dump(), "scope": request.scope, "limit": MAX_LIMIT})
-        for p in panels
-    ]
+async def _run_panels(scope: str, queries: dict[str, ObjectQuery]) -> DashboardResults:
+    panels = list(queries)
+    requests = [ObjectQueryRequest(**{**queries[p].model_dump(), "scope": scope, "limit": MAX_LIMIT}) for p in panels]
     pages = dict(zip(panels, await asyncio.gather(*(query_object(r) for r in requests)), strict=True))
     results = {
         panel: {c.name: [row[i] for row in page.data] for i, c in enumerate(page.meta)} for panel, page in pages.items()
@@ -219,8 +221,13 @@ async def run_queries(request: RunQueriesRequest) -> DashboardResults:
     return DashboardResults(results=results, meta={panel: page.meta for panel, page in pages.items()})
 
 
+async def run_queries(request: RunQueriesRequest) -> DashboardResults:
+    """Run every panel under ``request.scope``; column-oriented results."""
+    return await _run_panels(request.scope, request.queries)
+
+
 async def run_dashboard(name: str) -> DashboardResults:
     """Run a dashboard's panels as stored. ``{param}`` placeholders are
     substituted by the SPA, which runs the result through ``run_queries``."""
     dashboard = await get_dashboard(name)
-    return await run_queries(RunQueriesRequest(scope=dashboard.scope, queries=dashboard.queries))
+    return await _run_panels(dashboard.scope, dashboard.queries)

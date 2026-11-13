@@ -54,7 +54,6 @@ export type ObjectQueryRequest = S["ObjectQueryRequest"];
 export type DashboardSummary = S["DashboardSummary"];
 export type Dashboard = S["Dashboard"];
 export type DashboardResults = S["DashboardResults"];
-export type Deleted = S["Deleted"];
 
 // FastAPI emits a concrete schema per instantiation (`Page_JobView_`, …); keep
 // a hand-written generic so call sites stay `Page<JobView>`.
