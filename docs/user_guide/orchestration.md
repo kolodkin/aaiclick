@@ -388,7 +388,8 @@ clone authenticates on its own:
 - Each build mints its own one-hour token, limited to that repo, read-only.
 - A repo the App is not installed on is cloned without credentials, with a
   warning in the build task's log.
-- Setting only one of the two fails every build, naming the other.
+- Setting only one of the two fails every build that has to clone, naming
+  the other.
 
 Setup per deployment: [Docker Compose](deployment.md#docker-compose-mode),
 [Kubernetes](deployment.md#kubernetes-mode).

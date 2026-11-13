@@ -6,7 +6,8 @@
 # and re-adopts them after a restart, so replicas are for availability, not
 # throughput. Git-sourced images build on the chart's buildkitd
 # (buildkitd.yaml) and are pushed to env.registry.
-{{- $githubApp := .Values.githubApp }}
+{{- /* default dict: `helm upgrade --reuse-values` from a chart that predates githubApp has no such key */}}
+{{- $githubApp := .Values.githubApp | default dict }}
 {{- if and $githubApp.appId (not $githubApp.secretName) }}
 {{- fail "githubApp.appId is set but githubApp.secretName is empty: set both, or neither" }}
 {{- end }}

@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
+from email.message import Message
 
 import jwt
 import pytest
@@ -125,6 +126,12 @@ async def test_github_remotes_are_recognised(app_env, api, remote, repo_path):
         pytest.param("https://gitlab.com/o/r.git", id="other-host"),
         pytest.param("https://github.com/o", id="no-repo"),
         pytest.param("http://github.com/o/r", id="plain-http"),
+        pytest.param("https://github.com/o/r?x=1", id="query-in-path"),
+        pytest.param("https://github.com/o/r#frag", id="fragment-in-path"),
+        pytest.param("https://github.com/o/r r", id="space-in-name"),
+        pytest.param("https://github.com/../app", id="dot-dot-owner"),
+        pytest.param("https://github.com/o/..", id="dot-dot-repo"),
+        pytest.param("https://github.com/o/r\n", id="trailing-newline"),
     ],
 )
 async def test_other_remotes_get_no_token(app_env, api, remote):
@@ -211,6 +218,14 @@ def _break_token_request(pem, api):
     api.replies["POST"] = (403, {"message": "boom-token"})
 
 
+def _break_installation_reply_shape(pem, api):
+    api.replies["GET"] = (200, {})
+
+
+def _break_token_reply_shape(pem, api):
+    api.replies["POST"] = (201, {})
+
+
 @pytest.mark.parametrize(
     "break_it, match",
     [
@@ -219,6 +234,8 @@ def _break_token_request(pem, api):
         pytest.param(_break_pem_is_garbage, "private key", id="pem-is-garbage"),
         pytest.param(_break_installation_lookup, "500.*boom-lookup", id="installation-500"),
         pytest.param(_break_token_request, "403.*boom-token", id="token-403"),
+        pytest.param(_break_installation_reply_shape, "installation lookup.*no id", id="installation-without-id"),
+        pytest.param(_break_token_reply_shape, "token request.*no token", id="reply-without-token"),
     ],
 )
 async def test_failures_raise_without_leaking_secrets(app_env, api, break_it, match):
@@ -237,6 +254,8 @@ async def test_failures_raise_without_leaking_secrets(app_env, api, break_it, ma
     [
         pytest.param(urllib.error.URLError("no route"), id="network-down"),
         pytest.param(_Reply(b"<html>not json</html>"), id="non-json-reply"),
+        pytest.param(_Reply(b"[1]"), id="json-but-not-an-object"),
+        pytest.param(ConnectionResetError("reset"), id="connection-reset"),
     ],
 )
 def test_api_wraps_transport_failures(monkeypatch, urlopen_result):
@@ -251,6 +270,24 @@ def test_api_wraps_transport_failures(monkeypatch, urlopen_result):
         github_app._api("GET", "/repos/o/r/installation", "signed.jwt.value")
 
     assert "signed.jwt.value" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        pytest.param(b'{"message": "Not Found"}', {"message": "Not Found"}, id="json-body"),
+        pytest.param(b"<html>bad gateway</html>", {}, id="html-body"),
+    ],
+)
+def test_api_returns_error_statuses_instead_of_raising(monkeypatch, body, expected):
+    """The 404 "not installed" fallback depends on the status coming back."""
+
+    def fake_urlopen(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 404, "Not Found", Message(), io.BytesIO(body))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    assert github_app._api("GET", "/repos/o/r/installation", "signed") == (404, expected)
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs the git binary")

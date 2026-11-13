@@ -293,7 +293,7 @@ async def test_build_image_to_tag_cache_hit_skips_build(monkeypatch, registry):
     """A hit needs neither a build nor buildkitd."""
     build = _stub_modes(monkeypatch, registry=registry, have_image=True)
     mint = AsyncMock()
-    monkeypatch.setattr(docker_build, "git_auth_env", mint, raising=False)
+    monkeypatch.setattr(docker_build, "git_auth_env", mint)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))

@@ -211,4 +211,4 @@ def test_helm_rejects_half_configured_github_app(tmp_path, only, missing):
     result = _render_worker(target, only)
 
     assert result.returncode != 0
-    assert missing in result.stderr
+    assert f"{missing} is empty" in result.stderr

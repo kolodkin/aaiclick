@@ -11,6 +11,7 @@ argv, the remote URL or a config file.
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import os
 import re
@@ -34,9 +35,10 @@ _HELPER = f'!f() {{ test "$1" = get && printf "username=x-access-token\\npasswor
 
 # https (optional userinfo), ssh:// and scp-style remotes on github.com. The
 # host is followed by its separator, so "github.com.evil.test" cannot match.
+# Owner and repo are GitHub's name alphabet only: both land in an API path.
 _REMOTE_RE = re.compile(
     r"^(?:https://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)"
-    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$",
+    r"(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?/?\Z",
     re.IGNORECASE,
 )
 
@@ -62,12 +64,21 @@ def _api(
     try:
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
-                return response.status, json.loads(response.read())
+                status, raw = response.status, response.read()
         except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read() or b"{}")
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
-        reason = e.reason if isinstance(e, urllib.error.URLError) else "reply was not JSON"
+            status, raw = e.code, e.read()
+    except (OSError, http.client.HTTPException) as e:
+        reason = e.reason if isinstance(e, urllib.error.URLError) else type(e).__name__
         raise RuntimeError(f"GitHub App: {method} api.github.com{path} failed: {reason}") from None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        return status, data
+    if status >= 400:
+        return status, {}  # a proxy's HTML error page: the status is the message
+    raise RuntimeError(f"GitHub App: {method} api.github.com{path} failed: reply was not a JSON object")
 
 
 def _sign(app_id: str, pem_file: str) -> str:
@@ -92,9 +103,13 @@ def _sign(app_id: str, pem_file: str) -> str:
         ) from None
 
 
-def _expect(status: int, wanted: int, data: dict[str, object], what: str) -> None:
+def _expect(status: int, wanted: int, data: dict[str, object], field: str, what: str) -> object:
+    """``data[field]`` from a ``wanted`` reply; anything else raises."""
     if status != wanted:
         raise RuntimeError(f"GitHub App: {what} returned {status}: {data.get('message', '')}")
+    if not data.get(field):
+        raise RuntimeError(f"GitHub App: {what} returned no {field}")
+    return data[field]
 
 
 def _git_env(remote: str, repo_path: str, token: str) -> dict[str, str]:
@@ -134,6 +149,8 @@ async def git_auth_env(remote: str) -> dict[str, str] | None:
     if match is None:
         return None
     repo = match["repo"]
+    if repo in (".", "..") or match["owner"] in (".", ".."):
+        return None
     repo_path = f"{match['owner']}/{repo}"
 
     signed = _sign(app_id, pem_file)
@@ -144,13 +161,13 @@ async def git_auth_env(remote: str) -> dict[str, str] | None:
             file=sys.stderr,
         )
         return None
-    _expect(status, 200, data, f"installation lookup for {repo_path}")
+    installation = _expect(status, 200, data, "id", f"installation lookup for {repo_path}")
     status, data = await asyncio.to_thread(
         _api,
         "POST",
-        f"/app/installations/{data['id']}/access_tokens",
+        f"/app/installations/{installation}/access_tokens",
         signed,
         {"repositories": [repo], "permissions": {"contents": "read"}},
     )
-    _expect(status, 201, data, f"token request for {repo_path}")
-    return _git_env(remote, repo_path, str(data["token"]))
+    token = _expect(status, 201, data, "token", f"token request for {repo_path}")
+    return _git_env(remote, repo_path, str(token))
