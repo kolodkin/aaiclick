@@ -157,6 +157,7 @@ async def test_token_request_is_scoped_to_the_repo_read_only(app_env, api, priva
 
 async def test_overlay_for_https_remote(app_env, api):
     env = await git_auth_env("https://github.com/o/r")
+    assert env is not None
 
     assert env["GIT_TERMINAL_PROMPT"] == "0"
     assert env["AAICLICK_GIT_TOKEN"] == TOKEN
@@ -170,6 +171,7 @@ async def test_overlay_rewrites_a_non_canonical_remote_to_https(app_env, api):
     remote = "git@github.com:o/r.git"
 
     env = await git_auth_env(remote)
+    assert env is not None
 
     assert _config(env)[2] == ("url.https://github.com/o/r.insteadOf", remote)
     assert env["GIT_CONFIG_COUNT"] == "3"
@@ -186,6 +188,7 @@ async def test_overlay_numbers_after_existing_git_config(monkeypatch, app_env, a
     monkeypatch.setenv("GIT_CONFIG_COUNT", existing)
 
     env = await git_auth_env("https://github.com/o/r")
+    assert env is not None
 
     assert env["GIT_CONFIG_COUNT"] == str(first_index + 2)
     assert env[f"GIT_CONFIG_KEY_{first_index}"] == HELPER_KEY
@@ -277,6 +280,7 @@ async def test_git_accepts_the_helper_over_one_already_configured(monkeypatch, a
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "!echo username=stale; echo password=stale; :")
 
     env = await git_auth_env("https://github.com/o/r")
+    assert env is not None
 
     out = subprocess.run(
         ["git", "credential", "fill"],
