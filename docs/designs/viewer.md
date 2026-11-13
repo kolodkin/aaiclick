@@ -116,20 +116,20 @@ request adds `scope`, paging and `fmt`.
 ## Dashboard params
 
 A dashboard's `params` are QueryView's selector specs (`name`, `kind`,
-`options`, `default: none`), stored verbatim and interpreted by the kernel in
-the browser. A `{name}` placeholder in a panel's `where` takes the chosen
-value: a quoted literal, a backtick-quoted identifier for `kind: identifier`.
-The SPA substitutes, then sends the panels to `run_queries`, so the result
-passes the same `where` guard as any query; a panel whose selector is still
-unchosen is held back. `options_sql`: `future.md`.
+`options`, `default: none`), interpreted by the kernel in the browser. A
+`{name}` placeholder in a panel's `where` takes the chosen value: a quoted
+literal, or a backtick-quoted identifier for `kind: identifier`. The SPA
+substitutes, then sends the panels to `run_queries`, so the result passes the
+same `where` guard as any query; a panel whose selector is unchosen is held
+back. `save_dashboard` rejects `options_sql` (`future.md`).
 
 ## Storage
 
 **Implementation**: `aaiclick/viewer/models.py`
 
 `viewer_dashboards`, unique on `name`, migrated through the Alembic chain.
-`queries` and `params` are JSON text, stored verbatim; the server validates
-each panel's `where` with the rules above, the kernel interprets `params`.
+`queries` and `params` are JSON text; the server validates each panel's
+`where` with the rules above.
 
 ## Surfaces
 
@@ -145,10 +145,7 @@ each panel's `where` with the rules above, the kernel interprets `params`.
 
 # Frontend
 
-The object view in `@data` is QueryView's explorer: `query_object` with an
-`order_by` and a page, the Fields picker fed from the object's schema.
-`@dashboard` resolves the dashboard's params, substitutes them and answers
-the frame's `setParams` messages. UX: `ui.md`.
+`@data`'s object view and `@dashboard` are described in `ui.md`.
 
 Local mode (`python -m aaiclick local start`) runs the API and workers in one
 process, so the viewer's ClickHouse access nests into the runtime context and

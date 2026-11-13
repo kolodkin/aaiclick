@@ -16,16 +16,14 @@ import { Chips } from "../components/Chips";
 // ClickHouse's identifier quote, for `identifier` params.
 const QUOTE = "`";
 
-// aaiclick has no free-SQL endpoint; `runPanels` rejects `options_sql` params
-// before the kernel would call this.
+// aaiclick has no free-SQL endpoint, and `save_dashboard` rejects `options_sql`
+// params, so the kernel never calls this.
 const noSql: QueryRunner = async () => ({ ok: false, message: "options_sql params are not supported" });
 
 // Resolve the dashboard's selectors, substitute them into each panel's `where`
 // and run the panels whose selectors are all chosen.
 async function runPanels(d: DashboardModel, values: Record<string, string>) {
   const declared = parseDashboardParams(d.params);
-  const sql = declared.find((p) => p.optionsSql);
-  if (sql) throw new Error(`param ${sql.name}: options_sql is not supported`);
   const params = await resolveParams(declared, values, noSql, QUOTE);
   const wheres = applyToQueries(
     Object.fromEntries(Object.entries(d.queries).map(([panel, q]) => [panel, q.where ?? ""])),
