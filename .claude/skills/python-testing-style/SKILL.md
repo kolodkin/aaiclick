@@ -123,9 +123,29 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
     await run_smoke_flow("k8s_e2e_smoke", kubernetes_e2e_user_repo)
 ```
 
-## Heavy setup once, tests only assert
+## Every test isolated
 
-When 2+ tests run the same heavy setup (a job run, seeded objects, a server) and then each assert something different, run the setup once in a module-scoped fixture. Each test then holds only its assertions — the setup unit and the test unit stay separate.
+A test never depends on, or trips over, state another test left. Tests in one pytest process share its databases, and only a resetting fixture gives a known start.
+
+- Declare `orch_ctx`, `orch_shared_ctx` or `ctx`, or reset explicitly (`reset_test_state`).
+- A test that starts a worker, a background loop or the server lifespan **must** reset first: the worker claims and runs any pending task an earlier test left.
+- A flake that appears only under xdist or in one test order is an isolation bug until proven otherwise.
+
+```python
+# BAD — no reset: the lifespan's worker runs whatever the previous test left pending
+async def test_lifespan_starts_worker_in_local_mode():
+    async with _lifespan(app):
+        ...
+
+# GOOD — starts from an empty database
+async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
+    async with _lifespan(app):
+        ...
+```
+
+## Seed first — heavy setup once, tests only assert
+
+Default for any suite that needs real state: seed it once in a module-scoped fixture, then assert. Seed everything the module's tests need there, including several jobs or task runs started together, so the seed exercises the concurrent case instead of one run per test. Each test then holds only its assertions.
 
 - **Extend, don't add a run**: a new behavior on an existing flow gets an assertion test on that flow's fixture, not a new run.
 - **Fixture base**: in `aaiclick/`, build on `orch_shared_ctx` (resets once per module), or `orch_shared_ctx_no_ch` in an mp-worker `_mp.py` module. Never mix it with the per-test `orch_ctx` / `orch_ctx_no_ch` in one module — they reset before every test and wipe the shared state, so move the tests to their own module. `test_e2e/web` has no per-test reset; plain module fixtures work.

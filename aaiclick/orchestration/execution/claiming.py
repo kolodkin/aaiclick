@@ -223,11 +223,13 @@ async def owner_adoptable(execution_worker_id: int | None) -> bool:
     return status == EXECUTION_WORKER_STOPPED or last_heartbeat < utc_now() - ADOPT_AFTER
 
 
-async def release_claim(run: RunKey) -> bool:
+async def release_claim(run: RunKey, *, retry_after: datetime | None = None) -> bool:
     """Put a claimed-but-never-launched run back in the queue (``kubectl apply``
     refused by a ``ResourceQuota``): ``PENDING``, epoch bumped so late writes
     are fenced, ownership cleared, an open run row closed ``CANCELLED``. No
-    attempt is consumed. False when the run no longer owns the task."""
+    attempt is consumed. ``retry_after`` keeps every worker — a claim already
+    in flight included — off the task until then. False when the run no
+    longer owns the task."""
     async with get_sql_session() as session:
         result = cast(
             CursorResult,
@@ -244,6 +246,7 @@ async def release_claim(run: RunKey) -> bool:
                     execution_worker_id=None,
                     claim_expires_at=None,
                     started_at=None,
+                    retry_after=retry_after,
                 )
             ),
         )
