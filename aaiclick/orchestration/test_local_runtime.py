@@ -12,17 +12,22 @@ import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock
 
+import aiosqlite.core
 import pytest
 from sqlalchemy import func, select, update
 from sqlmodel import col
 
+from aaiclick.backend import is_local
 from aaiclick.datetime_utils import utc_now
-from aaiclick.testing import until
+from aaiclick.testing import reset_test_state, until
 
 from . import local_runtime as lr
 from . import sql_context
-from .models import RUN_SCHEDULED, Job, RegisteredJob
-from .orch_context import get_sql_session
+from .factories import create_job
+from .fixtures.sample_tasks import simple_task
+from .jobs.queries import get_tasks_for_job
+from .models import RUN_SCHEDULED, TASK_PENDING, Job, RegisteredJob
+from .orch_context import get_sql_session, orch_context
 from .registered_jobs import register_job
 
 
@@ -103,6 +108,39 @@ async def test_local_runtime_opens_one_sql_engine(monkeypatch):
         pass
 
     assert spy.call_count == 1
+
+
+async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatch):
+    """Race window: the block ends while the worker's claim has written but
+    not committed, so the cancel lands inside one of its driver calls and
+    SQLAlchemy discards the connection. Its open transaction must not keep
+    SQLite's write lock: the worker's own STOPPED write would then fail with
+    "database is locked"."""
+    if not is_local():
+        pytest.skip("the local runtime runs only on chdb + SQLite")
+    async with reset_test_state(orch_context(), reset_sql=True):
+        job = await create_job("claimed_at_shutdown", simple_task)
+    mid_claim = asyncio.Event()
+    claim_connections = []
+    execute = aiosqlite.core.Connection._execute
+
+    async def pause_mid_claim(self, fn, *args, **kwargs):
+        if args and str(args[0]).lstrip().startswith("UPDATE tasks SET status = ?, execution_worker_id"):
+            claim_connections.append(self)
+        elif self in claim_connections and fn.__name__ == "fetchall" and not mid_claim.is_set():
+            # The claim has written and is reading the task back; the commit is still to come.
+            mid_claim.set()
+            await asyncio.sleep(0.2)
+        return await execute(self, fn, *args, **kwargs)
+
+    monkeypatch.setattr(aiosqlite.core.Connection, "_execute", pause_mid_claim)
+
+    async with lr.local_runtime():
+        await asyncio.wait_for(mid_claim.wait(), 10)
+
+    async with orch_context():
+        (task,) = await get_tasks_for_job(job.id)
+    assert task.status == TASK_PENDING and task.execution_worker_id is None
 
 
 async def _scheduled_runs(registered_job_id: int) -> int:

@@ -259,6 +259,40 @@ async def test_quota_backoff_pauses_claims(orch_ctx, cluster, monkeypatch):
     assert await loop == 1
 
 
+async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster, monkeypatch):
+    """Race window: the claim issued right after a task starts is still in
+    flight when that task is refused by quota. It must not re-claim the
+    release (a second refusal, a second epoch bump), and the worker claims
+    nothing more in that tick; the untouched task is another replica's to take."""
+    monkeypatch.setattr(loop_mod, "QUOTA_BACKOFF", 60.0)
+    tasks = await _image_job("quota_race", 3)
+    calls = 0
+
+    async def epochs() -> list[int]:
+        return sorted([(await _task(t.id)).run_epoch - t.run_epoch for t in tasks])
+
+    async def released() -> bool:
+        return max(await epochs()) > 0
+
+    async def claim_after_release(*args, **kwargs) -> Task | None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            await until(released)
+        return await claim_next_task(*args, **kwargs)
+
+    monkeypatch.setattr(loop_mod, "claim_next_task", claim_after_release)
+    cluster.quota_error = True
+
+    assert await cluster.start() == 0  # backing off: the empty polls end the loop
+
+    assert await epochs() == [0, 1, 1]
+    replica = (await register_execution_worker()).id
+    untouched = await claim_next_task(replica)
+    assert untouched is not None and untouched.run_epoch == 0
+    assert await claim_next_task(replica) is None
+
+
 async def test_cancel_pending_pod(orch_ctx, cluster):
     (task,) = await _image_job("cancel_pending")
     loop = cluster.start()
@@ -585,7 +619,7 @@ async def test_sweep_deletes_reaped_task_pod(orch_ctx, cluster):
         )
         await session.commit()
     loop = cluster.start(max_empty_polls=100)
-    await asyncio.sleep(0.1)
+    await until(lambda: cluster.watches)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
 
     await until(lambda: cluster.deleted == [kw._pod_name(task.id, task.run_epoch)], timeout=3.0)
@@ -599,7 +633,7 @@ async def test_sweep_leaves_live_owner_pod(orch_ctx, cluster):
     await create_job("sweep_live", create_task(SIMPLE, image="img:1"))
     task = await claim_next_task(live.id)
     loop = cluster.start(max_empty_polls=100)
-    await asyncio.sleep(0.1)
+    await until(lambda: cluster.watches)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
     await asyncio.sleep(0.6)  # several heartbeat ticks
 

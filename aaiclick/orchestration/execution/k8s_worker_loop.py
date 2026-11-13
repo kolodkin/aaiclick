@@ -153,10 +153,13 @@ class _Reconciler:
         return any(item.pod_name is None and not item.aio.done() for item in self.in_flight.values())
 
     async def _dispatch_tick(self) -> bool:
-        if self.shutdown or self.detached or time.monotonic() < self.quota_pause_until:
+        if self.shutdown or self.detached:
             return False
         claimed = False
         while self.max_tasks is None or self.started < self.max_tasks:
+            # Re-read per claim: a task started earlier in this tick may have set the pause.
+            if time.monotonic() < self.quota_pause_until:
+                break
             decision = gate(self._gate_states(), self.limits)
             if not decision.open:
                 break
@@ -193,8 +196,9 @@ class _Reconciler:
                 success, result_ref, error = await self._run(task, detach, adopted=adopted)
             except QuotaExceeded as e:
                 logger.warning("ExecutionWorker %s task %s refused by quota; releasing: %s", self.worker_id, task.id, e)
-                await shielded(release_claim(RunKey(task.id, task.run_epoch)))
                 self.quota_pause_until = time.monotonic() + QUOTA_BACKOFF
+                retry_after = utc_now() + timedelta(seconds=QUOTA_BACKOFF)
+                await shielded(release_claim(RunKey(task.id, task.run_epoch), retry_after=retry_after))
                 return
             except WorkerStopped:
                 self.shutdown = True

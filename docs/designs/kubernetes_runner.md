@@ -141,7 +141,30 @@ overshoot.
 Counts are namespace-wide, so with several worker replicas the limits —
 `max_pods` included — are shared, not per replica. A `ResourceQuota` rejection
 of `kubectl apply` (`exceeded quota`) releases the claim back to `PENDING` under
-a new epoch, with no attempt consumed, and pauses claiming for 30 s.
+a new epoch, with no attempt consumed. The task's `retry_after` keeps every
+replica off it for 30 s, and the refused worker claims nothing meanwhile.
+
+A claim already in flight when the refusal lands cannot take the task back; it
+may return another task, which is refused once too:
+
+```mermaid
+sequenceDiagram
+    participant D as Dispatcher
+    participant A as Task A run
+    participant DB as Database
+    participant K as Kubernetes
+    D->>DB: claim
+    DB-->>D: task A
+    D->>A: start
+    A->>K: kubectl apply
+    D->>DB: claim (pause not set yet)
+    K-->>A: exceeded quota
+    Note over A: set the worker's pause
+    A->>DB: release A, retry_after = now + 30 s
+    DB-->>D: task B (A is skipped)
+    D->>K: start B, apply refused, B released the same way
+    Note over D: pause seen, no further claim
+```
 
 ## Deadlines
 

@@ -14,7 +14,8 @@ from aaiclick.deploy.placeholders import PLACEHOLDER_MARKER
 from aaiclick.orchestration import sql_context
 from aaiclick.orchestration.execution import list_execution_workers
 from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE
-from aaiclick.testing import until
+from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.testing import reset_test_state, until
 from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app
@@ -130,7 +131,15 @@ async def test_openapi_advertises_problem_responses_for_declared_routes(app_clie
     assert saw_any_declared, "no routes declared Problem responses — check problem_responses() usage"
 
 
-async def test_lifespan_starts_worker_in_local_mode():
+@pytest.fixture
+async def no_leftover_work():
+    """An empty database: the lifespan's worker would claim and run whatever an
+    earlier test on this xdist worker left pending, then be cancelled mid-task."""
+    async with reset_test_state(orch_context(), reset_sql=True):
+        pass
+
+
+async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
     """In local mode, the lifespan registers an execution ExecutionWorker row.
 
     httpx 0.28's ASGITransport does not drive lifespans, so we enter
@@ -143,7 +152,7 @@ async def test_lifespan_starts_worker_in_local_mode():
         await until(lambda: list_execution_workers(status=EXECUTION_WORKER_ACTIVE), what="ACTIVE worker")
 
 
-async def test_local_requests_reuse_the_lifespan_sql_engine(monkeypatch):
+async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, monkeypatch):
     """A request nests into the lifespan's ``orch_context`` instead of opening
     its own engine on local.db, whose fresh connections raced the shared pool."""
     if not is_local():
