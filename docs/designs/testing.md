@@ -122,14 +122,30 @@ in `aaiclick/orchestration/sql_context.py` turns the pragma on via a
 `connect` listener; ruff bans direct `create_async_engine` calls so every
 engine gets it. `reset_sql_tables` therefore deletes children before parents.
 
+# Isolation and Seeding
+
+Tests in one pytest process share that process's databases, so a test sees
+whatever the previous one left unless it starts from a known state.
+
+- **Isolated**: a test never depends on, or trips over, rows another test
+  left. It declares a resetting fixture (`orch_ctx`, `orch_shared_ctx`,
+  `ctx`) or resets explicitly. A test that starts a worker or the server
+  lifespan must reset first: a worker claims and runs any pending task it
+  finds.
+- **Seed first**: build the state once in a module fixture on
+  `orch_shared_ctx` — jobs, objects, several task runs started together —
+  then let each test only assert on it. One seed proves the concurrent case
+  and costs one run instead of one per test.
+- **Own setup** only when the test mutates the state, its inputs vary, or it
+  must watch a fresh run.
+
 # Adding New Tests
 
 1. Put the test next to the module it tests (`test_<module>.py`).
 2. Declare fixtures by parameter name (`orch_ctx`, `ctx`, `fast_poll`).
    Autouse worker-isolation fixtures fire implicitly.
 3. mp-worker tests go in a dedicated `_mp.py` module.
-   Tests asserting on one shared setup → a module fixture on
-   `orch_shared_ctx`, in a module without `orch_ctx`.
+   Seed-first modules use `orch_shared_ctx` and never mix it with `orch_ctx`.
 4. Helpers reusable across subpackages → `aaiclick/testing.py`.
    Otherwise → a local helper module next to the tests.
 5. Flows shared by the runner e2e suites → `test_e2e/runner_flow.py`;
