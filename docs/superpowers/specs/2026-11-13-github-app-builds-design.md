@@ -15,7 +15,7 @@ worker image, two settings.
 - **Non-goals**: the submission-side `git ls-remote` (private repos are
   submitted from a checkout with the CLI, which never contacts the remote),
   GitHub Enterprise Server, SSH remotes, submodules, private dependencies
-  fetched inside the Dockerfile, deploy-scaffold changes.
+  fetched inside the Dockerfile.
 - **Anti-goal**: the token or key appearing in a command line, a remote URL,
   an error message or a task log.
 
@@ -76,6 +76,44 @@ calls do not justify a client dependency in the core install.
 shell/jvm child may name; the App widens what the worker *can* clone, not
 what a container may ask for.
 
+# Scaffolds
+
+Both follow precedent already in the templates (the commented-out
+`AWS_ACCESS_KEY_ID` lines in compose, the off-by-default S3 profile in helm).
+The key itself never enters a scaffolded file.
+
+**Compose** (`templates/compose/docker-compose.yaml`, `worker` service):
+commented out, with a remark saying what uncommenting enables.
+
+```yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Private GitHub repos for --build: mount a GitHub App key and uncomment
+      # the two AAICLICK_GITHUB_APP_* lines below (docs/user_guide/orchestration.md).
+      # - ./secrets/github-app.pem:/run/secrets/github-app.pem:ro
+    environment:
+      ...
+      # AAICLICK_GITHUB_APP_ID: "..."
+      # AAICLICK_GITHUB_APP_PEM_FILE: /run/secrets/github-app.pem
+```
+
+**Helm**: optional, off by default. `values.yaml` gains
+
+```yaml
+# Private GitHub repos for --build. Create the Secret yourself:
+#   kubectl create secret generic aaiclick-github-app --from-file=github-app.pem=<key>
+# Both empty leaves the worker unchanged.
+githubApp:
+  appId: ""
+  secretName: ""
+```
+
+When both are set, `templates/worker.yaml` adds the two env vars, mounts the
+Secret read-only at `/run/secrets/github-app` (`defaultMode: 0400`) and sets
+Pod `securityContext.fsGroup: 1000` — the image's `aaiclick` user, which
+could not read a root-owned `0400` file otherwise. Exactly one set fails
+`helm template` with a `fail` message naming the other.
+
 # Tests
 
 - `test_github_app.py`: with a generated RSA key and stubbed HTTP — returns
@@ -85,6 +123,11 @@ what a container may ask for.
   each error path raises without leaking the token.
 - `test_docker_build.py`: the fetch receives the overlay; other git calls
   and the no-settings path are unchanged.
+- `test_compose_scaffold.py` / `test_k8s_scaffold.py`: the scaffold ships
+  the block switched off (compose lines commented, `githubApp` values
+  empty). The enabled helm rendering is covered by `helm lint` /
+  `helm template` in `_helm-e2e-reusable.yaml`, extended with one
+  `--set githubApp.appId=1,githubApp.secretName=x` render.
 
 # Docs
 
@@ -94,7 +137,7 @@ Each fact lives where the neighbouring build settings already do:
 |---------------------------------------|----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `docs/user_guide/orchestration.md`    | "Image source (docker / kubernetes)", after the build-mode table | The main entry: the two settings; the App needs `Contents: read` and installation on the repo; the remote must be `https://github.com/...`; tokens are per build, read-only, one repo |
 | same                                  | same, as a `!!! warning`                           | Submitting by branch without a checkout runs `git ls-remote` on the submitter, which has no App credentials: pass `--git-sha` or submit from a checkout                                |
-| `docs/user_guide/deployment.md`       | compose and Kubernetes **Configure** tables        | One row each: the two variables on the worker, with the PEM mounted read-only, linking to the section above                                                                            |
+| `docs/user_guide/deployment.md`       | compose and Kubernetes **Configure** tables        | One row each: compose — uncomment the worker's `AAICLICK_GITHUB_APP_*` lines and key mount; helm — `githubApp.appId`, `githubApp.secretName`; both link to the section above           |
 | `docs/designs/orchestration.md`       | the "Builds run on buildkitd" paragraph            | One sentence: where the token is minted, its scope, and that it reaches only the `git fetch`                                                                                           |
 | `docs/designs/future.md`              | "GitHub Actions Image Builder"                     | The "until then" line points at this instead of a hand-rolled credential helper                                                                                                        |
 | `execution/github_app.py`             | module docstring                                   | `See docs/designs/orchestration.md — "Image source".`                                                                                                                                  |
