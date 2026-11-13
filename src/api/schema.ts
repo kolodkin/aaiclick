@@ -1072,9 +1072,7 @@ export interface components {
             /** Name */
             name: string;
             /** Params */
-            params: {
-                [key: string]: unknown;
-            }[];
+            params: components["schemas"]["DashboardParam-Output"][];
             /** Queries */
             queries: {
                 [key: string]: components["schemas"]["ObjectQuery-Output"];
@@ -1100,9 +1098,7 @@ export interface components {
              */
             name?: string;
             /** Params */
-            params?: {
-                [key: string]: unknown;
-            }[];
+            params?: components["schemas"]["DashboardParam-Input"][];
             /** Queries */
             queries: {
                 [key: string]: components["schemas"]["ObjectQuery-Input"];
@@ -1112,6 +1108,46 @@ export interface components {
              * @default persistent
              */
             scope?: string;
+        };
+        /**
+         * DashboardParam
+         * @description A dashboard selector, in QueryView's spec; the SPA kernel interprets it.
+         */
+        "DashboardParam-Input": {
+            /** Default */
+            default?: "none" | null;
+            /**
+             * Kind
+             * @default value
+             * @enum {string}
+             */
+            kind?: "value" | "identifier" | "dimension";
+            /** Name */
+            name: string;
+            /** Options */
+            options?: (string | number)[] | null;
+            /** Options Sql */
+            options_sql?: string | null;
+        };
+        /**
+         * DashboardParam
+         * @description A dashboard selector, in QueryView's spec; the SPA kernel interprets it.
+         */
+        "DashboardParam-Output": {
+            /** Default */
+            default: "none" | null;
+            /**
+             * Kind
+             * @default value
+             * @enum {string}
+             */
+            kind: "value" | "identifier" | "dimension";
+            /** Name */
+            name: string;
+            /** Options */
+            options: (string | number)[] | null;
+            /** Options Sql */
+            options_sql: string | null;
         };
         /**
          * DashboardResults

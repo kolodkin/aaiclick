@@ -16,14 +16,16 @@ import { Chips } from "../components/Chips";
 // ClickHouse's identifier quote, for `identifier` params.
 const QUOTE = "`";
 
-// aaiclick has no free-SQL endpoint, so `options_sql` params are dropped
-// before they resolve and this is never called.
-const noSql: QueryRunner = async () => ({ ok: false, message: "options_sql is not supported" });
+// aaiclick has no free-SQL endpoint; `runPanels` rejects `options_sql` params
+// before the kernel would call this.
+const noSql: QueryRunner = async () => ({ ok: false, message: "options_sql params are not supported" });
 
 // Resolve the dashboard's selectors, substitute them into each panel's `where`
 // and run the panels whose selectors are all chosen.
 async function runPanels(d: DashboardModel, values: Record<string, string>) {
-  const declared = parseDashboardParams(d.params).filter((p) => !p.optionsSql);
+  const declared = parseDashboardParams(d.params);
+  const sql = declared.find((p) => p.optionsSql);
+  if (sql) throw new Error(`param ${sql.name}: options_sql is not supported`);
   const params = await resolveParams(declared, values, noSql, QUOTE);
   const wheres = applyToQueries(
     Object.fromEntries(Object.entries(d.queries).map(([panel, q]) => [panel, q.where ?? ""])),
@@ -42,11 +44,17 @@ export function Dashboard({ name, onPrompt }: { name: string | null; onPrompt: (
   const list = useDashboards();
   const dashboard = useDashboard(name ?? "");
   const d = dashboard.data;
+  // The frame's latest setParams values, so Refresh re-runs the same selection.
+  const values = useRef<Record<string, string>>({});
+  // Only the newest setParams run may answer the frame.
+  const seq = useRef(0);
   const run = useQuery({
     queryKey: ["dashboard-results", name, d?.updated_at],
-    queryFn: () => runPanels(d!, {}),
+    queryFn: () => runPanels(d!, values.current),
     enabled: !!d,
     refetchInterval: false,
+    // A refetch must rebuild the frame even when the rows are unchanged.
+    structuralSharing: false,
   });
   const frameRef = useRef<HTMLIFrameElement>(null);
 
@@ -54,18 +62,22 @@ export function Dashboard({ name, onPrompt }: { name: string | null; onPrompt: (
   // own frame, so the page never issues a query of its own.
   useEffect(() => {
     if (!d) return;
+    values.current = {};
     async function onMessage(e: MessageEvent) {
       const frame = frameRef.current;
       if (!frame || !d || e.source !== frame.contentWindow) return;
-      const values = parseParamsRequest(e.data);
-      if (!values) return;
+      const next = parseParamsRequest(e.data);
+      if (!next) return;
+      values.current = next;
+      const ticket = ++seq.current;
       let answer: Record<string, unknown>;
       try {
-        answer = { type: "params-results", ok: true, ...(await runPanels(d, values)) };
+        answer = { type: "params-results", ok: true, ...(await runPanels(d, next)) };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to run queries.";
         answer = { type: "params-results", ok: false, message, params: [] };
       }
+      if (ticket !== seq.current) return;
       frame.contentWindow?.postMessage(answer, "*");
     }
     window.addEventListener("message", onMessage);

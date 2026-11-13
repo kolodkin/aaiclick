@@ -63,7 +63,7 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, orch_context, task_scope
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.viewer.view_models import DashboardIn, ObjectQuery
+from aaiclick.viewer.view_models import DashboardIn, DashboardParam, ObjectQuery
 
 #: The job ``seed_viewer_objects`` gives job-scoped objects, for the job page's
 #: Objects dropdown.
@@ -230,7 +230,7 @@ async def seed_viewer_objects() -> None:
                     "'rows:' + q.top.name.length); show(window.queries); window.onQueryResults = show</script>"
                 ),
                 queries={"top": ObjectQuery(object="orders", fields=["name", "amount"], where="amount > {min}")},
-                params=[{"name": "min", "options": ["15", "25"]}],
+                params=[DashboardParam(name="min", options=["15", "25"])],
             )
         )
         # A fresh job per run: its name resolves to the latest, so earlier

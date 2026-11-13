@@ -92,7 +92,7 @@ function ObjectExplorer({
   const job = jobOfScope(scope);
 
   function applyLimit() {
-    const next = Math.min(MAX_LIMIT, Math.max(1, Number(limitDraft) || DEFAULT_LIMIT));
+    const next = Math.min(MAX_LIMIT, Math.max(1, Math.floor(Number(limitDraft)) || DEFAULT_LIMIT));
     setLimitDraft(String(next));
     if (next !== limit) {
       setLimit(next);
@@ -188,14 +188,16 @@ function ObjectExplorer({
         {query.isPending && <p className="sub">loading rows…</p>}
         {query.isError && <p className="err">{query.error.message}</p>}
         {rows && (
-          <ResultsTable
-            columns={columns}
-            rows={rows.data}
-            types={columnTypes(rows)}
-            shownIdx={shownColumnIndices(columns, fields, visibleCols ?? columns)}
-            testid="object-rows"
-            dimmed={busy}
-          />
+          <div className="object-rows">
+            <ResultsTable
+              columns={columns}
+              rows={rows.data}
+              types={columnTypes(rows)}
+              shownIdx={shownColumnIndices(columns, fields, visibleCols ?? columns)}
+              testid="object-rows"
+              dimmed={busy}
+            />
+          </div>
         )}
       </div>
     </>

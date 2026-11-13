@@ -36,6 +36,7 @@ from aaiclick.viewer.view_models import (
     MAX_LIMIT,
     Dashboard,
     DashboardIn,
+    DashboardParam,
     DashboardResults,
     DashboardSummary,
     ObjectQuery,
@@ -133,7 +134,7 @@ def _row_to_dashboard(row: DashboardRow) -> Dashboard:
         scope=row.scope,
         html=row.html,
         queries=queries,
-        params=json.loads(row.params),
+        params=[DashboardParam.model_validate(p) for p in json.loads(row.params)],
         updated_at=row.updated_at,
     )
 
@@ -189,7 +190,7 @@ async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
         row.scope = dashboard.scope
         row.html = dashboard.html
         row.queries = json.dumps({panel: q.model_dump(mode="json") for panel, q in dashboard.queries.items()})
-        row.params = json.dumps(dashboard.params)
+        row.params = json.dumps([p.model_dump(exclude_none=True) for p in dashboard.params])
         row.updated_at = utc_now()
         await session.commit()
         await session.refresh(row)

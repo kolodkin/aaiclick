@@ -206,7 +206,7 @@ Shipped design: `viewer.md`.
   workspace).
 - **`options_sql` params**: a dashboard param may name a query whose first
   column feeds its selector; aaiclick has no free-SQL endpoint, so `@dashboard`
-  drops such params and resolves static `options` only.
+  rejects a dashboard that declares one.
 - **Filtering and cell views in `@data`**: the object view orders and pages;
   a `where` box, the kernel's cell-view YAML and CSV download have no UI
   (`data query --where … --csv` covers the CLI).

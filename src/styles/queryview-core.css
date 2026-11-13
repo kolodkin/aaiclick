@@ -146,4 +146,24 @@
     color: #c7d2fe; /* indigo-200 */
     background: rgba(99, 102, 241, 0.16);
   }
+
+  /* Per-cell horizontal scroller in the results grid. Thin, dim bars so a
+     table full of long values doesn't read as a wall of scrollbars. */
+  .cell-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  }
+  .cell-scroll::-webkit-scrollbar {
+    height: 6px;
+  }
+  .cell-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .cell-scroll::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: rgba(148, 163, 184, 0.35);
+  }
+  .cell-scroll:hover::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.55);
+  }
 }

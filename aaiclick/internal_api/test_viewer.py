@@ -11,6 +11,7 @@ from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.viewer.view_models import (
     DashboardIn,
+    DashboardParam,
     ObjectQuery,
     ObjectQueryRequest,
     OrderBy,
@@ -109,11 +110,11 @@ async def test_dashboard_round_trip_and_run():
             queries={
                 "top": ObjectQuery(object="orders", fields=["name", "amount"], order_by=[OrderBy("amount", "DESC")])
             },
-            params=[{"name": "min", "options": ["15"]}],
+            params=[DashboardParam(name="min", options=["15"])],
         )
     )
     assert dash.queries["top"].fields == ["name", "amount"]
-    assert (await viewer.get_dashboard("sales")).params == [{"name": "min", "options": ["15"]}]
+    assert (await viewer.get_dashboard("sales")).params == [DashboardParam(name="min", options=["15"])]
     assert [d.name for d in (await viewer.list_dashboards()).items] == ["sales"]
     assert (await viewer.get_dashboard("sales")).html == "<h1>x</h1>"
 
