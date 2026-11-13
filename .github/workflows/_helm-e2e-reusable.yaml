@@ -2,7 +2,7 @@ name: Helm Chart E2E (reusable)
 
 # Release gate for the scaffolded helm chart: installs the wheel artifact,
 # scaffolds via `python -m aaiclick k8s init`, lints the chart, installs it
-# on a kind cluster with devDependencies enabled and the -rc images, then
+# on a k3s cluster with devDependencies enabled and the -rc images, then
 # smoke-tests server health and a shell-job round trip.
 
 on:
@@ -28,9 +28,6 @@ jobs:
       - name: Setup uv
         uses: ./.github/actions/setup-uv
 
-      - name: Install kind, kubectl and Helm
-        uses: ./.github/actions/setup-kind
-
       - name: Log in to GHCR
         uses: ./.github/actions/ghcr-login
 
@@ -50,20 +47,17 @@ jobs:
           helm lint "$RUNNER_TEMP/chart"
           helm template smoke "$RUNNER_TEMP/chart" --set devDependencies.enabled=true >/dev/null
 
-      - name: Create kind cluster
-        run: kind create cluster --name aaiclick-helm-e2e
+      - name: Install k3s and Helm
+        uses: ./.github/actions/setup-k3s
 
-      # kind nodes can't use the host's registry credentials, so pull on the
-      # host and side-load the images into the cluster.
-      - name: Load rc images into kind
+      # k3s's containerd can't use the host's registry credentials, so pull on
+      # the host and side-load the images into the cluster.
+      - name: Load rc images into k3s
         run: |
           for img in aaiclick aaiclick-kubectl; do
             docker pull "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}"
-            kind load docker-image "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}" --name aaiclick-helm-e2e
+            docker save "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}" | sudo k3s ctr images import -
           done
-
-      - name: Wait for cluster DNS (CoreDNS) ready
-        run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
 
       - name: Install chart
         run: |

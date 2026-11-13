@@ -1,24 +1,21 @@
 name: Kubernetes Runner E2E (reusable)
 
-# Shared body for the kubernetes-runner end-to-end suite. A kind cluster runs
-# ALL dependency services (Postgres, ClickHouse, pypiserver, registry) as pods,
-# deployed by the committed Helm chart in test_e2e/kubernetes/chart. There are
-# no GitHub Actions service containers.
+# Shared body for the kubernetes-runner end-to-end suite. A k3s cluster (the
+# production distribution) runs ALL dependency services (Postgres, ClickHouse,
+# pypiserver, registry) as pods, deployed by the committed Helm chart in
+# test_e2e/kubernetes/chart. There are no GitHub Actions service containers.
 #
-# Networking (see docs/superpowers/specs/2026-06-19-k8s-e2e-helm-services-design.md):
-#   - Each service is a NodePort Service. kind extraPortMappings bridge each
-#     NodePort to a standard localhost port on the runner:
-#       postgres   30432 -> 127.0.0.1:5432
-#       clickhouse 30123 -> 127.0.0.1:8123
-#       pypiserver 30080 -> 127.0.0.1:8080
-#       registry   30500 -> 127.0.0.1:5000
+# Networking (see docs/designs/kubernetes_runner.md):
+#   - k3s runs on the runner itself, so each NodePort Service is reachable on
+#     localhost. The NodePort range is widened so every nodePort equals the
+#     service's standard port (5432, 8123, 8080, 5000).
 #   - The two databases use ONE DSN that resolves in both places: on the runner
-#     via /etc/hosts (aaiclick-postgres/-clickhouse -> 127.0.0.1 -> extraPortMapping
-#     -> NodePort), and inside job pods via CoreDNS (Service name). The pod
-#     inherits the host DSN verbatim through build_runner_env, so no runner change.
+#     via /etc/hosts (aaiclick-postgres/-clickhouse -> 127.0.0.1 -> NodePort),
+#     and inside job pods via CoreDNS (Service name). The pod inherits the host
+#     DSN verbatim through build_runner_env, so no runner change.
 #   - The job image tag is localhost:5000/aaiclick-job:<sha>[-<dockerfile>]: buildkitd pushes
-#     to localhost:5000 (-> NodePort 30500 -> registry pod) and the node's
-#     containerd resolves it via the mirror localhost:5000 -> localhost:30500.
+#     to localhost:5000 (the registry NodePort) and the node's containerd pulls
+#     it over plain HTTP via the /etc/rancher/k3s/registries.yaml mirror.
 #   - Images build on a host-network buildkitd (start-buildkitd), which pushes
 #     to localhost:5000 like the host did and reaches the in-cluster pypi via
 #     host.docker.internal:8080 (--add-host=...:<bridge gateway>).
@@ -54,40 +51,21 @@ jobs:
       - name: Setup uv
         uses: ./.github/actions/setup-uv
 
-      - name: Install kind, kubectl and Helm
-        uses: ./.github/actions/setup-kind
-
-      # kind config wires the registry mirror to the node's own NodePort and
-      # bridges every service NodePort to a standard localhost port on the host.
-      - name: Create kind cluster
+      # containerd pulls the job image from the in-cluster registry over plain HTTP.
+      - name: Configure registry mirror
         run: |
-          cat > /tmp/kind.yaml <<'EOF'
-          kind: Cluster
-          apiVersion: kind.x-k8s.io/v1alpha4
-          containerdConfigPatches:
-            - |-
-              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
-                endpoint = ["http://localhost:30500"]
-          nodes:
-            - role: control-plane
-              # No listenAddress: ports bind 0.0.0.0 so the docker-build container
-              # can reach the in-cluster pypi via host.docker.internal (the docker
-              # bridge gateway, not loopback). 0.0.0.0 still covers the host-side
-              # loopback access (DB DSNs, registry push, wheel upload).
-              extraPortMappings:
-                - containerPort: 30432
-                  hostPort: 5432
-                - containerPort: 30123
-                  hostPort: 8123
-                - containerPort: 30080
-                  hostPort: 8080
-                - containerPort: 30500
-                  hostPort: 5000
+          sudo mkdir -p /etc/rancher/k3s
+          sudo tee /etc/rancher/k3s/registries.yaml <<'EOF'
+          mirrors:
+            "localhost:5000":
+              endpoint:
+                - "http://localhost:5000"
           EOF
-          kind create cluster --name aaiclick-e2e --config /tmp/kind.yaml
 
-      - name: Wait for cluster DNS (CoreDNS) ready
-        run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+      - name: Install k3s and Helm
+        uses: ./.github/actions/setup-k3s
+        with:
+          k3s-args: --service-node-port-range=5000-32767
 
       - name: Deploy dependency services (Helm)
         run: |
