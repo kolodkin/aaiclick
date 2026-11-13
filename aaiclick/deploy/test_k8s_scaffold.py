@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -138,3 +139,76 @@ def test_init_helm_ships_the_s3_profile_switched_off(tmp_path):
     clickhouse = (target / "templates" / "clickhouse.yaml").read_text()
     assert "/etc/clickhouse-server/users.d/s3.xml" in clickhouse
     assert ".Values.devDependencies.clickhouse.s3UsersXml" in clickhouse
+
+
+def test_init_helm_ships_github_app_credentials_switched_off(tmp_path):
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+    values = yaml.safe_load((target / "values.yaml").read_text())
+    assert values["githubApp"] == {"appId": "", "secretName": ""}
+
+
+def _render_worker(chart, *sets: str) -> subprocess.CompletedProcess[str]:
+    args = ["helm", "template", "x", str(chart), "--set", "devDependencies.enabled=true"]
+    for item in sets:
+        args += ["--set", item]
+    return subprocess.run(args, capture_output=True, text=True)
+
+
+def _worker_pod(rendered: str) -> dict:
+    docs = [d for d in yaml.safe_load_all(rendered) if d]
+    (worker,) = [d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "aaiclick-worker"]
+    return worker["spec"]["template"]["spec"]
+
+
+needs_helm = pytest.mark.skipif(shutil.which("helm") is None, reason="needs the helm binary")
+
+
+@needs_helm
+def test_helm_worker_mounts_the_github_app_key_when_enabled(tmp_path):
+    """The non-root worker gets both settings and a key it can read."""
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+
+    result = _render_worker(target, "githubApp.appId=123", "githubApp.secretName=gh")
+
+    assert result.returncode == 0, result.stderr
+    pod = _worker_pod(result.stdout)
+    container = pod["containers"][0]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env["AAICLICK_GITHUB_APP_ID"] == "123"
+    assert env["AAICLICK_GITHUB_APP_PEM_FILE"] == "/run/secrets/github-app/github-app.pem"
+    assert {"name": "github-app", "mountPath": "/run/secrets/github-app", "readOnly": True} in container["volumeMounts"]
+    assert {"name": "github-app", "secret": {"secretName": "gh", "defaultMode": 0o440}} in pod["volumes"]
+    assert pod["securityContext"] == {"fsGroup": 1000}
+
+
+@needs_helm
+def test_helm_worker_is_unchanged_without_github_app(tmp_path):
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+
+    result = _render_worker(target)
+
+    assert result.returncode == 0, result.stderr
+    pod = _worker_pod(result.stdout)
+    assert "securityContext" not in pod and "volumes" not in pod
+    assert not any(e["name"].startswith("AAICLICK_GITHUB_APP") for e in pod["containers"][0]["env"])
+
+
+@needs_helm
+@pytest.mark.parametrize(
+    "only, missing",
+    [
+        pytest.param("githubApp.appId=123", "githubApp.secretName", id="secret-missing"),
+        pytest.param("githubApp.secretName=gh", "githubApp.appId", id="app-id-missing"),
+    ],
+)
+def test_helm_rejects_half_configured_github_app(tmp_path, only, missing):
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+
+    result = _render_worker(target, only)
+
+    assert result.returncode != 0
+    assert missing in result.stderr
