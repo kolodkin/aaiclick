@@ -20,6 +20,7 @@ from aaiclick.data.object_context.ch_client import _ch_client_var, create_ch_cli
 from aaiclick.orchestration.execution.db_handler import _db_handler_var
 from aaiclick.orchestration.orch_context import OrchLifecycleHandler, orch_context, task_scope
 from aaiclick.orchestration.sql_context import _sql_engine_var, create_sql_engine, get_sql_session
+from aaiclick.testing import reset_test_state
 
 # `aaiclick.orchestration.__init__` re-exports the function ``orch_context``
 # from the submodule, so attribute-walk based patch paths
@@ -99,7 +100,7 @@ async def _run_refs(table_name: str) -> set[str]:
 async def test_lifecycle_loop_survives_a_failing_message():
     """One SQL error must not kill the FIFO consumer: later messages still
     run and ``flush()`` still returns."""
-    async with orch_context():
+    async with reset_test_state(orch_context(), reset_ch=False, reset_sql=True):
         handler = OrchLifecycleHandler(task_id=1, job_id=1, run_id=7)
         await handler.start()
         try:

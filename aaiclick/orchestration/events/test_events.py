@@ -19,7 +19,7 @@ from ..execution.pg_handler import CLAIM_NEXT_TASK_SQL
 from ..execution.runner import register_run
 from ..factories import create_job
 from ..jobs import get_tasks_for_job
-from ..models import TASK_RUNNING, Task
+from ..models import TASK_RUNNING, Job, Task
 from ..orch_context import get_sql_session
 from . import (
     STATE_LISTENING,
@@ -140,8 +140,7 @@ def test_register_session_hooks_is_idempotent():
 
 
 async def test_unregistered_hooks_publish_nothing(orch_ctx, live_bus):
-    job = await create_job("events_unregistered", SAMPLE_TASK)
-    await asyncio.sleep(SETTLE)
+    job = await _quiet_job("events_unregistered")
     unregister_session_hooks()
     try:
         async with recording(live_bus) as signals:
@@ -220,6 +219,13 @@ async def test_hooks_skip_transport_on_rollback(orch_ctx):
     assert fake.calls == []
 
 
+async def _quiet_job(name: str) -> Job:
+    """Create a job without signalling, so a recording that follows hears
+    only the write under test — no wait for the setup's signals to drain."""
+    with signal_transport(RecordingTransport()):
+        return await create_job(name, SAMPLE_TASK)
+
+
 @pytest.fixture
 async def live_bus() -> AsyncIterator[EventBus]:
     """A scoped bus fed by the active backend's transport, once it is listening."""
@@ -235,9 +241,8 @@ async def live_bus() -> AsyncIterator[EventBus]:
 
 
 async def test_task_status_write_publishes_one_signal(orch_ctx, live_bus):
-    job = await create_job("events_status", SAMPLE_TASK)
+    job = await _quiet_job("events_status")
     task = (await get_tasks_for_job(job.id))[0]
-    await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
         await update_task_status(task.id, TASK_RUNNING)
     assert len(signals) == 1
@@ -245,9 +250,8 @@ async def test_task_status_write_publishes_one_signal(orch_ctx, live_bus):
 
 async def test_register_run_publishes_one_signal(orch_ctx, live_bus):
     """A new attempt changes the task's run count, so the UI must hear about it."""
-    job = await create_job("events_register_run", SAMPLE_TASK)
+    job = await _quiet_job("events_register_run")
     task = (await get_tasks_for_job(job.id))[0]
-    await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
         await register_run(task.id)
     assert len(signals) == 1
@@ -255,18 +259,17 @@ async def test_register_run_publishes_one_signal(orch_ctx, live_bus):
 
 async def test_task_completion_with_job_rollup_publishes_one_signal(orch_ctx, live_bus):
     """The last task's completion and its job's completion share one commit, so one signal."""
-    job = await create_job("events_completion", SAMPLE_TASK)
+    job = await _quiet_job("events_completion")
     task = (await get_tasks_for_job(job.id))[0]
-    await update_task_status(task.id, TASK_RUNNING)
-    await asyncio.sleep(SETTLE)
+    with signal_transport(RecordingTransport()):
+        await update_task_status(task.id, TASK_RUNNING)
     async with recording(live_bus) as signals:
         assert await complete_task_and_roll_up(task.id, job.id, None, expected_epoch=0)
     assert len(signals) == 1
 
 
 async def test_raw_task_update_publishes(orch_ctx, live_bus):
-    job = await create_job("events_raw", SAMPLE_TASK)
-    await asyncio.sleep(SETTLE)
+    job = await _quiet_job("events_raw")
     async with recording(live_bus) as signals:
         async with get_sql_session() as session:
             await session.execute(
@@ -279,9 +282,8 @@ async def test_raw_task_update_publishes(orch_ctx, live_bus):
 
 async def test_orm_update_statement_publishes(orch_ctx, live_bus):
     """``update(Task)`` builds a Core statement, not text — it must be caught too."""
-    job = await create_job("events_orm_update", SAMPLE_TASK)
+    job = await _quiet_job("events_orm_update")
     task = (await get_tasks_for_job(job.id))[0]
-    await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
         async with get_sql_session() as session:
             await session.execute(update(Task).where(col(Task.id) == task.id).values(status=TASK_RUNNING))
@@ -290,8 +292,7 @@ async def test_orm_update_statement_publishes(orch_ctx, live_bus):
 
 
 async def test_cancel_job_publishes(orch_ctx, live_bus):
-    job = await create_job("events_cancel", SAMPLE_TASK)
-    await asyncio.sleep(SETTLE)
+    job = await _quiet_job("events_cancel")
     async with recording(live_bus) as signals:
         await cancel_job(job.id)
     assert len(signals) == 1
@@ -313,8 +314,7 @@ async def test_write_matching_no_row_publishes_nothing(orch_ctx, live_bus):
 
 
 async def test_rolled_back_write_publishes_nothing(orch_ctx, live_bus):
-    job = await create_job("events_rollback", SAMPLE_TASK)
-    await asyncio.sleep(SETTLE)
+    job = await _quiet_job("events_rollback")
     async with recording(live_bus) as signals:
         async with get_sql_session() as session:
             await session.execute(

@@ -15,12 +15,11 @@ passes ``test_e2e/kubernetes/`` with ``-m kubernetes_e2e``."""
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import subprocess
 
 import pytest
-from job_wait import run_worker_until_all_done, start_worker_loop, wait_for_job_by_name
+from job_wait import run_worker_until_all_done, start_worker_loop, stop_worker_loop, wait_for_job_by_name
 from runner_flow import (
     aaiclick_cli,
     run_child_build_flow,
@@ -197,14 +196,13 @@ async def test_worker_restart_adopts_pods(orch_ctx, kubernetes_e2e_user_repo, tm
         await asyncio.wait_for(first, timeout=120.0)
     assert len([p for p in (await _managed_pods()).values() if p == "Running"]) == 2, "Pods must survive the worker"
 
-    second = start_worker_loop(max_tasks=10)
+    second_worker = await register_execution_worker()
+    second = start_worker_loop(max_tasks=10, execution_worker_id=second_worker.id)
     try:
         module_done = await wait_for_job_by_name(module_job)
         shell_done = await wait_for_job_by_name(shell_job)
     finally:
-        second.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await second
+        await stop_worker_loop(second, second_worker.id)
 
     assert (module_done.status, shell_done.status) == (JOB_COMPLETED, JOB_COMPLETED), (
         module_done.error,

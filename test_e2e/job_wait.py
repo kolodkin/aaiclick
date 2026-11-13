@@ -15,6 +15,10 @@ from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.env import job_wait_timeout
+from aaiclick.orchestration.execution.execution_worker import (
+    register_execution_worker,
+    request_execution_worker_stop,
+)
 from aaiclick.orchestration.execution.k8s_worker_loop import k8s_worker_main_loop
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.execution.runner_env import RUNNER_KUBERNETES, get_worker_runner
@@ -73,7 +77,8 @@ async def run_worker_until_all_done(*job_names: str, max_tasks: int = 10) -> lis
     """Drive one worker loop until every named job is terminal. One loop
     for all: stopping after the first would strand the others' claimed tasks
     in ``RUNNING``. A worker crash surfaces at once, not at the job timeout."""
-    worker_task = start_worker_loop(max_tasks)
+    worker = await register_execution_worker()
+    worker_task = start_worker_loop(max_tasks, worker.id)
     waiter = asyncio.create_task(_wait_all(job_names))
     try:
         done, _ = await asyncio.wait({worker_task, waiter}, return_when=asyncio.FIRST_COMPLETED)
@@ -81,10 +86,19 @@ async def run_worker_until_all_done(*job_names: str, max_tasks: int = 10) -> lis
             worker_task.result()
         return await waiter
     finally:
-        for task in (worker_task, waiter):
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        waiter.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await waiter
+        await stop_worker_loop(worker_task, worker.id)
+
+
+async def stop_worker_loop(worker_task: asyncio.Task, execution_worker_id: int, timeout: float = 120.0) -> None:
+    """Stop a worker loop as ``execution-worker stop`` does: a cancel could
+    land inside one of its DB writes. A loop still busy after ``timeout``
+    (a stuck task behind a failed wait) is cancelled after all."""
+    await request_execution_worker_stop(execution_worker_id)
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(worker_task, timeout)
 
 
 async def _wait_all(job_names: tuple[str, ...]) -> list[Job]:

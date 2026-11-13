@@ -102,10 +102,11 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     async def fake_run_detached(cmd, env):
         return "fake-cid"
 
+    killed = asyncio.Event()
+
     async def fake_wait(cid, timeout):
-        # Sleep long enough for the watcher to fire, then pretend the
-        # container exited 137 (SIGKILL'd by the watcher).
-        await asyncio.sleep(0.2)
+        # The container runs until the watcher kills it, then exits 137.
+        await asyncio.wait_for(killed.wait(), 5)
         return 137, None
 
     async def fake_check_aborted(task_id, run_epoch):
@@ -118,10 +119,10 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     # Container wrote a stale success row before the host killed it.
     monkeypatch.setattr(docker_worker, "read_task_run_result", AsyncMock(return_value=RunnerResult(True, {}, None)))
     monkeypatch.setattr(docker_worker, "_docker_rm", AsyncMock())
-    monkeypatch.setattr(docker_worker, "_docker_kill", AsyncMock())
+    monkeypatch.setattr(docker_worker, "_docker_kill", AsyncMock(side_effect=lambda cid: killed.set()))
     monkeypatch.setattr(docker_worker, "execution_worker_heartbeat", AsyncMock())
     monkeypatch.setattr(execution_worker, "check_run_aborted", fake_check_aborted)
-    # Speed up the poll interval so the watcher actually fires within the test.
+    # Speed up the poll interval so the watcher fires soon.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
     # No DB here: skip the run count and post-exit output handling (covered by the fake-CLI tests).
     monkeypatch.setattr(execution_worker, "get_run_count", AsyncMock(return_value=0))

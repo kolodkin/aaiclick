@@ -16,7 +16,7 @@ import pytest
 
 from aaiclick.data.object.refs import native_ref
 
-from ...testing import get_task_runs
+from ...testing import get_task_runs, until
 from ..factories import create_job, create_task
 from ..jobs.queries import get_tasks_for_job
 from ..kubernetes_config import KubernetesConfig
@@ -427,14 +427,15 @@ async def test_run_shell_pod_full_lifecycle(shell_pod):
     assert [m["kind"] for m in shell_pod.created] == ["Pod", "Secret"]
 
     shell_pod.watch.apply(_shell_pod_json(_POD, {"running": {}}, {"waiting": {}}), deleted=False)
-    await asyncio.sleep(0.05)
-    assert _cp_targets(shell_pod.cli) == ["/aaiclick/in.json", "/aaiclick/in.ready"]
+    await until(
+        lambda: _cp_targets(shell_pod.cli) == ["/aaiclick/in.json", "/aaiclick/in.ready"], what="in.json copied"
+    )
     assert kw.register_run.await_count == 0 and shell_pod.follows == []
 
     shell_pod.watch.apply(_shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"running": {}}), deleted=False)
-    await asyncio.sleep(0.05)
+    await until(lambda: shell_pod.follows, what="log follower started")
     kw.register_run.assert_awaited_once_with(7)
-    assert shell_pod.follows and shell_pod.follows[0][1:3] == ["logs", "--follow"]
+    assert shell_pod.follows[0][1:3] == ["logs", "--follow"]
     assert not any(a.startswith("--since-time") for a in shell_pod.follows[0])
 
     shell_pod.watch.apply(
@@ -450,11 +451,12 @@ async def test_run_shell_pod_full_lifecycle(shell_pod):
 async def test_run_shell_pod_adopted_at_io_in_restages_and_copies(shell_pod):
     shell_pod.watch.apply(_shell_pod_json(_POD, {"running": {}}, {"waiting": {}}), deleted=False)
     run = shell_pod.start(image_tag=None)
-    await asyncio.sleep(0.05)
+    await until(
+        lambda: _cp_targets(shell_pod.cli) == ["/aaiclick/in.json", "/aaiclick/in.ready"], what="in.json copied"
+    )
 
     assert shell_pod.created == []
     kw.stage_in_json.assert_awaited_once()
-    assert _cp_targets(shell_pod.cli) == ["/aaiclick/in.json", "/aaiclick/in.ready"]
     shell_pod.watch.apply(
         _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False
     )
@@ -466,7 +468,7 @@ async def test_run_shell_pod_adopted_at_task_running_reuses_run_and_follows_sinc
     monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=since))
     shell_pod.watch.apply(_shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"running": {}}), deleted=False)
     run = shell_pod.start(image_tag=None, run_id=555)
-    await asyncio.sleep(0.05)
+    await until(lambda: shell_pod.follows, what="log follower started")
 
     assert _cp_targets(shell_pod.cli) == []
     kw.register_run.assert_not_awaited()
@@ -597,11 +599,11 @@ async def test_run_shell_pod_jvm_logs_reach_task_logs(orch_ctx, monkeypatch, tmp
             detach=[False],
         )
     )
-    await asyncio.sleep(0.2)
+    await until((tmp_path / "applied.json").exists, what="Pod created")
     watch.apply(pod({"running": {}}, {"waiting": {}}), deleted=False)
-    await asyncio.sleep(0.2)
+    await until((tmp_path / "copied-in.ready").exists, what="in.json copied")
     watch.apply(pod({"terminated": {"exitCode": 0}}, {"running": {}}), deleted=False)
-    await asyncio.sleep(0.2)
+    await until(lambda: get_task_runs(task.id), what="run registered")
     watch.apply(pod({"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False)
 
     result = await run

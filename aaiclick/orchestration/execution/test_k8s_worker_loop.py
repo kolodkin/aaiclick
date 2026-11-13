@@ -64,6 +64,13 @@ async def _task(task_id: int) -> Task:
     return task
 
 
+async def _stop(loop: asyncio.Task, worker: ExecutionWorker) -> None:
+    """Stop the loop as ``execution-worker stop`` does: a cancel could land
+    inside one of its DB writes."""
+    await request_execution_worker_stop(worker.id)
+    await asyncio.wait_for(loop, 10)
+
+
 def _pod_json(task: Task, task_state: dict, *, node: str | None = "n1") -> dict:
     spec: dict = {"containers": [{"name": "task"}]}
     if node:
@@ -383,19 +390,20 @@ async def test_lost_ownership_by_adoption_keeps_pod(orch_ctx, cluster):
 
 
 async def test_heartbeat_outage_detaches_all(orch_ctx, outage, cluster, monkeypatch):
+    worker = await register_execution_worker()
     (task,) = await _image_job("hb_outage")
-    loop = cluster.start(max_empty_polls=100)
+    loop = cluster.start(worker.id, max_empty_polls=100)
     await until(lambda: len(cluster.pods()) == 1)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
 
+    real = loop_mod.execution_worker_heartbeat
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", AsyncMock(side_effect=RuntimeError("db down")))
     await asyncio.sleep(2 * ew.HEARTBEAT_INTERVAL)  # > 1.5 intervals of silence
 
     assert cluster.deleted == []
     assert (await _task(task.id)).status == TASK_RUNNING
-    loop.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await loop
+    monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", real)
+    await _stop(loop, worker)
 
 
 async def test_shutdown_leaves_pods_running(orch_ctx, cluster):
@@ -618,29 +626,27 @@ async def test_sweep_deletes_reaped_task_pod(orch_ctx, cluster):
             .values(status=TASK_PENDING_FAILURE_CLEANUP, run_epoch=task.run_epoch + 1, execution_worker_id=None)
         )
         await session.commit()
-    loop = cluster.start(max_empty_polls=100)
+    worker = await register_execution_worker()
+    loop = cluster.start(worker.id, max_empty_polls=100)
     await until(lambda: cluster.watches)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
 
     await until(lambda: cluster.deleted == [kw._pod_name(task.id, task.run_epoch)], timeout=3.0)
-    loop.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await loop
+    await _stop(loop, worker)
 
 
 async def test_sweep_leaves_live_owner_pod(orch_ctx, cluster):
     live = await register_execution_worker()
     await create_job("sweep_live", create_task(SIMPLE, image="img:1"))
     task = await claim_next_task(live.id)
-    loop = cluster.start(max_empty_polls=100)
+    worker = await register_execution_worker()
+    loop = cluster.start(worker.id, max_empty_polls=100)
     await until(lambda: cluster.watches)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
     await asyncio.sleep(0.6)  # several heartbeat ticks
 
     assert cluster.deleted == []
-    loop.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await loop
+    await _stop(loop, worker)
 
 
 # ---------------------------------------------------------------------------
@@ -682,25 +688,29 @@ async def test_heartbeat_tick_resyncs_watch(orch_ctx, cluster):
         await original(self)
 
     _FakeWatch.resync = counting_resync
-    loop = cluster.start(max_empty_polls=100)
+    worker = await register_execution_worker()
+    loop = cluster.start(worker.id, max_empty_polls=100)
     try:
         await until(lambda: resyncs["n"] >= 3, timeout=6.0)
     finally:
         _FakeWatch.resync = original
-        loop.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await loop
+        await _stop(loop, worker)
 
 
 async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, outage, cluster, monkeypatch):
     """Detach must come before another worker may adopt (ADOPT_AFTER =
     2 × HEARTBEAT_INTERVAL), even when the heartbeat call hangs."""
 
-    async def hanging_heartbeat(worker_id: int):
-        await asyncio.sleep(30)
+    release = asyncio.Event()
+    real = loop_mod.execution_worker_heartbeat
 
+    async def hanging_heartbeat(worker_id: int):
+        await release.wait()
+        return await real(worker_id)
+
+    worker = await register_execution_worker()
     (task,) = await _image_job("hb_hang")
-    loop = cluster.start(max_empty_polls=100)
+    loop = cluster.start(worker.id, max_empty_polls=100)
     await until(lambda: len(cluster.pods()) == 1)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", hanging_heartbeat)
@@ -710,9 +720,8 @@ async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, outage, cl
 
     assert time.monotonic() - started < 2 * ew.HEARTBEAT_INTERVAL + 0.3  # detach lands before ADOPT_AFTER
     assert cluster.deleted == []
-    loop.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await loop
+    release.set()
+    await _stop(loop, worker)
 
 
 async def test_shutdown_before_pod_created_releases_claim(orch_ctx, cluster, monkeypatch):
@@ -758,14 +767,13 @@ async def test_slow_heartbeat_is_not_cancelled(orch_ctx, outage, cluster, monkey
         return await real(worker_id)
 
     monkeypatch.setattr(loop_mod, "execution_worker_heartbeat", slow_heartbeat)
+    worker = await register_execution_worker()
     (task,) = await _image_job("slow_hb")
-    loop = cluster.start(max_empty_polls=100)
+    loop = cluster.start(worker.id, max_empty_polls=100)
     await until(lambda: len(cluster.pods()) == 1)
     cluster.watch().apply(_pod_json(task, {"running": {}}), deleted=False)
-    await asyncio.sleep(4 * ew.HEARTBEAT_INTERVAL)
+    await until(lambda: outcomes["finished"] >= 2, timeout=6 * ew.HEARTBEAT_INTERVAL, what="two slow heartbeats")
 
-    assert outcomes["cancelled"] == 0 and outcomes["finished"] >= 2
+    assert outcomes["cancelled"] == 0
     assert _tracking(cluster, task)  # never detached
-    loop.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await loop
+    await _stop(loop, worker)
