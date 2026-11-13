@@ -79,7 +79,7 @@ def test_object_view_orders_and_pages(page, shot, base_url: str) -> None:
 
 @_spa_built
 @_local_only
-def test_dashboard_renders_saved_dashboard(page, base_url: str) -> None:
+def test_dashboard_renders_saved_dashboard(page, shot, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@dashboard sales")
     # The frame is sandboxed without allow-same-origin, so its document is not
     # reachable from the page; assert through Playwright's frame locator.
@@ -90,6 +90,7 @@ def test_dashboard_renders_saved_dashboard(page, base_url: str) -> None:
     # The page asks for a re-run through setParams; the frame is not reloaded.
     frame.locator("#raise").click()
     playwright_api.expect(title).to_have_text("rows:1", timeout=15000)
+    shot("dashboard-params")
 
 
 @_spa_built
