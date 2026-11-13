@@ -231,7 +231,7 @@ administers — jobs, objects, tasks, users, workers, audit. A test in
 | Role     | Scope   | Holds                                                          |
 |----------|---------|----------------------------------------------------------------|
 | `viewer` | `read`  | Every read                                                     |
-| `member` | `write` | Reads, plus their own saved queries and dashboards             |
+| `member` | `write` | Reads, plus their own dashboards                               |
 | `admin`  | `admin` | The installation — jobs, objects, users, workers, setup, audit |
 
 Authority is a property of the user: one `users.role` column, bridged to the
@@ -271,7 +271,7 @@ level beneath it. `read` is the default at every mint site.
 | Level   | Admits, plus everything below                                                                                      | REST guard it mirrors     |
 |---------|--------------------------------------------------------------------------------------------------------------------|---------------------------|
 | `read`  | every read, including `POST /viewer/query` and dashboard runs                                                      | `require_principal` alone |
-| `write` | a member's own mutations — saved queries, dashboards                                                               | `require_write`           |
+| `write` | a member's own mutations — dashboards                                                                              | `require_write`           |
 | `admin` | everything else — run / cancel jobs, register, clear tasks, delete / purge objects, users, workers, setup, migrate | `require_admin`           |
 
 A caller mints at or below `ROLE_SCOPES[their role]`; above the ceiling is `422`
@@ -304,11 +304,11 @@ and the restriction gives every MCP principal a real level to gate on. Each
 tool's tag *is* the level it needs on [the scope ladder](#the-scope-ladder), and
 `tools/list` only shows what the caller may call.
 
-| Tag     | Needs                    | Tools                                                                                                                                                                                                                                                                                                                          |
-|---------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `read`  | `read`; any user         | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `list_tasks`, `get_task`, `get_task_logs`, `list_execution_workers`, `list_objects`, `get_object`, `lineage_graph`, `lineage_nodes`, `lineage_query`, `lineage_schema`, `query_object`, `list_saved_queries`, `list_dashboards`, `get_dashboard`, `run_dashboard` |
-| `write` | `write`; member or admin | `save_query`, `delete_saved_query`, `save_dashboard`, `delete_dashboard`                                                                                                                                                                                                                                                       |
-| `admin` | `admin`; admin           | `cancel_job`, `run_job`, `register_job`, `enable_job`, `disable_job`, `clear_task`, `delete_object`, `purge_objects`, `setup`, `migrate`                                                                                                                                    |
+| Tag     | Needs                    | Tools                                                                                                                                                                                                                                                                                                                   |
+|---------|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `read`  | `read`; any user         | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `list_tasks`, `get_task`, `get_task_logs`, `list_execution_workers`, `list_objects`, `get_object`, `lineage_graph`, `lineage_nodes`, `lineage_query`, `lineage_schema`, `query_object`, `list_dashboards`, `get_dashboard`, `run_dashboard`, `run_queries` |
+| `write` | `write`; member or admin | `save_dashboard`, `delete_dashboard`                                                                                                                                                                                                                                                                                    |
+| `admin` | `admin`; admin           | `cancel_job`, `run_job`, `register_job`, `enable_job`, `disable_job`, `clear_task`, `delete_object`, `purge_objects`, `setup`, `migrate`                                                                                                                                                                                |
 
 A tool's required level is its highest tag, so a mistagged tool fails closed
 rather than open.

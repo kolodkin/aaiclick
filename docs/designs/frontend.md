@@ -97,9 +97,9 @@ server state, and component state holds only UI ephemera.
 | `useRegisterJob`                                           | `POST /api/v0/registered-jobs`                       |
 | `useObjects`                                               | `GET /api/v0/objects`                                |
 | `useObject`                                                | `GET /api/v0/objects/{name}[?job=…]`                 |
-| `useObjectRows` / `useQueryObject` / `useQueryObjectCsv`   | `POST /api/v0/viewer/query` (raw JSONCompact or CSV) |
-| `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]`                    |
-| `useDashboards` / `useDashboard` / `useRunDashboard`       | `/api/v0/viewer/dashboards[/{name}[:run]]`           |
+| `useObjectRows`                                            | `POST /api/v0/viewer/query` (raw JSONCompact)        |
+| `useDashboards` / `useDashboard`                           | `/api/v0/viewer/dashboards[/{name}]`                 |
+| `runQueries`                                               | `POST /api/v0/viewer/runqueries`                     |
 
 ## API types
 
@@ -307,7 +307,7 @@ view's one badge for the query backing what is on screen:
 | Task detail — record              | `["task", id]`                    | `/events`                                       | `stream` |
 | Task detail — logs                | `["task-logs", id]`               | own 2 s timer, once the task has started        | `poll`   |
 | Registered jobs                   | `["registered-jobs"]`             | its own register / enable / disable mutations   | `manual` |
-| Data, Query                       | `["objects", …]`, `["object", …]` | the reader, through the badge's refresh control | `manual` |
+| Data                              | `["objects", …]`, `["object", …]` | the reader, through the badge's refresh control | `manual` |
 | Dashboard                         | `["dashboard-results", name]`     | its own Refresh button                          | —        |
 
 The first four are `LIVE_KEYS` — the only keys a `changed` frame invalidates.

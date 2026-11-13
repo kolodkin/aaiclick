@@ -472,12 +472,11 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .ggroup-FAILED, .ggroup-UPSTREAM_FAILED { border-color: var(--red); }
 .ggroup-CANCELLED { border-color: var(--yellow); }
 
-/* ---- viewer (@data / @query) ---- */
+/* ---- viewer (@data) ---- */
 .viewer-layout { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
 .viewer-main { min-width: 0; overflow-x: auto; }
 /* Phones: stack the scope tree above the objects so the table keeps the full width. */
 @media (max-width: 720px) { .viewer-layout { grid-template-columns: 1fr; } }
-.viewer-panel { max-width: none; }
 .scope-tree { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--hi), var(--shadow); padding: 10px; font-size: 13px; }

@@ -30,12 +30,6 @@ const NAVIGATE: Cmd[] = [
     complete: "@data",
   },
   {
-    code: "@query [persistent | job <ref>] [<object>]",
-    desc: "Filter, order, page, and save a query over one object.",
-    cmd: "@query",
-    complete: "@query",
-  },
-  {
     code: "@dashboard [name]",
     desc: "Render a saved dashboard over object queries.",
     cmd: "@dashboard",

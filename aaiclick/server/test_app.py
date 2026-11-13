@@ -29,7 +29,11 @@ _PUBLIC_MUTATIONS = {
     f"{API_PREFIX}/auth/password-reset",
 }
 # POST bodies that only read — a read token may call them.
-_POST_READS = {f"{API_PREFIX}/viewer/query", f"{API_PREFIX}/viewer/dashboards/{{name}}:run"}
+_POST_READS = {
+    f"{API_PREFIX}/viewer/query",
+    f"{API_PREFIX}/viewer/runqueries",
+    f"{API_PREFIX}/viewer/dashboards/{{name}}:run",
+}
 
 
 def _dependency_calls(dependant):

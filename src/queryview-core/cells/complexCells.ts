@@ -20,9 +20,10 @@ function matchWrapper(type: string): { name: string; inner: string } | null {
 // Parse a type string into a descriptor, or null for scalar/unsupported types.
 // Nesting is honored one level deep (Array(Tuple(...)) / Array(Map(...))).
 export function parseComplexType(type: string): ComplexType | null {
-  // DESCRIBE pretty-prints complex types across indented lines; flatten any
-  // whitespace (type strings never contain string literals).
-  const flat = type.replace(/\\[nt]/g, " ").replace(/\s+/g, " ");
+  // ClickHouse pretty-prints complex types across indented lines (in result
+  // meta as in DESCRIBE); flatten any whitespace (type strings never contain
+  // string literals).
+  const flat = type.replace(/\s+/g, " ");
   const w = matchWrapper(flat);
   if (!w) return null;
   if (w.name === "Nullable" || w.name === "LowCardinality") return parseComplexType(w.inner);

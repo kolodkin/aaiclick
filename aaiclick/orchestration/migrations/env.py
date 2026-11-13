@@ -9,7 +9,7 @@ from sqlmodel import SQLModel
 import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.metadata
 import aaiclick.auth.models  # noqa: F401  # register users/refresh_tokens with SQLModel.metadata
 import aaiclick.orchestration.models  # noqa: F401
-import aaiclick.viewer.models  # noqa: F401  # register viewer_queries/viewer_dashboards
+import aaiclick.viewer.models  # noqa: F401  # register viewer_dashboards
 from aaiclick.orchestration.migrate import CONFIGURE_LOGGER
 
 # this is the Alembic Config object, which provides

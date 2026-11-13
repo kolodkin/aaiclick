@@ -38,13 +38,11 @@ from .registered_jobs import (
 from .tasks import get_task, list_tasks
 from .viewer import (
     delete_dashboard,
-    delete_saved_query,
     get_dashboard,
     list_dashboards,
-    list_saved_queries,
     query_object,
     query_object_bytes,
     run_dashboard,
+    run_queries,
     save_dashboard,
-    save_query,
 )

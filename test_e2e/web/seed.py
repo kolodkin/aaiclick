@@ -225,10 +225,12 @@ async def seed_viewer_objects() -> None:
             DashboardIn(
                 name="sales",
                 html=(
-                    "<h1 id='title'>Sales</h1>"
-                    "<script>document.getElementById('title').textContent = 'rows:' + window.queries.top.name.length</script>"
+                    "<h1 id='title'></h1><button id='raise' onclick=\"setParams({min: '25'})\">raise</button>"
+                    "<script>const show = (q) => (document.getElementById('title').textContent = "
+                    "'rows:' + q.top.name.length); show(window.queries); window.onQueryResults = show</script>"
                 ),
-                queries={"top": ObjectQuery(object="orders", fields=["name", "amount"])},
+                queries={"top": ObjectQuery(object="orders", fields=["name", "amount"], where="amount > {min}")},
+                params=[{"name": "min", "options": ["15", "25"]}],
             )
         )
         # A fresh job per run: its name resolves to the latest, so earlier

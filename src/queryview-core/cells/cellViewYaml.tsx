@@ -64,7 +64,7 @@ export function renderCell(
         target="_blank"
         rel="noopener noreferrer"
         data-testid={testid}
-        className="text-[var(--accent-text)] underline hover:brightness-110"
+        className="text-indigo-300 underline hover:text-indigo-200"
       >
         {raw}
       </a>

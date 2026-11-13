@@ -3,8 +3,8 @@ from __future__ import annotations
 from aaiclick.auth.view_models import CreateUserRequest
 from aaiclick.data.object_context import create_object_from_value
 from aaiclick.internal_api import users
-from aaiclick.view_models import Page, Problem, ProblemCode
-from aaiclick.viewer.view_models import Dashboard, DashboardResults, SavedQuery
+from aaiclick.view_models import Problem, ProblemCode
+from aaiclick.viewer.view_models import Dashboard, DashboardResults
 
 from ..app import API_PREFIX
 from ..conftest import login
@@ -31,19 +31,15 @@ async def test_query_object_route_errors(orch_ctx, app_client):
     assert bad.status_code == 422
 
 
-async def test_saved_query_and_dashboard_routes(orch_ctx, app_client):
+async def test_dashboard_routes(orch_ctx, app_client):
     await create_object_from_value({"id": [1]}, name="http_o", scope="global")
-    put = await app_client.put(f"{V}/queries/q1", json={"object": "http_o", "where": "id > 0"})
-    assert put.status_code == 200 and SavedQuery.model_validate(put.json()).name == "q1"
-    listed = Page[SavedQuery].model_validate((await app_client.get(f"{V}/queries")).json())
-    assert [q.name for q in listed.items] == ["q1"]
-
     put_d = await app_client.put(f"{V}/dashboards/d1", json={"html": "<p/>", "queries": {"p": {"object": "http_o"}}})
     assert put_d.status_code == 200 and Dashboard.model_validate(put_d.json()).name == "d1"
     run = await app_client.post(f"{V}/dashboards/d1:run")
     assert DashboardResults.model_validate(run.json()).results == {"p": {"id": ["1"]}}
+    ran = await app_client.post(f"{V}/runqueries", json={"queries": {"p": {"object": "http_o", "where": "id > 1"}}})
+    assert DashboardResults.model_validate(ran.json()).results == {"p": {"id": []}}
 
-    assert (await app_client.delete(f"{V}/queries/q1")).status_code == 200
     assert (await app_client.delete(f"{V}/dashboards/d1")).status_code == 200
     assert (await app_client.get(f"{V}/dashboards/d1")).status_code == 404
 
@@ -71,5 +67,7 @@ async def test_read_token_runs_post_reads_but_cannot_write(orch_ctx, app_client,
 
     assert (await app_client.post(f"{V}/query", json={"object": "http_ro"}, headers=token)).status_code == 200
     assert (await app_client.post(f"{V}/dashboards/d_ro:run", headers=token)).status_code == 200
-    denied = await app_client.put(f"{V}/queries/q_ro", json={"object": "http_ro"}, headers=token)
+    denied = await app_client.put(
+        f"{V}/dashboards/d_ro", json={"html": "<p/>", "queries": {"p": {"object": "http_ro"}}}, headers=token
+    )
     assert denied.status_code == 403 and denied.json()["code"] == "forbidden"

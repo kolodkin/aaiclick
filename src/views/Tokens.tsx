@@ -14,7 +14,7 @@ const DEFAULT_EXPIRY_DAYS = "90";
 
 const SCOPE_HELP: Record<ScopeLevel, string> = {
   read: "every read",
-  write: "saved queries and dashboards",
+  write: "dashboards",
   admin: "run and cancel jobs, register, delete objects, users, workers, setup, migrate",
 };
 

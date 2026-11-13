@@ -25,13 +25,12 @@ export type Route =
   | { kind: "audit" }
   | { kind: "reset"; token: string }
   | { kind: "data"; scope: string; object: string | null }
-  | { kind: "query"; scope: string; object: string | null }
   | { kind: "dashboard"; name: string | null }
   | { kind: "sandbox" }
   | { kind: "sandbox-file"; id: string }
   | { kind: "unknown"; raw: string };
 
-// `[persistent | job <ref>] [<object>]` after `@data` / `@query`. Nothing
+// `[persistent | job <ref>] [<object>]` after `@data`. Nothing
 // means all scopes; a bare object is a persistent one.
 function parseScoped(rest: string): { scope: string; object: string | null } {
   const words = rest.split(/\s+/).filter(Boolean);
@@ -57,7 +56,6 @@ export function parsePrompt(raw: string): Route {
   if (p === "register") return { kind: "register", name: "" };
   if (p.startsWith("register ")) return { kind: "register", name: p.slice(9).trim() };
   if (p === "@data" || p.startsWith("@data ")) return { kind: "data", ...parseScoped(p.slice(5)) };
-  if (p === "@query" || p.startsWith("@query ")) return { kind: "query", ...parseScoped(p.slice(6)) };
   if (p === "@dashboard") return { kind: "dashboard", name: null };
   if (p.startsWith("@dashboard ")) return { kind: "dashboard", name: p.slice(11).trim() || null };
   if (p.startsWith("@job ")) {

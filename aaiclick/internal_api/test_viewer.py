@@ -14,8 +14,7 @@ from aaiclick.viewer.view_models import (
     ObjectQuery,
     ObjectQueryRequest,
     OrderBy,
-    SavedQueryFilter,
-    SavedQueryIn,
+    RunQueriesRequest,
 )
 
 pytestmark = pytest.mark.usefixtures("orch_ctx")
@@ -101,57 +100,6 @@ async def test_query_object_unknown_object_and_job():
         await viewer.query_object(ObjectQueryRequest(scope="job:no_such", object="x"))
 
 
-async def test_save_query_round_trip_and_upsert():
-    await _seed_orders()
-    saved = await viewer.save_query(
-        SavedQueryIn(
-            name="big",
-            object="orders",
-            where="amount > 15",
-            fields=["name"],
-            order_by=[OrderBy("amount", "DESC")],
-            cell_view="name:\n  type: link\n  value: https://x/{cell}\n",
-        )
-    )
-    assert saved.where == "amount > 15" and saved.order_by == [OrderBy("amount", "DESC")]
-
-    again = await viewer.save_query(SavedQueryIn(name="big", object="orders", where="amount > 25"))
-    page = await viewer.list_saved_queries()
-    assert [q.name for q in page.items] == ["big"] and page.items[0].where == "amount > 25"
-    assert again.updated_at >= saved.updated_at
-
-
-async def test_list_saved_queries_filters_scope_and_object():
-    await viewer.save_query(SavedQueryIn(name="any", scope=None, object="orders"))
-    await viewer.save_query(SavedQueryIn(name="job_only", scope="job:etl", object="result"))
-    names = lambda page: sorted(q.name for q in page.items)  # noqa: E731
-    assert names(await viewer.list_saved_queries(SavedQueryFilter(scope="job:etl"))) == ["any", "job_only"]
-    assert names(await viewer.list_saved_queries(SavedQueryFilter(scope="persistent"))) == ["any"]
-    assert names(await viewer.list_saved_queries(SavedQueryFilter(object="result"))) == ["job_only"]
-
-
-async def test_list_saved_queries_total_counts_past_the_page():
-    for name in ("a", "b", "c"):
-        await viewer.save_query(SavedQueryIn(name=name, object="orders"))
-    page = await viewer.list_saved_queries(SavedQueryFilter(limit=1, offset=1))
-    assert page.total == 3 and [q.name for q in page.items] == ["b"]
-
-
-async def test_save_query_validates_where_and_cell_view():
-    with pytest.raises(errors.Invalid):
-        await viewer.save_query(SavedQueryIn(name="x", object="orders", where="id IN (SELECT 1)"))
-    with pytest.raises(errors.Invalid):
-        await viewer.save_query(SavedQueryIn(name="x", object="orders", cell_view="col: [unclosed"))
-
-
-async def test_saved_query_upserts_by_name():
-    await viewer.save_query(SavedQueryIn(name="mine", object="orders"))
-    again = await viewer.save_query(SavedQueryIn(name="mine", object="customers"))
-    assert again.object == "customers"
-    assert [q.name for q in (await viewer.list_saved_queries()).items] == ["mine"]
-    assert (await viewer.delete_saved_query("mine")).name == "mine"
-
-
 async def test_dashboard_round_trip_and_run():
     await _seed_orders()
     dash = await viewer.save_dashboard(
@@ -161,15 +109,23 @@ async def test_dashboard_round_trip_and_run():
             queries={
                 "top": ObjectQuery(object="orders", fields=["name", "amount"], order_by=[OrderBy("amount", "DESC")])
             },
+            params=[{"name": "min", "options": ["15"]}],
         )
     )
     assert dash.queries["top"].fields == ["name", "amount"]
+    assert (await viewer.get_dashboard("sales")).params == [{"name": "min", "options": ["15"]}]
     assert [d.name for d in (await viewer.list_dashboards()).items] == ["sales"]
     assert (await viewer.get_dashboard("sales")).html == "<h1>x</h1>"
 
     results = await viewer.run_dashboard("sales")
     assert results.results == {"top": {"name": ["c", "b", "a"], "amount": ["30", "20", "10"]}}
     assert [c.name for c in results.meta["top"]] == ["name", "amount"]
+
+    # What the SPA sends once it has substituted the dashboard's params.
+    filtered = await viewer.run_queries(
+        RunQueriesRequest(queries={"top": ObjectQuery(object="orders", fields=["name"], where="amount > '15'")})
+    )
+    assert sorted(filtered.results["top"]["name"]) == ["b", "c"]
 
     assert (await viewer.delete_dashboard("sales")).name == "sales"
     with pytest.raises(errors.NotFound):

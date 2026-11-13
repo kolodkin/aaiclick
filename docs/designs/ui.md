@@ -29,7 +29,6 @@ Clicks update the prompt, and the prompt drives the view:
 @jobs           ──────▶  Jobs list
 @job <name>     ──────▶  Job detail (tasks table)
 @data …         ──────▶  Objects of a scope and their rows
-@query …        ──────▶  Query panel over one object
 @dashboard …    ──────▶  Saved dashboard in a sandbox
 ```
 
@@ -53,9 +52,9 @@ The input edits a draft; the view follows only the committed prompt.
 | Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
 |-------------------------------------------------|----------------------|---------------|---------------------|
 | `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
-| `@job`, `cancel`, `@data job`, `@query job`     | jobs, newest first   | name contains | `<cmd> <id>`        |
+| `@job`, `cancel`, `@data job`                   | jobs, newest first   | name contains | `<cmd> <id>`        |
 | `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
-| `@data`, `@query` (+ `persistent`, `job <ref>`) | objects of the scope | name prefix   | `<cmd> … <name>`    |
+| `@data` (+ `persistent`, `job <ref>`)           | objects of the scope | name prefix   | `<cmd> … <name>`    |
 | `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
 | `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
@@ -164,32 +163,27 @@ tick every second while the job is active, so running bars grow.
 
 Left: a scope tree — All, Persistent, then the jobs (newest first, name
 filter). Right: the objects of the selected scope (name, scope —
-`persistent` or `job`, job name, rows, size, created, a Query button), or,
-with an object named, its header and first page of rows. A job object's
-back chip returns to `@job <id>`; an `@data` chip lists the scope.
-Rows render through the QueryView kernel's `ResultsTable` and default cell
-views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
+`persistent` or `job`, job name, rows, size, created), or, with an object
+named, the object view. A job object's back chip returns to `@job <id>`; an
+`@data` chip lists the scope.
 
-## Query (`@query [persistent | job <ref>] [<object>]`)
-
-**Implementation**: `src/views/Query.tsx`
-
-**Prompt**: same forms as `@data`
-
-The scope tree plus an object picker (entries read `<name> (<scope>)`); with
-an object chosen, the query panel: a `where` expression, limit / offset paging, the kernel's field and
-order-by pickers (fed from `GET /objects/{name}[?job=…]`), static `params:` dropdowns,
-the cell-view YAML modal, a saved-query dropdown (Save / Delete), and CSV
-download. Saved queries persist through `PUT /viewer/queries/{name}`.
+The object view is QueryView's explorer over one object: a header, then
+Refresh, Limit (applied on blur or Enter) and Previous / Next, the kernel's
+Fields and Order by pickers (fed from `GET /objects/{name}[?job=…]`), and
+the rows in its `ResultsTable`. Fields only hide columns; an order-by change
+re-runs `POST /viewer/query` at once, the previous page staying dimmed
+meanwhile. A value past the cell width opens in the kernel's cell popup.
 
 ## Dashboard (`@dashboard [name]`)
 
 **Implementation**: `src/views/Dashboard.tsx`
 
 A dashboard picker, a Refresh button, and the dashboard's HTML in a
-sandboxed iframe with the panel results exposed as `window.queries`
-(`POST /viewer/dashboards/{name}:run`). Authoring stays with agents and the
-CLI (`view dashboards save`).
+sandboxed iframe with the panel results as `window.queries` and its
+selectors as `window.params` (`POST /viewer/runqueries`). The page calls
+`window.setParams({…})`; the view substitutes the values into the panels'
+`where` and posts the new results back without reloading the frame.
+Authoring stays with agents and the CLI (`view dashboards save`).
 
 ## Account & Administration
 

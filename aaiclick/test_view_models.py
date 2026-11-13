@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth.view_models import UserListFilter
 from aaiclick.view_models import ExecutionWorkerFilter, JobListFilter, ObjectFilter, RegisteredJobFilter
-from aaiclick.viewer.view_models import SavedQueryFilter
 
 
 def test_import_order_independent_of_orchestration():
@@ -33,7 +32,6 @@ def test_import_order_independent_of_orchestration():
         pytest.param(ObjectFilter, id="object"),
         pytest.param(UserListFilter, id="user-list"),
         pytest.param(AuditListFilter, id="audit-list"),
-        pytest.param(SavedQueryFilter, id="saved-query"),
     ],
 )
 def test_every_list_filter_bounds_its_limit(model):
@@ -52,7 +50,6 @@ def test_every_list_filter_bounds_its_limit(model):
         pytest.param(ExecutionWorkerFilter, id="execution-worker"),
         pytest.param(UserListFilter, id="user-list"),
         pytest.param(AuditListFilter, id="audit-list"),
-        pytest.param(SavedQueryFilter, id="saved-query"),
     ],
 )
 def test_every_offset_filter_rejects_negative_offset(model):

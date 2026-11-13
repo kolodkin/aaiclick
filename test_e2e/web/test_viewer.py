@@ -1,4 +1,4 @@
-"""Playwright coverage for the viewer modes (``@data``, ``@query``, ``@dashboard``).
+"""Playwright coverage for the viewer modes (``@data``, ``@dashboard``).
 
 The ``orders`` object and ``sales`` dashboard come from ``seed.py`` (``viewer``),
 run by ``conftest.py`` before the server starts.
@@ -55,31 +55,26 @@ def test_data_all_scopes_labels_and_opens_job_object(page, shot, base_url: str) 
 
 @_spa_built
 @_local_only
-def test_query_all_scopes_picker_opens_job_object(page, shot, base_url: str) -> None:
-    open_page(page, f"{base_url}/?p=@query")
-    picker = page.get_by_test_id("query-object")
-    option = picker.locator("option", has_text=f"raw_sales (job - {OBJECTS_JOB})").first
-    option.wait_for(state="attached", timeout=15000)
-    picker.select_option(option.get_attribute("value"))
-    page.wait_for_url(lambda url: "job" in url and "raw_sales" in url)
-    page.get_by_test_id("query-panel").wait_for(timeout=15000)
-    shot("query-job-object")
-
-
-@_spa_built
-@_local_only
-def test_query_runs_and_pages(page, base_url: str) -> None:
-    open_page(page, f"{base_url}/?p=@query orders")
-    page.get_by_test_id("query-panel").wait_for(timeout=15000)
-    page.get_by_test_id("query-where").fill("amount >= 20")
-    page.get_by_test_id("query-limit").fill("1")
-    page.get_by_test_id("query-run").click()
-    out = page.get_by_test_id("query-output")
+def test_object_view_orders_and_pages(page, shot, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@data orders")
+    out = page.get_by_test_id("object-rows")
     out.wait_for(timeout=15000)
-    assert out.locator("tbody tr").count() == 1
-    page.get_by_test_id("query-next").click()
-    page.wait_for_function("() => document.querySelector('[data-testid=query-offset]').value === '1'")
-    assert out.locator("tbody tr").count() == 1
+    page.get_by_test_id("orderby-menu").click()
+    page.locator("[data-testid=orderby-add][data-col=amount]").click()
+    page.get_by_test_id("orderby-dir").click()
+    first = out.locator("tbody tr").first
+    playwright_api.expect(first).to_contain_text("30")
+    page.get_by_test_id("fields-menu").click()
+    page.locator("[data-testid=field-toggle][data-col=name]").click()
+    playwright_api.expect(out.locator("thead th")).to_have_count(2)
+    shot("data-object-fields")
+    limit = page.get_by_test_id("object-limit")
+    limit.fill("1")
+    limit.press("Enter")
+    playwright_api.expect(out.locator("tbody tr")).to_have_count(1)
+    page.get_by_test_id("object-next").click()
+    playwright_api.expect(page.get_by_test_id("object-offset")).to_have_text("offset 1")
+    playwright_api.expect(first).to_contain_text("20")
 
 
 @_spa_built
@@ -88,8 +83,13 @@ def test_dashboard_renders_saved_dashboard(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@dashboard sales")
     # The frame is sandboxed without allow-same-origin, so its document is not
     # reachable from the page; assert through Playwright's frame locator.
-    title = page.frame_locator("[data-testid='dashboard-frame']").locator("#title")
-    playwright_api.expect(title).to_have_text("rows:3", timeout=15000)
+    frame = page.frame_locator("[data-testid='dashboard-frame']")
+    title = frame.locator("#title")
+    # `min` opens on its first option (15): two of the three orders pass.
+    playwright_api.expect(title).to_have_text("rows:2", timeout=15000)
+    # The page asks for a re-run through setParams; the frame is not reloaded.
+    frame.locator("#raise").click()
+    playwright_api.expect(title).to_have_text("rows:1", timeout=15000)
 
 
 @_spa_built

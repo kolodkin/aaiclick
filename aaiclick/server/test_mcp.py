@@ -68,14 +68,12 @@ EXPECTED_TOOLS = {
     "setup",
     "migrate",
     "query_object",
-    "list_saved_queries",
-    "save_query",
-    "delete_saved_query",
     "list_dashboards",
     "get_dashboard",
     "save_dashboard",
     "delete_dashboard",
     "run_dashboard",
+    "run_queries",
 }
 
 

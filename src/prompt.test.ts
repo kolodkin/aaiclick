@@ -9,9 +9,6 @@ describe("viewer routes", () => {
     ["@data job nightly_etl", { kind: "data", scope: "job:nightly_etl", object: null }],
     ["@data job 123 orders", { kind: "data", scope: "job:123", object: "orders" }],
     ["@data orders", { kind: "data", scope: "persistent", object: "orders" }],
-    ["@query", { kind: "query", scope: "all", object: null }],
-    ["@query orders", { kind: "query", scope: "persistent", object: "orders" }],
-    ["@query job etl orders", { kind: "query", scope: "job:etl", object: "orders" }],
     ["@dashboard", { kind: "dashboard", name: null }],
     ["@dashboard sales", { kind: "dashboard", name: "sales" }],
   ])("%s", (prompt, route) => {
