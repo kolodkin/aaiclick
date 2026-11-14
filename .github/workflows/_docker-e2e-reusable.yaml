@@ -134,7 +134,7 @@ jobs:
 
       # --- Common: pypi upload --------------------------------------------
       # Upload must happen before install — the install step resolves
-      # aaiclick==<version_pin> from the local pypiserver, so the wheel
+      # aaiclick-client==<version_pin> from the local pypiserver, so the wheel
       # has to be present on the index by then. The same upload is also
       # what the docker build inside the e2e tests pulls from later.
 

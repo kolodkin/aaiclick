@@ -10,7 +10,6 @@ from fastapi.routing import APIRoute
 from starlette.routing import Route
 
 from aaiclick.backend import is_local
-from aaiclick.deploy.placeholders import PLACEHOLDER_MARKER
 from aaiclick.orchestration import sql_context
 from aaiclick.orchestration.execution import list_execution_workers
 from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE
@@ -20,6 +19,7 @@ from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app
 from .auth import SAFE_METHODS, require_admin, require_session, require_write
+from .credential_guard import PLACEHOLDER_MARKER
 
 # Mint or redeem the credential itself, so no principal exists yet.
 _PUBLIC_MUTATIONS = {
@@ -204,10 +204,10 @@ async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
             pass
 
 
-async def test_lifespan_refuses_unreplaced_scaffold_credentials(monkeypatch):
+async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     """A template credential is public: starting with one is an error, not a warning."""
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", f"{PLACEHOLDER_MARKER}-admin-password")
 
-    with pytest.raises(RuntimeError, match="AAICLICK_ADMIN_PASSWORD"):
+    with pytest.raises(RuntimeError, match=r"AAICLICK_ADMIN_PASSWORD.*env\.init\.sh"):
         async with _lifespan(app):
             pass

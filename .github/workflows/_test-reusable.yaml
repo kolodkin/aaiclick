@@ -119,8 +119,8 @@ jobs:
             extras: "--extra server"
           - group: Misc local
             # Backend-independent tests with no package directory of their
-            # own: deploy scaffolds, the argparse CLI, and view/log models.
-            test-paths: "aaiclick/deploy/ aaiclick/test_cli.py aaiclick/test_view_models.py aaiclick/test_log_models.py"
+            # own: the compose env.init.sh, the argparse CLI, and view/log models.
+            test-paths: "test_e2e/compose/test_env_init.py aaiclick/test_cli.py aaiclick/test_view_models.py aaiclick/test_log_models.py"
             extras: ""
 
     steps:

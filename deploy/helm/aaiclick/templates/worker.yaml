@@ -22,6 +22,8 @@ spec:
     metadata:
       labels:
         app: aaiclick-worker
+      annotations:
+        {{- include "aaiclick.credentialsChecksum" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       {{- if $githubAppId }}
@@ -36,10 +38,10 @@ spec:
       {{- end }}
       # The server becomes ready only after its migrate initContainer has
       # completed, so gating on server health serializes worker startup
-      # behind migrations — the same ordering the compose scaffold uses.
+      # behind migrations — the same ordering the reference compose stack uses.
       initContainers:
         - name: wait-for-server
-          image: "{{ .Values.images.worker.repository }}:{{ .Values.images.worker.tag }}"
+          image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.worker) | quote }}
           command:
             - /bin/sh
             - -c
@@ -49,13 +51,10 @@ spec:
               do echo "waiting for aaiclick-server"; sleep 3; done
       containers:
         - name: worker
-          image: "{{ .Values.images.worker.repository }}:{{ .Values.images.worker.tag }}"
+          image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.worker) | quote }}
           command: ["python", "-m", "aaiclick", "execution-worker", "start"]
           env:
-            - name: AAICLICK_SQL_URL
-              value: {{ include "aaiclick.sqlUrl" . | quote }}
-            - name: AAICLICK_CH_URL
-              value: {{ include "aaiclick.chUrl" . | quote }}
+            {{- include "aaiclick.dbEnv" . | nindent 12 }}
             - name: AAICLICK_RUNNER
               value: "kubernetes"
             - name: AAICLICK_K8S_NAMESPACE

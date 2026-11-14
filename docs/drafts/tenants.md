@@ -179,7 +179,7 @@ confirmation.
 
 ## Chart gaps
 
-The shipped chart (`aaiclick/deploy/`, `docs/designs/deploy_scaffold.md`) is
+The shipped chart (`deploy/helm/aaiclick/`, `docs/designs/deployment.md`) is
 a starter, not sufficient for a tenant as it stands:
 
 - **No Ingress template.** Services are `ClusterIP` only, so direct routing

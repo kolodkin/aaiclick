@@ -26,6 +26,4 @@ runs:
         kubectl -n kube-system rollout status deploy/coredns --timeout=180s
 
     - name: Install Helm
-      uses: azure/setup-helm@v4
-      with:
-        version: v3.16.2
+      uses: ./.github/actions/setup-helm
