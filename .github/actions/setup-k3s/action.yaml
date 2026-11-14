@@ -1,0 +1,29 @@
+name: Setup k3s + Helm
+description: >-
+  Install k3s (the production distribution; its bundled kubectl is skipped in
+  favour of the runner's) and the pinned Helm used by the kubernetes-flavoured
+  e2e suites, then wait for the node and CoreDNS. Write
+  /etc/rancher/k3s/registries.yaml before this step if a mirror is needed.
+
+inputs:
+  k3s-args:
+    description: Extra k3s server arguments
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install k3s
+      shell: bash
+      run: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik ${{ inputs.k3s-args }}" K3S_KUBECONFIG_MODE=644 sh -
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        echo "KUBECONFIG=$KUBECONFIG" >> "$GITHUB_ENV"
+        # The node and the CoreDNS deployment are registered after the service starts.
+        timeout 180 bash -c 'until kubectl get node -o name | grep -q . && kubectl -n kube-system get deploy/coredns >/dev/null 2>&1; do sleep 2; done'
+        kubectl wait --for=condition=Ready node --all --timeout=180s
+        kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+
+    - name: Install Helm
+      uses: ./.github/actions/setup-helm

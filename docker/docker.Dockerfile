@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # aaiclick + Docker CLI (client only). For the docker-dispatching worker,
 # which runs `docker run` against a mounted host daemon and builds task images
-# on a buildkitd through the buildx plugin's remote driver.
+# on a buildkitd through the buildx plugin's remote driver. git clones the
+# repo a build-image task builds from.
 ARG BASE_REF=ghcr.io/kolodkin/aaiclick:latest
 FROM ${BASE_REF}
 
@@ -17,7 +18,7 @@ RUN set -eux; \
       arm64) dockerarch=aarch64 ;; \
       *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    apt-get update; apt-get install -y --no-install-recommends curl ca-certificates; \
+    apt-get update; apt-get install -y --no-install-recommends curl ca-certificates git; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL "https://download.docker.com/linux/static/stable/${dockerarch}/docker-${DOCKER_CLI_VERSION}.tgz" -o /tmp/docker.tgz; \
     tar -xzf /tmp/docker.tgz -C /tmp; \
@@ -27,5 +28,5 @@ RUN set -eux; \
       -o /tmp/docker-buildx; \
     install -D -m 0755 /tmp/docker-buildx /usr/local/lib/docker/cli-plugins/docker-buildx; \
     rm -f /tmp/docker-buildx; \
-    docker --version; docker buildx version
+    docker --version; docker buildx version; git --version
 USER aaiclick

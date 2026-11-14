@@ -79,7 +79,7 @@ Accepted limit: anything a revision does that `create_all` would not (a backfill
 
 **Implementation**: `aaiclick/orchestration/execution/runner_env.py`
 
-An execution worker launches container tasks through one **runner**, read once from `AAICLICK_RUNNER`. It is a property of the worker's deployment, not the job: the compose scaffold ships the `aaiclick-docker` worker with the host socket mounted, the helm scaffold the `aaiclick-kubectl` worker with a ServiceAccount, and a claimed task runs on whatever its worker has.
+An execution worker launches container tasks through one **runner**, read once from `AAICLICK_RUNNER`. It is a property of the worker's deployment, not the job: the compose stack ships the `aaiclick-docker` worker with the host socket mounted, the helm chart the `aaiclick-kubectl` worker with a ServiceAccount, and a claimed task runs on whatever its worker has.
 
 | `AAICLICK_RUNNER` | Container tasks run as                  | Extra worker requirements                      |
 |-------------------|-----------------------------------------|------------------------------------------------|
@@ -141,7 +141,18 @@ A run cannot turn a containerized registration back into a subprocess.
 - Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build — wasteful but correct.
 - The container launch path never builds; it only derives the tag: `aaiclick-job:<sha>`, suffixed `-<dockerfile>` for a non-default Dockerfile, so two Dockerfiles at one commit are two images.
 
-**Builds run on buildkitd**, never on the host daemon: the build task drives the buildx remote driver at `AAICLICK_BUILDKIT_ADDR` (one builder per address + TLS settings, created on first use; optional `AAICLICK_BUILDKIT_TLS_{CACERT,CERT,KEY}`). Clone, default-Dockerfile scaffolding and push credentials stay in the worker; Dockerfile steps run in buildkitd's sandbox and see neither the worker's env nor `docker.sock`. `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may carry a token, so they reach builds as BuildKit secrets (`pip_index_url`, `pip_extra_index_url`), never build-args. buildkitd does not know dockerd's `host-gateway`, so the worker resolves it in `AAICLICK_DOCKER_BUILD_ADD_HOST` to the bridge gateway IP. The deploy scaffolds run a rootless buildkitd; the helm chart also confines its egress with a NetworkPolicy.
+**Builds run on buildkitd**, never on the host daemon: the build task drives the buildx remote driver at `AAICLICK_BUILDKIT_ADDR` (one builder per address + TLS settings, created on first use; optional `AAICLICK_BUILDKIT_TLS_{CACERT,CERT,KEY}`). Clone, default-Dockerfile scaffolding and push credentials stay in the worker; Dockerfile steps run in buildkitd's sandbox and see neither the worker's env nor `docker.sock`. `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may carry a token, so they reach builds as BuildKit secrets (`pip_index_url`, `pip_extra_index_url`), never build-args. buildkitd does not know dockerd's `host-gateway`, so the worker resolves it in `AAICLICK_DOCKER_BUILD_ADD_HOST` to the bridge gateway IP. With `AAICLICK_GITHUB_APP_ID` + `AAICLICK_GITHUB_APP_PEM_FILE` set, a `github.com` clone (`execution/github_app.py`) mints an installation token per build — that repo only, `contents: read` — and passes it to the `git fetch` alone, through git's environment; it never reaches argv, the remote URL or buildkitd. If GitHub will not issue one, the clone proceeds without credentials under a logged warning; an unusable key fails the build. The compose stack and helm chart run a rootless buildkitd; the helm chart also confines its egress with a NetworkPolicy.
+
+**Private repos: the submitter resolves, the worker clones.** Git touches the remote twice, and each side uses its own access:
+
+| Step                               | Where                                  | Credentials                               |
+|------------------------------------|----------------------------------------|-------------------------------------------|
+| Branch → SHA (`git ls-remote`)     | Submitter (CLI, API server, scheduler) | The submitting process's own git access   |
+| Clone at the SHA (`git fetch`)     | Worker, in the build task              | GitHub App token, minted per build        |
+
+- Private-repo jobs are submitted from the CLI, on a machine whose git already reaches the repo, so the first step needs nothing new.
+- The App key lives on the worker alone. Giving it to the API server too would put a key that can read every installed repo on the most exposed process, to save typing `--git-sha`.
+- Consequence: the API server and scheduler cannot resolve a private branch; they need an explicit `git_sha`. The upgrade path, if that ever matters, is a git credential helper command wired into the images, which covers every git call.
 
 **Worker prerequisites** beyond the [Worker runner](#worker-runner) table (every `build` also needs `AAICLICK_BUILDKIT_ADDR`):
 

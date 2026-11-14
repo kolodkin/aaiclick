@@ -18,7 +18,7 @@ RUNNER_KUBERNETES = "kubernetes"
 WorkerRunner = Literal["docker", "kubernetes"]
 WORKER_RUNNERS: list[WorkerRunner] = [RUNNER_DOCKER, RUNNER_KUBERNETES]
 ENV_WORKER_RUNNER = "AAICLICK_RUNNER"
-"""Deployment-level choice, set once per worker (the compose scaffold sets
+"""Deployment-level choice, set once per worker (the compose stack sets
 ``docker``, the helm chart ``kubernetes``). Unset means the worker runs
 subprocess tasks only. Tasks without an ``image_source`` run as a host
 subprocess whatever the value."""

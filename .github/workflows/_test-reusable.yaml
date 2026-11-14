@@ -119,8 +119,8 @@ jobs:
             extras: "--extra server"
           - group: Misc local
             # Backend-independent tests with no package directory of their
-            # own: deploy scaffolds, the argparse CLI, and view/log models.
-            test-paths: "aaiclick/deploy/ aaiclick/test_cli.py aaiclick/test_view_models.py aaiclick/test_log_models.py"
+            # own: the compose env.init.sh, the argparse CLI, and view/log models.
+            test-paths: "test_e2e/compose/test_env_init.py aaiclick/test_cli.py aaiclick/test_view_models.py aaiclick/test_log_models.py"
             extras: ""
 
     steps:
@@ -254,7 +254,7 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          sync-args: "--extra distributed --extra test ${{ matrix.extras }}"
+          sync-args: "--extra test ${{ matrix.extras }}"
 
       - name: Download test durations
         if: matrix.split
@@ -344,7 +344,7 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          sync-args: "--extra distributed --extra test"
+          sync-args: "--extra test"
 
       # ClickHouse booted while uv synced.
       - name: Wait for ClickHouse
@@ -466,12 +466,10 @@ jobs:
             module: aaiclick.data.examples.run_all
             summary-title: Data Examples Output
             needs-postgres: false
-            extras: distributed
           - group: Orch examples
             module: aaiclick.orchestration.examples.run_all
             summary-title: Orchestration Examples Output
             needs-postgres: true
-            extras: distributed
 
     services:
       clickhouse: *clickhouse-service
@@ -485,7 +483,8 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          sync-args: "--extra ${{ matrix.extras }}"
+          # Base install only: the examples run against remote servers, no extras.
+          sync-args: "--no-dev"
 
       - name: Run database migrations
         if: matrix.needs-postgres

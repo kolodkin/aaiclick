@@ -49,7 +49,7 @@ Prints `[run] all services up` on success. A failure exits non-zero with a
 
 ```bash
 source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET, AWS_*
-uv run --frozen --extra distributed --extra test pytest aaiclick/
+uv run --frozen --extra test pytest aaiclick/
 ```
 
 Blob URLs carry no credentials: ClickHouse and chdb read `AWS_ACCESS_KEY_ID` /

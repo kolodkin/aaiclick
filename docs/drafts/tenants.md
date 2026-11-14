@@ -30,7 +30,7 @@ verifying access tokens signed by the control plane.
 | Component           | Packaging                      | Runs in           |
 |---------------------|--------------------------------|-------------------|
 | Control plane       | `aaiclick[tenants]`            | `aaiclick-system` |
-| Tenant installation | `aaiclick[server,distributed]` | `tenant-<slug>`   |
+| Tenant installation | `aaiclick`                     | `tenant-<slug>`   |
 
 The control plane is a distinct service with its own FastAPI app,
 Postgres and SPA, and a ServiceAccount holding cluster RBAC to create
@@ -179,7 +179,7 @@ confirmation.
 
 ## Chart gaps
 
-The shipped chart (`aaiclick/deploy/`, `docs/designs/deploy_scaffold.md`) is
+The shipped chart (`deploy/helm/aaiclick/`, `docs/designs/deployment.md`) is
 a starter, not sufficient for a tenant as it stands:
 
 - **No Ingress template.** Services are `ClusterIP` only, so direct routing

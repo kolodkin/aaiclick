@@ -60,7 +60,7 @@ example_projects/<name>/
 - The nested `<name>/` folder is the Python package — the outer folder is the project directory
 - `<name>.sh` is the user-facing entry point — `cd`s to its own directory, then runs the project
 - Shell scripts use `PYTHON="${PYTHON:-uv run python}"` for dual-mode support (monorepo or standalone)
-- `pyproject.toml` depends on `aaiclick` (or `aaiclick[distributed]` for distributed-mode projects)
+- `pyproject.toml` depends on `aaiclick` for local mode or `aaiclick-client` for distributed, both sourced from this checkout
   through a uv path source on the monorepo checkout — never a PyPI release:
   ```toml
   [tool.uv.sources]

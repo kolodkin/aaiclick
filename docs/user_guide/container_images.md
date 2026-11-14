@@ -8,7 +8,7 @@ non-pre-releases, `latest`.
 | Image                               | Bundles              | Role                                             |
 |-------------------------------------|----------------------|--------------------------------------------------|
 | `ghcr.io/kolodkin/aaiclick`         | wheel only           | API server (default), task base, local/mp worker |
-| `ghcr.io/kolodkin/aaiclick-docker`  | `+ docker` CLI       | Docker-dispatching worker                        |
+| `ghcr.io/kolodkin/aaiclick-docker`  | `+ docker` CLI, git  | Docker-dispatching worker                        |
 | `ghcr.io/kolodkin/aaiclick-kubectl` | `+ docker + kubectl` | Kubernetes-dispatching worker                    |
 
 Each image builds on the one above it in the table, sharing its layers. Only
@@ -71,7 +71,7 @@ never `pip install .`-ed. Limits:
   runtime, so `-e .` points nowhere (a `uv.lock` export already skips the
   project). The mount has no `.git`, so a setuptools-scm project cannot build.
 - Builds run on a buildkitd (`AAICLICK_BUILDKIT_ADDR`); a custom worker image
-  needs the docker CLI with `buildx` like the shipped ones.
+  needs `git` and the docker CLI with `buildx` like the shipped ones.
 - A `.dockerignore` that excludes the manifest hides it from the install.
 - Python code next to a `pom.xml` with no Python manifest gets the JVM image;
   a mixed repo adds a Python manifest.
@@ -94,6 +94,23 @@ Beyond these, check in a `Dockerfile`.
         --mount=type=secret,id=pip_extra_index_url,env=PIP_EXTRA_INDEX_URL \
         pip install --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" -r requirements.txt
     ```
+
+# Bring your own image
+
+Any image runs module tasks once it has aaiclick: the Pod or container runs
+`python -m aaiclick.orchestration.execution.remote_result`, which needs only
+the remote drivers, not chdb:
+
+```dockerfile
+FROM my-org/python-base:3.12
+RUN pip install --no-cache-dir "aaiclick-client==X.Y.Z"
+```
+
+- Pin the worker's aaiclick version: the task reads and writes the shared
+  orchestration tables, and nothing checks for version skew.
+- The image needs Python ≥ 3.11 and must accept aaiclick's pins
+  (`sqlalchemy<2.1`, `pydantic>=2.12`, `pyarrow>=23`).
+- Shell and JVM tasks need no aaiclick in the image.
 
 # Kubernetes dispatching worker
 

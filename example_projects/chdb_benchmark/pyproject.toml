@@ -6,9 +6,12 @@ requires-python = ">=3.11"
 
 dependencies = [
     "aaiclick",
+    # Listed so its source below applies: uv honours sources for direct dependencies only.
+    "aaiclick-client",
     "rich>=13.0",
 ]
 
 # The monorepo checkout, not a PyPI release — examples always exercise this tree.
 [tool.uv.sources]
-aaiclick = { path = "../..", editable = true }
+aaiclick = { path = "../../meta" }
+aaiclick-client = { path = "../..", editable = true }

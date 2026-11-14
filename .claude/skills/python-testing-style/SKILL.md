@@ -220,6 +220,19 @@ Verify before committing: diff per-file `executed_lines` from `--cov-report=json
 
 Looking trivial is not proof. Check first whether the test covers the negative branch of a conditional, or construction behavior that isn't free (positional args on a Pydantic model). Both read like default-value assertions and are neither.
 
+**Close the gap, don't leave it.** When a test is weak but nothing else proves its behavior, move the assertion into a surviving test at the right level instead of deleting it. Report any gap you cannot close.
+
+**Templates (helm, compose): assert the render, not the source.** Reading a template or `values.yaml` back for a substring only proves the file contains text. Write one render test per feature whose wiring can break (indentation, a mount path that must match an env var, a selector that must match a label), and share one default render through a module fixture. Plain renderability belongs to `helm lint` / `helm template` in `.github/workflows/_helm-e2e-reusable.yaml`.
+
+```python
+# BAD — the template contains a string
+assert "AAICLICK_JWT_SECRET" in (target / "templates" / "server.yaml").read_text()
+
+# GOOD — the rendered Deployment carries the generated value
+env = _env(_doc(docs, "Deployment", "aaiclick-server"))
+assert env["AAICLICK_ADMIN_PASSWORD"] == scaffold.admin_password
+```
+
 ## Warnings — `filterwarnings = ["error"]` turns warnings into failures
 
 `pyproject.toml` sets `filterwarnings = ["error"]`, so any unhandled warning fails the test. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` scoped around the call that triggers it.

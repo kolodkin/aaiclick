@@ -3,6 +3,11 @@ Getting Started
 
 # Installation
 
+| Install           | For                                                                 |
+|-------------------|---------------------------------------------------------------------|
+| `aaiclick`        | Everything: local mode (chdb + SQLite), REST + MCP server, UI       |
+| `aaiclick-client` | Slim distributed install, no chdb: task images, workers, migrations |
+
 === "Local (chdb + SQLite)"
 
     No external servers needed — embedded ClickHouse and SQLite included:
@@ -23,7 +28,7 @@ Getting Started
     For a remote ClickHouse server and PostgreSQL:
 
     ```bash
-    pip install "aaiclick[distributed]"
+    pip install aaiclick
     python -m aaiclick setup
     export AAICLICK_CH_URL="clickhouse://user:pass@host:8123/db"
     export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
@@ -36,9 +41,7 @@ Getting Started
     Let your coding agent trace lineage over the MCP server:
 
     ```bash
-    pip install "aaiclick[server]"
-    # or everything at once:
-    pip install "aaiclick[all]"
+    pip install aaiclick
     python -m aaiclick local start
     ```
 
@@ -53,7 +56,7 @@ Run a two-task job on a local server and watch it in the UI.
 
 ```bash
 mkdir my_project && cd my_project
-pip install "aaiclick[server]"
+pip install aaiclick
 python -m aaiclick setup
 ```
 
@@ -123,7 +126,7 @@ The REST API docs are at <http://127.0.0.1:5255/api/v0/docs>.
 # Next Steps
 
 - [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
-- [Deployment](user_guide/deployment.md) — local vs distributed backends, environment variables, scaffolds
+- [Deployment](user_guide/deployment.md) — local vs distributed backends, environment variables, compose and Helm
 - [Object API](user_guide/object.md) — operators, aggregations, views, group by
 - [ObjectContext](user_guide/object_context.md) — lifecycle, persistent objects, data operations without orchestration
 - [Container images](user_guide/container_images.md) — published images and their Docker/Kubernetes requirements

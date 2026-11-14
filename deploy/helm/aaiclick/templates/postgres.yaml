@@ -21,8 +21,7 @@ spec:
           env:
             - name: POSTGRES_USER
               value: {{ .Values.devDependencies.postgres.user | quote }}
-            - name: POSTGRES_PASSWORD
-              value: {{ .Values.devDependencies.postgres.password | quote }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "POSTGRES_PASSWORD" "key" "pg-password") | nindent 12 }}
             - name: POSTGRES_DB
               value: {{ .Values.devDependencies.postgres.db | quote }}
           ports:

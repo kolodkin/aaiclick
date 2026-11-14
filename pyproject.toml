@@ -3,7 +3,9 @@ requires = ["setuptools>=82.0", "wheel", "setuptools-scm>=10.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aaiclick"
+# Code + remote ClickHouse/PostgreSQL drivers: the whole distributed mode; the
+# `aaiclick` package in meta/ installs this with every extra.
+name = "aaiclick-client"
 dynamic = ["version"]
 description = "Data orchestration framework on ClickHouse: plain-Python pipelines, dynamic task graphs, containerized runs, lineage over MCP"
 readme = "README.md"
@@ -35,28 +37,31 @@ dependencies = [
     # SQLAlchemy 2.1 defaults postgresql:// to psycopg v3; images install unpinned and lack it.
     "sqlalchemy>=2.0,<2.1",
     "alembic>=1.18.0",
-    "chdb>=4.4.0",
-    "aiosqlite>=0.22.0",
     "greenlet>=3.0.0",
     "croniter>=6.0.0",
     "bcrypt>=4.2.0",
-    "pyjwt>=2.10.0",
-]
-
-[project.optional-dependencies]
-distributed = [
+    "pyjwt[crypto]>=2.10.0",
     "clickhouse-connect>=1.0.1",
     "aiohttp>=3.9.0",
     "asyncpg>=0.31.0",
+    # Sync PostgreSQL driver for Alembic migrations.
     "psycopg2-binary>=2.9.11",
+]
+
+[project.optional-dependencies]
+# Embedded backend: chdb + SQLite, no infrastructure.
+local = [
+    "chdb>=4.4.0",
+    "aiosqlite>=0.22.0",
 ]
 server = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "fastmcp>=4.1.8",
 ]
-all = ["aaiclick[distributed,server]"]
+all = ["aaiclick-client[local,server]"]
 test = [
+    "aaiclick-client[local]",
     "httpx>=0.27.0",
     "pytest>=9.0.0",
     "pytest-asyncio>=1.3.0",
@@ -72,7 +77,7 @@ docs = [
     "mkdocs-material>=9.7.0",
 ]
 dev = [
-    "aaiclick[all,test]",
+    "aaiclick-client[all,test]",
     # Browser e2e suite (test_e2e/web/); the lock pins its Chromium build.
     "playwright>=1.56.0",
     "pre-commit>=4.0",
@@ -93,7 +98,6 @@ aaiclick = ["py.typed"]
 "aaiclick.orchestration.migrations" = ["script.py.mako"]
 "aaiclick.orchestration.execution" = ["sql/*.sql"]
 "aaiclick.oplog" = ["migrations/*.sql"]
-"aaiclick.deploy" = ["templates/**/*"]
 # Sample files served over HTTP by the test_insert_from_url fixture. The
 # packaged test suite runs from site-packages, so they must ship in the
 # wheel; a bare glob keeps a newly generated sample format from silently

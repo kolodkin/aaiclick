@@ -253,7 +253,7 @@ async with Client(mcp) as client:
 `aaiclick/server/app.py` exposes a module-level `app` — no factory, no wrapper — run directly by uvicorn:
 
 ```bash
-pip install 'aaiclick[server]'
+pip install aaiclick
 uvicorn aaiclick.server.app:app
 ```
 

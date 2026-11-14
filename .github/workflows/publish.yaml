@@ -1,4 +1,4 @@
-# See docs/designs/deploy_scaffold.md — "Release pipeline restructure", "Gates — all parallel, all required".
+# See docs/designs/deployment.md — "Release pipeline", "Gates — all parallel, all required".
 name: Release
 
 # Repeated steps (GHCR login, artifact downloads, uv install) and matrices
@@ -90,6 +90,7 @@ jobs:
         run: |
           VERSION="${{ inputs.tag }}"
           SETUPTOOLS_SCM_PRETEND_VERSION="${VERSION#v}" uv build
+          meta/build.sh "${VERSION#v}" dist
 
       # Non-.py files reach the wheel only through [tool.setuptools.package-data].
       # Anything that is merely git-tracked can vanish when a build backend
@@ -97,15 +98,14 @@ jobs:
       # failures, so assert the data the installed package needs.
       - name: Verify wheel contains required data files
         run: |
-          wheel=$(ls dist/aaiclick-*.whl | head -n 1)
+          wheel=$(ls dist/aaiclick_client-*.whl | head -n 1)
           contents=$(unzip -l "$wheel")
           missing=0
           for path in \
             aaiclick/server/static/index.html \
             aaiclick/url_samples/sample.parquet \
             aaiclick/url_samples/sample.csv \
-            aaiclick/orchestration/alembic.ini \
-            aaiclick/deploy/templates/compose/docker-compose.yaml
+            aaiclick/orchestration/alembic.ini
           do
             grep -q " ${path}\$" <<<"$contents" || { echo "missing: ${path}"; missing=1; }
           done
@@ -121,7 +121,7 @@ jobs:
         run: uv export --frozen --extra test --no-emit-project -o requirements-local.txt
 
       - name: Export pinned dependencies (distributed backend)
-        run: uv export --frozen --extra test --extra distributed --no-emit-project -o requirements-dist.txt
+        run: uv export --frozen --extra test --no-emit-project -o requirements-dist.txt
 
       - name: Upload requirements artifacts
         uses: actions/upload-artifact@v6
@@ -160,7 +160,7 @@ jobs:
           name: dist
           path: dist/
 
-      # The images pip-install aaiclick==<version>. The wheel is not on
+      # The images pip-install aaiclick-client==<version>. The wheel is not on
       # PyPI yet (publish is gated on these very images), so serve the
       # artifact from a local pypiserver; it redirects unknown packages
       # to pypi.org, so dependencies resolve through the same index URL.
@@ -266,7 +266,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-local.txt
-          uv pip install --no-deps --no-index --find-links dist/ aaiclick
+          uv pip install --no-deps --no-index --find-links dist/ aaiclick-client
 
       - name: Setup local backend
         run: uv run --no-project python -m aaiclick setup
@@ -287,6 +287,9 @@ jobs:
   test-package:
     needs: [build, merge-rc-images]
     runs-on: ubuntu-latest
+    # Overrides .env's AAICLICK_IMAGE_TAG for every compose command in the job.
+    env:
+      AAICLICK_IMAGE_TAG: ${{ inputs.tag }}-rc
     name: test-package (${{ matrix.group }})
     permissions:
       contents: read
@@ -308,21 +311,27 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+          uv pip install --no-deps --no-index --find-links dist/ aaiclick-client
 
       - *ghcr-login
 
-      # Infra comes from the same compose file users scaffold — the release
+      # Only deploy/compose, into a subdirectory: the job tests the installed
+      # package, so no repo source may shadow it on the import path.
+      - name: Fetch reference compose stack
+        uses: actions/checkout@v5
+        with:
+          path: repo
+          sparse-checkout: deploy/compose
+
+      # Infra comes from the same compose stack users copy — the release
       # dogfoods it instead of GHA `services:` blocks. The whole stack comes
       # up (no profiles); the extra app services are harmless to the suite.
-      - name: Scaffold and start compose stack
+      - name: Start compose stack
         run: |
-          mkdir -p "$RUNNER_TEMP/stack"
-          uv run --no-project python -m aaiclick compose init \
-            --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
-            --image-tag "${{ inputs.tag }}-rc"
+          cp -r repo/deploy/compose "$RUNNER_TEMP/stack"
+          sh "$RUNNER_TEMP/stack/env.init.sh"
           docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" up -d --quiet-pull
-          # init generated the database passwords into .env; later steps dial them from the host.
+          # env.init.sh generated the database passwords into .env; later steps dial them from the host.
           sed -n 's/^AAICLICK_PG_PASSWORD=/STACK_PG_PASSWORD=/p; s/^AAICLICK_CH_PASSWORD=/STACK_CH_PASSWORD=/p' \
             "$RUNNER_TEMP/stack/.env" >> "$GITHUB_ENV"
 
@@ -361,7 +370,7 @@ jobs:
           echo "compose migrate never completed" >&2
           exit 1
 
-      # Credentials are the ones `compose init` generated, exported above.
+      # Credentials are the ones env.init.sh generated, exported above.
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:${{ env.STACK_PG_PASSWORD }}@localhost:5432/aaiclick"
@@ -524,3 +533,27 @@ jobs:
               gh api -X DELETE "/user/packages/container/${{ matrix.image }}/versions/${VERSION_ID}" || true
             fi
           done
+
+  # After promote-images, so the chart never names an image tag that does
+  # not exist yet. Chart version is lockstep with aaiclick (vX.Y.Z → X.Y.Z).
+  publish-chart:
+    needs: [promote-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Helm
+        uses: ./.github/actions/setup-helm
+
+      - name: Package and push chart
+        env:
+          TAG: ${{ inputs.tag }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package deploy/helm/aaiclick --version "${TAG#v}" --app-version "$TAG"
+          helm push "aaiclick-${TAG#v}.tgz" oci://ghcr.io/kolodkin/charts

@@ -1,10 +1,10 @@
-# Starter docker-compose stack for an aaiclick docker-runner deployment.
+# Reference docker-compose stack for an aaiclick docker-runner deployment.
 #
-# Scaffolded by `python -m aaiclick compose init` — customize freely; you
-# own this file. Every credential is a ${...} reference to the `.env` file
-# `compose init` wrote next to it, one value per secret; keep `.env` out of
-# version control. The server refuses to start with the raw template's
-# placeholders. The full list is in docs/user_guide/deployment.md.
+# Copy it and customize freely; you own your copy. Every credential is a
+# ${...} reference to the `.env` file that `sh env.init.sh` writes next to it
+# from `.env.template`, one value per secret; keep `.env` out of version
+# control. The server refuses to start with the template's placeholders.
+# The full list is in docs/user_guide/deployment.md.
 #
 # Task containers spawned by the docker runner run as SIBLINGS on the host
 # docker daemon (the worker mounts /var/run/docker.sock). They cannot
@@ -25,7 +25,7 @@ services:
     image: clickhouse/clickhouse-server:26.10
     environment:
       CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: "${AAICLICK_CH_PASSWORD:?run python -m aaiclick compose init}"
+      CLICKHOUSE_PASSWORD: "${AAICLICK_CH_PASSWORD:?run sh env.init.sh}"
       CLICKHOUSE_DB: default
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
       # Blob storage: the server's S3 identity (see the clickhouse_s3_xml config below).
@@ -53,7 +53,7 @@ services:
     image: postgres:18.6
     environment:
       POSTGRES_USER: aaiclick
-      POSTGRES_PASSWORD: "${AAICLICK_PG_PASSWORD:?run python -m aaiclick compose init}"
+      POSTGRES_PASSWORD: "${AAICLICK_PG_PASSWORD:?run sh env.init.sh}"
       POSTGRES_DB: aaiclick
     ports:
       - "5432:5432"
@@ -88,7 +88,7 @@ services:
       - buildkit_cache:/home/user/.local/share/buildkit
 
   migrate:
-    image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
+    image: ghcr.io/kolodkin/aaiclick:${AAICLICK_IMAGE_TAG:?run sh env.init.sh}
     command: python -m aaiclick migrate upgrade head
     environment:
       AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:${AAICLICK_PG_PASSWORD}@postgres:5432/aaiclick
@@ -101,7 +101,7 @@ services:
     restart: "no"
 
   server:
-    image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
+    image: ghcr.io/kolodkin/aaiclick:${AAICLICK_IMAGE_TAG:?run sh env.init.sh}
     ports:
       - "5255:5255"
     environment:
@@ -109,8 +109,8 @@ services:
       AAICLICK_CH_URL: clickhouse://default:${AAICLICK_CH_PASSWORD}@clickhouse:8123/default
       # Distributed URLs enforce auth: no signing secret means the server
       # refuses to start. The admin is seeded on first startup (username: admin).
-      AAICLICK_JWT_SECRET: "${AAICLICK_JWT_SECRET:?run python -m aaiclick compose init}"
-      AAICLICK_ADMIN_PASSWORD: "${AAICLICK_ADMIN_PASSWORD:?run python -m aaiclick compose init}"
+      AAICLICK_JWT_SECRET: "${AAICLICK_JWT_SECRET:?run sh env.init.sh}"
+      AAICLICK_ADMIN_PASSWORD: "${AAICLICK_ADMIN_PASSWORD:?run sh env.init.sh}"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -118,13 +118,16 @@ services:
         condition: service_healthy
 
   worker:
-    image: ghcr.io/kolodkin/aaiclick-docker:__AAICLICK_IMAGE_TAG__
+    image: ghcr.io/kolodkin/aaiclick-docker:${AAICLICK_IMAGE_TAG:?run sh env.init.sh}
     command: python -m aaiclick execution-worker start
     # Root so the mounted docker socket is writable. Alternative: keep the
     # image's non-root user and add `group_add: ["<host docker gid>"]`.
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Private GitHub repos for --build: mount a GitHub App key and uncomment
+      # the two AAICLICK_GITHUB_APP_* lines below (docs/user_guide/orchestration.md).
+      # - ./secrets/github-app.pem:/run/secrets/github-app.pem:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -138,6 +141,8 @@ services:
       AAICLICK_BUILDKIT_ADDR: tcp://buildkitd:1234
       AAICLICK_DOCKER_BUILD_ADD_HOST: host.docker.internal:host-gateway
       AAICLICK_DOCKER_RUN_ADD_HOST: host.docker.internal:host-gateway
+      # AAICLICK_GITHUB_APP_ID: "..."
+      # AAICLICK_GITHUB_APP_PEM_FILE: /run/secrets/github-app.pem
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -147,7 +152,7 @@ services:
         condition: service_started
 
   background:
-    image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
+    image: ghcr.io/kolodkin/aaiclick:${AAICLICK_IMAGE_TAG:?run sh env.init.sh}
     command: python -m aaiclick background start
     environment:
       AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:${AAICLICK_PG_PASSWORD}@postgres:5432/aaiclick
@@ -176,7 +181,7 @@ configs:
         -->
       </clickhouse>
   buildkitd_toml:
-    # The scaffold's registry is plain HTTP on the host gateway.
+    # The stack's registry is plain HTTP on the host gateway.
     content: |
       [registry."host.docker.internal:5000"]
         http = true

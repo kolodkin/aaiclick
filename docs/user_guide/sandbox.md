@@ -75,5 +75,5 @@ Click a submission's name to read its source.
 - A `requirements.txt` (or `pyproject.toml` / `uv.lock`) checked into the
   sandbox repo is installed into the default image — see
   [Runner base](container_images.md#runner-base).
-  Without one, only `aaiclick[all]` is importable.
+  Without one, only `aaiclick` and its dependencies are importable.
 - A submission runs once; submit again to re-run.

@@ -60,6 +60,24 @@ Shell/jvm children can declare image builds, so one job can queue many builds
 on the shared buildkitd. Add a per-job cap on injected build tasks and
 per-build buildkitd resource limits.
 
+## GitHub Actions Image Builder
+
+A second builder behind the injected `build-image` task, for private repos:
+the worker dispatches a workflow in the job's repo instead of cloning and
+running buildx, so it holds no git credentials — only a token with
+`Actions: write`.
+
+- **Seam**: `build_image_to_tag` keeps the registry cache check, then
+  dispatches the workflow with the SHA and computed tag, waits for the run,
+  and confirms the tag is in the registry.
+- **Registry mode only**: a GitHub runner cannot load into the worker's daemon.
+- **The repo carries the workflow**, so the default Dockerfile scaffolding
+  does not run unless shipped as a reusable action, and pip index secrets
+  move to GitHub secrets.
+
+Until then, a private GitHub repo builds with a GitHub App key on the worker
+(`docs/user_guide/orchestration.md`, "Image source").
+
 ## Objects in Non-Python Tasks
 
 Unsupported. Shell and jvm tasks speak the Task Interface's file data plane
@@ -286,7 +304,7 @@ rather than through an agent.
 - Sync-only API; aaiclick's ClickHouse client is async end to end.
 - Speaks ClickHouse HTTP, same as clickhouse-connect — no transport gain.
 - Ships as a native binary via `dbc install clickhouse`, not a wheel, so it
-  cannot ride `pip install aaiclick[distributed]` or the runner images.
+  cannot ride `pip install aaiclick` or the runner images.
 - No `JSON` type, no schema discovery, Arrow↔ClickHouse type gaps.
 - Local mode (chdb) already returns Arrow natively.
 

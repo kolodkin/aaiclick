@@ -1,9 +1,9 @@
 name: Helm Chart E2E (reusable)
 
-# Release gate for the scaffolded helm chart: installs the wheel artifact,
-# scaffolds via `python -m aaiclick k8s init`, lints the chart, installs it
-# on a kind cluster with devDependencies enabled and the -rc images, then
-# smoke-tests server health and a shell-job round trip.
+# Release gate for the published helm chart (deploy/helm/aaiclick): lints
+# it, installs it on a k3s cluster with devDependencies enabled and the -rc
+# images, smoke-tests server health and a shell-job round trip, then checks
+# that `helm upgrade` keeps the generated credentials.
 
 on:
   workflow_call:
@@ -25,50 +25,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Setup uv
-        uses: ./.github/actions/setup-uv
-
-      - name: Install kind, kubectl and Helm
-        uses: ./.github/actions/setup-kind
-
       - name: Log in to GHCR
         uses: ./.github/actions/ghcr-login
 
-      - name: Install pinned dependencies and built wheel
-        uses: ./.github/actions/install-dist
-        with:
-          requirements-file: requirements-dist.txt
+      - name: Install k3s and Helm
+        uses: ./.github/actions/setup-k3s
 
-      - name: Scaffold helm chart
-        run: |
-          uv run --no-project python -m aaiclick k8s init \
-            --path "$RUNNER_TEMP/chart" \
-            --image-tag "${{ inputs.image_tag }}"
-
-      - name: Lint chart
-        run: |
-          helm lint "$RUNNER_TEMP/chart"
-          helm template smoke "$RUNNER_TEMP/chart" --set devDependencies.enabled=true >/dev/null
-
-      - name: Create kind cluster
-        run: kind create cluster --name aaiclick-helm-e2e
-
-      # kind nodes can't use the host's registry credentials, so pull on the
-      # host and side-load the images into the cluster.
-      - name: Load rc images into kind
+      # k3s's containerd can't use the host's registry credentials, so pull on
+      # the host and side-load the images into the cluster.
+      - name: Load rc images into k3s
         run: |
           for img in aaiclick aaiclick-kubectl; do
             docker pull "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}"
-            kind load docker-image "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}" --name aaiclick-helm-e2e
+            docker save "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}" | sudo k3s ctr images import -
           done
-
-      - name: Wait for cluster DNS (CoreDNS) ready
-        run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
 
       - name: Install chart
         run: |
-          helm install aaiclick "$RUNNER_TEMP/chart" \
+          helm install aaiclick deploy/helm/aaiclick \
             --set devDependencies.enabled=true \
+            --set images.server.tag="${{ inputs.image_tag }}" \
+            --set images.worker.tag="${{ inputs.image_tag }}" \
             --wait --timeout 15m
 
       - name: "Smoke: server health via port-forward"
@@ -105,6 +82,16 @@ jobs:
           done
           echo "job did not complete in time" >&2
           exit 1
+
+      # A regenerated password would lock the server out of the existing
+      # database: the upgrade must keep every stored credential.
+      - name: "Upgrade keeps credentials"
+        run: |
+          read_secret() { kubectl get secret aaiclick-credentials -o jsonpath='{.data}'; }
+          BEFORE=$(read_secret)
+          helm upgrade aaiclick deploy/helm/aaiclick --reuse-values --wait --timeout 10m
+          [ "$(read_secret)" = "$BEFORE" ] || { echo "helm upgrade changed the credentials" >&2; exit 1; }
+          kubectl exec deploy/aaiclick-server -- python -c "import urllib.request; urllib.request.urlopen('http://localhost:5255/health', timeout=5)"
 
       - name: Dump cluster diagnostics on failure
         if: failure()
