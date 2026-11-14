@@ -29,8 +29,11 @@ from pathlib import Path
 from typing import NamedTuple, TypeVar, overload
 from unittest.mock import patch
 
+import clickhouse_connect
+import psycopg2
 import pytest
 from alembic import command
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from sqlalchemy import create_engine, text
 from sqlmodel import col, select
 
@@ -303,9 +306,6 @@ def make_job_stats(job_status: JobStatus, tasks: list[TaskStatsView]) -> JobStat
 
 def _pg_connect(dbname: str):
     """Connect to PostgreSQL with environment-based credentials."""
-    # Distributed extra only — keep inline so local-only installs can import this module.
-    import psycopg2  # noqa: PLC0415
-
     return psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
         port=os.environ.get("POSTGRES_PORT", "5432"),
@@ -339,9 +339,6 @@ def worker_ch_database() -> Iterator[None]:
                 _ch_upgrade_in_subprocess()
             yield
         return
-
-    # Distributed extra only — keep inline so local-only installs can import this module.
-    import clickhouse_connect  # noqa: PLC0415
 
     worker = os.environ.get("PYTEST_XDIST_WORKER", "")
     if not worker:
@@ -395,9 +392,6 @@ def worker_sql_database() -> Iterator[None]:
             mp.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db_path}")
             yield
         return
-
-    # Distributed extra only — keep inline so local-only installs can import this module.
-    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT  # noqa: PLC0415
 
     worker = os.environ.get("PYTEST_XDIST_WORKER", "")
     if not worker:

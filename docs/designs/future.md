@@ -295,7 +295,7 @@ rather than through an agent.
 - Sync-only API; aaiclick's ClickHouse client is async end to end.
 - Speaks ClickHouse HTTP, same as clickhouse-connect — no transport gain.
 - Ships as a native binary via `dbc install clickhouse`, not a wheel, so it
-  cannot ride `pip install aaiclick[distributed]` or the runner images.
+  cannot ride `pip install aaiclick` or the runner images.
 - No `JSON` type, no schema discovery, Arrow↔ClickHouse type gaps.
 - Local mode (chdb) already returns Arrow natively.
 

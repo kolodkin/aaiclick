@@ -6,6 +6,8 @@ requires-python = ">=3.11"
 
 dependencies = [
     "aaiclick",
+    # Listed so its source below applies: uv honours sources for direct dependencies only.
+    "aaiclick-client",
     "litellm>=1.0.0",
     "sentence-transformers>=3.0.0",
     # Declared explicitly so the [tool.uv.sources] CPU-index pin below applies
@@ -17,7 +19,8 @@ dependencies = [
 # wheels — this example only ever embeds ~1k short texts.
 [tool.uv.sources]
 # The monorepo checkout, not a PyPI release — examples always exercise this tree.
-aaiclick = { path = "../..", editable = true }
+aaiclick = { path = "../../meta" }
+aaiclick-client = { path = "../..", editable = true }
 torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]

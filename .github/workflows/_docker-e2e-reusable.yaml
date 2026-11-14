@@ -116,7 +116,7 @@ jobs:
       - name: Build wheel from source
         if: inputs.wheel_source == 'source'
         run: |
-          uv sync --frozen --extra distributed --extra test --python 3.11
+          uv sync --frozen --extra test --python 3.11
           uv build
 
       - name: Download dist artifact
@@ -134,7 +134,7 @@ jobs:
 
       # --- Common: pypi upload --------------------------------------------
       # Upload must happen before install — the install step resolves
-      # aaiclick==<version_pin> from the local pypiserver, so the wheel
+      # aaiclick-client==<version_pin> from the local pypiserver, so the wheel
       # has to be present on the index by then. The same upload is also
       # what the docker build inside the e2e tests pulls from later.
 
@@ -158,7 +158,7 @@ jobs:
           uv venv --python 3.11
           uv pip install -r requirements-dist.txt
           VERSION="${{ inputs.version_pin }}"
-          uv pip install "aaiclick[distributed]==${VERSION#v}"
+          uv pip install "aaiclick-client==${VERSION#v}"
 
       # --- Base image (branches on base_image) -----------------------------
 
@@ -172,7 +172,7 @@ jobs:
         id: wheel
         if: inputs.base_image == ''
         run: |
-          VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")
+          VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick-client'))")
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build base image from the wheel under test

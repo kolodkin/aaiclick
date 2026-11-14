@@ -20,9 +20,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pyarrow as pa
-from chdb.session import Session
 
-from aaiclick.backend import get_ch_url
+try:
+    from chdb.session import Session
+except ImportError as e:
+    raise ImportError("The embedded chdb backend is not in aaiclick-client. Install with: pip install aaiclick") from e
+
+from aaiclick.backend import get_chdb_data_path
 from aaiclick.data.sql_utils import quote_identifier, quote_sql_literal
 
 from .arrow_types import ch_type_to_pa
@@ -257,17 +261,6 @@ class ChdbClient:
         # chdb's Session is a per-process singleton (see docs/designs/testing.md)
         # owned outside ChdbClient — closing here would break sibling contexts.
         pass
-
-
-def get_chdb_data_path() -> str:
-    """Return the chdb data directory path from AAICLICK_CH_URL.
-
-    Parses the path component of the chdb://path URL.
-    """
-    url = get_ch_url()
-    if url.startswith("chdb://"):
-        return url.removeprefix("chdb://")
-    return str(Path.home() / ".aaiclick" / "chdb_data")
 
 
 # Process-wide singleton chdb session, keyed by data path.

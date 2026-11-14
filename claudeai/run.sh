@@ -102,7 +102,7 @@ curl -fs -X PUT --aws-sigv4 aws:amz:us-east-1:s3 --user minioadmin:minioadmin lo
   || { echo "[minio] error: cannot create bucket aaiclick-test" >&2; exit 1; }
 echo "[minio] up on :9100"
 
-(cd "$here/.." && uv run --frozen --extra distributed python -m aaiclick migrate upgrade head >"$cache/migrate.log" 2>&1) \
+(cd "$here/.." && uv run --frozen python -m aaiclick migrate upgrade head >"$cache/migrate.log" 2>&1) \
   || { echo "[migrate] error: see $cache/migrate.log" >&2; exit 1; }
 echo "[migrate] schema at head"
 echo "[run] all services up — source claudeai/env.sh to point tests at them"

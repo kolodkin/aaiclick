@@ -17,7 +17,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 
-from aaiclick.backend import is_postgres
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.data.object_context.ch_client import ChClient, LazyChClient, _ch_client_var, get_ch_client
 from aaiclick.data.object_context.lifecycle import LifecycleHandler, _lifecycle_var
@@ -425,14 +424,6 @@ async def orch_context() -> AsyncIterator[None]:
     Per-task state (lifecycle handler, objects, oplog) is managed by task_scope().
     """
     register_session_hooks()
-    if is_postgres():
-        # Distributed extra only — probed inline so the error can name the extra to install.
-        try:
-            import asyncpg  # noqa: F401, PLC0415
-        except ImportError as e:
-            raise ImportError(
-                "PostgreSQL requires the aaiclick[distributed] extra. Install with: pip install aaiclick[distributed]"
-            ) from e
 
     outer_engine = _sql_engine_var.get()
     if outer_engine is not None:

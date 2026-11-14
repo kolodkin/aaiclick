@@ -92,7 +92,7 @@ jobs:
       - name: Build wheel from source
         if: inputs.wheel_source == 'source'
         run: |
-          uv sync --frozen --extra distributed --extra test --python 3.11
+          uv sync --frozen --extra test --python 3.11
           uv build
 
       - name: Download dist artifact
@@ -124,7 +124,7 @@ jobs:
           uv venv --python 3.11
           uv pip install -r requirements-dist.txt
           VERSION="${{ inputs.version_pin }}"
-          uv pip install "aaiclick[distributed]==${VERSION#v}"
+          uv pip install "aaiclick-client==${VERSION#v}"
 
       # A git build whose repo has no Dockerfile layers on the aaiclick base
       # image at the worker's version, and no published image matches the
@@ -133,7 +133,7 @@ jobs:
       # AAICLICK_BASE_IMAGE below (mirrors the docker e2e).
       - name: Resolve the installed aaiclick version
         id: wheel
-        run: echo "version=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick-client'))")" >> "$GITHUB_OUTPUT"
 
       - name: Build base image from the wheel under test
         uses: ./.github/actions/build-base-image

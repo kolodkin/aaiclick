@@ -95,6 +95,23 @@ Beyond these, check in a `Dockerfile`.
         pip install --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" -r requirements.txt
     ```
 
+# Bring your own image
+
+Any image runs module tasks once it has aaiclick: the Pod or container runs
+`python -m aaiclick.orchestration.execution.remote_result`, which needs only
+the remote drivers, not chdb:
+
+```dockerfile
+FROM my-org/python-base:3.12
+RUN pip install --no-cache-dir "aaiclick-client==X.Y.Z"
+```
+
+- Pin the worker's aaiclick version: the task reads and writes the shared
+  orchestration tables, and nothing checks for version skew.
+- The image needs Python ≥ 3.11 and must accept aaiclick's pins
+  (`sqlalchemy<2.1`, `pydantic>=2.12`, `pyarrow>=23`).
+- Shell and JVM tasks need no aaiclick in the image.
+
 # Kubernetes dispatching worker
 
 Run `aaiclick-kubectl` as a pod with `AAICLICK_RUNNER=kubernetes`: container

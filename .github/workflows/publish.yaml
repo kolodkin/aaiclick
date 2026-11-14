@@ -90,6 +90,7 @@ jobs:
         run: |
           VERSION="${{ inputs.tag }}"
           SETUPTOOLS_SCM_PRETEND_VERSION="${VERSION#v}" uv build
+          meta/build.sh "${VERSION#v}" dist
 
       # Non-.py files reach the wheel only through [tool.setuptools.package-data].
       # Anything that is merely git-tracked can vanish when a build backend
@@ -97,7 +98,7 @@ jobs:
       # failures, so assert the data the installed package needs.
       - name: Verify wheel contains required data files
         run: |
-          wheel=$(ls dist/aaiclick-*.whl | head -n 1)
+          wheel=$(ls dist/aaiclick_client-*.whl | head -n 1)
           contents=$(unzip -l "$wheel")
           missing=0
           for path in \
@@ -120,7 +121,7 @@ jobs:
         run: uv export --frozen --extra test --no-emit-project -o requirements-local.txt
 
       - name: Export pinned dependencies (distributed backend)
-        run: uv export --frozen --extra test --extra distributed --no-emit-project -o requirements-dist.txt
+        run: uv export --frozen --extra test --no-emit-project -o requirements-dist.txt
 
       - name: Upload requirements artifacts
         uses: actions/upload-artifact@v6
@@ -159,7 +160,7 @@ jobs:
           name: dist
           path: dist/
 
-      # The images pip-install aaiclick==<version>. The wheel is not on
+      # The images pip-install aaiclick-client==<version>. The wheel is not on
       # PyPI yet (publish is gated on these very images), so serve the
       # artifact from a local pypiserver; it redirects unknown packages
       # to pypi.org, so dependencies resolve through the same index URL.
@@ -265,7 +266,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-local.txt
-          uv pip install --no-deps --no-index --find-links dist/ aaiclick
+          uv pip install --no-deps --no-index --find-links dist/ aaiclick-client
 
       - name: Setup local backend
         run: uv run --no-project python -m aaiclick setup
@@ -310,7 +311,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+          uv pip install --no-deps --no-index --find-links dist/ aaiclick-client
 
       - *ghcr-login
 

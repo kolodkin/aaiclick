@@ -8,7 +8,7 @@ operations, enabling execution of Python-equivalent computations at scale.
 try:
     from importlib.metadata import version as _version
 
-    __version__ = _version("aaiclick")
+    __version__ = _version("aaiclick-client")
 except Exception:
     __version__ = "0.0.0"
 

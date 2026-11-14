@@ -25,6 +25,8 @@ import threading
 import time
 from collections import deque
 
+from clickhouse_connect import get_client
+
 from ..backend import is_chdb, parse_ch_url
 
 # Bit allocation (Wikipedia Snowflake ID standard)
@@ -101,9 +103,6 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:
-        # Distributed extra only — keep inline so local-only installs can import this module.
-        from clickhouse_connect import get_client  # noqa: PLC0415
-
         client = get_client(**parse_ch_url())
         try:
             result = client.query(f"SELECT generateSnowflakeID() FROM numbers({count})")
