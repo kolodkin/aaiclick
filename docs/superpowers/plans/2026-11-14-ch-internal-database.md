@@ -147,5 +147,6 @@ async def test_reset_truncates_internal_tables(orch_ctx):
 - Delete: this plan and the spec.
 
 - [ ] **Step 1:** Edit docs per `markdown-style` skill: one short section in `oplog.md` stating the layout (`<data_db>` = user objects only, `<data_db>_internal` = `operation_log`, `task_logs`, `schema_migrations`).
-- [ ] **Step 2:** Delete `docs/superpowers/plans/2026-11-14-ch-internal-database.md` and `docs/superpowers/specs/2026-11-14-ch-internal-database-design.md`; `grep -rn "2026-11-14-ch-internal" .` → no hits.
-- [ ] **Step 3:** Commit `docs: internal CH database`, push, run `check-pr`.
+- [ ] **Step 2:** Add a `docs/designs/future.md` entry "Dedicated internal ClickHouse connection": a second client (own URL / credentials, default DB = internal) for `operation_log` / `task_logs` / `schema_migrations`, so task code holding data credentials can't read or delete logs, and logs can later move to another server. Caveat: distributed only — chdb allows one session per process, so local mode keeps `internal_table()` qualification.
+- [ ] **Step 3:** Delete `docs/superpowers/plans/2026-11-14-ch-internal-database.md` and `docs/superpowers/specs/2026-11-14-ch-internal-database-design.md`; `grep -rn "2026-11-14-ch-internal" .` → no hits.
+- [ ] **Step 4:** Commit `docs: internal CH database`, push, run `check-pr`.
