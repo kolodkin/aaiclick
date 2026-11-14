@@ -13,6 +13,8 @@ spec:
     metadata:
       labels:
         app: aaiclick-server
+      annotations:
+        {{- include "aaiclick.credentialsChecksum" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -24,27 +26,21 @@ spec:
       # backoff until the database is reachable, then the server starts.
       initContainers:
         - name: migrate
-          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.server) | quote }}
           command: ["python", "-m", "aaiclick", "migrate", "upgrade", "head"]
           env:
-            - name: AAICLICK_SQL_URL
-              value: {{ include "aaiclick.sqlUrl" . | quote }}
-            - name: AAICLICK_CH_URL
-              value: {{ include "aaiclick.chUrl" . | quote }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_SQL_URL" "key" "sql-url") | nindent 12 }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_CH_URL" "key" "ch-url") | nindent 12 }}
       containers:
         - name: server
-          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.server) | quote }}
           ports:
             - containerPort: 5255
           env:
-            - name: AAICLICK_SQL_URL
-              value: {{ include "aaiclick.sqlUrl" . | quote }}
-            - name: AAICLICK_CH_URL
-              value: {{ include "aaiclick.chUrl" . | quote }}
-            - name: AAICLICK_JWT_SECRET
-              value: {{ .Values.auth.jwtSecret | quote }}
-            - name: AAICLICK_ADMIN_PASSWORD
-              value: {{ .Values.auth.adminPassword | quote }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_SQL_URL" "key" "sql-url") | nindent 12 }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_CH_URL" "key" "ch-url") | nindent 12 }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_JWT_SECRET" "key" "jwt-secret") | nindent 12 }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_ADMIN_PASSWORD" "key" "admin-password") | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /health

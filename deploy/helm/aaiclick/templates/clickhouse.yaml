@@ -24,8 +24,7 @@ spec:
           env:
             - name: CLICKHOUSE_USER
               value: {{ .Values.devDependencies.clickhouse.user | quote }}
-            - name: CLICKHOUSE_PASSWORD
-              value: {{ .Values.devDependencies.clickhouse.password | quote }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "CLICKHOUSE_PASSWORD" "key" "ch-password") | nindent 12 }}
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "0"
             {{- with .Values.devDependencies.clickhouse.extraEnv }}

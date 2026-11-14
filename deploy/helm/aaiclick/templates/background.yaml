@@ -15,6 +15,8 @@ spec:
     metadata:
       labels:
         app: aaiclick-background
+      annotations:
+        {{- include "aaiclick.credentialsChecksum" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -22,7 +24,7 @@ spec:
       {{- end }}
       initContainers:
         - name: wait-for-server
-          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.server) | quote }}
           command:
             - /bin/sh
             - -c
@@ -32,12 +34,10 @@ spec:
               do echo "waiting for aaiclick-server"; sleep 3; done
       containers:
         - name: background
-          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.server) | quote }}
           command: ["python", "-m", "aaiclick", "background", "start"]
           env:
-            - name: AAICLICK_SQL_URL
-              value: {{ include "aaiclick.sqlUrl" . | quote }}
-            - name: AAICLICK_CH_URL
-              value: {{ include "aaiclick.chUrl" . | quote }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_SQL_URL" "key" "sql-url") | nindent 12 }}
+            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_CH_URL" "key" "ch-url") | nindent 12 }}
           resources:
             {{- toYaml .Values.background.resources | nindent 12 }}

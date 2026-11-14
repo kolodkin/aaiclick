@@ -1,0 +1,12 @@
+aaiclick is starting. Reach the UI with:
+
+  kubectl port-forward svc/aaiclick-server {{ .Values.server.service.port }}:5255
+
+Admin login: admin / the password from
+
+  kubectl get secret {{ include "aaiclick.credentialsSecret" . }} -n {{ .Release.Namespace }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- if not .Values.auth.existingSecret }}
+
+Credentials were generated into Secret {{ include "aaiclick.credentialsSecret" . }}. For production, manage them
+outside Helm and set auth.existingSecret (docs/user_guide/deployment.md).
+{{- end }}
