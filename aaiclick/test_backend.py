@@ -1,6 +1,6 @@
 import pytest
 
-from aaiclick.backend import parse_ch_url, redact_url
+from aaiclick.backend import internal_db, internal_table, parse_ch_url, redact_url
 
 
 def test_parse_ch_url_percent_decodes_userinfo(monkeypatch):
@@ -38,3 +38,17 @@ def test_parse_ch_url_defaults(monkeypatch):
 )
 def test_redact_url(url, expected):
     assert redact_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("chdb:///tmp/x/chdb_data", "default_internal"),
+        ("clickhouse://u:p@h:8123/warehouse", "warehouse_internal"),
+        ("clickhouse://h:8123", "default_internal"),
+    ],
+)
+def test_internal_db(monkeypatch, url, expected):
+    monkeypatch.setenv("AAICLICK_CH_URL", url)
+    assert internal_db() == expected
+    assert internal_table("task_logs") == f"`{expected}`.`task_logs`"

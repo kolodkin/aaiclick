@@ -119,6 +119,22 @@ def parse_ch_url() -> dict:
     }
 
 
+def internal_db() -> str:
+    """Database holding aaiclick's internal CH tables, beside the data database.
+
+    ``<data_db>_internal`` keeps ``operation_log`` / ``task_logs`` /
+    ``schema_migrations`` out of the user-object database. chdb's data
+    database is always ``default``.
+    """
+    data_db = "default" if is_chdb() else parse_ch_url()["database"]
+    return f"{data_db}_internal"
+
+
+def internal_table(name: str) -> str:
+    """``name`` qualified with :func:`internal_db`, backtick-quoted for SQL."""
+    return f"`{internal_db()}`.`{name}`"
+
+
 def redact_url(url: str) -> str:
     """``url`` with its password, if any, replaced by ``***`` — safe to print or return."""
     parsed = urlsplit(url)
