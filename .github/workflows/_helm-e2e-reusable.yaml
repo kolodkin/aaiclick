@@ -25,20 +25,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Setup uv
-        uses: ./.github/actions/setup-uv
-
       - name: Log in to GHCR
         uses: ./.github/actions/ghcr-login
 
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
+      - name: Install k3s and Helm
+        uses: ./.github/actions/setup-k3s
 
       - name: Lint chart
         run: bash deploy/helm/check.sh
-
-      - name: Install k3s and Helm
-        uses: ./.github/actions/setup-k3s
 
       # k3s's containerd can't use the host's registry credentials, so pull on
       # the host and side-load the images into the cluster.
