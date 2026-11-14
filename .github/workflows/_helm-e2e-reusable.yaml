@@ -1,9 +1,9 @@
 name: Helm Chart E2E (reusable)
 
-# Release gate for the scaffolded helm chart: installs the wheel artifact,
-# scaffolds via `python -m aaiclick k8s init`, lints the chart, installs it
-# on a k3s cluster with devDependencies enabled and the -rc images, then
-# smoke-tests server health and a shell-job round trip.
+# Release gate for the published helm chart (deploy/helm/aaiclick): lints
+# it, installs it on a k3s cluster with devDependencies enabled and the -rc
+# images, smoke-tests server health and a shell-job round trip, then checks
+# that `helm upgrade` keeps the generated credentials.
 
 on:
   workflow_call:
@@ -31,21 +31,11 @@ jobs:
       - name: Log in to GHCR
         uses: ./.github/actions/ghcr-login
 
-      - name: Install pinned dependencies and built wheel
-        uses: ./.github/actions/install-dist
-        with:
-          requirements-file: requirements-dist.txt
-
-      - name: Scaffold helm chart
-        run: |
-          uv run --no-project python -m aaiclick k8s init \
-            --path "$RUNNER_TEMP/chart" \
-            --image-tag "${{ inputs.image_tag }}"
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
 
       - name: Lint chart
-        run: |
-          helm lint "$RUNNER_TEMP/chart"
-          helm template smoke "$RUNNER_TEMP/chart" --set devDependencies.enabled=true >/dev/null
+        run: bash deploy/helm/check.sh
 
       - name: Install k3s and Helm
         uses: ./.github/actions/setup-k3s
@@ -61,8 +51,10 @@ jobs:
 
       - name: Install chart
         run: |
-          helm install aaiclick "$RUNNER_TEMP/chart" \
+          helm install aaiclick deploy/helm/aaiclick \
             --set devDependencies.enabled=true \
+            --set images.server.tag="${{ inputs.image_tag }}" \
+            --set images.worker.tag="${{ inputs.image_tag }}" \
             --wait --timeout 15m
 
       - name: "Smoke: server health via port-forward"
@@ -99,6 +91,17 @@ jobs:
           done
           echo "job did not complete in time" >&2
           exit 1
+
+      # A regenerated password would lock the server out of the existing
+      # database: the upgrade must keep every stored credential.
+      - name: "Upgrade keeps credentials"
+        run: |
+          read_secret() { kubectl get secret aaiclick-credentials -o jsonpath='{.data}'; }
+          BEFORE=$(read_secret)
+          helm upgrade aaiclick deploy/helm/aaiclick --reuse-values --wait --timeout 10m
+          [ "$(read_secret)" = "$BEFORE" ] || { echo "helm upgrade changed the credentials" >&2; exit 1; }
+          kubectl rollout status deploy/aaiclick-server --timeout 5m
+          kubectl exec deploy/aaiclick-server -- python -c "import urllib.request; urllib.request.urlopen('http://localhost:5255/health', timeout=5)"
 
       - name: Dump cluster diagnostics on failure
         if: failure()

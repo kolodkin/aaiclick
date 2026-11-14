@@ -1,4 +1,4 @@
-# See docs/designs/deploy_scaffold.md — "Release pipeline restructure", "Gates — all parallel, all required".
+# See docs/designs/deployment.md — "Release pipeline restructure", "Gates — all parallel, all required".
 name: Release
 
 # Repeated steps (GHCR login, artifact downloads, uv install) and matrices
@@ -311,17 +311,24 @@ jobs:
 
       - *ghcr-login
 
-      # Infra comes from the same compose file users scaffold — the release
+      # Only deploy/compose, into a subdirectory: the job tests the installed
+      # package, so no repo source may shadow it on the import path.
+      - name: Fetch reference compose stack
+        uses: actions/checkout@v5
+        with:
+          path: repo
+          sparse-checkout: deploy/compose
+
+      # Infra comes from the same compose stack users copy — the release
       # dogfoods it instead of GHA `services:` blocks. The whole stack comes
       # up (no profiles); the extra app services are harmless to the suite.
-      - name: Scaffold and start compose stack
+      - name: Start compose stack
         run: |
-          mkdir -p "$RUNNER_TEMP/stack"
-          uv run --no-project python -m aaiclick compose init \
-            --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
-            --image-tag "${{ inputs.tag }}-rc"
+          cp -r repo/deploy/compose "$RUNNER_TEMP/stack"
+          sh "$RUNNER_TEMP/stack/env.init.sh"
+          sed -i "s/^AAICLICK_IMAGE_TAG=.*/AAICLICK_IMAGE_TAG=${{ inputs.tag }}-rc/" "$RUNNER_TEMP/stack/.env"
           docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" up -d --quiet-pull
-          # init generated the database passwords into .env; later steps dial them from the host.
+          # env.init.sh generated the database passwords into .env; later steps dial them from the host.
           sed -n 's/^AAICLICK_PG_PASSWORD=/STACK_PG_PASSWORD=/p; s/^AAICLICK_CH_PASSWORD=/STACK_CH_PASSWORD=/p' \
             "$RUNNER_TEMP/stack/.env" >> "$GITHUB_ENV"
 
@@ -360,7 +367,7 @@ jobs:
           echo "compose migrate never completed" >&2
           exit 1
 
-      # Credentials are the ones `compose init` generated, exported above.
+      # Credentials are the ones env.init.sh generated, exported above.
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:${{ env.STACK_PG_PASSWORD }}@localhost:5432/aaiclick"
@@ -523,3 +530,27 @@ jobs:
               gh api -X DELETE "/user/packages/container/${{ matrix.image }}/versions/${VERSION_ID}" || true
             fi
           done
+
+  # After promote-images, so the chart never names an image tag that does
+  # not exist yet. Chart version is lockstep with aaiclick (vX.Y.Z → X.Y.Z).
+  publish-chart:
+    needs: [promote-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Package and push chart
+        env:
+          TAG: ${{ inputs.tag }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package deploy/helm/aaiclick --version "${TAG#v}" --app-version "$TAG"
+          helm push "aaiclick-${TAG#v}.tgz" oci://ghcr.io/kolodkin/charts
