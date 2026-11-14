@@ -17,8 +17,8 @@ templates we test.
 |-------------------------------------------------------|-------------------------------------------------------------|
 | Templates ship as package data in `aaiclick/deploy/`  | Chart and compose live in the repo under `deploy/`          |
 | `k8s init` copies the chart into the user's project   | `helm install aaiclick oci://ghcr.io/kolodkin/charts/aaiclick` |
-| `compose init` writes `docker-compose.yaml` + `.env`  | `curl` the compose file and `.env.example`                  |
-| `init` fills `change-me-...` tokens with random values | The chart generates secrets; for compose, the user fills `.env` |
+| `compose init` writes `docker-compose.yaml` + `.env`  | `curl` three files, run `env.init.sh`                       |
+| `init` fills `change-me-...` tokens with random values | The chart generates secrets; `env.init.sh` does it for compose |
 | Image tag pinned by substitution at `init` time       | The chart defaults to `.Chart.AppVersion`; compose reads `AAICLICK_IMAGE_TAG` |
 
 `docker init` (the user's task-image Dockerfile) is out of scope and stays. It
@@ -40,7 +40,8 @@ deploy/
       rbac.yaml  server.yaml  worker.yaml
   compose/
     docker-compose.yaml   # moved from aaiclick/deploy/templates/compose
-    .env.example          # renamed from compose.env
+    .env.template         # renamed from compose.env
+    env.init.sh           # new: writes .env from .env.template
 ```
 
 Root `docker-compose.yml` (dev infra) and `test_e2e/kubernetes/chart/` (CI deps)
@@ -164,36 +165,62 @@ helm upgrade aaiclick oci://ghcr.io/kolodkin/charts/aaiclick --version 1.4.3 --r
 
 # Compose reference
 
-Users fetch two files from the release tag:
+Users fetch three files from the release tag, generate `.env`, and start:
 
 ```bash
 V=v1.4.2
-curl -fsSLO https://raw.githubusercontent.com/kolodkin/aaiclick/$V/deploy/compose/docker-compose.yaml
-curl -fsSL  https://raw.githubusercontent.com/kolodkin/aaiclick/$V/deploy/compose/.env.example -o .env
-# edit .env, then:
-docker compose up
+for f in docker-compose.yaml .env.template env.init.sh; do
+  curl -fsSLO https://raw.githubusercontent.com/kolodkin/aaiclick/$V/deploy/compose/$f
+done
+sh env.init.sh && docker compose up
 ```
 
 - **Image tag**: every aaiclick image reads
-  `${AAICLICK_IMAGE_TAG:?set it in .env}`. `.env.example` sets
+  `${AAICLICK_IMAGE_TAG:?set it in .env}`. `.env.template` sets
   `AAICLICK_IMAGE_TAG=latest` with a comment to pin a release.
-- **Credentials**: `.env.example` keeps the `change-me-...` tokens, like
-  Superset's `CHANGE_ME` secret key. The compose file keeps its `${VAR:?...}`
-  references, with the message changed from "run `compose init`" to "set it in
-  `.env`".
-- **Generating values**: the user guide gives a one-liner per secret:
+- **Credentials**: `.env.template` keeps the `change-me-...` tokens. The
+  compose file keeps its `${VAR:?...}` references, with the message changed
+  from "run `compose init`" to "run `sh env.init.sh`".
 
-  ```bash
-  openssl rand -hex 24
-  ```
+## env.init.sh
 
-  Hex output is URL-safe, which the database passwords need.
+Writes `.env` beside itself from `.env.template`, replacing each distinct
+`change-me-...` token with one random value, the same rule as today's
+`fill_placeholders`. POSIX `sh` plus `openssl`, so it runs on Linux, macOS and
+in CI with no Python.
+
+```sh
+#!/bin/sh
+# Write .env from .env.template: one random value per change-me-... token.
+set -eu
+cd "$(dirname "$0")"
+[ -e .env ] && { echo ".env already exists; delete it to regenerate" >&2; exit 1; }
+umask 077
+cp .env.template .env.tmp
+for token in $(grep -o 'change-me-[A-Za-z0-9-]*' .env.template | sort -u); do
+  sed -i.bak "s/$token/$(openssl rand -hex 24)/g" .env.tmp
+done
+rm -f .env.tmp.bak
+mv .env.tmp .env
+echo "Wrote .env (keep it out of git)"
+grep '^AAICLICK_ADMIN_PASSWORD=' .env | sed 's/^AAICLICK_ADMIN_PASSWORD=/Admin login: admin \/ /'
+```
+
+- **Never overwrites**: an existing `.env` holds the live database passwords;
+  regenerating it would lock the stack out of its own volumes.
+- **Hex values**: URL-safe, which the database passwords need, since they also
+  go into the connection URLs.
+- **`umask 077`**: `.env` is readable by its owner only.
+- **`sed -i.bak`**: the one in-place form that GNU and BSD `sed` both accept.
+- **Hand-editing still works**: users may copy `.env.template` to `.env` and
+  set values themselves; the startup guard catches any token left in.
 
 # Startup guard
 
 Keep it. With the chart generating its own values, the guard now catches one
-thing: a compose `.env` copied from `.env.example` and never edited. That is the
-same case Superset refuses to start on.
+thing: a compose `.env` copied from `.env.template` by hand instead of
+`env.init.sh`, and never edited. That is the same case Superset refuses to
+start on.
 
 - **Move** `require_no_placeholder_credentials`, `placeholder_env_vars`,
   `PLACEHOLDER_MARKER` and `CREDENTIAL_ENV_VARS` from
@@ -201,8 +228,8 @@ same case Superset refuses to start on.
   Its only caller is `aaiclick/server/app.py`.
 - **Delete** `fill_placeholders`, `Scaffold` and `ADMIN_PASSWORD_PLACEHOLDER`;
   only `init` used them.
-- **Error message**: `"... still in use: X. Replace them in .env
-  (docs/user_guide/deployment.md)"`.
+- **Error message**: `"... still in use: X. Run `sh env.init.sh` or replace
+  them in .env (docs/user_guide/deployment.md)"`.
 
 # Removed
 
@@ -222,13 +249,12 @@ already runs from a checkout.
 | Workflow                          | Change                                                                                                   |
 |-----------------------------------|----------------------------------------------------------------------------------------------------------|
 | `_helm-e2e-reusable.yaml`         | Drop "Scaffold". Lint and install `deploy/helm/aaiclick` with `--set images.server.tag=<rc>` / `images.worker.tag=<rc>`. Add an upgrade step: `helm upgrade --reuse-values`, then assert the `jwt-secret` is unchanged |
-| `_compose-e2e-reusable.yaml`      | Copy `deploy/compose/*` to `$RUNNER_TEMP/stack`, write `.env` from `.env.example` with `openssl rand` values and `AAICLICK_IMAGE_TAG=<rc>` |
-| `publish.yaml` `test-package`     | Same `.env` step as compose e2e; reads the database passwords from that `.env`                            |
+| `_compose-e2e-reusable.yaml`      | Copy `deploy/compose/` to `$RUNNER_TEMP/stack`, run `sh env.init.sh`, then set `AAICLICK_IMAGE_TAG=<rc>` in `.env` |
+| `publish.yaml` `test-package`     | Same `env.init.sh` step as compose e2e; reads the database passwords from that `.env`                     |
 | `publish.yaml` new `publish-chart` | `needs: [promote-images]`, so the chart never points at an image tag that doesn't exist yet. Runs `helm package --version X.Y.Z --app-version vX.Y.Z`, then `helm push`. Needs `packages: write` |
 | `test.yaml` (PR CI)               | Add `helm lint deploy/helm/aaiclick` and `helm template` with `devDependencies.enabled=true` so chart breakage shows before release |
 
-The `.env` step is shared by two workflows; put it in
-`.github/actions/compose-env/` (a composite action) rather than duplicating it.
+Both gates run the same `env.init.sh` users run, so CI tests the real first-run path.
 
 # Tests
 
@@ -246,7 +272,7 @@ The `.env` step is shared by two workflows; put it in
 # Docs
 
 - `docs/user_guide/deployment.md`: rewrite "Docker Compose mode" around
-  `curl` + edit `.env`, and "Kubernetes mode" around `helm install oci://...`,
+  `curl` + `sh env.init.sh`, and "Kubernetes mode" around `helm install oci://...`,
   `NOTES.txt` and `auth.existingSecret`. The Configure tables stay; `auth.*`
   gains `existingSecret`.
 - `docs/designs/deploy_scaffold.md` → `docs/designs/deployment.md`. Keep
@@ -308,10 +334,11 @@ What the table says:
   `postgres`) leave public credentials in use. Cost: generated credentials
   rotate under `helm template` / Argo CD, so GitOps users must set
   `existingSecret`.
-- **Compose `.env` filled by hand over keeping `compose init`**: matches
-  Airflow and Dagster, and drops a CLI command plus its package data. Cost:
-  one copy-and-edit step before the first `up`; the startup guard catches it
-  being skipped.
+- **`env.init.sh` over keeping `compose init`**: keeps a one-command first
+  run without shipping templates in the wheel or needing Python. It lives next
+  to the compose file, versioned with it. Airflow's quickstart does the same
+  with a one-line `echo ... > .env`. Cost: one more file to fetch, and
+  `openssl` must be installed.
 - **Chart and compose in the main repo over a separate `helm-charts` repo**:
   the e2e gates test chart and images from one commit.
 
