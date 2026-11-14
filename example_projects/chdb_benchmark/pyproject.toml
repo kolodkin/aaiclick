@@ -5,7 +5,7 @@ description = "Benchmark comparing aaiclick Object API against native chdb SQL"
 requires-python = ">=3.11"
 
 dependencies = [
-    "aaiclick-client[all]",
+    "aaiclick-client[local]",
     "rich>=13.0",
 ]
 

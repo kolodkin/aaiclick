@@ -5,7 +5,7 @@ description = "Multi-source cybersecurity pipeline with CISA KEV, Shodan CVEDB, 
 requires-python = ">=3.11"
 
 dependencies = [
-    "aaiclick-client[all]",
+    "aaiclick-client[local]",
 ]
 
 # The monorepo checkout, not a PyPI release — examples always exercise this tree.

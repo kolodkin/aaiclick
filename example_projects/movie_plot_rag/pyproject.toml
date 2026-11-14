@@ -5,7 +5,7 @@ description = "RAG + embeddings example: semantic movie search with ClickHouse a
 requires-python = ">=3.11"
 
 dependencies = [
-    "aaiclick-client[all]",
+    "aaiclick-client[local]",
     "litellm>=1.0.0",
     "sentence-transformers>=3.0.0",
     # Declared explicitly so the [tool.uv.sources] CPU-index pin below applies
