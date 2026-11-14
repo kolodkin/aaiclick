@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
 from aaiclick.async_wait import wait_or_timeout
+from aaiclick.backend import internal_table
 from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.oplog.cleanup import drop_tables
 
@@ -365,7 +366,7 @@ class BackgroundWorker:
             #    failure raises here, not later in system.mutations.
             for log_table in ("operation_log", "task_logs"):
                 await get_ch_client().command(
-                    f"ALTER TABLE {log_table} DELETE WHERE job_id = {job_id}",
+                    f"ALTER TABLE {internal_table(log_table)} DELETE WHERE job_id = {job_id}",
                     settings={"mutations_sync": 2},
                 )
 
@@ -435,7 +436,7 @@ class BackgroundWorker:
         # operation_log still lives on CH — prune orphaned rows there.
         try:
             await get_ch_client().command(
-                "ALTER TABLE operation_log DELETE "
+                f"ALTER TABLE {internal_table('operation_log')} DELETE "
                 "WHERE job_id IS NULL "
                 f"AND created_at < now() - INTERVAL {ttl_days} DAY"
             )

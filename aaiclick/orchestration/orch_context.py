@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 
+from aaiclick.backend import internal_table
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.data.object_context.ch_client import ChClient, LazyChClient, _ch_client_var, get_ch_client
 from aaiclick.data.object_context.lifecycle import LifecycleHandler, _lifecycle_var
@@ -231,7 +232,7 @@ class OrchLifecycleHandler(LifecycleHandler):
             ch_client = get_ch_client()
             column_types = await get_column_types(ch_client, "operation_log")
             await ch_client.insert(
-                "operation_log",
+                internal_table("operation_log"),
                 [
                     [
                         p.result_table,

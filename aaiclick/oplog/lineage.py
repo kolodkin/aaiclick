@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from aaiclick.backend import internal_table
 from aaiclick.data.object_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.data.scope import GLOBAL_PREFIX, JOB_PREFIX, TEMP_PREFIX
 from aaiclick.data.sql_utils import quote_sql_literal
@@ -182,7 +183,7 @@ async def backward_oplog(
             SELECT result_table, operation, kwargs,
                    sql_template, task_id, job_id,
                    0 AS depth, [result_table] AS visited
-            FROM operation_log
+            FROM {internal_table("operation_log")}
             WHERE result_table = {quote_sql_literal(table)}
 
             UNION ALL
@@ -191,7 +192,7 @@ async def backward_oplog(
                    ol.sql_template, ol.task_id, ol.job_id,
                    u.depth + 1, arrayConcat(u.visited, [ol.result_table])
             FROM upstream u
-            INNER JOIN operation_log ol
+            INNER JOIN {internal_table("operation_log")} ol
                 ON hasAny(mapValues(u.kwargs), [ol.result_table])
             WHERE u.depth < {max_depth}
               AND NOT has(u.visited, ol.result_table)
@@ -216,7 +217,7 @@ async def forward_oplog(
     seed = await ch_client.query(f"""
         SELECT result_table, operation, kwargs,
                sql_template, task_id, job_id
-        FROM operation_log
+        FROM {internal_table("operation_log")}
         WHERE result_table = {quote_sql_literal(table)}
         LIMIT 1
     """)
@@ -234,7 +235,7 @@ async def forward_oplog(
         result = await ch_client.query(f"""
             SELECT result_table, operation, kwargs,
                    sql_template, task_id, job_id
-            FROM operation_log
+            FROM {internal_table("operation_log")}
             WHERE arrayExists(v -> v IN ({placeholders}), mapValues(kwargs))
             ORDER BY created_at ASC
         """)
