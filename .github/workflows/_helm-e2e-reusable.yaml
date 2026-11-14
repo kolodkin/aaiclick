@@ -31,9 +31,6 @@ jobs:
       - name: Install k3s and Helm
         uses: ./.github/actions/setup-k3s
 
-      - name: Lint chart
-        run: bash deploy/helm/check.sh
-
       # k3s's containerd can't use the host's registry credentials, so pull on
       # the host and side-load the images into the cluster.
       - name: Load rc images into k3s
@@ -94,7 +91,6 @@ jobs:
           BEFORE=$(read_secret)
           helm upgrade aaiclick deploy/helm/aaiclick --reuse-values --wait --timeout 10m
           [ "$(read_secret)" = "$BEFORE" ] || { echo "helm upgrade changed the credentials" >&2; exit 1; }
-          kubectl rollout status deploy/aaiclick-server --timeout 5m
           kubectl exec deploy/aaiclick-server -- python -c "import urllib.request; urllib.request.urlopen('http://localhost:5255/health', timeout=5)"
 
       - name: Dump cluster diagnostics on failure

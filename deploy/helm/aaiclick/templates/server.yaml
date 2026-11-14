@@ -29,16 +29,14 @@ spec:
           image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.server) | quote }}
           command: ["python", "-m", "aaiclick", "migrate", "upgrade", "head"]
           env:
-            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_SQL_URL" "key" "sql-url") | nindent 12 }}
-            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_CH_URL" "key" "ch-url") | nindent 12 }}
+            {{- include "aaiclick.dbEnv" . | nindent 12 }}
       containers:
         - name: server
           image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.server) | quote }}
           ports:
             - containerPort: 5255
           env:
-            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_SQL_URL" "key" "sql-url") | nindent 12 }}
-            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_CH_URL" "key" "ch-url") | nindent 12 }}
+            {{- include "aaiclick.dbEnv" . | nindent 12 }}
             {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_JWT_SECRET" "key" "jwt-secret") | nindent 12 }}
             {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_ADMIN_PASSWORD" "key" "admin-password") | nindent 12 }}
           readinessProbe:

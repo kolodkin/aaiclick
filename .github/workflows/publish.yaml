@@ -286,6 +286,9 @@ jobs:
   test-package:
     needs: [build, merge-rc-images]
     runs-on: ubuntu-latest
+    # Overrides .env's AAICLICK_IMAGE_TAG for every compose command in the job.
+    env:
+      AAICLICK_IMAGE_TAG: ${{ inputs.tag }}-rc
     name: test-package (${{ matrix.group }})
     permissions:
       contents: read
@@ -326,7 +329,6 @@ jobs:
         run: |
           cp -r repo/deploy/compose "$RUNNER_TEMP/stack"
           sh "$RUNNER_TEMP/stack/env.init.sh"
-          sed -i "s/^AAICLICK_IMAGE_TAG=.*/AAICLICK_IMAGE_TAG=${{ inputs.tag }}-rc/" "$RUNNER_TEMP/stack/.env"
           docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" up -d --quiet-pull
           # env.init.sh generated the database passwords into .env; later steps dial them from the host.
           sed -n 's/^AAICLICK_PG_PASSWORD=/STACK_PG_PASSWORD=/p; s/^AAICLICK_CH_PASSWORD=/STACK_CH_PASSWORD=/p' \
@@ -544,9 +546,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.16.2
+        uses: ./.github/actions/setup-helm
 
       - name: Package and push chart
         env:

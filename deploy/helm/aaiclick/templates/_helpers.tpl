@@ -45,6 +45,14 @@ An env entry read from the credentials Secret: dict "root" $ "name" ENV "key" KE
 {{- end -}}
 
 {{/*
+The database URL env pair every aaiclick container reads.
+*/}}
+{{- define "aaiclick.dbEnv" -}}
+{{ include "aaiclick.secretEnv" (dict "root" . "name" "AAICLICK_SQL_URL" "key" "sql-url") }}
+{{ include "aaiclick.secretEnv" (dict "root" . "name" "AAICLICK_CH_URL" "key" "ch-url") }}
+{{- end -}}
+
+{{/*
 Image reference; an empty tag means the chart's appVersion:
 dict "root" $ "image" .Values.images.server.
 */}}

@@ -37,11 +37,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      # Same Helm as the release gate (.github/actions/setup-k3s).
       - name: Setup Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.16.2
+        uses: ./.github/actions/setup-helm
 
       - name: Check chart
         run: bash deploy/helm/check.sh

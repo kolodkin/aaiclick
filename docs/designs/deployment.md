@@ -85,7 +85,8 @@ rather than shipping an empty database URL.
   `auth.existingSecret`.
 
 `deploy/helm/check.sh` lints the chart and asserts on renders (generated
-Secret, `existingSecret`, external URLs, image tags); PR CI runs it.
+Secret, `existingSecret`, external URLs, image tags, the no-database
+failure, a stable checksum); the PR `chart` job runs it.
 
 ## Publishing
 
@@ -139,8 +140,8 @@ mounted from disk.
 
 ## env.init.sh
 
-Writes `.env` beside itself from `.env.template`, replacing each distinct
-`change-me-...` token with `openssl rand -hex 24` (hex is URL-safe). POSIX
+Writes `.env` beside itself from `.env.template`, giving every
+`KEY=change-me-...` line the value `openssl rand -hex 24` (hex is URL-safe). POSIX
 `sh`, so it runs on Linux, macOS and in CI without Python. It refuses to
 overwrite an existing `.env`, whose passwords the database volumes already
 hold, and writes it with `umask 077`.
@@ -191,7 +192,7 @@ the local-only gate), so they run concurrently.
 | test-package-local      | chdb + SQLite, no infra                                                                                                                                                                                                                               |
 | test-package            | Data/orch matrix; infra from `deploy/compose` (`env.init.sh`, full stack up, waiting for `migrate` to exit 0) instead of `services:` blocks                                                                                                           |
 | test-compose-e2e        | `deploy/compose` + `env.init.sh`, `AAICLICK_IMAGE_TAG` set to `-rc`, `docker compose up`, wait for server health, then `docker compose exec` into the server to register/run a job via the CLI and poll `job list --json`                            |
-| test-helm-e2e           | k3s cluster with the `-rc` images side-loaded (`k3s ctr images import`), `deploy/helm/check.sh`, `helm install` of `deploy/helm/aaiclick`, a port-forwarded server-health smoke, a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`), then `helm upgrade` must leave the credentials Secret unchanged |
+| test-helm-e2e           | k3s cluster with the `-rc` images side-loaded (`k3s ctr images import`), `helm install` of `deploy/helm/aaiclick`, a port-forwarded server-health smoke, a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`), then `helm upgrade` must leave the credentials Secret unchanged |
 | test-package-docker-e2e | `_docker-e2e-reusable.yaml`; `base_image` is the `-rc` base, so git builds without a Dockerfile layer on the promoted digest                                                                                                                          |
 
 ## promote-images
@@ -209,7 +210,8 @@ vX.Y.Z`, then `helm push` to `oci://ghcr.io/kolodkin/charts`.
 
 # Testing
 
-- `aaiclick/test_deploy_files.py` runs `env.init.sh` as a user would.
+- `test_e2e/compose/test_env_init.py` runs `env.init.sh` as a user would
+  (PR CI, "Misc local" group).
 - `deploy/helm/check.sh` covers chart renders; helm templates are not YAML
   before rendering, so they get no Python tests.
 - `test_e2e/compose/` drives the reference stack in CI: server health, an

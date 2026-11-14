@@ -208,6 +208,6 @@ async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     """A template credential is public: starting with one is an error, not a warning."""
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", f"{PLACEHOLDER_MARKER}-admin-password")
 
-    with pytest.raises(RuntimeError, match="AAICLICK_ADMIN_PASSWORD"):
+    with pytest.raises(RuntimeError, match=r"AAICLICK_ADMIN_PASSWORD.*env\.init\.sh"):
         async with _lifespan(app):
             pass

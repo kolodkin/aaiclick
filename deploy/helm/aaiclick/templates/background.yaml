@@ -37,7 +37,6 @@ spec:
           image: {{ include "aaiclick.image" (dict "root" $ "image" .Values.images.server) | quote }}
           command: ["python", "-m", "aaiclick", "background", "start"]
           env:
-            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_SQL_URL" "key" "sql-url") | nindent 12 }}
-            {{- include "aaiclick.secretEnv" (dict "root" $ "name" "AAICLICK_CH_URL" "key" "ch-url") | nindent 12 }}
+            {{- include "aaiclick.dbEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.background.resources | nindent 12 }}
