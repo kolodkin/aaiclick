@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "aaiclick"
+name = "aaiclick-core"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -107,10 +107,10 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aaiclick", extras = ["all", "test"], marker = "extra == 'dev'" },
-    { name = "aaiclick", extras = ["client"], marker = "extra == 'distributed'" },
-    { name = "aaiclick", extras = ["distributed", "local", "server"], marker = "extra == 'all'" },
-    { name = "aaiclick", extras = ["local"], marker = "extra == 'test'" },
+    { name = "aaiclick-core", extras = ["all", "test"], marker = "extra == 'dev'" },
+    { name = "aaiclick-core", extras = ["client"], marker = "extra == 'distributed'" },
+    { name = "aaiclick-core", extras = ["distributed", "local", "server"], marker = "extra == 'all'" },
+    { name = "aaiclick-core", extras = ["local"], marker = "extra == 'test'" },
     { name = "aiohttp", marker = "extra == 'client'", specifier = ">=3.9.0" },
     { name = "aiosqlite", marker = "extra == 'local'", specifier = ">=0.22.0" },
     { name = "alembic", specifier = ">=1.18.0" },

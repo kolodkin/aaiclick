@@ -5,9 +5,9 @@ description = "Minimal orchestration example with job registration and worker ex
 requires-python = ">=3.11"
 
 dependencies = [
-    "aaiclick[distributed]",
+    "aaiclick-core[all]",
 ]
 
 # The monorepo checkout, not a PyPI release — examples always exercise this tree.
 [tool.uv.sources]
-aaiclick = { path = "../..", editable = true }
+aaiclick-core = { path = "../..", editable = true }

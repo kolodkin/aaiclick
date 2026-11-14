@@ -35,7 +35,7 @@ class ComposeFileExists(FileExistsError):
 
 def default_image_tag() -> str:
     """GHCR image tag matching the installed aaiclick version."""
-    return ghcr.image_tag(version("aaiclick"))
+    return ghcr.image_tag(version("aaiclick-core"))
 
 
 def init_compose(target: Path, *, image_tag: str | None = None, force: bool = False) -> Scaffold:

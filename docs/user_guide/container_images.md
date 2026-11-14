@@ -103,7 +103,7 @@ the remote drivers, not chdb:
 
 ```dockerfile
 FROM my-org/python-base:3.12
-RUN pip install --no-cache-dir "aaiclick[client]==X.Y.Z"
+RUN pip install --no-cache-dir "aaiclick-core[client]==X.Y.Z"
 ```
 
 - Pin the worker's aaiclick version: the task reads and writes the shared

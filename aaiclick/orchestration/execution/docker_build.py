@@ -150,7 +150,7 @@ def _aaiclick_version() -> str:
     ``AAICLICK_VERSION`` build-arg and the default Dockerfile's base tag.
     Cached: the installed version cannot change within a process."""
     try:
-        return importlib.metadata.version("aaiclick")
+        return importlib.metadata.version("aaiclick-core")
     except importlib.metadata.PackageNotFoundError:
         return "0.0.0"
 

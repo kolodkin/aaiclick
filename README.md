@@ -17,20 +17,16 @@ aaiclick is an agent-first data framework: orchestration and a ClickHouse data w
 The base install includes embedded [chdb](https://clickhouse.com/docs/chdb) and SQLite — no external servers needed:
 
 ```bash
-pip install "aaiclick[local]"
+pip install aaiclick
 python -m aaiclick setup
 ```
 
-For a distributed deployment (remote ClickHouse server + PostgreSQL):
-
-```bash
-pip install "aaiclick[distributed]"
-```
+The same install also runs against a remote ClickHouse server + PostgreSQL. For a slim install inside a task image, use `pip install "aaiclick-core[client]"`.
 
 For lineage triage with your coding agent (Claude Code, Codex, any MCP client):
 
 ```bash
-pip install "aaiclick[local,server]"   # or all extras: pip install "aaiclick[all]"
+pip install aaiclick
 python -m aaiclick local start   # REST + MCP server on http://127.0.0.1:5255
 ```
 

@@ -30,7 +30,7 @@ verifying access tokens signed by the control plane.
 | Component           | Packaging                      | Runs in           |
 |---------------------|--------------------------------|-------------------|
 | Control plane       | `aaiclick[tenants]`            | `aaiclick-system` |
-| Tenant installation | `aaiclick[server,distributed]` | `tenant-<slug>`   |
+| Tenant installation | `aaiclick-core[server,distributed]` | `tenant-<slug>`   |
 
 The control plane is a distinct service with its own FastAPI app,
 Postgres and SPA, and a ServiceAccount holding cluster RBAC to create

@@ -9,9 +9,9 @@ inputs:
     description: "Pinned requirements export (requirements-local.txt or requirements-dist.txt)."
     required: true
   package:
-    description: "Package spec installed from dist/ (e.g. aaiclick or aaiclick[distributed])."
+    description: "Package spec installed from dist/ (e.g. aaiclick-core or aaiclick-core[distributed])."
     required: false
-    default: "aaiclick[distributed]"
+    default: "aaiclick-core[distributed]"
   python-version:
     description: "Python version for the venv."
     required: false

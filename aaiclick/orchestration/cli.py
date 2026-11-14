@@ -123,7 +123,7 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
     except ImportError as exc:
         raise ImportError(
             "`local start` requires the [server] extra. Install it with "
-            "`pip install 'aaiclick[server]'` (or `uv add 'aaiclick[server]'`)."
+            "`pip install aaiclick` (or `pip install 'aaiclick-core[server]'`)."
         ) from exc
 
     # Reload watches the filesystem and re-imports — uvicorn needs the app as an

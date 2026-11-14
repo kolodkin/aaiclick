@@ -3,7 +3,8 @@ requires = ["setuptools>=82.0", "wheel", "setuptools-scm>=10.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aaiclick"
+# Code + slim deps; the `aaiclick` package in meta/ installs this with every extra.
+name = "aaiclick-core"
 dynamic = ["version"]
 description = "Data orchestration framework on ClickHouse: plain-Python pipelines, dynamic task graphs, containerized runs, lineage over MCP"
 readme = "README.md"
@@ -55,7 +56,7 @@ client = [
 ]
 # client + the sync PostgreSQL driver Alembic migrations use.
 distributed = [
-    "aaiclick[client]",
+    "aaiclick-core[client]",
     "psycopg2-binary>=2.9.11",
 ]
 server = [
@@ -63,9 +64,9 @@ server = [
     "uvicorn[standard]>=0.30.0",
     "fastmcp>=4.1.8",
 ]
-all = ["aaiclick[local,distributed,server]"]
+all = ["aaiclick-core[local,distributed,server]"]
 test = [
-    "aaiclick[local]",
+    "aaiclick-core[local]",
     "httpx>=0.27.0",
     "pytest>=9.0.0",
     "pytest-asyncio>=1.3.0",
@@ -81,7 +82,7 @@ docs = [
     "mkdocs-material>=9.7.0",
 ]
 dev = [
-    "aaiclick[all,test]",
+    "aaiclick-core[all,test]",
     # Browser e2e suite (test_e2e/web/); the lock pins its Chromium build.
     "playwright>=1.56.0",
     "pre-commit>=4.0",

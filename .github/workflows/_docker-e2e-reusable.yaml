@@ -158,7 +158,7 @@ jobs:
           uv venv --python 3.11
           uv pip install -r requirements-dist.txt
           VERSION="${{ inputs.version_pin }}"
-          uv pip install "aaiclick[distributed]==${VERSION#v}"
+          uv pip install "aaiclick-core[distributed]==${VERSION#v}"
 
       # --- Base image (branches on base_image) -----------------------------
 
@@ -172,7 +172,7 @@ jobs:
         id: wheel
         if: inputs.base_image == ''
         run: |
-          VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")
+          VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick-core'))")
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build base image from the wheel under test

@@ -65,7 +65,7 @@ RUN --mount=type=secret,id=pip_index_url,env=PIP_INDEX_URL \\
     --extra-index-url https://pypi.org/simple/ \\
     ${PIP_EXTRA_INDEX_URL:+--extra-index-url "${PIP_EXTRA_INDEX_URL}"} \\
     ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}} \\
-    "aaiclick[client]==${AAICLICK_VERSION}"
+    "aaiclick-core[client]==${AAICLICK_VERSION}"
 
 # Install the user's repo as a package so `importlib` can resolve task
 # entrypoints. Replace this with the install method that suits your project
