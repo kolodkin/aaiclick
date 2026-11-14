@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -138,3 +139,32 @@ def test_init_helm_ships_the_s3_profile_switched_off(tmp_path):
     clickhouse = (target / "templates" / "clickhouse.yaml").read_text()
     assert "/etc/clickhouse-server/users.d/s3.xml" in clickhouse
     assert ".Values.devDependencies.clickhouse.s3UsersXml" in clickhouse
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="needs the helm binary")
+def test_helm_worker_mounts_the_github_app_key_when_enabled(tmp_path):
+    """The non-root worker gets both settings and a key it can read."""
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+
+    result = subprocess.run(
+        ["helm", "template", "x", str(target), "--set", "devDependencies.enabled=true"]
+        + ["--set", "githubApp.appId=123", "--set", "githubApp.secretName=gh"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    (worker,) = [
+        d
+        for d in yaml.safe_load_all(result.stdout)
+        if d and d["kind"] == "Deployment" and d["metadata"]["name"] == "aaiclick-worker"
+    ]
+    pod = worker["spec"]["template"]["spec"]
+    container = pod["containers"][0]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env["AAICLICK_GITHUB_APP_ID"] == "123"
+    assert env["AAICLICK_GITHUB_APP_PEM_FILE"] == "/run/secrets/github-app/github-app.pem"
+    assert {"name": "github-app", "mountPath": "/run/secrets/github-app", "readOnly": True} in container["volumeMounts"]
+    assert {"name": "github-app", "secret": {"secretName": "gh", "defaultMode": 0o440}} in pod["volumes"]
+    assert pod["securityContext"] == {"fsGroup": 1000}

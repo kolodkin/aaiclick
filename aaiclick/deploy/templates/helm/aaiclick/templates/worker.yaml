@@ -6,6 +6,7 @@
 # and re-adopts them after a restart, so replicas are for availability, not
 # throughput. Git-sourced images build on the chart's buildkitd
 # (buildkitd.yaml) and are pushed to env.registry.
+{{- $githubAppId := include "aaiclick.githubAppId" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,6 +24,12 @@ spec:
         app: aaiclick-worker
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- if $githubAppId }}
+      # The image runs as non-root aaiclick (gid 1000), which could not read
+      # a root-owned Secret file.
+      securityContext:
+        fsGroup: 1000
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -63,5 +70,24 @@ spec:
             - name: AAICLICK_REGISTRY
               value: {{ .Values.env.registry | quote }}
             {{- end }}
+            {{- if $githubAppId }}
+            - name: AAICLICK_GITHUB_APP_ID
+              value: {{ $githubAppId | quote }}
+            - name: AAICLICK_GITHUB_APP_PEM_FILE
+              value: /run/secrets/github-app/github-app.pem
+            {{- end }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
+          {{- if $githubAppId }}
+          volumeMounts:
+            - name: github-app
+              mountPath: /run/secrets/github-app
+              readOnly: true
+          {{- end }}
+      {{- if $githubAppId }}
+      volumes:
+        - name: github-app
+          secret:
+            secretName: {{ .Values.githubApp.secretName | quote }}
+            defaultMode: 0440
+      {{- end }}

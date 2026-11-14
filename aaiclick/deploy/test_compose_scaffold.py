@@ -139,3 +139,17 @@ def test_init_compose_ships_the_s3_profile_switched_off(tmp_path):
     content = parsed["configs"][mounts["/etc/clickhouse-server/users.d/s3.xml"]]["content"]
     assert "s3_allow_server_credentials_in_user_queries" in content
     assert list(ET.fromstring(content)) == []
+
+
+def test_init_compose_ships_github_app_credentials_switched_off(tmp_path):
+    """The worker documents the GitHub App opt-in for private-repo builds, but
+    the scaffold has no key, so the mount and both settings stay commented out."""
+    target = tmp_path / "docker-compose.yaml"
+    init_compose(target, image_tag="v1.0.0")
+    text = target.read_text()
+    assert "# - ./secrets/github-app.pem:/run/secrets/github-app.pem:ro" in text
+    assert '# AAICLICK_GITHUB_APP_ID: "..."' in text
+    assert "# AAICLICK_GITHUB_APP_PEM_FILE: /run/secrets/github-app.pem" in text
+    worker = yaml.safe_load(text)["services"]["worker"]
+    assert worker["volumes"] == ["/var/run/docker.sock:/var/run/docker.sock"]
+    assert not any(key.startswith("AAICLICK_GITHUB_APP") for key in worker["environment"])

@@ -125,6 +125,9 @@ services:
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Private GitHub repos for --build: mount a GitHub App key and uncomment
+      # the two AAICLICK_GITHUB_APP_* lines below (docs/user_guide/orchestration.md).
+      # - ./secrets/github-app.pem:/run/secrets/github-app.pem:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -138,6 +141,8 @@ services:
       AAICLICK_BUILDKIT_ADDR: tcp://buildkitd:1234
       AAICLICK_DOCKER_BUILD_ADD_HOST: host.docker.internal:host-gateway
       AAICLICK_DOCKER_RUN_ADD_HOST: host.docker.internal:host-gateway
+      # AAICLICK_GITHUB_APP_ID: "..."
+      # AAICLICK_GITHUB_APP_PEM_FILE: /run/secrets/github-app.pem
     depends_on:
       migrate:
         condition: service_completed_successfully

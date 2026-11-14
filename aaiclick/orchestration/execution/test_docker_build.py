@@ -65,6 +65,30 @@ async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch)
     assert ("git", "-C", "/work", "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
 
 
+async def test_git_clone_gives_auth_env_to_the_fetch_only(monkeypatch):
+    """The token overlay reaches the one command that talks to the remote.
+    No e2e covers this: a real private clone needs a real GitHub App key."""
+    run = AsyncMock()
+    monkeypatch.setattr(docker_build.cli, "run", run)
+
+    await docker_build._git_clone_at_sha("https://github.com/o/r.git", "a" * 40, "/work", env={"X": "1"})
+
+    with_env = [call.args for call in run.await_args_list if call.kwargs.get("env")]
+    assert len(run.await_args_list) == 4
+    assert [argv[3] for argv in with_env] == ["fetch"]
+
+
+async def test_build_image_to_tag_clones_with_github_app_credentials(monkeypatch):
+    _stub_modes(monkeypatch, registry="registry.example:5000", have_image=False)
+    monkeypatch.setattr(docker_build, "git_auth_env", AsyncMock(return_value={"X": "1"}))
+    source = ImageBuild(git_remote="https://github.com/o/r.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
+
+    docker_build.git_auth_env.assert_awaited_once_with("https://github.com/o/r.git")
+    assert docker_build._git_clone_at_sha.await_args.kwargs == {"env": {"X": "1"}}
+
+
 async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch):
     """The default-Dockerfile fallback applies only to the implicit ``Dockerfile``;
     an explicitly named path that is absent is a user error."""
@@ -95,7 +119,7 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str,
     monkeypatch.setattr(docker_build, "_require_builder", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
-    async def fake_clone(remote, sha, workdir):
+    async def fake_clone(remote, sha, workdir, env=None):
         for name, content in clone_files.items():
             Path(workdir, name).write_text(content)
 
@@ -268,11 +292,14 @@ async def test_build_image_to_tag_builds_on_miss(monkeypatch, registry, push):
 async def test_build_image_to_tag_cache_hit_skips_build(monkeypatch, registry):
     """A hit needs neither a build nor buildkitd."""
     build = _stub_modes(monkeypatch, registry=registry, have_image=True)
+    mint = AsyncMock()
+    monkeypatch.setattr(docker_build, "git_auth_env", mint)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
     build.assert_not_awaited()
+    mint.assert_not_awaited()
     docker_build._require_builder.assert_not_awaited()
 
 
