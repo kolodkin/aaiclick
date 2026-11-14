@@ -181,7 +181,7 @@ configs:
         -->
       </clickhouse>
   buildkitd_toml:
-    # The scaffold's registry is plain HTTP on the host gateway.
+    # The stack's registry is plain HTTP on the host gateway.
     content: |
       [registry."host.docker.internal:5000"]
         http = true

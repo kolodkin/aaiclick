@@ -1,6 +1,6 @@
 aaiclick is starting. Reach the UI with:
 
-  kubectl port-forward svc/aaiclick-server {{ .Values.server.service.port }}:5255
+  kubectl port-forward svc/aaiclick-server 5255:{{ .Values.server.service.port }}
 
 Admin login: admin / the password from
 
