@@ -104,8 +104,8 @@ each pytest process, with or without xdist. File-backed backends (SQLite,
 chdb) live under it in `local start`'s layout, so a plain `pytest` never
 opens `~/.aaiclick`, which a running `local start` holds the chdb lock on;
 server-backed backends get a per-xdist-worker database. The per-test reset
-(`drop_all_ch_tables` + `reset_sql_tables`) scopes to
-`database = currentDatabase()`, so it's safe even on shared distributed
+(`drop_all_ch_tables` + `reset_sql_tables`) scopes to `currentDatabase()`
+and its `_internal` sibling, so it's safe even on shared distributed
 servers.
 
 `drop_all_ch_tables` truncates the migration-created tables while their

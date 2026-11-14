@@ -9,6 +9,15 @@ debugging.
 
 # Storage
 
+## Databases
+
+The `AAICLICK_CH_URL` database holds only user objects. The internal tables
+(`operation_log`, `task_logs`, `schema_migrations`) live beside it in
+`<data_db>_internal` (`default_internal` under chdb), so grants, retention
+and backups can treat them apart. Every internal query names it through
+`internal_table()` in `aaiclick/backend.py`; migration scripts write
+`{internal_db}`, which the runner substitutes.
+
 ## operation_log (ClickHouse)
 
 Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`,

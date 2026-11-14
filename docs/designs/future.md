@@ -124,6 +124,16 @@ or neither.
 **When to revisit**: when re-running a single task of a finished job,
 without re-running its upstream, becomes a supported workflow.
 
+## Dedicated Internal ClickHouse Connection
+
+Internal tables share the data client today, qualified with
+`<data_db>_internal`. A second client (own URL and credentials, default
+database = internal) would keep task code holding data credentials from
+reading or deleting logs, and let logs move to another server.
+
+Distributed only: chdb runs one embedded server per process, bound to its
+first data path, so local mode keeps the qualified names.
+
 ## ClickHouse Settings Pass-Through
 
 A general way to send ClickHouse settings with the queries an Object runs.
