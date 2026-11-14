@@ -104,8 +104,7 @@ jobs:
             aaiclick/server/static/index.html \
             aaiclick/url_samples/sample.parquet \
             aaiclick/url_samples/sample.csv \
-            aaiclick/orchestration/alembic.ini \
-            aaiclick/deploy/templates/compose/docker-compose.yaml
+            aaiclick/orchestration/alembic.ini
           do
             grep -q " ${path}\$" <<<"$contents" || { echo "missing: ${path}"; missing=1; }
           done
