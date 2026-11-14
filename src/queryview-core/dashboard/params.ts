@@ -79,6 +79,8 @@ export function placeholdersIn(sql: string): string[] {
   return [...seen];
 }
 
+// Values are always one of the param's options, which the dashboard author
+// controls; dialect escapes such as ClickHouse's backslash are theirs to handle.
 function quoteLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -89,6 +91,9 @@ function quoteIdentifier(name: string, param: string, quote: string): string {
   if (name.includes(quote)) throw new Error(`invalid identifier for {${param}}: ${name}`);
   return `${quote}${name}${quote}`;
 }
+
+// A dimension's checkbox state; a page may send 0 for unchecked.
+const isChecked = (v?: string): v is string => !!v && v !== "0";
 
 // Replace every declared `{name}`; placeholders with no matching param are left
 // alone (they may be literal braces in the SQL). `quote` is the connection's
@@ -108,7 +113,7 @@ export function substituteParams(
     if (p.kind === "dimension") {
       // Unchecked: an empty literal keeps the query's shape; the column just
       // contributes nothing to the grouping.
-      return raw ? quoteIdentifier(name, name, quote) : "''";
+      return isChecked(raw) ? quoteIdentifier(name, name, quote) : "''";
     }
     if (raw === undefined || raw === "") throw new Error(`no value selected for {${name}}`);
     const asIdentifier = cast ? cast === "identifier" : p.kind === "identifier";
@@ -176,7 +181,9 @@ export async function resolveParams(
     const want = values[p.name];
     const value =
       p.kind === "dimension"
-        ? (want ?? "")
+        ? isChecked(want)
+          ? want
+          : ""
         : want && options.includes(want)
           ? want
           : p.autoSelect
@@ -214,8 +221,8 @@ export function parseParamsRequest(data: unknown): Record<string, string> | null
   if (typeof values !== "object" || values === null || Array.isArray(values)) return null;
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(values as Record<string, unknown>)) {
-    // Checkboxes arrive as booleans; '' reads as unset / unchecked.
-    out[k] = typeof v === "boolean" ? (v ? "on" : "") : String(v);
+    // Checkboxes arrive as booleans; '' (also from null) reads as unset / unchecked.
+    out[k] = typeof v === "boolean" ? (v ? "on" : "") : String(v ?? "");
   }
   return out;
 }

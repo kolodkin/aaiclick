@@ -275,7 +275,24 @@ describe("parseParamsRequest", () => {
       d: "on",
       e: "",
     });
+    expect(parseParamsRequest({ type: "set-params", values: { n: null, u: undefined, z: 0 } })).toEqual({
+      n: "",
+      u: "",
+      z: "0",
+    });
     expect(parseParamsRequest({ type: "run-queries", queries: {} })).toBeNull();
     expect(parseParamsRequest({ type: "set-params", values: ["x"] })).toBeNull();
+  });
+});
+
+describe("an unchecked dimension", () => {
+  test("stays unchecked for '' and 0", async () => {
+    const params = parseDashboardParams([{ name: "by_city", kind: "dimension" }]);
+    const run = async () => ({ ok: true as const, results: {} });
+    for (const v of ["", "0"]) {
+      const resolved = await resolveParams(params, { by_city: v }, run, '"');
+      expect(resolved[0].value).toBe("");
+    }
+    expect(substituteParams("GROUP BY {by_city}", params, { by_city: "0" }, '"')).toBe("GROUP BY ''");
   });
 });

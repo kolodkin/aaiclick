@@ -174,7 +174,7 @@ export function FieldPickers({
           key={o.name}
           data-testid="orderby-chip"
           data-col={o.name}
-          className="flex items-center gap-1 rounded-md border border-indigo-400/40 bg-white/[0.06] px-2 py-0.5 text-xs"
+          className="accent-chip flex items-center gap-1 rounded-md border bg-white/[0.06] px-2 py-0.5 text-xs"
         >
           <span className="text-slate-400">{i + 1}.</span>
           <span className="font-medium">{o.name}</span>

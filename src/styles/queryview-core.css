@@ -107,6 +107,11 @@
     cursor: not-allowed;
   }
 
+  /* Accent border of a static chip (an order-by column); hosts theme it here. */
+  .accent-chip {
+    border-color: rgba(129, 140, 248, 0.4); /* indigo-400/40 */
+  }
+
   /* Toggle buttons (size, db option, field, order-by). */
   .glass-toggle {
     border-radius: 0.6rem;

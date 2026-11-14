@@ -188,16 +188,16 @@ function ObjectExplorer({
         {query.isPending && <p className="sub">loading rows…</p>}
         {query.isError && <p className="err">{query.error.message}</p>}
         {rows && (
-          <div className="object-rows">
-            <ResultsTable
-              columns={columns}
-              rows={rows.data}
-              types={columnTypes(rows)}
-              shownIdx={shownColumnIndices(columns, fields, visibleCols ?? columns)}
-              testid="object-rows"
-              dimmed={busy}
-            />
-          </div>
+          <ResultsTable
+            columns={columns}
+            rows={rows.data}
+            types={columnTypes(rows)}
+            shownIdx={shownColumnIndices(columns, fields, visibleCols ?? columns)}
+            testid="object-rows"
+            dimmed={busy}
+            // In the page flow, not a height-bounded column: fit the rows up to a cap.
+            className="max-h-[70vh]"
+          />
         )}
       </div>
     </>

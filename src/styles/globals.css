@@ -526,10 +526,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   color: #e8ecb0;
   background: rgba(250,255,105,.08);
 }
-[data-testid="orderby-chip"] { border-color: rgba(250,255,105,.4); }
-/* The kernel's grid fills a height-bounded flex column; here it sits in the
-   page flow, so it fits its rows up to a cap instead. */
-.object-rows > div { max-height: 70vh; }
+.accent-chip { border-color: rgba(250,255,105,.4); }
 
 /* job timings / duration (src/components/timings) */
 .tl { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 18px; }
