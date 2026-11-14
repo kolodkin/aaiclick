@@ -26,18 +26,17 @@ clickhouse://{{ .user | urlquery }}:{{ .password | urlquery }}@aaiclick-clickhou
 
 {{/*
 The GitHub App ID for private-repo builds, or empty while githubApp is off.
-Setting only one of githubApp.appId / githubApp.secretName fails the render.
-`default dict` covers `helm upgrade --reuse-values` from a release that
-predates the githubApp block; an unquoted number in values.yaml parses as a
-float, so it is printed whole.
+- appId and secretName go together: one without the other fails the render.
+- `default dict`: `helm upgrade --reuse-values` from a release that predates
+  the githubApp block has no such key.
+- An unquoted number in values.yaml parses as a float, so print it whole.
 */}}
 {{- define "aaiclick.githubAppId" -}}
 {{- $app := .Values.githubApp | default dict -}}
-{{- if and $app.appId (not $app.secretName) -}}
-{{- fail "githubApp.appId is set but githubApp.secretName is empty: set both, or neither" -}}
-{{- else if and $app.secretName (not $app.appId) -}}
-{{- fail "githubApp.secretName is set but githubApp.appId is empty: set both, or neither" -}}
-{{- else if kindIs "float64" $app.appId -}}
+{{- if ne (empty $app.appId) (empty $app.secretName) -}}
+{{- fail "githubApp: set both appId and secretName, or neither" -}}
+{{- end -}}
+{{- if kindIs "float64" $app.appId -}}
 {{- int64 $app.appId -}}
 {{- else -}}
 {{- $app.appId | default "" -}}

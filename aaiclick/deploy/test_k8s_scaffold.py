@@ -198,17 +198,17 @@ def test_helm_worker_is_unchanged_without_github_app(tmp_path):
 
 @needs_helm
 @pytest.mark.parametrize(
-    "only, missing",
+    "only",
     [
-        pytest.param("githubApp.appId=123", "githubApp.secretName", id="secret-missing"),
-        pytest.param("githubApp.secretName=gh", "githubApp.appId", id="app-id-missing"),
+        pytest.param("githubApp.appId=123", id="secret-missing"),
+        pytest.param("githubApp.secretName=gh", id="app-id-missing"),
     ],
 )
-def test_helm_rejects_half_configured_github_app(tmp_path, only, missing):
+def test_helm_rejects_half_configured_github_app(tmp_path, only):
     target = tmp_path / "aaiclick-chart"
     init_helm(target, image_tag="v1.0.0")
 
     result = _render_worker(target, only)
 
     assert result.returncode != 0
-    assert f"{missing} is empty" in result.stderr
+    assert "set both appId and secretName, or neither" in result.stderr
