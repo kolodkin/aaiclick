@@ -4,7 +4,9 @@ aaiclick's internal ClickHouse tables.
 
 Migration scripts live in ``aaiclick/oplog/migrations/NNNN_description.sql``
 and are applied in version order; applied versions are recorded in the
-``schema_migrations`` ClickHouse table.
+``schema_migrations`` ClickHouse table. All three live in the internal
+database (:func:`aaiclick.backend.internal_db`); scripts name it as
+``{internal_db}``, which the runner substitutes.
 """
 
 from __future__ import annotations
@@ -15,8 +17,10 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
+from aaiclick.backend import internal_db, internal_table
 from aaiclick.data.object_context import ChClient
 from aaiclick.data.object_context.ch_client import create_ch_client
+from aaiclick.data.sql_utils import quote_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +66,16 @@ def split_statements(sql: str) -> list[str]:
     return [stmt.strip().rstrip(";").strip() for stmt in statements if stmt.strip()]
 
 
+def _render(sql: str) -> str:
+    """Substitute the quoted internal database for ``{internal_db}``.
+
+    ``str.replace``, not ``format``: SQL may hold literal braces.
+    """
+    return sql.replace("{internal_db}", quote_identifier(internal_db()))
+
+
 SCHEMA_MIGRATIONS_DDL = """
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS {internal_db}.schema_migrations (
     version    String,
     applied_at DateTime64(3, 'UTC')
 ) ENGINE = MergeTree ORDER BY version
@@ -71,9 +83,15 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 
 async def ch_applied_versions(ch_client: ChClient) -> list[str]:
-    """Ensure ``schema_migrations`` exists and return applied versions, sorted."""
-    await ch_client.command(SCHEMA_MIGRATIONS_DDL)
-    result = await ch_client.query("SELECT version FROM schema_migrations ORDER BY version")
+    """Applied versions, sorted; empty before ``ch_upgrade`` has created ``schema_migrations``.
+
+    Read-only, so distributed workers checking for pending migrations need
+    no DDL grant.
+    """
+    table = internal_table("schema_migrations")
+    if not (await ch_client.query(f"EXISTS TABLE {table}")).result_rows[0][0]:
+        return []
+    result = await ch_client.query(f"SELECT version FROM {table} ORDER BY version")
     return [row[0] for row in result.result_rows]
 
 
@@ -121,12 +139,15 @@ async def ch_upgrade(
     version unrecorded, and re-running the (idempotent) script after fixing
     it completes the migration.
     """
+    if not dry_run:
+        await ch_client.command(_render("CREATE DATABASE IF NOT EXISTS {internal_db}"))
+        await ch_client.command(_render(SCHEMA_MIGRATIONS_DDL))
     pending = await ch_pending(ch_client, migrations_dir)
     files_by_version = {f.version: f for f in list_migration_files(migrations_dir)}
 
     for version in pending:
         migration = files_by_version[version]
-        statements = split_statements(migration.path.read_text())
+        statements = split_statements(_render(migration.path.read_text()))
         if dry_run:
             logger.info("[dry-run] %s would execute %d statement(s):", migration.path.name, len(statements))
             for stmt in statements:
@@ -136,7 +157,7 @@ async def ch_upgrade(
         for stmt in statements:
             await ch_client.command(stmt)
         await ch_client.command(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES ({version:String}, now64(3))",
+            f"INSERT INTO {internal_table('schema_migrations')} (version, applied_at) VALUES ({{version:String}}, now64(3))",
             parameters={"version": version},
         )
     return pending

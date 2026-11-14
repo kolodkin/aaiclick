@@ -186,7 +186,7 @@ jobs:
           done
           echo "===== task logs (ClickHouse task_logs) ====="
           curl -s "http://default:click123@aaiclick-clickhouse:8123/" --data \
-            "SELECT task_id, run_id, seq, stream, level, line FROM task_logs ORDER BY task_id, run_id, seq FORMAT TSVWithNames" || true
+            "SELECT task_id, run_id, seq, stream, line FROM default_internal.task_logs ORDER BY task_id, run_id, seq FORMAT TSVWithNames" || true
           echo "===== tasks / jobs table ====="
           uv run --no-project python - <<'PY' || true
           import asyncio, asyncpg

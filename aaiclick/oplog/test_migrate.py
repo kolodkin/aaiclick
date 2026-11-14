@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from aaiclick.backend import internal_table
 from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.oplog import models as oplog_models
 from aaiclick.oplog.migrate import (
@@ -17,6 +18,7 @@ from aaiclick.oplog.migrate import (
     split_statements,
 )
 from aaiclick.oplog.models import clear_schema_cache, get_column_types, init_oplog_tables
+from aaiclick.testing import drop_all_ch_tables, list_ch_tables
 
 
 def _write(tmp_path: Path, name: str, content: str = "SELECT 1;") -> Path:
@@ -83,7 +85,7 @@ async def _fresh_tracking(ch) -> None:
     The orch_ctx fixture applies the real baseline on entry, which records
     version 0001 — colliding with the tmp migration dirs used here.
     """
-    await ch.command("DROP TABLE IF EXISTS schema_migrations")
+    await ch.command(f"DROP TABLE IF EXISTS {internal_table('schema_migrations')}")
 
 
 async def test_ch_upgrade_applies_pending_in_order(orch_ctx, tmp_path):
@@ -178,52 +180,32 @@ async def test_ch_upgrade_dry_run_executes_nothing(orch_ctx, tmp_path):
     assert exists[0][0] == 0
 
 
-async def test_baseline_creates_oplog_tables(orch_ctx):
-    """The shipped 0001 baseline creates operation_log and task_logs."""
+async def test_upgrade_leaves_data_database_empty(orch_ctx):
+    """The baseline puts every internal table in the internal database."""
     ch = get_ch_client()
-
     await ch_upgrade(ch)
-
-    for table in ("operation_log", "task_logs"):
-        exists = (await ch.query(f"EXISTS TABLE {table}")).result_rows
-        assert exists[0][0] == 1, table
-    assert "0001" in await ch_applied_versions(ch)
-
-
-async def test_baseline_is_safe_on_existing_tables(orch_ctx):
-    """Pre-existing tables (an install predating the framework) are untouched."""
-    ch = get_ch_client()
-    # Simulate an install that predates the framework: operation_log exists
-    # (with a divergent shape) but schema_migrations does not.
-    await ch.command("DROP TABLE IF EXISTS operation_log")
-    await ch.command("DROP TABLE IF EXISTS schema_migrations")
-    await ch.command("CREATE TABLE operation_log (id UInt64, created_at DateTime64(3)) ENGINE = Memory")
-    await ch.command("INSERT INTO operation_log (id) VALUES (7)")
-
-    await ch_upgrade(ch)
-
-    rows = (await ch.query("SELECT id FROM operation_log")).result_rows
-    assert rows == [(7,)]
-    assert "0001" in await ch_applied_versions(ch)
+    assert await list_ch_tables(ch) == set()
+    for table in ("operation_log", "task_logs", "schema_migrations"):
+        assert (await ch.query(f"EXISTS TABLE {internal_table(table)}")).result_rows[0][0] == 1, table
 
 
 async def test_init_oplog_tables_local_auto_migrates(orch_ctx, monkeypatch):
     """Local mode: init applies pending migrations (zero-ops)."""
     ch = get_ch_client()
-    await ch.command("DROP TABLE IF EXISTS operation_log")
-    await ch.command("DROP TABLE IF EXISTS schema_migrations")
+    await ch.command(f"DROP TABLE IF EXISTS {internal_table('operation_log')}")
+    await ch.command(f"DROP TABLE IF EXISTS {internal_table('schema_migrations')}")
     monkeypatch.setattr(oplog_models, "is_local", lambda: True)
 
     await init_oplog_tables(ch)
 
-    exists = (await ch.query("EXISTS TABLE operation_log")).result_rows
+    exists = (await ch.query(f"EXISTS TABLE {internal_table('operation_log')}")).result_rows
     assert exists[0][0] == 1
 
 
 async def test_init_oplog_tables_distributed_raises_when_behind(orch_ctx, monkeypatch):
     """Distributed mode: init never applies; it names the pending versions."""
     ch = get_ch_client()
-    await ch.command("DROP TABLE IF EXISTS schema_migrations")
+    await ch.command(f"DROP TABLE IF EXISTS {internal_table('schema_migrations')}")
     monkeypatch.setattr(oplog_models, "is_local", lambda: False)
 
     with pytest.raises(RuntimeError, match=r"aaiclick migrate upgrade"):
@@ -258,16 +240,27 @@ async def test_get_column_types_is_cached(orch_ctx):
     await ch_upgrade(ch)
     clear_schema_cache()
     first = await get_column_types(ch, "operation_log")
-    await ch.command("DROP TABLE operation_log")
+    await ch.command(f"DROP TABLE {internal_table('operation_log')}")
 
     assert await get_column_types(ch, "operation_log") == first
 
 
 async def test_get_column_types_raises_without_schema(orch_ctx):
     ch = get_ch_client()
-    await ch.command("DROP TABLE IF EXISTS operation_log")
-    await ch.command("DROP TABLE IF EXISTS task_logs")
+    await ch.command(f"DROP TABLE IF EXISTS {internal_table('operation_log')}")
+    await ch.command(f"DROP TABLE IF EXISTS {internal_table('task_logs')}")
     clear_schema_cache()
 
     with pytest.raises(RuntimeError, match="operation_log"):
         await get_column_types(ch, "operation_log")
+
+
+async def test_reset_truncates_internal_tables(orch_ctx):
+    ch = get_ch_client()
+    await drop_all_ch_tables()
+    await ch.command(
+        f"INSERT INTO {internal_table('task_logs')} (task_id, job_id, run_id, seq, stream, line, created_at) "
+        "VALUES (1, 1, 1, 0, 'stdout', 'x', now64(3))"
+    )
+    await drop_all_ch_tables()
+    assert (await ch.query(f"SELECT count() FROM {internal_table('task_logs')}")).result_rows[0][0] == 0
