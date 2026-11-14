@@ -53,10 +53,14 @@ dict "root" $ "image" .Values.images.server.
 {{- end -}}
 
 {{/*
-Rolls a Deployment when the generated credentials change.
+Rolls a Deployment when a credential input changes. Hashes the values, not the
+rendered Secret: a fresh install renders random values per include, which
+would roll every pod on the first no-op upgrade.
 */}}
 {{- define "aaiclick.credentialsChecksum" -}}
-checksum/credentials: {{ include (print .Template.BasePath "/credentials.yaml") . | sha256sum }}
+{{- $dev := .Values.devDependencies -}}
+{{- $inputs := list .Values.auth .Values.env.sqlUrl .Values.env.chUrl $dev.enabled $dev.postgres.password $dev.clickhouse.password -}}
+checksum/credentials: {{ $inputs | toJson | sha256sum }}
 {{- end -}}
 
 {{/*

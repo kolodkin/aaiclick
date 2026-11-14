@@ -69,7 +69,12 @@ Two paths, production first:
    so a reinstall keeps the database passwords.
 
 Pods read every credential through `secretKeyRef`, and carry a
-`checksum/credentials` annotation so a changed credential rolls them.
+`checksum/credentials` annotation over the credential inputs in values, so a
+changed one rolls them. It hashes values, not the rendered Secret: a fresh
+install renders random values per include, which would roll every pod on the
+first no-op upgrade. With no `existingSecret`, the render fails unless
+`devDependencies.enabled` is on or both `env.sqlUrl` and `env.chUrl` are set,
+rather than shipping an empty database URL.
 `NOTES.txt` prints how to read the admin password.
 
 - **`lookup` over Airflow's `pre-install` hook Secret**: Argo CD runs Helm
@@ -89,6 +94,11 @@ OCI artifact on GHCR, beside the images:
 ```bash
 helm install aaiclick oci://ghcr.io/kolodkin/charts/aaiclick --version 1.4.2
 ```
+
+!!! warning "Make the package public after the first push"
+    GHCR creates a new package as private, so the first release's chart
+    returns 401 to anonymous `helm install`. Once, after that release, set
+    `charts/aaiclick` to public in the package settings on GitHub.
 
 # Compose reference
 

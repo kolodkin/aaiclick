@@ -27,7 +27,15 @@ lacks "$out" "pg-password:" externalDb
 lacks "$out" "ch-password:" externalDb
 has "$out" "sql-url: $(printf %s 'postgresql+asyncpg://u:p@db/x' | base64 -w0)" externalDb
 
-out=$(render --set images.server.tag=rc1)
+out=$(render --set devDependencies.enabled=true --set images.server.tag=rc1)
 has "$out" "image: \"ghcr.io/kolodkin/aaiclick:rc1\"" imageTag
+
+# No database configured at all: fail the render, don't ship an empty URL.
+if err=$(render 2>&1); then echo "FAIL [noDatabase]: rendered without any database" >&2; exit 1; fi
+has "$err" "env.sqlUrl" noDatabase
+
+# The checksum hashes inputs, not random output: two fresh renders agree.
+sum() { render --set devDependencies.enabled=true -s templates/server.yaml | grep "checksum/credentials"; }
+[ "$(sum)" = "$(sum)" ] || { echo "FAIL [checksum]: differs between identical renders" >&2; exit 1; }
 
 echo "chart checks passed"
