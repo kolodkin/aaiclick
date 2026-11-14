@@ -76,9 +76,28 @@ image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag | de
 
 **Implementation**: `deploy/helm/aaiclick/templates/credentials.yaml`
 
-A single Secret, `<release>-credentials`, holds every credential. The same
-pattern as Grafana and Bitnami: use the value the user set, else reuse the
-value already stored in the cluster, else generate one.
+Two paths, in order of preference:
+
+1. **Production: bring your own Secret.** Set `auth.existingSecret: <name>`
+   and the chart renders no credentials at all. The Secret comes from outside
+   Helm (External Secrets Operator, Sealed Secrets, Vault, or plain
+   `kubectl create secret`), so no credential ever sits in `values.yaml` or the
+   Helm release history. The user guide leads with this path.
+2. **Evaluation: generated Secret.** With no `existingSecret`, the chart
+   creates `<release>-credentials` itself. Each value is the one the user set,
+   else the one already stored in the cluster, else a random one. Grafana and
+   Bitnami work the same way.
+
+Rules the chart follows on both paths:
+
+- Pods read credentials through `secretKeyRef`, never as inline `value:`.
+  That keeps them out of `kubectl describe pod` and the rendered manifests.
+- `values.yaml` ships no credential values, only empty overrides. There is
+  nothing a user could commit by accident.
+- A `checksum/credentials` pod annotation, a hash of the Secret's data, makes a
+  changed credential roll the Deployments.
+
+The generated Secret holds these keys:
 
 | Key              | Source when unset in values                                     |
 |------------------|-----------------------------------------------------------------|
@@ -98,9 +117,15 @@ jwt-secret: {{ .Values.auth.jwtSecret | default (index $stored "jwt-secret" | de
   keeps every value. The Secret also carries
   `helm.sh/resource-policy: keep`, so `helm uninstall` leaves it and a
   reinstall reuses the old database passwords.
-- **Bring your own**: `auth.existingSecret: <name>` skips the generated
-  Secret. The named Secret must hold `jwt-secret`, `admin-password`,
-  `sql-url` and `ch-url`.
+- **Bring your own**: the Secret named by `auth.existingSecret` must hold
+  `jwt-secret`, `admin-password`, `sql-url` and `ch-url`. The key names are
+  fixed. Bitnami-style per-key overrides (`secretKeys.*`) are left out until
+  someone needs them.
+- **Why `lookup` over Airflow's `pre-install` hook**: Airflow generates its
+  Fernet key in a hook Secret that renders once, at install. Argo CD runs Helm
+  hooks on every sync, so it regenerates the key either way. `lookup` also
+  covers values added in a later chart version, which an install-only hook
+  never renders.
 - **Consumers**: `server.yaml`, `worker.yaml`, `background.yaml` and the
   migrate init container read through `valueFrom.secretKeyRef` instead of
   inline `value:`. `postgres.yaml` and `clickhouse.yaml` read `pg-password` /
@@ -234,17 +259,55 @@ The `.env` step is shared by two workflows; put it in
 - Module docstrings that cite `docs/designs/deploy_scaffold.md` move to the
   new doc name.
 
+# References
+
+Checked 2026-11-14 against each project's default branch. Versions are the
+latest published at that date. When this spec moves to
+`docs/designs/deployment.md`, the table moves with it.
+
+| Tool            | Version checked              | Image                    | Compose                                       | Helm chart                                                | Chart secrets                                                   |
+|-----------------|------------------------------|--------------------------|-----------------------------------------------|-----------------------------------------------------------|-----------------------------------------------------------------|
+| Airflow         | 3.4.0, chart 2.0.0           | Official, in main repo   | Docs reference, fetched with `curl`, not for production | `chart/` in the main repo, served from a Helm repo on airflow.apache.org, version independent of Airflow | Fernet and API keys: random, in a `pre-install` hook Secret; admin `admin`/`admin`; Postgres `postgres` |
+| Dagster         | 1.13.30, chart 1.13.30       | Official                 | Example in `examples/deploy_docker/`          | `helm/dagster` in the main repo, GitHub Pages; **lockstep** with Dagster | Bundled Postgres `test`                                         |
+| Prefect         | 3.9.3, chart 2026.11.13192421 | Official, in main repo   | None in repo                                  | Separate `prefect-helm` repo, GitHub Pages                | Basic auth off by default; bring-your-own Secret                |
+| Mage            | 0.9.79, chart 0.2.19         | `mageai/mageai`          | Repo root, for developing Mage itself         | Separate `mage-ai/helm-charts` repo, GitHub Pages         | `your_password` placeholder, "REQUIRED: override" comment       |
+| Bruin           | `main` at check date         | CLI image                | None                                          | None (single CLI binary, no server)                       | n/a                                                             |
+| Kafka           | 4.4.0                        | Official, `docker/` in main repo | Examples in `docker/examples/`         | None from Apache (Strimzi, Bitnami)                       | n/a                                                             |
+| Spark           | 4.3.0                        | Separate `apache/spark-docker` repo | None                                | Separate `apache/spark-kubernetes-operator` repo          | n/a                                                             |
+| Grafana         | 13.3.1, chart 14.4.1         | Official                 | n/a                                           | `grafana-community/helm-charts`                           | Admin password `randAlphaNum 40`, reused via `lookup`           |
+| Bitnami Postgres | 17.6.0, chart 17.1.2        | Bitnami                  | n/a                                           | `bitnami/charts`                                          | Random, reused via `lookup`; `existingSecret` + `secretKeys.*`  |
+| Superset        | 6.1.0, chart 0.22.8          | Official                 | In repo                                       | `helm/superset` in the main repo                          | Ships `CHANGE_ME` secret key; **the app refuses to start** on it; admin `admin` |
+| Temporal        | 1.32.2, chart 1.8.0          | Official                 | n/a                                           | Separate `temporalio/helm-charts`                         | Bring-your-own Secret only                                      |
+| Argo Workflows  | v4.1.6, chart 2.0.18         | Official                 | n/a                                           | `argoproj/argo-helm`                                      | Bring-your-own Secret only                                      |
+
+What the table says:
+
+- **No tool scaffolds deployment files** into the user's project. Every one with
+  a server publishes an image and a chart in a Helm repo.
+- **Secrets split three ways**: generate + `lookup` (Grafana, Bitnami), bring
+  your own only (Temporal, Argo, Prefect), or weak defaults (Airflow, Dagster,
+  Mage). This spec combines the first two and rejects the third.
+- **Startup guard**: Superset is the precedent. It refuses to start on its
+  shipped `CHANGE_ME` key, as aaiclick does on `change-me-...`.
+- **Versioning**: Dagster is lockstep; Airflow and Superset version the chart
+  independently.
+
 # Trade-offs and decisions
 
 - **OCI on GHCR over a GitHub Pages Helm repo**: Prefect, Mage and Dagster use
   Pages, but that needs a branch and an `index.yaml` job. OCI needs one
   `helm push`. Cost: `helm search repo` doesn't list OCI charts, and Artifact
   Hub needs a separate registration.
-- **Lockstep chart version over an independent one (Airflow's model)**: one
-  number to track. Cost: a chart-only fix needs an aaiclick release.
-- **Chart-side generation over `required`**: a first `helm install` works with
-  no flags, as it does with `init` today. Cost: credentials rotate under
-  `helm template`, so GitOps users must set `existingSecret`.
+- **Lockstep chart version over an independent one**: one number to track,
+  as Dagster does; Airflow and Superset version the chart independently.
+  Cost: a chart-only fix needs an aaiclick release.
+- **`existingSecret` first, generation as fallback, over `required` or weak
+  defaults**: production keeps credentials out of Helm entirely. A first
+  evaluation `helm install` still works with no flags, as it does with `init`
+  today. `required` would fail every first install; weak defaults (`admin`,
+  `postgres`) leave public credentials in use. Cost: generated credentials
+  rotate under `helm template` / Argo CD, so GitOps users must set
+  `existingSecret`.
 - **Compose `.env` filled by hand over keeping `compose init`**: matches
   Airflow and Dagster, and drops a CLI command plus its package data. Cost:
   one copy-and-edit step before the first `up`; the startup guard catches it
