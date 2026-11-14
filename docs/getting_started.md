@@ -10,9 +10,8 @@ ClickHouse / PostgreSQL drivers, and the REST + MCP server. The code ships in
 | Install                         | Adds                                                  | For                            |
 |---------------------------------|-------------------------------------------------------|--------------------------------|
 | `aaiclick`                      | `aaiclick-client[all]`                                | Default: everything            |
-| `aaiclick-client`               | Remote drivers: clickhouse-connect, aiohttp, asyncpg  | Task code in a container image |
+| `aaiclick-client`               | Remote drivers: clickhouse-connect, asyncpg, psycopg2 | Distributed mode, task images  |
 | `aaiclick-client[local]`        | chdb, aiosqlite                                       | Embedded backend               |
-| `aaiclick-client[distributed]`  | psycopg2 (migrations)                                 | Workers on ClickHouse + PG     |
 | `aaiclick-client[server]`       | FastAPI, uvicorn, fastmcp                             | REST + MCP server, UI          |
 
 === "Local (chdb + SQLite)"

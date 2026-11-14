@@ -254,7 +254,7 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          sync-args: "--extra distributed --extra test ${{ matrix.extras }}"
+          sync-args: "--extra test ${{ matrix.extras }}"
 
       - name: Download test durations
         if: matrix.split
@@ -344,7 +344,7 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          sync-args: "--extra distributed --extra test"
+          sync-args: "--extra test"
 
       # ClickHouse booted while uv synced.
       - name: Wait for ClickHouse
@@ -466,12 +466,10 @@ jobs:
             module: aaiclick.data.examples.run_all
             summary-title: Data Examples Output
             needs-postgres: false
-            extras: distributed
           - group: Orch examples
             module: aaiclick.orchestration.examples.run_all
             summary-title: Orchestration Examples Output
             needs-postgres: true
-            extras: distributed
 
     services:
       clickhouse: *clickhouse-service
@@ -485,7 +483,8 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          sync-args: "--extra ${{ matrix.extras }}"
+          # Base install only: the examples run against remote servers, no extras.
+          sync-args: "--no-dev"
 
       - name: Run database migrations
         if: matrix.needs-postgres

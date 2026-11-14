@@ -27,6 +27,7 @@ dependencies = [
     { name = "clickhouse-connect" },
     { name = "croniter" },
     { name = "greenlet" },
+    { name = "psycopg2-binary" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
@@ -42,7 +43,6 @@ all = [
     { name = "chdb" },
     { name = "fastapi" },
     { name = "fastmcp" },
-    { name = "psycopg2-binary" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 dev = [
@@ -56,16 +56,12 @@ dev = [
     { name = "moto", extra = ["s3"] },
     { name = "playwright" },
     { name = "pre-commit" },
-    { name = "psycopg2-binary" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-split" },
     { name = "pytest-xdist" },
     { name = "uvicorn", extra = ["standard"] },
-]
-distributed = [
-    { name = "psycopg2-binary" },
 ]
 docs = [
     { name = "mkdocs" },
@@ -97,8 +93,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "aaiclick-client", extras = ["all", "test"], marker = "extra == 'dev'" },
-    { name = "aaiclick-client", extras = ["distributed", "local", "server"], marker = "extra == 'all'" },
     { name = "aaiclick-client", extras = ["local"], marker = "extra == 'test'" },
+    { name = "aaiclick-client", extras = ["local", "server"], marker = "extra == 'all'" },
     { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "aiosqlite", marker = "extra == 'local'", specifier = ">=0.22.0" },
     { name = "alembic", specifier = ">=1.18.0" },
@@ -118,7 +114,7 @@ requires-dist = [
     { name = "moto", extras = ["s3"], marker = "extra == 'test'", specifier = ">=5.1" },
     { name = "playwright", marker = "extra == 'dev'", specifier = ">=1.56.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0" },
-    { name = "psycopg2-binary", marker = "extra == 'distributed'", specifier = ">=2.9.11" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pyarrow", specifier = ">=23.0.0" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.0" },
@@ -133,7 +129,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.38" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.30.0" },
 ]
-provides-extras = ["local", "distributed", "server", "all", "test", "docs", "dev"]
+provides-extras = ["local", "server", "all", "test", "docs", "dev"]
 
 [[package]]
 name = "aiofile"

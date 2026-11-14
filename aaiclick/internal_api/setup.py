@@ -285,7 +285,7 @@ def setup(*, force: bool = False) -> SetupResult:
             SetupStep(
                 name="clickhouse",
                 status="skipped",
-                detail="remote server — requires pip install aaiclick-client[distributed]",
+                detail="remote server",
             )
         )
 
@@ -302,7 +302,7 @@ def setup(*, force: bool = False) -> SetupResult:
             SetupStep(
                 name="postgres",
                 status="skipped",
-                detail="requires pip install aaiclick-client[distributed]; run migrations separately",
+                detail="run migrations separately: python -m aaiclick migrate upgrade head",
             )
         )
 
