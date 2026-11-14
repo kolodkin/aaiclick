@@ -4,7 +4,9 @@ aaiclick's internal ClickHouse tables.
 
 Migration scripts live in ``aaiclick/oplog/migrations/NNNN_description.sql``
 and are applied in version order; applied versions are recorded in the
-``schema_migrations`` ClickHouse table.
+``schema_migrations`` ClickHouse table. All three live in the internal
+database (:func:`aaiclick.backend.internal_db`); scripts name it as
+``{internal_db}``, which the runner substitutes.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
+from aaiclick.backend import internal_db, internal_table
 from aaiclick.data.object_context import ChClient
 from aaiclick.data.object_context.ch_client import create_ch_client
 
@@ -63,7 +66,7 @@ def split_statements(sql: str) -> list[str]:
 
 
 SCHEMA_MIGRATIONS_DDL = """
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS {table} (
     version    String,
     applied_at DateTime64(3, 'UTC')
 ) ENGINE = MergeTree ORDER BY version
@@ -72,8 +75,9 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 async def ch_applied_versions(ch_client: ChClient) -> list[str]:
     """Ensure ``schema_migrations`` exists and return applied versions, sorted."""
-    await ch_client.command(SCHEMA_MIGRATIONS_DDL)
-    result = await ch_client.query("SELECT version FROM schema_migrations ORDER BY version")
+    await ch_client.command(f"CREATE DATABASE IF NOT EXISTS `{internal_db()}`")
+    await ch_client.command(SCHEMA_MIGRATIONS_DDL.format(table=internal_table("schema_migrations")))
+    result = await ch_client.query(f"SELECT version FROM {internal_table('schema_migrations')} ORDER BY version")
     return [row[0] for row in result.result_rows]
 
 
@@ -126,7 +130,9 @@ async def ch_upgrade(
 
     for version in pending:
         migration = files_by_version[version]
-        statements = split_statements(migration.path.read_text())
+        # str.replace, not format: SQL may hold literal braces.
+        sql = migration.path.read_text().replace("{internal_db}", f"`{internal_db()}`")
+        statements = split_statements(sql)
         if dry_run:
             logger.info("[dry-run] %s would execute %d statement(s):", migration.path.name, len(statements))
             for stmt in statements:
@@ -136,7 +142,7 @@ async def ch_upgrade(
         for stmt in statements:
             await ch_client.command(stmt)
         await ch_client.command(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES ({version:String}, now64(3))",
+            f"INSERT INTO {internal_table('schema_migrations')} (version, applied_at) VALUES ({{version:String}}, now64(3))",
             parameters={"version": version},
         )
     return pending
