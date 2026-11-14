@@ -3,16 +3,10 @@ Getting Started
 
 # Installation
 
-`pip install aaiclick` installs everything: embedded chdb + SQLite, the remote
-ClickHouse / PostgreSQL drivers, and the REST + MCP server. The code ships in
-`aaiclick-client`, which on its own carries only the remote drivers:
-
-| Install                         | Adds                                                  | For                            |
-|---------------------------------|-------------------------------------------------------|--------------------------------|
-| `aaiclick`                      | `aaiclick-client[all]`                                | Default: everything            |
-| `aaiclick-client`               | Remote drivers: clickhouse-connect, asyncpg, psycopg2 | Distributed mode, task images  |
-| `aaiclick-client[local]`        | chdb, aiosqlite                                       | Embedded backend               |
-| `aaiclick-client[server]`       | FastAPI, uvicorn, fastmcp                             | REST + MCP server, UI          |
+| Install           | For                                                                 |
+|-------------------|---------------------------------------------------------------------|
+| `aaiclick`        | Everything: local mode (chdb + SQLite), REST + MCP server, UI       |
+| `aaiclick-client` | Slim distributed install, no chdb: task images, workers, migrations |
 
 === "Local (chdb + SQLite)"
 

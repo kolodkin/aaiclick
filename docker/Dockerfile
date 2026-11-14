@@ -9,7 +9,7 @@ ARG PIP_INDEX_URL=https://pypi.org/simple/
 LABEL org.opencontainers.image.source="https://github.com/kolodkin/aaiclick"
 LABEL org.opencontainers.image.description="aaiclick API server + runner base"
 
-# Same set as the `aaiclick` package; core directly so source-built e2e images need no meta wheel.
+# Same set as the `aaiclick` package, installed via aaiclick-client so source-built e2e images need no meta wheel.
 RUN pip install --no-cache-dir \
     --index-url "${PIP_INDEX_URL}" \
     "aaiclick-client[all]==${AAICLICK_VERSION}"

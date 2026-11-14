@@ -122,8 +122,8 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
             from aaiclick.server.app import app  # noqa: PLC0415
     except ImportError as exc:
         raise ImportError(
-            "`local start` requires the [server] extra. Install it with "
-            "`pip install aaiclick` (or `pip install 'aaiclick-client[server]'`)."
+            "`local start` needs the REST + MCP server, which aaiclick-client lacks. Install it with "
+            "`pip install aaiclick`."
         ) from exc
 
     # Reload watches the filesystem and re-imports — uvicorn needs the app as an

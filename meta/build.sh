@@ -9,8 +9,9 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 cp "$here/pyproject.toml" "$work/"
-cp "$here/../README.md" "$work/"
-sed -i "s/0\.0\.0/${version}/g" "$work/pyproject.toml"
+cp -L "$here/README.md" "$work/"
+sed -i -e "s/^version = \"0\.0\.0\"/version = \"${version}\"/" \
+  -e "s/\"aaiclick-client\[all\]\"/\"aaiclick-client[all]==${version}\"/" "$work/pyproject.toml"
 uv build "$work" --out-dir "$out"
 
 wheel="$(ls "$out"/aaiclick-"${version}"-*.whl)"

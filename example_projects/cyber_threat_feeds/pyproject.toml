@@ -5,9 +5,12 @@ description = "Multi-source cybersecurity pipeline with CISA KEV, Shodan CVEDB, 
 requires-python = ">=3.11"
 
 dependencies = [
-    "aaiclick-client[local]",
+    "aaiclick",
+    # Listed so its source below applies: uv honours sources for direct dependencies only.
+    "aaiclick-client",
 ]
 
 # The monorepo checkout, not a PyPI release — examples always exercise this tree.
 [tool.uv.sources]
+aaiclick = { path = "../../meta" }
 aaiclick-client = { path = "../..", editable = true }

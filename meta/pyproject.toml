@@ -1,5 +1,5 @@
 # The `aaiclick` distribution: no code, installs aaiclick-client with every extra.
-# shortcut: version and pin are 0.0.0 placeholders that meta/build.sh rewrites at release.
+# shortcut: the 0.0.0 version and the missing ==version pin are filled in by meta/build.sh at release.
 [build-system]
 requires = ["setuptools>=82.0"]
 build-backend = "setuptools.build_meta"
@@ -11,7 +11,7 @@ description = "Data orchestration framework on ClickHouse: plain-Python pipeline
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-dependencies = ["aaiclick-client[all]==0.0.0"]
+dependencies = ["aaiclick-client[all]"]
 
 [project.urls]
 Homepage = "https://github.com/kolodkin/aaiclick"

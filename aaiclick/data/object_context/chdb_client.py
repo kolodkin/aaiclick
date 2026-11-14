@@ -24,9 +24,7 @@ import pyarrow as pa
 try:
     from chdb.session import Session
 except ImportError as e:
-    raise ImportError(
-        "The embedded chdb backend requires the aaiclick-client[local] extra. Install with: pip install aaiclick"
-    ) from e
+    raise ImportError("The embedded chdb backend is not in aaiclick-client. Install with: pip install aaiclick") from e
 
 from aaiclick.backend import get_chdb_data_path
 from aaiclick.data.sql_utils import quote_identifier, quote_sql_literal
