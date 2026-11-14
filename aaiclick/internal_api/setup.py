@@ -25,6 +25,7 @@ from sqlalchemy.engine import Connection, make_url
 import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.metadata
 from aaiclick.backend import (
     get_ch_url,
+    get_chdb_data_path,
     get_root,
     get_sql_url,
     is_chdb,
@@ -32,7 +33,6 @@ from aaiclick.backend import (
     is_sqlite,
     redact_url,
 )
-from aaiclick.data.object_context.chdb_client import get_chdb_data_path, get_shared_session
 from aaiclick.oplog.migrate import ch_status_standalone, ch_upgrade_standalone
 from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -273,6 +273,9 @@ def setup(*, force: bool = False) -> SetupResult:
     if is_chdb():
         chdb_path = get_chdb_data_path()
         Path(chdb_path).mkdir(parents=True, exist_ok=True)
+        # Load only the backend in use: chdb ships in the aaiclick[local] extra.
+        from aaiclick.data.object_context.chdb_client import get_shared_session  # noqa: PLC0415
+
         # chdb's Session is a per-process singleton; open it here so later
         # callers reuse the handle.
         get_shared_session(chdb_path)

@@ -19,8 +19,7 @@ async def create_clickhouse_client():
         from clickhouse_connect import get_async_client  # noqa: PLC0415
     except ImportError as e:
         raise ImportError(
-            "Remote ClickHouse requires the aaiclick[distributed] extra. "
-            "Install with: pip install aaiclick[distributed]"
+            "Remote ClickHouse requires the aaiclick[client] extra. Install with: pip install aaiclick[client]"
         ) from e
 
     return await get_async_client(**parse_ch_url())

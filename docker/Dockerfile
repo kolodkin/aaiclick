@@ -9,7 +9,7 @@ ARG PIP_INDEX_URL=https://pypi.org/simple/
 LABEL org.opencontainers.image.source="https://github.com/kolodkin/aaiclick"
 LABEL org.opencontainers.image.description="aaiclick API server + runner base"
 
-# Install the released wheel with all extras (distributed + ai + server).
+# Install the released wheel with all extras (local + distributed + server).
 RUN pip install --no-cache-dir \
     --index-url "${PIP_INDEX_URL}" \
     "aaiclick[all]==${AAICLICK_VERSION}"

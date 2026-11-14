@@ -46,7 +46,7 @@ Start the server, then register `http://127.0.0.1:5255/mcp` with the agent.
 Local mode needs no credential:
 
 ```bash
-pip install "aaiclick[server]"
+pip install "aaiclick[local,server]"
 python -m aaiclick local start
 ```
 

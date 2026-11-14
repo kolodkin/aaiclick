@@ -3,12 +3,20 @@ Getting Started
 
 # Installation
 
+| Extra         | Adds                                         | For                                  |
+|---------------|----------------------------------------------|--------------------------------------|
+| `local`       | chdb, aiosqlite                              | Embedded backend, no infrastructure  |
+| `client`      | clickhouse-connect, aiohttp, asyncpg         | Task code in a container image       |
+| `distributed` | `client` + psycopg2 (migrations)             | Workers and setup on ClickHouse + PG |
+| `server`      | FastAPI, uvicorn, fastmcp                    | REST + MCP server, UI                |
+| `all`         | `local`, `distributed`, `server`             | Everything                           |
+
 === "Local (chdb + SQLite)"
 
     No external servers needed — embedded ClickHouse and SQLite included:
 
     ```bash
-    pip install aaiclick
+    pip install "aaiclick[local]"
     python -m aaiclick setup
     ```
 
@@ -36,7 +44,7 @@ Getting Started
     Let your coding agent trace lineage over the MCP server:
 
     ```bash
-    pip install "aaiclick[server]"
+    pip install "aaiclick[local,server]"
     # or everything at once:
     pip install "aaiclick[all]"
     python -m aaiclick local start
@@ -53,7 +61,7 @@ Run a two-task job on a local server and watch it in the UI.
 
 ```bash
 mkdir my_project && cd my_project
-pip install "aaiclick[server]"
+pip install "aaiclick[local,server]"
 python -m aaiclick setup
 ```
 

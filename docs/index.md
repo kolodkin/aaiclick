@@ -53,7 +53,7 @@ if __name__ == "__main__":
 # Quick Start
 
 ```bash
-pip install aaiclick
+pip install "aaiclick[local]"
 python -m aaiclick setup
 ```
 

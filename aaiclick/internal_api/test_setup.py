@@ -9,6 +9,7 @@ from sqlalchemy import create_engine as sa_create_engine
 from sqlalchemy import text as sa_text
 from sqlmodel import SQLModel
 
+from aaiclick.data.object_context import chdb_client
 from aaiclick.oplog.migrate import ChVersionState
 from aaiclick.view_models import (
     MIGRATE_CURRENT,
@@ -33,7 +34,7 @@ def local_db(tmp_path, monkeypatch):
     monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
     monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
     monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
-    monkeypatch.setattr(setup, "get_shared_session", lambda _path: MagicMock())
+    monkeypatch.setattr(chdb_client, "get_shared_session", lambda _path: MagicMock())
     return db
 
 

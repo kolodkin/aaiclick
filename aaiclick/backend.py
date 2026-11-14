@@ -56,6 +56,17 @@ def get_ch_url() -> str:
     return f"chdb://{chdb_path}"
 
 
+def get_chdb_data_path() -> str:
+    """Return the chdb data directory path from AAICLICK_CH_URL.
+
+    Parses the path component of the chdb://path URL.
+    """
+    url = get_ch_url()
+    if url.startswith("chdb://"):
+        return url.removeprefix("chdb://")
+    return str(Path.home() / ".aaiclick" / "chdb_data")
+
+
 def is_sqlite() -> bool:
     """True when orchestration uses SQLite."""
     return get_sql_url().startswith("sqlite")

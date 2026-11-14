@@ -20,10 +20,8 @@ resolution-markers = [
 name = "aaiclick"
 source = { editable = "." }
 dependencies = [
-    { name = "aiosqlite" },
     { name = "alembic" },
     { name = "bcrypt" },
-    { name = "chdb" },
     { name = "croniter" },
     { name = "greenlet" },
     { name = "pyarrow" },
@@ -38,16 +36,25 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "aiohttp" },
+    { name = "aiosqlite" },
     { name = "asyncpg" },
+    { name = "chdb" },
     { name = "clickhouse-connect" },
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "psycopg2-binary" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-dev = [
+client = [
     { name = "aiohttp" },
     { name = "asyncpg" },
+    { name = "clickhouse-connect" },
+]
+dev = [
+    { name = "aiohttp" },
+    { name = "aiosqlite" },
+    { name = "asyncpg" },
+    { name = "chdb" },
     { name = "clickhouse-connect" },
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -75,12 +82,18 @@ docs = [
     { name = "mkdocs" },
     { name = "mkdocs-material" },
 ]
+local = [
+    { name = "aiosqlite" },
+    { name = "chdb" },
+]
 server = [
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 test = [
+    { name = "aiosqlite" },
+    { name = "chdb" },
     { name = "flask" },
     { name = "flask-cors" },
     { name = "httpx" },
@@ -95,14 +108,16 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "aaiclick", extras = ["all", "test"], marker = "extra == 'dev'" },
-    { name = "aaiclick", extras = ["distributed", "server"], marker = "extra == 'all'" },
-    { name = "aiohttp", marker = "extra == 'distributed'", specifier = ">=3.9.0" },
-    { name = "aiosqlite", specifier = ">=0.22.0" },
+    { name = "aaiclick", extras = ["client"], marker = "extra == 'distributed'" },
+    { name = "aaiclick", extras = ["distributed", "local", "server"], marker = "extra == 'all'" },
+    { name = "aaiclick", extras = ["local"], marker = "extra == 'test'" },
+    { name = "aiohttp", marker = "extra == 'client'", specifier = ">=3.9.0" },
+    { name = "aiosqlite", marker = "extra == 'local'", specifier = ">=0.22.0" },
     { name = "alembic", specifier = ">=1.18.0" },
-    { name = "asyncpg", marker = "extra == 'distributed'", specifier = ">=0.31.0" },
+    { name = "asyncpg", marker = "extra == 'client'", specifier = ">=0.31.0" },
     { name = "bcrypt", specifier = ">=4.2.0" },
-    { name = "chdb", specifier = ">=4.4.0" },
-    { name = "clickhouse-connect", marker = "extra == 'distributed'", specifier = ">=1.0.1" },
+    { name = "chdb", marker = "extra == 'local'", specifier = ">=4.4.0" },
+    { name = "clickhouse-connect", marker = "extra == 'client'", specifier = ">=1.0.1" },
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
     { name = "fastmcp", marker = "extra == 'server'", specifier = ">=4.1.8" },
@@ -130,7 +145,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.38" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.30.0" },
 ]
-provides-extras = ["distributed", "server", "all", "test", "docs", "dev"]
+provides-extras = ["local", "client", "distributed", "server", "all", "test", "docs", "dev"]
 
 [[package]]
 name = "aiofile"
