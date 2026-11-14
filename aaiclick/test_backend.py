@@ -52,3 +52,15 @@ def test_internal_db(monkeypatch, url, expected):
     monkeypatch.setenv("AAICLICK_CH_URL", url)
     assert internal_db() == expected
     assert internal_table("task_logs") == f"`{expected}`.`task_logs`"
+
+
+def test_internal_table_escapes_backticks(monkeypatch):
+    monkeypatch.setenv("AAICLICK_CH_URL", "clickhouse://h:8123/we`ird")
+    assert internal_table("task_logs") == "`we``ird_internal`.`task_logs`"
+
+
+def test_internal_db_rejects_internal_suffix(monkeypatch):
+    """A data database named ``X_internal`` would be deployment ``X``'s internal one."""
+    monkeypatch.setenv("AAICLICK_CH_URL", "clickhouse://h:8123/warehouse_internal")
+    with pytest.raises(ValueError, match="_internal"):
+        internal_db()

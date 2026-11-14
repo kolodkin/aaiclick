@@ -14,7 +14,8 @@ debugging.
 The `AAICLICK_CH_URL` database holds only user objects. The internal tables
 (`operation_log`, `task_logs`, `schema_migrations`) live beside it in
 `<data_db>_internal` (`default_internal` under chdb), so grants, retention
-and backups can treat them apart. Every internal query names it through
+and backups can treat them apart. A data database ending in `_internal` is
+refused, so two deployments sharing a server can't collide. Every internal query names it through
 `internal_table()` in `aaiclick/backend.py`; migration scripts write
 `{internal_db}`, which the runner substitutes.
 
@@ -48,9 +49,6 @@ background cleanup — not append-only audit.
 `init_oplog_tables` brings the CH schema up to date through the migration
 runner (`aaiclick/oplog/migrate.py`): local mode applies pending migrations
 directly; distributed mode raises, asking for `aaiclick migrate upgrade`.
-Task startup also copies any pre-existing CH `table_registry` rows into SQL
-once and drops the CH table (`aaiclick/orchestration/oplog_backfill.py`;
-no-op on fresh installs).
 
 # Recording
 

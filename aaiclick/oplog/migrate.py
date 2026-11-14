@@ -20,6 +20,7 @@ from typing import NamedTuple
 from aaiclick.backend import internal_db, internal_table
 from aaiclick.data.object_context import ChClient
 from aaiclick.data.object_context.ch_client import create_ch_client
+from aaiclick.data.sql_utils import quote_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ CREATE TABLE IF NOT EXISTS {table} (
 
 async def ch_applied_versions(ch_client: ChClient) -> list[str]:
     """Ensure ``schema_migrations`` exists and return applied versions, sorted."""
-    await ch_client.command(f"CREATE DATABASE IF NOT EXISTS `{internal_db()}`")
+    await ch_client.command(f"CREATE DATABASE IF NOT EXISTS {quote_identifier(internal_db())}")
     await ch_client.command(SCHEMA_MIGRATIONS_DDL.format(table=internal_table("schema_migrations")))
     result = await ch_client.query(f"SELECT version FROM {internal_table('schema_migrations')} ORDER BY version")
     return [row[0] for row in result.result_rows]
@@ -131,7 +132,7 @@ async def ch_upgrade(
     for version in pending:
         migration = files_by_version[version]
         # str.replace, not format: SQL may hold literal braces.
-        sql = migration.path.read_text().replace("{internal_db}", f"`{internal_db()}`")
+        sql = migration.path.read_text().replace("{internal_db}", quote_identifier(internal_db()))
         statements = split_statements(sql)
         if dry_run:
             logger.info("[dry-run] %s would execute %d statement(s):", migration.path.name, len(statements))

@@ -34,7 +34,6 @@ from .execution.execution_worker_context import get_current_task_info
 from .image_injection import inject_build_tasks, stamp_inherited_image, validate_plain_data_plane_tasks
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Dependency, Group, Job, Task, TasksType
-from .oplog_backfill import migrate_table_registry_to_sql
 from .runner_config import ENTRY_MODULE, EntryType
 from .sql_context import _sql_engine_var, create_sql_engine, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
@@ -482,7 +481,6 @@ async def task_scope(
     """
     # Before lifecycle.start(): a setup failure must not orphan its loop.
     await init_oplog_tables(get_ch_client())
-    await migrate_table_registry_to_sql(get_ch_client())
 
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
