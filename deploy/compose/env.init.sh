@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 [ -e .env ] && { echo ".env already exists; delete it to regenerate" >&2; exit 1; }
 umask 077
 trap 'rm -f .env.tmp' EXIT
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
   case $line in
     [A-Z]*=change-me-*)
       # A plain assignment, so set -e aborts if openssl fails instead of writing an empty secret.

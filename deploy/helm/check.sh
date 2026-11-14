@@ -25,7 +25,7 @@ has "$out" "name: mine" existingSecret
 out=$(render --set env.sqlUrl=postgresql+asyncpg://u:p@db/x --set env.chUrl=clickhouse://u:p@ch/x)
 lacks "$out" "pg-password:" externalDb
 lacks "$out" "ch-password:" externalDb
-has "$out" "sql-url: $(printf %s 'postgresql+asyncpg://u:p@db/x' | base64 -w0)" externalDb
+has "$out" "sql-url: $(printf %s 'postgresql+asyncpg://u:p@db/x' | base64 | tr -d '\n')" externalDb
 
 out=$(render --set devDependencies.enabled=true --set images.server.tag=rc1)
 has "$out" "image: \"ghcr.io/kolodkin/aaiclick:rc1\"" imageTag
