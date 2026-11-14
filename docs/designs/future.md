@@ -211,9 +211,8 @@ Shipped design: `viewer.md`.
   `where` box and CSV download have no UI (`data query --where … --csv`
   covers the CLI).
 - **Dashboard widgets** (`<qv-select-view>`, `<qv-param>`): the kernel ships
-  them, but they need QueryView's second Vite build (`widgets.js`), its
-  stylesheet, and a host answering `widget-query` / `widget-describe` /
-  `widget-csv` by panel name. A panel maps onto `query_object` with the
+  them, but they need QueryView's second Vite build (`widgets.js`) and a host
+  answering `widget-query` / `widget-describe` / `widget-csv` by panel name. A panel maps onto `query_object` with the
   widget's page and order-by. Until then a tag stays unrendered.
 - **Dashboard params outside the browser**: `run_dashboard` (MCP, CLI) runs
   panels as stored, so a `where` holding a `{param}` placeholder fails there.

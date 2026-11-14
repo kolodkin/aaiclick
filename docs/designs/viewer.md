@@ -120,10 +120,10 @@ A dashboard's `params` are QueryView's selector specs (`name`, `kind`,
 `options`, `default: none`), interpreted by the kernel in the browser. A
 `{name}` placeholder in a panel's `where` takes the chosen value: a quoted
 literal (backslashes escaped, as ClickHouse reads them), or a backtick-quoted
-identifier for `kind: identifier`. The SPA
-substitutes, then sends the panels to `run_queries`, so the result passes the
-same `where` guard as any query; a panel whose selector is unchosen is held
-back. `save_dashboard` rejects `options_sql` (`future.md`).
+identifier for `kind: identifier`. The SPA substitutes, then sends the panels
+to `run_queries`, so the result passes the same `where` guard as any query; a
+panel whose selector is unchosen is held back. `save_dashboard` rejects
+`options_sql` (`future.md`).
 
 ## Storage
 
