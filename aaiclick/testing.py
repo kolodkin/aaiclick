@@ -39,9 +39,9 @@ from sqlmodel import col, select
 
 from aaiclick.__main__ import main
 from aaiclick.backend import (
-    INTERNAL_DB_SUFFIX,
     get_root,
     internal_db,
+    internal_db_for,
     internal_table,
     is_chdb,
     is_local,
@@ -157,15 +157,10 @@ async def reset_sql_tables() -> None:
         await session.commit()
 
 
-async def ch_table_ddl(ch: ChClient) -> dict[str, str]:
-    """``create_table_query`` of each table in the active CH database, by name."""
-    result = await ch.query("SELECT name, create_table_query FROM system.tables WHERE database = currentDatabase()")
-    return {row[0]: row[1] for row in result.result_rows}
-
-
 async def list_ch_tables(ch: ChClient) -> set[str]:
-    """Names of the tables in the active CH database."""
-    return set(await ch_table_ddl(ch))
+    """Names of the tables in the active CH (data) database."""
+    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
+    return {row[0] for row in result.result_rows}
 
 
 async def create_ch_tables(ch: ChClient, *names: str) -> None:
@@ -201,9 +196,7 @@ async def _matches_migrated_schema(ch: ChClient, tables: dict[str, str]) -> bool
         return False
     if any(tables.get(name) != ddl for name, ddl in _migrated_schema.tables.items()):
         return False
-    # The DDL matched, so schema_migrations exists — skip ch_applied_versions' CREATE.
-    result = await ch.query(f"SELECT version FROM {internal_table('schema_migrations')} ORDER BY version")
-    return [row[0] for row in result.result_rows] == _migrated_schema.versions
+    return await ch_applied_versions(ch) == _migrated_schema.versions
 
 
 async def drop_all_ch_tables() -> None:
@@ -380,7 +373,7 @@ def worker_ch_database() -> Iterator[None]:
 
     admin = _admin()
     admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
-    admin.command(f"DROP DATABASE IF EXISTS `{db_name}{INTERNAL_DB_SUFFIX}`")
+    admin.command(f"DROP DATABASE IF EXISTS {quote_identifier(internal_db_for(db_name))}")
     admin.command(f"CREATE DATABASE `{db_name}`")
     admin.close()
 
@@ -392,7 +385,7 @@ def worker_ch_database() -> Iterator[None]:
         finally:
             admin = _admin()
             admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
-            admin.command(f"DROP DATABASE IF EXISTS `{db_name}{INTERNAL_DB_SUFFIX}`")
+            admin.command(f"DROP DATABASE IF EXISTS {quote_identifier(internal_db_for(db_name))}")
             admin.close()
 
 

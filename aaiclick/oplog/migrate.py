@@ -66,8 +66,16 @@ def split_statements(sql: str) -> list[str]:
     return [stmt.strip().rstrip(";").strip() for stmt in statements if stmt.strip()]
 
 
+def _render(sql: str) -> str:
+    """Substitute the quoted internal database for ``{internal_db}``.
+
+    ``str.replace``, not ``format``: SQL may hold literal braces.
+    """
+    return sql.replace("{internal_db}", quote_identifier(internal_db()))
+
+
 SCHEMA_MIGRATIONS_DDL = """
-CREATE TABLE IF NOT EXISTS {table} (
+CREATE TABLE IF NOT EXISTS {internal_db}.schema_migrations (
     version    String,
     applied_at DateTime64(3, 'UTC')
 ) ENGINE = MergeTree ORDER BY version
@@ -75,10 +83,15 @@ CREATE TABLE IF NOT EXISTS {table} (
 
 
 async def ch_applied_versions(ch_client: ChClient) -> list[str]:
-    """Ensure ``schema_migrations`` exists and return applied versions, sorted."""
-    await ch_client.command(f"CREATE DATABASE IF NOT EXISTS {quote_identifier(internal_db())}")
-    await ch_client.command(SCHEMA_MIGRATIONS_DDL.format(table=internal_table("schema_migrations")))
-    result = await ch_client.query(f"SELECT version FROM {internal_table('schema_migrations')} ORDER BY version")
+    """Applied versions, sorted; empty before ``ch_upgrade`` has created ``schema_migrations``.
+
+    Read-only, so distributed workers checking for pending migrations need
+    no DDL grant.
+    """
+    table = internal_table("schema_migrations")
+    if not (await ch_client.query(f"EXISTS TABLE {table}")).result_rows[0][0]:
+        return []
+    result = await ch_client.query(f"SELECT version FROM {table} ORDER BY version")
     return [row[0] for row in result.result_rows]
 
 
@@ -126,14 +139,15 @@ async def ch_upgrade(
     version unrecorded, and re-running the (idempotent) script after fixing
     it completes the migration.
     """
+    if not dry_run:
+        await ch_client.command(_render("CREATE DATABASE IF NOT EXISTS {internal_db}"))
+        await ch_client.command(_render(SCHEMA_MIGRATIONS_DDL))
     pending = await ch_pending(ch_client, migrations_dir)
     files_by_version = {f.version: f for f in list_migration_files(migrations_dir)}
 
     for version in pending:
         migration = files_by_version[version]
-        # str.replace, not format: SQL may hold literal braces.
-        sql = migration.path.read_text().replace("{internal_db}", quote_identifier(internal_db()))
-        statements = split_statements(sql)
+        statements = split_statements(_render(migration.path.read_text()))
         if dry_run:
             logger.info("[dry-run] %s would execute %d statement(s):", migration.path.name, len(statements))
             for stmt in statements:

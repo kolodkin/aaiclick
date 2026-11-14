@@ -121,7 +121,15 @@ def parse_ch_url() -> dict:
     }
 
 
-INTERNAL_DB_SUFFIX = "_internal"
+def internal_db_for(data_db: str) -> str:
+    """Internal database paired with ``data_db``: ``<data_db>_internal``.
+
+    A ``data_db`` already ending in ``_internal`` is refused: it would be
+    another deployment's internal database.
+    """
+    if data_db.endswith("_internal"):
+        raise ValueError(f"AAICLICK_CH_URL database {data_db!r} must not end in '_internal'")
+    return f"{data_db}_internal"
 
 
 def internal_db() -> str:
@@ -129,13 +137,9 @@ def internal_db() -> str:
 
     ``<data_db>_internal`` keeps ``operation_log`` / ``task_logs`` /
     ``schema_migrations`` out of the user-object database. chdb's data
-    database is always ``default``. A data database already ending in
-    ``_internal`` is refused: it would be another deployment's internal one.
+    database is always ``default``.
     """
-    data_db = "default" if is_chdb() else parse_ch_url()["database"]
-    if data_db.endswith(INTERNAL_DB_SUFFIX):
-        raise ValueError(f"AAICLICK_CH_URL database {data_db!r} must not end in {INTERNAL_DB_SUFFIX!r}")
-    return data_db + INTERNAL_DB_SUFFIX
+    return internal_db_for("default" if is_chdb() else parse_ch_url()["database"])
 
 
 def internal_table(name: str) -> str:
