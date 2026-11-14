@@ -12,7 +12,8 @@ objects**; internal tables live in a sibling database on the same server.
 
 - **Goal**: `task_logs`, `operation_log`, `schema_migrations` live in
   `<data_db>_internal`; the data database contains only object tables.
-- **Goal**: existing installs move over in place, with no data copy.
+- **Non-goal**: upgrading existing installs — no backward compatibility; an
+  old install is wiped and recreated.
 - **Non-goal**: a separate server or URL for logs (chdb allows one session per
   process, so it would break local mode).
 - **Non-goal**: per-database retention/TTL or grants — the split enables them;
@@ -48,20 +49,12 @@ Same client, same session — no second connection.
 - `aaiclick/oplog/migrate.py` — `schema_migrations` DDL, reads, inserts
 - `aaiclick/testing.py` — reset helpers must cover both databases
 
-**Migration** (existing and fresh installs follow one path):
-
-1. `ch_applied_versions` runs `CREATE DATABASE IF NOT EXISTS <internal>`. If
-   `<internal>.schema_migrations` is missing but `<data>.schema_migrations`
-   exists, it `RENAME`s it across first — the tracking table must move before
-   the runner reads it, so this lives in code, not a `.sql` file.
-2. New `0004_internal_database.sql` renames `operation_log` and `task_logs`
-   into the internal database. Migration files get a `{internal_db}`
-   placeholder the runner substitutes (they can't hardcode a derived name).
-3. `0001`–`0003` stay unchanged: on fresh installs they create tables in the
-   data DB, and `0004` moves them.
-
-`RENAME TABLE` across databases is a metadata move on Atomic databases;
-verified on chdb (`default` → `default_internal`, rows intact).
+**Schema**: no upgrade path. Squash `0001`–`0003` into one `0001_baseline.sql`
+that creates `operation_log` and `task_logs` in their final shape directly in
+the internal database. `ch_applied_versions` runs `CREATE DATABASE IF NOT
+EXISTS <internal>` before creating `<internal>.schema_migrations`. Migration
+files get a `{internal_db}` placeholder the runner substitutes (they can't
+hardcode a derived name).
 
 **Lineage sandbox**: unchanged — its scope is graph object tables in
 `currentDatabase()`, which never included internal tables.
@@ -69,7 +62,7 @@ verified on chdb (`default` → `default_internal`, rows intact).
 # Left to the builder
 
 - Exact helper name and whether qualified names are built via `quote_identifier`.
-- Test shape (follow `python-testing-style`): one migration test on a DB
-  seeded with the pre-0004 layout, plus the existing suites passing.
+- Test shape (follow `python-testing-style`): existing suites passing; adjust
+  `aaiclick/oplog/test_migrate.py` to the squashed baseline.
 - Docs: update `docs/designs/oplog.md`, `task_log_retirement.md`,
   `deployment.md` (grants for `<db>_internal`).
