@@ -1,8 +1,8 @@
 name: Compose Stack E2E (reusable)
 
-# Release gate for the scaffolded docker-compose stack: installs the wheel
-# artifact, scaffolds via `python -m aaiclick compose init` (dogfooding the
-# exact artifact users get), points the image tags at the -rc candidates,
+# Release gate for the reference docker-compose stack (deploy/compose):
+# installs the wheel artifact, generates .env with env.init.sh (the exact
+# first-run path users take), points the image tag at the -rc candidates,
 # brings the stack up, and runs test_e2e/compose/.
 
 on:
@@ -17,6 +17,9 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Overrides .env's AAICLICK_IMAGE_TAG for every compose command in the job.
+    env:
+      AAICLICK_IMAGE_TAG: ${{ inputs.image_tag }}
     permissions:
       contents: read
       packages: read
@@ -36,13 +39,10 @@ jobs:
       - name: Log in to GHCR
         uses: ./.github/actions/ghcr-login
 
-      - name: Scaffold compose stack
+      - name: Prepare compose stack
         run: |
-          mkdir -p "$RUNNER_TEMP/stack"
-          uv run --no-project python -m aaiclick compose init \
-            --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
-            --image-tag "${{ inputs.image_tag }}"
-          cat "$RUNNER_TEMP/stack/docker-compose.yaml"
+          cp -r deploy/compose "$RUNNER_TEMP/stack"
+          sh "$RUNNER_TEMP/stack/env.init.sh"
 
       - name: Start stack
         working-directory: ${{ runner.temp }}/stack

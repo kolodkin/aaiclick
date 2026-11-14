@@ -1,7 +1,7 @@
 """Fixtures for the compose-stack e2e suite.
 
-The suite assumes the scaffolded stack is ALREADY RUNNING — CI scaffolds
-via ``python -m aaiclick compose init`` and ``docker compose up -d`` before
+The suite assumes the reference stack is ALREADY RUNNING — CI copies
+``deploy/compose``, runs ``env.init.sh`` and ``docker compose up -d`` before
 invoking pytest (see ``_compose-e2e-reusable.yaml``). Tests drive the stack
 from outside: HTTP against the published server port, ``docker compose
 exec`` for CLI round-trips."""
@@ -17,7 +17,7 @@ import pytest
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "compose_e2e: end-to-end tests against the scaffolded docker-compose stack",
+        "compose_e2e: end-to-end tests against the reference docker-compose stack",
     )
 
 

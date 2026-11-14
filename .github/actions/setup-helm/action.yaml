@@ -1,0 +1,12 @@
+name: Setup Helm
+description: >-
+  Install the one pinned Helm every chart job uses (PR chart check, helm e2e
+  gate via setup-k3s, publish-chart), so they lint, install and package with
+  the same version.
+
+runs:
+  using: composite
+  steps:
+    - uses: azure/setup-helm@v4
+      with:
+        version: v3.16.2

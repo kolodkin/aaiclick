@@ -1,7 +1,7 @@
-"""End-to-end smoke of the scaffolded compose stack.
+"""End-to-end smoke of the reference compose stack.
 
 Covers the release-gate contract: the stack the user gets from
-``compose init`` comes up healthy, migrations applied, and a job
+``deploy/compose`` comes up healthy, migrations applied, and a job
 round-trips through the server container's CLI to the worker container."""
 
 from __future__ import annotations

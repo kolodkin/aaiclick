@@ -28,6 +28,21 @@ jobs:
       - name: Build docs (strict)
         run: uv run mkdocs build --strict
 
+  chart:
+    # Lint and render the published chart (deploy/helm/check.sh) so a broken
+    # template shows on the PR, not at release.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Helm
+        uses: ./.github/actions/setup-helm
+
+      - name: Check chart
+        run: bash deploy/helm/check.sh
+
   java-sdk:
     # aaiclick-task-api Maven suite — infra-free (per-test temp dirs on the
     # file data plane).

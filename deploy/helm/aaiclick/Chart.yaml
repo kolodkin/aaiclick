@@ -1,0 +1,9 @@
+apiVersion: v2
+name: aaiclick
+description: >-
+  aaiclick API server, kubernetes-runner execution worker, migrations, and
+  optional in-cluster ClickHouse/Postgres for evaluation.
+type: application
+version: 0.0.0
+# Both set by the release: helm package --version X.Y.Z --app-version vX.Y.Z
+appVersion: "0.0.0"

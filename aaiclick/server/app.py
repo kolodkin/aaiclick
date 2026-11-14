@@ -10,13 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.backend import is_local
-from aaiclick.deploy.placeholders import require_no_placeholder_credentials
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import OrchResources, current_orch_resources, orch_context
 from aaiclick.view_models import API_VERSION
 
 from .audit import AuditMiddleware
 from .auth import AllowedHostMiddleware, PrincipalAuthMiddleware, require_principal, warn_if_open
+from .credential_guard import require_no_placeholder_credentials
 from .deps import ORCH_STATE_KEY, SharedOrchMiddleware
 from .errors import register_exception_handlers
 from .events import live_events

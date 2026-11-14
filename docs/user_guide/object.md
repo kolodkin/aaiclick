@@ -517,7 +517,7 @@ the user's profile opts in. Mount this as
 </clickhouse>
 ```
 
-The compose and Helm scaffolds mount the same file with the profile commented
+The compose stack and Helm chart mount the same file with the profile commented
 out, next to commented `AWS_*` entries for the ClickHouse container: uncomment
 both once you have bucket credentials.
 

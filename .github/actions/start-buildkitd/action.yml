@@ -1,6 +1,6 @@
 name: Start buildkitd
 description: >-
-  Run a buildkitd for the e2e build tasks, as the deploy scaffolds run one
+  Run a buildkitd for the e2e build tasks, as the compose stack and helm chart run one
   beside the worker. Host networking lets it reach the loopback registry the
   worker and kubelet use (localhost:5000, plain HTTP) and the test pypi; the
   worker reaches it at tcp://127.0.0.1:1234. Rootful + privileged keeps CI
