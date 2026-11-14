@@ -6,12 +6,14 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 import yaml
 
 from .compose_scaffold import IMAGE_TAG_TOKEN
 from .k8s_scaffold import HelmChartExists, init_helm
+from .placeholders import PLACEHOLDER_MARKER, Scaffold
 
 EXPECTED_TEMPLATES = {
     "_helpers.tpl",
@@ -23,6 +25,32 @@ EXPECTED_TEMPLATES = {
     "clickhouse.yaml",
     "postgres.yaml",
 }
+
+needs_helm = pytest.mark.skipif(shutil.which("helm") is None, reason="needs the helm binary")
+
+
+def _render(chart: Path, *sets: str) -> list[dict]:
+    """``helm template`` the chart with in-chart databases; the rendered documents."""
+    args = [arg for item in ("devDependencies.enabled=true", *sets) for arg in ("--set", item)]
+    result = subprocess.run(["helm", "template", "x", str(chart), *args], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return [d for d in yaml.safe_load_all(result.stdout) if d]
+
+
+def _doc(docs: list[dict], kind: str, name: str) -> dict:
+    (doc,) = [d for d in docs if d["kind"] == kind and d["metadata"]["name"] == name]
+    return doc
+
+
+def _env(deployment: dict) -> dict[str, str | None]:
+    return {e["name"]: e.get("value") for e in deployment["spec"]["template"]["spec"]["containers"][0]["env"]}
+
+
+@pytest.fixture(scope="module")
+def default_render(tmp_path_factory) -> tuple[Scaffold, list[dict]]:
+    """One scaffold rendered with default values, shared by the read-only render tests."""
+    scaffold = init_helm(tmp_path_factory.mktemp("helm") / "chart", image_tag="v1.0.0")
+    return scaffold, _render(scaffold.path)
 
 
 def test_init_helm_writes_chart_tree(tmp_path):
@@ -87,82 +115,66 @@ def test_cli_k8s_init_writes_chart(tmp_path):
     assert (tmp_path / "chart" / "Chart.yaml").is_file()
 
 
-def test_init_helm_server_carries_auth_credentials(tmp_path):
+@needs_helm
+def test_helm_server_carries_generated_auth_credentials(default_render):
     """Distributed URLs enforce auth, so the server needs a signing secret and
     a seed admin or the release comes up healthy but cannot be logged into."""
-    target = tmp_path / "aaiclick-chart"
-    init_helm(target, image_tag="v1.0.0")
-
-    values = yaml.safe_load((target / "values.yaml").read_text())
-    assert values["auth"]["jwtSecret"]
-    assert values["auth"]["adminPassword"]
-
-    server = (target / "templates" / "server.yaml").read_text()
-    assert "AAICLICK_JWT_SECRET" in server
-    assert ".Values.auth.jwtSecret" in server
-    assert "AAICLICK_ADMIN_PASSWORD" in server
-    assert ".Values.auth.adminPassword" in server
+    scaffold, docs = default_render
+    env = _env(_doc(docs, "Deployment", "aaiclick-server"))
+    assert env["AAICLICK_JWT_SECRET"] and PLACEHOLDER_MARKER not in env["AAICLICK_JWT_SECRET"]
+    assert env["AAICLICK_ADMIN_PASSWORD"] == scaffold.admin_password
 
 
-def test_init_helm_worker_runs_the_kubernetes_runner(tmp_path):
-    """The chart's worker turns container tasks into Pods."""
-    target = tmp_path / "aaiclick-chart"
-    init_helm(target, image_tag="v1.0.0")
-    worker = (target / "templates" / "worker.yaml").read_text()
-    assert "- name: AAICLICK_RUNNER" in worker
-    assert 'value: "kubernetes"' in worker
+@needs_helm
+def test_helm_worker_builds_on_isolated_buildkitd(default_render):
+    """The worker turns container tasks into Pods and builds on the chart's
+    rootless buildkitd, which only the worker may reach."""
+    _, docs = default_render
+    worker = _doc(docs, "Deployment", "aaiclick-worker")
+    env = _env(worker)
+    assert env["AAICLICK_RUNNER"] == "kubernetes"
+
+    service = _doc(docs, "Service", "aaiclick-buildkitd")
+    port = service["spec"]["ports"][0]["port"]
+    assert env["AAICLICK_BUILDKIT_ADDR"] == f"tcp://{service['metadata']['name']}:{port}"
+
+    buildkitd = _doc(docs, "Deployment", "aaiclick-buildkitd")
+    assert buildkitd["spec"]["template"]["spec"]["containers"][0]["image"].endswith("-rootless")
+
+    (ingress,) = _doc(docs, "NetworkPolicy", "aaiclick-buildkitd")["spec"]["ingress"]
+    (peer,) = ingress["from"]
+    assert peer["podSelector"]["matchLabels"].items() <= worker["spec"]["template"]["metadata"]["labels"].items()
+    assert ingress["ports"] == [{"port": port}]
 
 
-def test_init_helm_builds_on_isolated_buildkitd(tmp_path):
-    """The worker builds on the chart's buildkitd, which only the worker may reach."""
-    target = tmp_path / "chart"
-    init_helm(target, image_tag="v1.0.0")
-    values = yaml.safe_load((target / "values.yaml").read_text())
-    assert values["buildkit"]["enabled"] is True
-    assert values["buildkit"]["image"].endswith("-rootless")
-    buildkitd = (target / "templates" / "buildkitd.yaml").read_text()
-    assert "kind: NetworkPolicy" in buildkitd and "app: aaiclick-worker" in buildkitd
-    assert "tcp://aaiclick-buildkitd:1234" in (target / "templates" / "worker.yaml").read_text()
-
-
-def test_init_helm_ships_the_s3_profile_switched_off(tmp_path):
+@needs_helm
+def test_helm_clickhouse_mounts_the_s3_profile_switched_off(default_render):
     """Same contract as the compose scaffold: the users.d file is mounted into
     ClickHouse as documentation, with the profile commented out."""
-    target = tmp_path / "aaiclick-chart"
-    init_helm(target, image_tag="v1.0.0")
-
-    values = yaml.safe_load((target / "values.yaml").read_text())
-    content = values["devDependencies"]["clickhouse"]["s3UsersXml"]
+    _, docs = default_render
+    content = _doc(docs, "ConfigMap", "aaiclick-clickhouse-users")["data"]["s3.xml"]
     assert "s3_allow_server_credentials_in_user_queries" in content
     assert list(ET.fromstring(content)) == []
 
-    clickhouse = (target / "templates" / "clickhouse.yaml").read_text()
-    assert "/etc/clickhouse-server/users.d/s3.xml" in clickhouse
-    assert ".Values.devDependencies.clickhouse.s3UsersXml" in clickhouse
+    pod = _doc(docs, "Deployment", "aaiclick-clickhouse")["spec"]["template"]["spec"]
+    (mount,) = pod["containers"][0]["volumeMounts"]
+    assert mount["mountPath"] == "/etc/clickhouse-server/users.d/s3.xml"
+    assert mount["subPath"] == "s3.xml"
+    assert {"name": mount["name"], "configMap": {"name": "aaiclick-clickhouse-users"}} in pod["volumes"]
 
 
-@pytest.mark.skipif(shutil.which("helm") is None, reason="needs the helm binary")
+@needs_helm
 def test_helm_worker_mounts_the_github_app_key_when_enabled(tmp_path):
     """The non-root worker gets both settings and a key it can read."""
     target = tmp_path / "aaiclick-chart"
     init_helm(target, image_tag="v1.0.0")
 
-    result = subprocess.run(
-        ["helm", "template", "x", str(target), "--set", "devDependencies.enabled=true"]
-        + ["--set", "githubApp.appId=123", "--set", "githubApp.secretName=gh"],
-        capture_output=True,
-        text=True,
-    )
+    docs = _render(target, "githubApp.appId=123", "githubApp.secretName=gh")
 
-    assert result.returncode == 0, result.stderr
-    (worker,) = [
-        d
-        for d in yaml.safe_load_all(result.stdout)
-        if d and d["kind"] == "Deployment" and d["metadata"]["name"] == "aaiclick-worker"
-    ]
+    worker = _doc(docs, "Deployment", "aaiclick-worker")
     pod = worker["spec"]["template"]["spec"]
     container = pod["containers"][0]
-    env = {e["name"]: e.get("value") for e in container["env"]}
+    env = _env(worker)
     assert env["AAICLICK_GITHUB_APP_ID"] == "123"
     assert env["AAICLICK_GITHUB_APP_PEM_FILE"] == "/run/secrets/github-app/github-app.pem"
     assert {"name": "github-app", "mountPath": "/run/secrets/github-app", "readOnly": True} in container["volumeMounts"]
