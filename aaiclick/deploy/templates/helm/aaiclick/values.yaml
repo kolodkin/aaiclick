@@ -51,7 +51,8 @@ background:
 # Private GitHub repos for --build (docs/user_guide/orchestration.md): the
 # worker clones with a GitHub App key. Create the Secret yourself:
 #   kubectl create secret generic aaiclick-github-app --from-file=github-app.pem=<key>
-# Both empty leaves the worker unchanged.
+# Both empty leaves the worker unchanged. Keep appId quoted: YAML reads an
+# unquoted number as a float, which renders as 1.234567e+06.
 githubApp:
   appId: ""
   secretName: ""
