@@ -1,15 +1,16 @@
 // Registers a React component as a custom element for the dashboard frame.
-// Each element renders in its own shadow root with the app's stylesheet, so
+// Each element renders in its own shadow root with the kernel stylesheet, so
 // the agent's CSS and ours cannot touch each other.
 
 import type { ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import css from "../../index.css?inline";
+import css from "../kernel.css?inline";
 
-// Tailwind registers its --tw-* defaults with @property, which a browser
-// ignores inside a shadow root: register them once on the document instead.
-// They only declare custom properties, so the agent's page is unaffected.
+// Tailwind's --tw-* defaults and the --qv-* theme tokens are @property rules,
+// which a browser ignores inside a shadow root: register them once on the
+// document instead. They only declare custom properties, so the agent's page
+// is unaffected.
 function registerProperties(): void {
   if (document.getElementById("qv-properties")) return;
   const style = document.createElement("style");

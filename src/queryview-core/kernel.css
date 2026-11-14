@@ -1,20 +1,39 @@
-/* Component classes used by the queryview-core kernel's markup. Copied from
-   QueryView's frontend/src/index.css (@layer components) — refresh together
-   with src/queryview-core. */
+/* The kernel's own stylesheet: Tailwind scanning only src/core, plus the
+   glass-* rules its markup uses. The app imports it; widgets adopt it into
+   their shadow roots (widgets/mount.ts). */
+@import 'tailwindcss' source(none);
+@source '.';
+
+/* Theme tokens: a host sets them on :root. Registered rather than declared on
+   :root so the defaults also reach widget shadow roots, which inherit a
+   host's values but never match :root themselves. */
+@property --qv-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #818cf8;
+} /* borders, active toggles */
+@property --qv-accent-strong {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #4f46e5;
+} /* the deep end of a filled accent, glows, focus ring */
+@property --qv-accent-soft {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(99, 102, 241, 0.16);
+} /* tinted backgrounds */
+@property --qv-accent-text {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #c7d2fe;
+} /* accent text, links */
+@property --qv-accent-ink {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #fff;
+} /* text on a filled accent */
 
 @layer components {
-  /* Frosted card. The inset top highlight gives the "lit edge" of liquid glass. */
-  .glass-panel {
-    border-radius: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.025);
-    backdrop-filter: blur(22px) saturate(170%);
-    -webkit-backdrop-filter: blur(22px) saturate(170%);
-    box-shadow:
-      0 16px 40px -16px rgba(0, 0, 0, 0.7),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
-  }
-
   /* Floating popover: nearly opaque so its contents stay legible and clickable
      over whatever it overlaps (e.g. the dashboard iframe). */
   .glass-popover {
@@ -26,16 +45,6 @@
     box-shadow:
       0 20px 50px -20px rgba(0, 0, 0, 0.8),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
-  }
-
-  .glass-chip {
-    border-radius: 9999px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(16px) saturate(140%);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
-    color: #e2e8f0;
   }
 
   .glass-input {
@@ -53,9 +62,9 @@
     color: rgba(148, 163, 184, 0.7); /* slate-400 */
   }
   .glass-input:focus {
-    border-color: rgba(129, 140, 248, 0.7); /* indigo-400 */
+    border-color: color-mix(in srgb, var(--qv-accent) 70%, transparent);
     background: rgba(255, 255, 255, 0.07);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--qv-accent-strong) 30%, transparent);
   }
 
   .glass-btn {
@@ -80,17 +89,22 @@
     cursor: not-allowed;
   }
 
-  .glass-btn-primary {
-    border-radius: 0.75rem;
-    border: 1px solid rgba(129, 140, 248, 0.5);
-    color: #fff;
+  /* The filled accent shared by the primary button and an active toggle. */
+  .glass-btn-primary,
+  .glass-toggle.is-active {
+    color: var(--qv-accent-ink);
     background-image: linear-gradient(
       180deg,
-      rgba(129, 140, 248, 0.95),
-      rgba(79, 70, 229, 0.95)
+      color-mix(in srgb, var(--qv-accent) 95%, transparent),
+      color-mix(in srgb, var(--qv-accent-strong) 95%, transparent)
     );
+  }
+
+  .glass-btn-primary {
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--qv-accent) 50%, transparent);
     box-shadow:
-      0 10px 26px -10px rgba(79, 70, 229, 0.75),
+      0 10px 26px -10px color-mix(in srgb, var(--qv-accent-strong) 75%, transparent),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.28);
     transition:
       filter 0.15s ease,
@@ -107,9 +121,9 @@
     cursor: not-allowed;
   }
 
-  /* Accent border of a static chip (an order-by column); hosts theme it here. */
+  /* Accent border of a static chip (an order-by column). */
   .accent-chip {
-    border-color: rgba(129, 140, 248, 0.4); /* indigo-400/40 */
+    border-color: color-mix(in srgb, var(--qv-accent) 40%, transparent);
   }
 
   /* Toggle buttons (size, db option, field, order-by). */
@@ -134,22 +148,16 @@
   }
   /* Filled accent active state. */
   .glass-toggle.is-active {
-    border-color: rgba(129, 140, 248, 0.6);
-    color: #fff;
-    background-image: linear-gradient(
-      180deg,
-      rgba(129, 140, 248, 0.9),
-      rgba(79, 70, 229, 0.9)
-    );
+    border-color: color-mix(in srgb, var(--qv-accent) 60%, transparent);
     box-shadow:
-      0 8px 20px -10px rgba(79, 70, 229, 0.7),
+      0 8px 20px -10px color-mix(in srgb, var(--qv-accent-strong) 70%, transparent),
       inset 0 1px 0 0 rgba(255, 255, 255, 0.25);
   }
   /* Quieter active state (order-by add buttons). */
   .glass-toggle.is-active-soft {
-    border-color: rgba(129, 140, 248, 0.55);
-    color: #c7d2fe; /* indigo-200 */
-    background: rgba(99, 102, 241, 0.16);
+    border-color: color-mix(in srgb, var(--qv-accent) 55%, transparent);
+    color: var(--qv-accent-text);
+    background: var(--qv-accent-soft);
   }
 
   /* Per-cell horizontal scroller in the results grid. Thin, dim bars so a

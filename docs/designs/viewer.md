@@ -18,11 +18,12 @@ and MCP, the kernel is all that is left to reuse.
 
 `src/queryview-core/` is a verbatim copy of `frontend/src/core` at the commit
 recorded in its `README.md`, imported as `@qv/core` (tsconfig `paths` + Vite
-and vitest `resolve.alias`); its `glass-*` classes are ported to
-`src/styles/queryview-core.css`. The folder is never edited here: a change
-goes to QueryView first (its lint rules keep the kernel free of routing,
-fetching and app state), then the copy is refreshed and `npm run check` /
-`npm test` re-run.
+and vitest `resolve.alias`). Its stylesheet, `kernel.css`, brings Tailwind
+and the `glass-*` rules; `src/styles/globals.css` imports it and sets the
+`--qv-*` theme variables to aaiclick's lemon accent. The folder is never
+edited here: a change goes to QueryView first (its lint rules keep the kernel
+free of routing, fetching, app state and imports from outside it), then the
+copy is refreshed and `npm run check` / `npm test` re-run.
 
 ## The contract the kernel expects
 

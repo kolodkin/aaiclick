@@ -51,7 +51,7 @@ function BodyCell({
             data-col={col}
             aria-label={`Open ${col} value`}
             title={format ? `Open parsed ${format}` : "Open full value"}
-            className="w-6 shrink-0 rounded text-center text-xs leading-5 text-slate-400 hover:bg-white/10 hover:text-indigo-200"
+            className="w-6 shrink-0 rounded text-center text-xs leading-5 text-slate-400 hover:bg-white/10 hover:text-[var(--qv-accent-text)]"
           >
             {format ? "{ }" : "⤢"}
           </button>

@@ -65,7 +65,9 @@ function FieldMenu({
             <>
               <span
                 className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[10px] leading-none ${
-                  on ? "border-indigo-400 bg-indigo-500 text-white" : "border-white/25"
+                  on
+                    ? "border-[var(--qv-accent)] bg-[var(--qv-accent-strong)] text-[var(--qv-accent-ink)]"
+                    : "border-white/25"
                 }`}
               >
                 {on ? "✓" : ""}
@@ -73,7 +75,9 @@ function FieldMenu({
               {/* The name is capped so a long one still leaves the type room; the
                   type takes only what is left, so a long type (a named Tuple runs
                   to hundreds of characters) truncates before the name does. */}
-              <span className={`max-w-[60%] truncate ${on ? "text-indigo-100" : "text-slate-300"}`}>{f.name}</span>
+              <span className={`max-w-[60%] truncate ${on ? "text-[var(--qv-accent-text)]" : "text-slate-300"}`}>
+                {f.name}
+              </span>
               <span className="min-w-0 flex-1 truncate text-right font-mono text-[10px] text-slate-500">{f.type}</span>
             </>
           )}

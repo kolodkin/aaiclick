@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildSrcDoc } from "./srcDoc";
+import { buildSrcDoc, type QvTheme } from "./srcDoc";
 
 describe("buildSrcDoc", () => {
   test("exposes results and params before the HTML", () => {
@@ -15,6 +15,17 @@ describe("buildSrcDoc", () => {
     const doc = buildSrcDoc("", { q: { s: ["</script><img onerror=x>"] } });
     expect(doc).not.toContain("</script><img");
     expect(doc).toContain("\\u003c/script>\\u003cimg");
+  });
+
+  test("writes the theme as :root variables ahead of the prologue", () => {
+    const doc = buildSrcDoc("", {}, [], { accent: "#faff69", "accent-ink": "black" });
+    expect(doc.startsWith("<style>:root{--qv-accent:#faff69;--qv-accent-ink:black;}</style>\n<script>")).toBe(true);
+    expect(buildSrcDoc("", {})).toMatch(/^<script>/);
+  });
+
+  test("drops theme keys and values that could leave the style block", () => {
+    const bad = { accent: "red;}</style>", "x:0}</style>": "red" } as QvTheme;
+    expect(buildSrcDoc("", {}, [], bad)).toMatch(/^<script>/);
   });
 
   test("loads the widget bundle only for dashboards that use a tag", () => {

@@ -42,7 +42,7 @@ function ParsedTree({ data }: { data: unknown }) {
           ) : (
             <span className="w-3 shrink-0" />
           )}
-          {r.key !== null && <span className="text-indigo-300">{r.key}:</span>}
+          {r.key !== null && <span className="text-[var(--qv-accent-text)]">{r.key}:</span>}
           {r.key === null && <span className="text-slate-500">root</span>}
           <span className="text-slate-200">{r.summary}</span>
         </div>
@@ -94,7 +94,7 @@ export function CellDataModal({
               <span
                 data-testid="cell-data-format"
                 title={native ? type : undefined}
-                className="shrink-0 rounded bg-indigo-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-indigo-300"
+                className="shrink-0 rounded bg-[var(--qv-accent-soft)] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--qv-accent-text)]"
               >
                 {structured.label}
               </span>
