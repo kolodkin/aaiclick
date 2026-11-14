@@ -5,7 +5,7 @@ description = "Minimal orchestration example with job registration and worker ex
 requires-python = ">=3.11"
 
 dependencies = [
-    "aaiclick-client[local,distributed]",
+    "aaiclick-client[distributed]",
 ]
 
 # The monorepo checkout, not a PyPI release — examples always exercise this tree.
