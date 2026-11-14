@@ -9,8 +9,8 @@ aaiclick's own. UX per mode: `docs/designs/ui.md`.
 # QueryView Coupling
 
 The only shared code is QueryView's frontend kernel, `frontend/src/core`
-(React 19, Tailwind 4, `js-yaml`): result rows, cell views, complex-type
-cells, field pickers, and the dashboard sandbox with its params. No Python
+(React 19, Tailwind 4, `js-yaml`): result rows, complex-type cells, field
+pickers, and the dashboard sandbox with its params and widgets. No Python
 dependency, no runtime coupling — once aaiclick owns catalog, storage, auth
 and MCP, the kernel is all that is left to reuse.
 
@@ -118,7 +118,8 @@ request adds `scope`, paging and `fmt`.
 A dashboard's `params` are QueryView's selector specs (`name`, `kind`,
 `options`, `default: none`), interpreted by the kernel in the browser. A
 `{name}` placeholder in a panel's `where` takes the chosen value: a quoted
-literal, or a backtick-quoted identifier for `kind: identifier`. The SPA
+literal (backslashes escaped, as ClickHouse reads them), or a backtick-quoted
+identifier for `kind: identifier`. The SPA
 substitutes, then sends the panels to `run_queries`, so the result passes the
 same `where` guard as any query; a panel whose selector is unchosen is held
 back. `save_dashboard` rejects `options_sql` (`future.md`).

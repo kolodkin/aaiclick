@@ -207,9 +207,14 @@ Shipped design: `viewer.md`.
 - **`options_sql` params**: a dashboard param may name a query whose first
   column feeds its selector; aaiclick has no free-SQL endpoint, so
   `save_dashboard` rejects one.
-- **Filtering and cell views in `@data`**: the object view orders and pages;
-  a `where` box, the kernel's cell-view YAML and CSV download have no UI
-  (`data query --where … --csv` covers the CLI).
+- **Filtering and CSV in `@data`**: the object view orders and pages; a
+  `where` box and CSV download have no UI (`data query --where … --csv`
+  covers the CLI).
+- **Dashboard widgets** (`<qv-select-view>`, `<qv-param>`): the kernel ships
+  them, but they need QueryView's second Vite build (`widgets.js`), its
+  stylesheet, and a host answering `widget-query` / `widget-describe` /
+  `widget-csv` by panel name. A panel maps onto `query_object` with the
+  widget's page and order-by. Until then a tag stays unrendered.
 - **Dashboard params outside the browser**: `run_dashboard` (MCP, CLI) runs
   panels as stored, so a `where` holding a `{param}` placeholder fails there.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and

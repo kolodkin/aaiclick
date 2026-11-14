@@ -18,7 +18,9 @@ export function useDismiss<T extends HTMLElement>(open: boolean, close: () => vo
     // so the panel is gone by the time the outside control reacts.
     const onPointerDown = (e: PointerEvent) => {
       const el = ref.current;
-      if (el && !el.contains(e.target as Node)) closeRef.current();
+      // composedPath, not contains(target): inside a shadow root (the dashboard
+      // widgets) the target is retargeted to the host, which is never inside.
+      if (el && !e.composedPath().includes(el)) closeRef.current();
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeRef.current();

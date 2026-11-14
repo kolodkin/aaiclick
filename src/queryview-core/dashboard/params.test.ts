@@ -9,11 +9,13 @@ import {
   applyToQueries,
   parseParamsRequest,
   type DashboardParam,
+  type Dialect,
 } from "./params";
 
-// ClickHouse quoting, as wip-2 hard-coded; the quote is per connection now.
+const CH: Dialect = { quote: "`", backslashEscapes: true };
+const PG: Dialect = { quote: '"', backslashEscapes: false };
 const sub = (sql: string, params: DashboardParam[], values: Record<string, string>) =>
-  substituteParams(sql, params, values, "`");
+  substituteParams(sql, params, values, CH);
 
 describe("parseDashboardParams", () => {
   test("parses a static options param", () => {
@@ -70,6 +72,17 @@ describe("substituteParams", () => {
     expect(sub("SELECT {field} FROM {table}", params, { field: "city", table: "events" })).toBe(
       "SELECT `city` FROM `events`",
     );
+  });
+
+  test("escapes backslashes only where the dialect does", () => {
+    const user = parseDashboardParams([{ name: "user", options: ["CORP\\alice"] }]);
+    expect(sub("WHERE u = {user}", user, { user: "CORP\\alice" })).toBe("WHERE u = 'CORP\\\\alice'");
+    expect(substituteParams("WHERE u = {user}", user, { user: "CORP\\alice" }, PG)).toBe("WHERE u = 'CORP\\alice'");
+  });
+
+  test("rejects a backslash in an identifier only where the dialect escapes", () => {
+    expect(() => sub("SELECT {field}", params, { field: "a\\" })).toThrow(/invalid identifier/);
+    expect(substituteParams("SELECT {field}", params, { field: "a\\" }, PG)).toBe('SELECT "a\\"');
   });
 
   test("substitutes a value as a quoted literal", () => {
@@ -220,7 +233,7 @@ describe("resolveParams", () => {
   test("leaves a dependent param unresolved while its dependency is unset", async () => {
     // The whole point of `default: none`: nothing is chosen, so the field list
     // cannot be looked up yet — and that is not an error.
-    const resolved = await resolveParams(params, {}, run, "`");
+    const resolved = await resolveParams(params, {}, run, CH);
     expect(resolved).toEqual([
       { name: "table", kind: "identifier", options: ["events"], value: "" },
       { name: "field", kind: "identifier", options: [], value: "" },
@@ -228,7 +241,7 @@ describe("resolveParams", () => {
   });
 
   test("resolves the dependent options once the dependency has a value", async () => {
-    const resolved = await resolveParams(params, { table: "events" }, run, "`");
+    const resolved = await resolveParams(params, { table: "events" }, run, CH);
     expect(resolved[1]).toEqual({
       name: "field",
       kind: "identifier",
@@ -238,12 +251,12 @@ describe("resolveParams", () => {
   });
 
   test("keeps a chosen value that is still a valid option", async () => {
-    const resolved = await resolveParams(params, { table: "events", field: "city" }, run, "`");
+    const resolved = await resolveParams(params, { table: "events", field: "city" }, run, CH);
     expect(resolved[1].value).toBe("city");
   });
 
   test("drops a chosen value that the new options no longer offer", async () => {
-    const resolved = await resolveParams(params, { table: "events", field: "gone" }, run, "`");
+    const resolved = await resolveParams(params, { table: "events", field: "gone" }, run, CH);
     expect(resolved[1].value).toBe("");
   });
 
@@ -251,7 +264,7 @@ describe("resolveParams", () => {
     const auto = parseDashboardParams([
       { name: "table", kind: "identifier", options_sql: "SELECT name FROM system.tables" },
     ]);
-    expect((await resolveParams(auto, {}, run, "`"))[0].value).toBe("events");
+    expect((await resolveParams(auto, {}, run, CH))[0].value).toBe("events");
   });
 });
 
@@ -259,10 +272,10 @@ describe("applyToQueries", () => {
   test("substitutes ready queries and holds back ones waiting on a selector", () => {
     const params: DashboardParam[] = [{ name: "table", kind: "identifier", autoSelect: false, options: ["t"] }];
     const resolved = [{ name: "table", kind: "identifier" as const, options: ["t"], value: "" }];
-    const out = applyToQueries({ a: "SELECT 1", b: "SELECT * FROM {table}" }, params, resolved, '"');
+    const out = applyToQueries({ a: "SELECT 1", b: "SELECT * FROM {table}" }, params, resolved, PG);
     expect(out).toEqual({ a: "SELECT 1" });
     const chosen = [{ ...resolved[0], value: "t" }];
-    expect(applyToQueries({ b: "SELECT * FROM {table}" }, params, chosen, '"')).toEqual({
+    expect(applyToQueries({ b: "SELECT * FROM {table}" }, params, chosen, PG)).toEqual({
       b: 'SELECT * FROM "t"',
     });
   });
@@ -290,9 +303,9 @@ describe("an unchecked dimension", () => {
     const params = parseDashboardParams([{ name: "by_city", kind: "dimension" }]);
     const run = async () => ({ ok: true as const, results: {} });
     for (const v of ["", "0"]) {
-      const resolved = await resolveParams(params, { by_city: v }, run, '"');
+      const resolved = await resolveParams(params, { by_city: v }, run, PG);
       expect(resolved[0].value).toBe("");
     }
-    expect(substituteParams("GROUP BY {by_city}", params, { by_city: "0" }, '"')).toBe("GROUP BY ''");
+    expect(substituteParams("GROUP BY {by_city}", params, { by_city: "0" }, PG)).toBe("GROUP BY ''");
   });
 });

@@ -31,7 +31,9 @@ export function DashboardFrame({
       ref={ref}
       title="dashboard"
       data-testid="dashboard-frame"
-      sandbox="allow-scripts"
+      // No allow-same-origin: the page gets no session and no /api. Popups
+      // escape the sandbox so a clicked link in a cell opens a normal tab.
+      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
       srcDoc={srcDoc}
       className={className}
     />

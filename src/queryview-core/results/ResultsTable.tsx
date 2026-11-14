@@ -81,7 +81,7 @@ export function ResultsTable({
   types?: Record<string, string>;
   shownIdx: number[];
   testid: string;
-  // Cell content; defaults to plain text (the query panel plugs in cell views).
+  // Cell content; defaults to plain text (the dashboard widget plugs in cell templates).
   renderCell?: RenderCell;
   // Faded while a re-run is in flight.
   dimmed?: boolean;

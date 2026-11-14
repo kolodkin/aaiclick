@@ -1,6 +1,5 @@
-// Cell-view templating: turn a saved `value` template into rendered output by
-// substituting placeholders against a single result row. Used by both the
-// `link` and `custom` cell views (see docs/query.md).
+// Cell templating: substitute placeholders in a template against a single
+// result row. The base of compileCellTemplate (./cellTemplate.ts).
 
 export function escapeHtml(s: string): string {
   return s

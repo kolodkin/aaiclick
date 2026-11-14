@@ -16,4 +16,9 @@ describe("buildSrcDoc", () => {
     expect(doc).not.toContain("</script><img");
     expect(doc).toContain("\\u003c/script>\\u003cimg");
   });
+
+  test("loads the widget bundle only for dashboards that use a tag", () => {
+    expect(buildSrcDoc('<qv-param name="r"></qv-param>', {})).toContain('<script defer src="/widgets.js"></script>');
+    expect(buildSrcDoc("<canvas></canvas>", {})).not.toContain("widgets.js");
+  });
 });

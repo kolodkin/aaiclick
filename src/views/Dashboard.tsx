@@ -7,14 +7,15 @@ import {
   parseDashboardParams,
   parseParamsRequest,
   resolveParams,
+  type Dialect,
   type QueryRunner,
 } from "@qv/core";
 import { runQueries, useDashboard, useDashboards } from "../api/hooks";
 import type { Dashboard as DashboardModel } from "../api/types";
 import { Chips } from "../components/Chips";
 
-// ClickHouse's identifier quote, for `identifier` params.
-const QUOTE = "`";
+// ClickHouse quotes identifiers with backticks and reads backslash as an escape.
+const CLICKHOUSE: Dialect = { quote: "`", backslashEscapes: true };
 
 // aaiclick has no free-SQL endpoint, and `save_dashboard` rejects `options_sql`
 // params, so the kernel never calls this.
@@ -24,12 +25,12 @@ const noSql: QueryRunner = async () => ({ ok: false, message: "options_sql param
 // and run the panels whose selectors are all chosen.
 async function runPanels(d: DashboardModel, values: Record<string, string>) {
   const declared = parseDashboardParams(d.params);
-  const params = await resolveParams(declared, values, noSql, QUOTE);
+  const params = await resolveParams(declared, values, noSql, CLICKHOUSE);
   const wheres = applyToQueries(
     Object.fromEntries(Object.entries(d.queries).map(([panel, q]) => [panel, q.where ?? ""])),
     declared,
     params,
-    QUOTE,
+    CLICKHOUSE,
   );
   const queries = Object.fromEntries(
     Object.entries(wheres).map(([panel, where]) => [panel, { ...d.queries[panel], where: where || null }]),
