@@ -1,7 +1,6 @@
 """GHCR image references for the installed aaiclick version.
 
-Shared by the deploy scaffolds (compose, helm) and the git-build default
-Dockerfile, so the tag rule lives in one place."""
+Used by the git-build default Dockerfile, so the tag rule lives in one place."""
 
 from __future__ import annotations
 

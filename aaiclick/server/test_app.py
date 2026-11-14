@@ -204,7 +204,7 @@ async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
             pass
 
 
-async def test_lifespan_refuses_unreplaced_scaffold_credentials(monkeypatch):
+async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     """A template credential is public: starting with one is an error, not a warning."""
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", f"{PLACEHOLDER_MARKER}-admin-password")
 

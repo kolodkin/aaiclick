@@ -31,6 +31,6 @@ def require_no_placeholder_credentials() -> None:
     names = placeholder_env_vars()
     if names:
         raise RuntimeError(
-            f"scaffold placeholder credentials still in use: {', '.join(names)}. "
+            f"template placeholder credentials still in use: {', '.join(names)}. "
             "Run `sh env.init.sh` or replace them in .env (docs/user_guide/deployment.md)"
         )

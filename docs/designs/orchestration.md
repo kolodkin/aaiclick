@@ -79,7 +79,7 @@ Accepted limit: anything a revision does that `create_all` would not (a backfill
 
 **Implementation**: `aaiclick/orchestration/execution/runner_env.py`
 
-An execution worker launches container tasks through one **runner**, read once from `AAICLICK_RUNNER`. It is a property of the worker's deployment, not the job: the compose scaffold ships the `aaiclick-docker` worker with the host socket mounted, the helm scaffold the `aaiclick-kubectl` worker with a ServiceAccount, and a claimed task runs on whatever its worker has.
+An execution worker launches container tasks through one **runner**, read once from `AAICLICK_RUNNER`. It is a property of the worker's deployment, not the job: the compose stack ships the `aaiclick-docker` worker with the host socket mounted, the helm chart the `aaiclick-kubectl` worker with a ServiceAccount, and a claimed task runs on whatever its worker has.
 
 | `AAICLICK_RUNNER` | Container tasks run as                  | Extra worker requirements                      |
 |-------------------|-----------------------------------------|------------------------------------------------|
