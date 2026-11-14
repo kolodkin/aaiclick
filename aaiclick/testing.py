@@ -38,10 +38,19 @@ from sqlalchemy import create_engine, text
 from sqlmodel import col, select
 
 from aaiclick.__main__ import main
-from aaiclick.backend import get_root, internal_db, internal_table, is_chdb, is_local, is_sqlite, parse_ch_url
+from aaiclick.backend import (
+    INTERNAL_DB_SUFFIX,
+    get_root,
+    internal_db,
+    internal_table,
+    is_chdb,
+    is_local,
+    is_sqlite,
+    parse_ch_url,
+)
 from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 from aaiclick.data.object_context import ChClient, get_ch_client
-from aaiclick.data.sql_utils import quote_sql_literal
+from aaiclick.data.sql_utils import quote_identifier, quote_sql_literal
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -171,7 +180,7 @@ async def _all_table_ddl(ch: ChClient) -> dict[str, str]:
         "SELECT database, name, create_table_query FROM system.tables"
         f" WHERE database IN (currentDatabase(), {quote_sql_literal(internal_db())})"
     )
-    return {f"`{db}`.`{name}`": ddl for db, name, ddl in result.result_rows}
+    return {f"{quote_identifier(db)}.{quote_identifier(name)}": ddl for db, name, ddl in result.result_rows}
 
 
 @dataclass
@@ -371,7 +380,7 @@ def worker_ch_database() -> Iterator[None]:
 
     admin = _admin()
     admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
-    admin.command(f"DROP DATABASE IF EXISTS `{db_name}_internal`")
+    admin.command(f"DROP DATABASE IF EXISTS `{db_name}{INTERNAL_DB_SUFFIX}`")
     admin.command(f"CREATE DATABASE `{db_name}`")
     admin.close()
 
@@ -383,7 +392,7 @@ def worker_ch_database() -> Iterator[None]:
         finally:
             admin = _admin()
             admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
-            admin.command(f"DROP DATABASE IF EXISTS `{db_name}_internal`")
+            admin.command(f"DROP DATABASE IF EXISTS `{db_name}{INTERNAL_DB_SUFFIX}`")
             admin.close()
 
 

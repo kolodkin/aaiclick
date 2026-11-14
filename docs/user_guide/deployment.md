@@ -23,8 +23,8 @@ Compose and Kubernetes are the distributed modes:
   where a task runs — see [Orchestration — Runner modes](orchestration.md#runner-modes).
 - Internal tables (task logs, oplog, migrations) live in `<db>_internal`
   beside the `AAICLICK_CH_URL` database, so the ClickHouse user needs
-  `CREATE DATABASE` plus all privileges on `<db>_internal.*` — or create
-  that database ahead of time.
+  `CREATE DATABASE` plus all privileges on `<db>_internal.*` (it runs
+  `CREATE DATABASE IF NOT EXISTS` at every startup).
 - For private buckets, give the ClickHouse server its S3 identity and a
   `users.xml` profile line — see [Object — Blob Storage](object.md#credentials).
 - Credentials are random unless you set them: compose's `env.init.sh` fills
