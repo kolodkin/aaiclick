@@ -105,7 +105,7 @@ function registered(cmd: string, text: string): SourceMatch {
   };
 }
 
-// `scope` is the prompt up to the object (`@data`, `@query persistent`, `@data job etl`).
+// `scope` is the prompt up to the object (`@data`, `@data persistent`, `@data job etl`).
 function objects(scope: string, job: string | null, text: string): SourceMatch {
   return {
     key: `objects:${scope}`,
@@ -154,11 +154,11 @@ function sandboxFiles(): SourceMatch {
 // The command's argument source for `draft`, or null when the draft is not yet
 // `<command> ` (the dropdown then lists commands instead).
 export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMatch | null {
-  let m = /^(@data|@query) job (\S+) (.*)$/.exec(draft);
+  let m = /^(@data) job (\S+) (.*)$/.exec(draft);
   if (m) return objects(`${m[1]} job ${m[2]}`, m[2], m[3]);
-  m = /^(@data|@query) job (\S*)$/.exec(draft);
+  m = /^(@data) job (\S*)$/.exec(draft);
   if (m) return jobs(`${m[1]} job`, m[2]);
-  m = /^(@data|@query) persistent (.*)$/.exec(draft);
+  m = /^(@data) persistent (.*)$/.exec(draft);
   if (m) return objects(`${m[1]} persistent`, null, m[2]);
   m = /^(\S+) (.*)$/.exec(draft);
   if (!m) return null;
@@ -176,7 +176,6 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
     case "disable":
       return registered(cmd, text);
     case "@data":
-    case "@query":
       return objects(cmd, null, text);
     case "@dashboard":
       return dashboards(text);

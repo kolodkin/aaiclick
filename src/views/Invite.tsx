@@ -11,7 +11,7 @@ import { parseUtc } from "../lib/format";
 
 const GRANT_HELP: Record<Role, string> = {
   viewer: "reads, and nothing else",
-  member: "reads, plus their own saved queries and dashboards",
+  member: "reads, plus their own dashboards",
   admin: "everything — jobs, objects, users, workers, audit",
 };
 

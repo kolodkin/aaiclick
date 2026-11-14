@@ -1,6 +1,6 @@
 import type { ObjectView } from "../api/types";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, objectScope, queryPrompt } from "../lib/viewer";
+import { dataPrompt, formatBytes, objectScope } from "../lib/viewer";
 
 export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onPrompt: (v: string) => void }) {
   if (objects.length === 0) return <p className="sub">No objects in this scope</p>;
@@ -14,7 +14,6 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
           <th>Rows</th>
           <th>Size</th>
           <th>Created</th>
-          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -30,19 +29,6 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
             <td className="mono">{o.row_count ?? "—"}</td>
             <td className="mono">{formatBytes(o.size_bytes)}</td>
             <td>{relativeTime(o.created_at)}</td>
-            <td className="row-actions">
-              <button
-                type="button"
-                className="btn btn-sm"
-                data-testid="object-query"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPrompt(queryPrompt(objectScope(o), o.name));
-                }}
-              >
-                Query
-              </button>
-            </td>
           </tr>
         ))}
       </tbody>

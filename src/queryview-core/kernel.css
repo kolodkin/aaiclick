@@ -1,0 +1,182 @@
+/* The kernel's own stylesheet: Tailwind scanning only src/core, plus the
+   glass-* rules its markup uses. The app imports it; widgets adopt it into
+   their shadow roots (widgets/mount.ts). */
+@import 'tailwindcss' source(none);
+@source '.';
+
+/* Theme tokens: a host sets them on :root. Registered rather than declared on
+   :root so the defaults also reach widget shadow roots, which inherit a
+   host's values but never match :root themselves. */
+@property --qv-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #818cf8;
+} /* borders, active toggles */
+@property --qv-accent-strong {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #4f46e5;
+} /* the deep end of a filled accent, glows, focus ring */
+@property --qv-accent-soft {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(99, 102, 241, 0.16);
+} /* tinted backgrounds */
+@property --qv-accent-text {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #c7d2fe;
+} /* accent text, links */
+@property --qv-accent-ink {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #fff;
+} /* text on a filled accent */
+
+@layer components {
+  /* Floating popover: nearly opaque so its contents stay legible and clickable
+     over whatever it overlaps (e.g. the dashboard iframe). */
+  .glass-popover {
+    border-radius: 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(18, 22, 38, 0.94);
+    backdrop-filter: blur(26px) saturate(160%);
+    -webkit-backdrop-filter: blur(26px) saturate(160%);
+    box-shadow:
+      0 20px 50px -20px rgba(0, 0, 0, 0.8),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+  }
+
+  .glass-input {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    outline: none;
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .glass-input::placeholder {
+    color: rgba(148, 163, 184, 0.7); /* slate-400 */
+  }
+  .glass-input:focus {
+    border-color: color-mix(in srgb, var(--qv-accent) 70%, transparent);
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--qv-accent-strong) 30%, transparent);
+  }
+
+  .glass-btn {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: #e2e8f0;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      transform 0.1s ease;
+  }
+  .glass-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+  .glass-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .glass-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* The filled accent shared by the primary button and an active toggle. */
+  .glass-btn-primary,
+  .glass-toggle.is-active {
+    color: var(--qv-accent-ink);
+    background-image: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--qv-accent) 95%, transparent),
+      color-mix(in srgb, var(--qv-accent-strong) 95%, transparent)
+    );
+  }
+
+  .glass-btn-primary {
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--qv-accent) 50%, transparent);
+    box-shadow:
+      0 10px 26px -10px color-mix(in srgb, var(--qv-accent-strong) 75%, transparent),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.28);
+    transition:
+      filter 0.15s ease,
+      transform 0.1s ease;
+  }
+  .glass-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+  .glass-btn-primary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .glass-btn-primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Accent border of a static chip (an order-by column). */
+  .accent-chip {
+    border-color: color-mix(in srgb, var(--qv-accent) 40%, transparent);
+  }
+
+  /* Toggle buttons (size, db option, field, order-by). */
+  .glass-toggle {
+    border-radius: 0.6rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: #cbd5e1; /* slate-300 */
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .glass-toggle:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #e2e8f0;
+  }
+  .glass-toggle:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* Filled accent active state. */
+  .glass-toggle.is-active {
+    border-color: color-mix(in srgb, var(--qv-accent) 60%, transparent);
+    box-shadow:
+      0 8px 20px -10px color-mix(in srgb, var(--qv-accent-strong) 70%, transparent),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.25);
+  }
+  /* Quieter active state (order-by add buttons). */
+  .glass-toggle.is-active-soft {
+    border-color: color-mix(in srgb, var(--qv-accent) 55%, transparent);
+    color: var(--qv-accent-text);
+    background: var(--qv-accent-soft);
+  }
+
+  /* Per-cell horizontal scroller in the results grid. Thin, dim bars so a
+     table full of long values doesn't read as a wall of scrollbars. */
+  .cell-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  }
+  .cell-scroll::-webkit-scrollbar {
+    height: 6px;
+  }
+  .cell-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .cell-scroll::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: rgba(148, 163, 184, 0.35);
+  }
+  .cell-scroll:hover::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.55);
+  }
+}

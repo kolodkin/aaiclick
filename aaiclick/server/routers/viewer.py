@@ -11,9 +11,7 @@ from aaiclick.viewer.view_models import (
     DashboardResults,
     DashboardSummary,
     ObjectQueryRequest,
-    SavedQuery,
-    SavedQueryFilter,
-    SavedQueryIn,
+    RunQueriesRequest,
 )
 
 from ..auth import require_write
@@ -21,10 +19,6 @@ from ..deps import orch_scope
 from ..errors import problem_responses
 
 router = APIRouter(prefix="/viewer", tags=["viewer"], dependencies=[Depends(orch_scope)])
-
-
-class SavedQueryBody(SavedQueryIn):
-    name: str = ""  # taken from the path
 
 
 class DashboardBody(DashboardIn):
@@ -45,31 +39,6 @@ class DashboardBody(DashboardIn):
 async def query_object(request: ObjectQueryRequest) -> Response:
     media_type = "text/csv" if request.fmt == FMT_CSV else "application/json"
     return Response(content=await viewer_api.query_object_bytes(request), media_type=media_type)
-
-
-@router.get("/queries", response_model=Page[SavedQuery])
-async def list_saved_queries(filter: SavedQueryFilter = Depends()) -> Page[SavedQuery]:
-    return await viewer_api.list_saved_queries(filter)
-
-
-@router.put(
-    "/queries/{name}",
-    response_model=SavedQuery,
-    responses=problem_responses(422),
-    dependencies=[Depends(require_write)],
-)
-async def save_query(name: str, body: SavedQueryBody) -> SavedQuery:
-    return await viewer_api.save_query(SavedQueryIn(**{**body.model_dump(), "name": name}))
-
-
-@router.delete(
-    "/queries/{name}",
-    response_model=Deleted,
-    responses=problem_responses(404),
-    dependencies=[Depends(require_write)],
-)
-async def delete_saved_query(name: str) -> Deleted:
-    return await viewer_api.delete_saved_query(name)
 
 
 @router.get("/dashboards", response_model=Page[DashboardSummary])
@@ -105,3 +74,8 @@ async def delete_dashboard(name: str) -> Deleted:
 @router.post("/dashboards/{name}:run", response_model=DashboardResults, responses=problem_responses(404, 422))
 async def run_dashboard(name: str) -> DashboardResults:
     return await viewer_api.run_dashboard(name)
+
+
+@router.post("/runqueries", response_model=DashboardResults, responses=problem_responses(404, 422))
+async def run_queries(request: RunQueriesRequest) -> DashboardResults:
+    return await viewer_api.run_queries(request)

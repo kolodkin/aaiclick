@@ -219,12 +219,21 @@ Shipped design: `viewer.md`.
   /events` carries one payload-less `changed` kind that the SPA answers by
   invalidating its cache (`src/api/events.ts`), so a push needs a kind with
   a payload and a handler that switches the mode.
-- **Git sync and YAML export** for saved queries and dashboards, as QueryView
+- **Git sync and YAML export** for dashboards, as QueryView
   has (its workspaces have no counterpart — one installation is one
   workspace).
-- **`options_sql` params**: the kernel's `params:` block accepts a query
-  whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
-  the query panel renders static `options` only.
+- **`options_sql` params**: a dashboard param may name a query whose first
+  column feeds its selector; aaiclick has no free-SQL endpoint, so
+  `save_dashboard` rejects one.
+- **Filtering and CSV in `@data`**: the object view orders and pages; a
+  `where` box and CSV download have no UI (`data query --where … --csv`
+  covers the CLI).
+- **Dashboard widgets** (`<qv-select-view>`, `<qv-param>`): the kernel ships
+  them, but they need QueryView's second Vite build (`widgets.js`) and a host
+  answering `widget-query` / `widget-describe` / `widget-csv` by panel name. A panel maps onto `query_object` with the
+  widget's page and order-by. Until then a tag stays unrendered.
+- **Dashboard params outside the browser**: `run_dashboard` (MCP, CLI) runs
+  panels as stored, so a `where` holding a `{param}` placeholder fails there.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
 
@@ -279,7 +288,7 @@ view of it. `@data` shows an object's rows but not where they came from.
   (`aaiclick/oplog/lineage.py`) rendered like the job graph (same dagre +
   React Flow stack), one node per table with its operation and rendered
   `sql_template`, dropped tables greyed out.
-- Click a live node to open it in `@data` or `@query`.
+- Click a live node to open it in `@data`.
 - Needs a REST route over the subgraph under the same read scope the MCP
   tools use; the SPA does not speak MCP.
 

@@ -15,12 +15,10 @@ describe("matchSource", () => {
     ["enable ", "registered:enable", ""],
     ["disable x", "registered:disable", "x"],
     ["@data ", "objects:@data", ""],
-    ["@query ord", "objects:@query", "ord"],
     ["@data persistent fo", "objects:@data persistent", "fo"],
     ["@job etl graph", "jobs:@job", "etl"],
     ["@job etl timings", "jobs:@job", "etl"],
     ["@data job ", "jobs:@data job", ""],
-    ["@query job et", "jobs:@query job", "et"],
     ["@data job etl ", "objects:@data job etl", ""],
     ["@data job etl ord", "objects:@data job etl", "ord"],
     ["@dashboard sa", "dashboards", ""],
@@ -49,12 +47,9 @@ test("commands sharing an endpoint never share cached rows", () => {
     "@job ",
     "cancel ",
     "@data job ",
-    "@query job ",
     "@data ",
-    "@query ",
     "@data persistent ",
     "@data job etl ",
-    "@query job etl ",
   ].map((d) => matchSource(d, { sandbox: false })!.key);
   expect(new Set(keys).size).toBe(keys.length);
 });
@@ -115,8 +110,8 @@ describe("fetchPage", () => {
 
   test("objects of a job keep the job scope", async () => {
     fetchMock.mockResolvedValue({ items: [{ name: "orders" }] });
-    const page = await matchSource("@query job etl or", { sandbox: false })!.fetchPage(0);
+    const page = await matchSource("@data job etl or", { sandbox: false })!.fetchPage(0);
     expect(fetchMock).toHaveBeenCalledWith("/objects?limit=1000&prefix=or&job=etl");
-    expect(page.items[0].insert).toBe("@query job etl orders");
+    expect(page.items[0].insert).toBe("@data job etl orders");
   });
 });

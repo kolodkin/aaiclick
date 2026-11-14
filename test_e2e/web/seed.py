@@ -63,7 +63,7 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, orch_context, task_scope
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.viewer.view_models import DashboardIn, ObjectQuery
+from aaiclick.viewer.view_models import DashboardIn, DashboardParam, ObjectQuery
 
 #: The job ``seed_viewer_objects`` gives job-scoped objects, for the job page's
 #: Objects dropdown.
@@ -225,10 +225,12 @@ async def seed_viewer_objects() -> None:
             DashboardIn(
                 name="sales",
                 html=(
-                    "<h1 id='title'>Sales</h1>"
-                    "<script>document.getElementById('title').textContent = 'rows:' + window.queries.top.name.length</script>"
+                    "<h1 id='title'></h1><button id='raise' onclick=\"setParams({min: '25'})\">raise</button>"
+                    "<script>const show = (q) => (document.getElementById('title').textContent = "
+                    "'rows:' + q.top.name.length); show(window.queries); window.onQueryResults = show</script>"
                 ),
-                queries={"top": ObjectQuery(object="orders", fields=["name", "amount"])},
+                queries={"top": ObjectQuery(object="orders", fields=["name", "amount"], where="amount > {min}")},
+                params=[DashboardParam(name="min", options=["15", "25"])],
             )
         )
         # A fresh job per run: its name resolves to the latest, so earlier

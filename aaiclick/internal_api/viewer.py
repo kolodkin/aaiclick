@@ -1,4 +1,4 @@
-"""Internal API for the viewer: object-scoped queries, saved queries, dashboards.
+"""Internal API for the viewer: object-scoped queries and dashboards.
 
 Every function runs inside ``orch_context()``. Queries never see
 a table name: ``open_scoped`` resolves ``(scope, object)`` and the Object API
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -30,30 +29,25 @@ from aaiclick.oplog.query_sandbox import READONLY_SETTINGS, SandboxError, valida
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.view_models import Deleted, Page
-from aaiclick.viewer.cell_view import cell_view_error
-from aaiclick.viewer.models import DashboardRow, SavedQueryRow
+from aaiclick.viewer.models import DashboardRow
 from aaiclick.viewer.scope import parse_scope
 from aaiclick.viewer.view_models import (
     FMT_CSV,
     MAX_LIMIT,
     Dashboard,
     DashboardIn,
+    DashboardParam,
     DashboardResults,
     DashboardSummary,
     ObjectQuery,
     ObjectQueryRequest,
     ObjectQueryResult,
     OrderBy,
-    SavedQuery,
-    SavedQueryFilter,
-    SavedQueryIn,
+    RunQueriesRequest,
 )
 
 from . import objects as objects_api
 from .errors import Invalid, NotFound
-from .pagination import paginate
-
-RowT = TypeVar("RowT", SavedQueryRow, DashboardRow)
 
 
 def _scope_job(key: str) -> str | None:
@@ -133,87 +127,16 @@ async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
     )
 
 
-async def _find_row(session: AsyncSession, model: type[RowT], name: str) -> RowT | None:
-    """The row named ``name``."""
-    stmt = select(model).where(model.name == name)
-    return (await session.execute(stmt)).scalar_one_or_none()
-
-
-def _row_to_saved_query(row: SavedQueryRow) -> SavedQuery:
-    return SavedQuery(
-        name=row.name,
-        scope=row.scope,
-        object=row.object,
-        fields=json.loads(row.fields) if row.fields else None,
-        where=row.where,
-        order_by=[OrderBy._make(o) for o in json.loads(row.order_by)] if row.order_by else [],
-        cell_view=row.cell_view,
-        updated_at=row.updated_at,
-    )
-
-
-def _validate_saved_query(query: SavedQueryIn) -> None:
-    if not query.name.strip():
-        raise Invalid("name required")
-    if query.scope is not None:
-        _scope_job(query.scope)
-    _check_where(query.where)
-    if err := cell_view_error(query.cell_view):
-        raise Invalid(err)
-
-
-async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[SavedQuery]:
-    """Saved queries. ``scope`` matches that scope plus
-    queries saved without one; ``object`` matches exactly."""
-    filter = filter or SavedQueryFilter()
-    predicates = []
-    if filter.scope is not None:
-        predicates.append((col(SavedQueryRow.scope) == filter.scope) | (col(SavedQueryRow.scope).is_(None)))
-    if filter.object is not None:
-        predicates.append(SavedQueryRow.object == filter.object)
-    page = await paginate(
-        SavedQueryRow,
-        where=predicates,
-        order_by=col(SavedQueryRow.name).asc(),
-        limit=filter.limit,
-        offset=filter.offset,
-    )
-    return Page[SavedQuery](items=[_row_to_saved_query(r) for r in page.rows], total=page.total)
-
-
-async def save_query(query: SavedQueryIn) -> SavedQuery:
-    """Upsert a saved query by ``name``."""
-    _validate_saved_query(query)
-    async with get_sql_session() as session:
-        row = await _find_row(session, SavedQueryRow, query.name)
-        if row is None:
-            row = SavedQueryRow(id=get_snowflake_id(), name=query.name, object="")
-            session.add(row)
-        row.scope = query.scope
-        row.object = query.object
-        row.where = query.where
-        row.fields = json.dumps(query.fields) if query.fields is not None else None
-        row.order_by = json.dumps([list(OrderBy._make(o)) for o in query.order_by]) if query.order_by else None
-        row.cell_view = query.cell_view or None
-        row.updated_at = utc_now()
-        await session.commit()
-        await session.refresh(row)
-        return _row_to_saved_query(row)
-
-
-async def delete_saved_query(name: str) -> Deleted:
-    async with get_sql_session() as session:
-        row = await _find_row(session, SavedQueryRow, name)
-        if row is None:
-            raise NotFound(f"Saved query not found: {name}")
-        await session.delete(row)
-        await session.commit()
-    return Deleted(name=name)
-
-
 def _row_to_dashboard(row: DashboardRow) -> Dashboard:
     queries = {panel: ObjectQuery.model_validate(q) for panel, q in json.loads(row.queries).items()}
-    return Dashboard(name=row.name, scope=row.scope, html=row.html, queries=queries, updated_at=row.updated_at)
+    return Dashboard(
+        name=row.name,
+        scope=row.scope,
+        html=row.html,
+        queries=queries,
+        params=[DashboardParam.model_validate(p) for p in json.loads(row.params)],
+        updated_at=row.updated_at,
+    )
 
 
 def _validate_dashboard(dashboard: DashboardIn) -> None:
@@ -226,6 +149,9 @@ def _validate_dashboard(dashboard: DashboardIn) -> None:
     _scope_job(dashboard.scope)
     for panel, query in dashboard.queries.items():
         _check_where(query.where, f"{panel}: ")
+    for param in dashboard.params:
+        if param.options_sql is not None:
+            raise Invalid(f"param {param.name}: options_sql is not supported")
 
 
 async def list_dashboards() -> Page[DashboardSummary]:
@@ -237,8 +163,12 @@ async def list_dashboards() -> Page[DashboardSummary]:
     )
 
 
+async def _find_dashboard(session: AsyncSession, name: str) -> DashboardRow | None:
+    return (await session.execute(select(DashboardRow).where(DashboardRow.name == name))).scalar_one_or_none()
+
+
 async def _dashboard_row(session: AsyncSession, name: str) -> DashboardRow:
-    row = await _find_row(session, DashboardRow, name)
+    row = await _find_dashboard(session, name)
     if row is None:
         raise NotFound(f"Dashboard not found: {name}")
     return row
@@ -253,7 +183,7 @@ async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
     """Upsert a dashboard by ``name``."""
     _validate_dashboard(dashboard)
     async with get_sql_session() as session:
-        row = await _find_row(session, DashboardRow, dashboard.name)
+        row = await _find_dashboard(session, dashboard.name)
         if row is None:
             row = DashboardRow(
                 id=get_snowflake_id(),
@@ -266,6 +196,7 @@ async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
         row.scope = dashboard.scope
         row.html = dashboard.html
         row.queries = json.dumps({panel: q.model_dump(mode="json") for panel, q in dashboard.queries.items()})
+        row.params = json.dumps([p.model_dump(exclude_none=True) for p in dashboard.params])
         row.updated_at = utc_now()
         await session.commit()
         await session.refresh(row)
@@ -280,16 +211,23 @@ async def delete_dashboard(name: str) -> Deleted:
     return Deleted(name=name)
 
 
-async def run_dashboard(name: str) -> DashboardResults:
-    """Run every panel query under the dashboard's scope; column-oriented results."""
-    dashboard = await get_dashboard(name)
-    panels = list(dashboard.queries)
-    requests = [
-        ObjectQueryRequest(**{**dashboard.queries[p].model_dump(), "scope": dashboard.scope, "limit": MAX_LIMIT})
-        for p in panels
-    ]
+async def _run_panels(scope: str, queries: dict[str, ObjectQuery]) -> DashboardResults:
+    panels = list(queries)
+    requests = [ObjectQueryRequest(**{**queries[p].model_dump(), "scope": scope, "limit": MAX_LIMIT}) for p in panels]
     pages = dict(zip(panels, await asyncio.gather(*(query_object(r) for r in requests)), strict=True))
     results = {
         panel: {c.name: [row[i] for row in page.data] for i, c in enumerate(page.meta)} for panel, page in pages.items()
     }
     return DashboardResults(results=results, meta={panel: page.meta for panel, page in pages.items()})
+
+
+async def run_queries(request: RunQueriesRequest) -> DashboardResults:
+    """Run every panel under ``request.scope``; column-oriented results."""
+    return await _run_panels(request.scope, request.queries)
+
+
+async def run_dashboard(name: str) -> DashboardResults:
+    """Run a dashboard's panels as stored. ``{param}`` placeholders are
+    substituted by the SPA, which runs the result through ``run_queries``."""
+    dashboard = await get_dashboard(name)
+    return await _run_panels(dashboard.scope, dashboard.queries)

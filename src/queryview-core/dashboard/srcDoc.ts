@@ -1,12 +1,62 @@
-// The document a dashboard iframe renders: results prologue + agent HTML.
+// The document a dashboard iframe renders: a theme, a prologue + the agent HTML.
+
+import type { ResolvedParam } from "./params";
 
 // Column-oriented results map: {query_name: {column_name: values[]}}.
 export type DashboardResults = Record<string, Record<string, unknown[]>>;
 
+// The kernel's theme tokens (core/kernel.css), each a --qv-<token> variable.
+// Keep in step with the @property list in kernel.css.
+const QV_TOKENS = ["accent", "accent-strong", "accent-soft", "accent-text", "accent-ink"] as const;
+export type QvToken = (typeof QV_TOKENS)[number];
+export type QvTheme = Partial<Record<QvToken, string>>;
+
+// Variables don't cross into the sandboxed frame, so the host's theme is
+// written into it; the widgets' shadow roots inherit it from there. Unknown
+// keys and values that could leave the style block are dropped.
+function themeStyle(theme: QvTheme): string {
+  const vars = QV_TOKENS.filter((k) => typeof theme[k] === "string" && !/[<;{}]/.test(theme[k]))
+    .map((k) => `--qv-${k}:${theme[k]};`)
+    .join("");
+  return vars ? `<style>:root{${vars}}</style>\n` : "";
+}
+
+// The in-iframe half of the params channel. The page sends values only; the
+// host substitutes them into the dashboard's own SQL and posts results back, so
+// the page re-renders without a reload and never handles SQL.
+const SET_PARAMS_HELPER = `
+window.setParams = function (values) {
+  parent.postMessage({ type: 'set-params', values: values }, '*');
+};
+window.addEventListener('message', function (e) {
+  var d = e.data;
+  if (!d || d.type !== 'params-results') return;
+  // A failed run keeps the previous results on screen and reports the message.
+  if (d.results) window.queries = d.results;
+  if (d.params && d.params.length) window.params = d.params;
+  if (typeof window.onQueryResults === 'function') {
+    window.onQueryResults(window.queries, window.params, d.ok ? null : d.message);
+  }
+});`;
+
 // Build the iframe document: a prologue exposing results as `window.queries`,
-// then the agent-authored HTML. JSON `<` is escaped so an embedded `</script>`
-// in result data can't break out of the prologue script.
-export function buildSrcDoc(html: string, results: DashboardResults): string {
-  const safeJson = JSON.stringify(results).replace(/</g, "\\u003c");
-  return `<script>window.queries = ${safeJson};</script>\n${html}`;
+// the resolved selectors as `window.params` and `window.setParams`, then the
+// agent-authored HTML. JSON `<` is escaped so an embedded `</script>` in result
+// data can't break out of the prologue script.
+export function buildSrcDoc(
+  html: string,
+  results: DashboardResults,
+  params: ResolvedParam[] = [],
+  theme: QvTheme = {},
+): string {
+  const safe = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c");
+  return (
+    themeStyle(theme) +
+    `<script>window.queries = ${safe(results)};\nwindow.params = ${safe(params)};` +
+    `${SET_PARAMS_HELPER}\n</script>\n` +
+    // The <qv-*> tags: loaded only by dashboards that use one, deferred so the
+    // tags upgrade once the HTML, their <template> children included, is parsed.
+    (/<qv-/i.test(html) ? `<script defer src="${__WIDGETS_URL__}"></script>\n` : "") +
+    html
+  );
 }

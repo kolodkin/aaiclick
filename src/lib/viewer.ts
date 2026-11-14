@@ -38,29 +38,17 @@ export function objectScope(o: ObjectView): string {
   return o.job_id != null ? scopeKey(String(o.job_id)) : PERSISTENT;
 }
 
-// "job - <name>" or "persistent" — the Scope column / picker suffix.
-export function objectScopeLabel(o: ObjectView): string {
-  return o.job_id != null ? `job - ${o.job_name ?? o.job_id}` : "persistent";
-}
-
-// `<verb> [persistent | job <ref>] [<object>]` — the `@data` / `@query`
-// prompt for a scope; bare `<verb>` is all scopes.
-function scopedPrompt(verb: "@data" | "@query", scope: string, object?: string): string {
+// `@data [persistent | job <ref>] [<object>]` — the prompt for a scope; bare
+// `@data` is all scopes.
+export function dataPrompt(scope: string, object?: string): string {
   const job = jobOfScope(scope);
   const prefix = job ? `job ${job}` : scope === PERSISTENT ? PERSISTENT : "";
-  return [verb, prefix, object ?? ""].filter(Boolean).join(" ");
+  return ["@data", prefix, object ?? ""].filter(Boolean).join(" ");
 }
-
-export const dataPrompt = (scope: string, object?: string) => scopedPrompt("@data", scope, object);
-export const queryPrompt = (scope: string, object?: string) => scopedPrompt("@query", scope, object);
 
 // The backend serialises OrderBy as a [name, dir] pair; the kernel wants objects.
 export function orderColsToPairs(cols: OrderCol[]): OrderByPair[] {
   return cols.map((c) => [c.name, c.dir]);
-}
-
-export function pairsToOrderCols(pairs: OrderByPair[] | null | undefined): OrderCol[] {
-  return (pairs ?? []).map(([name, dir]) => ({ name, dir }));
 }
 
 // The Fields picker's input, from the object's registered schema (aai_id hidden,

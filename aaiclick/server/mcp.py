@@ -90,9 +90,7 @@ from aaiclick.viewer.view_models import (
     DashboardSummary,
     ObjectQueryRequest,
     ObjectQueryResult,
-    SavedQuery,
-    SavedQueryFilter,
-    SavedQueryIn,
+    RunQueriesRequest,
 )
 
 from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_WRITE, McpRbacMiddleware
@@ -349,7 +347,7 @@ def migrate(action: MigrationAction, revision: str | None = None) -> MigrationRe
     return setup_api.migrate(action, revision)
 
 
-# --- viewer: object queries, saved queries, dashboards ------------------
+# --- viewer: object queries, dashboards ---------------------------------
 
 
 @mcp.tool(tags={TAG_READ})
@@ -358,27 +356,6 @@ async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
     ``fields`` / ``where`` / ``order_by``; JSONCompact ``meta`` + ``data``."""
     async with orch_context():
         return await viewer_api.query_object(request)
-
-
-@mcp.tool(tags={TAG_READ})
-async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[SavedQuery]:
-    """Saved viewer queries, optionally for one scope or object."""
-    async with orch_context():
-        return await viewer_api.list_saved_queries(filter)
-
-
-@mcp.tool(tags={TAG_WRITE})
-async def save_query(query: SavedQueryIn) -> SavedQuery:
-    """Create or replace a saved viewer query by name."""
-    async with orch_context():
-        return await viewer_api.save_query(query)
-
-
-@mcp.tool(tags={TAG_WRITE})
-async def delete_saved_query(name: str) -> Deleted:
-    """Delete a saved viewer query by name."""
-    async with orch_context():
-        return await viewer_api.delete_saved_query(name)
 
 
 @mcp.tool(tags={TAG_READ})
@@ -414,3 +391,10 @@ async def run_dashboard(name: str) -> DashboardResults:
     """Run every panel query of a dashboard; column-oriented results."""
     async with orch_context():
         return await viewer_api.run_dashboard(name)
+
+
+@mcp.tool(tags={TAG_READ})
+async def run_queries(request: RunQueriesRequest) -> DashboardResults:
+    """Run named object queries under one scope; column-oriented results."""
+    async with orch_context():
+        return await viewer_api.run_queries(request)

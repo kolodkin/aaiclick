@@ -9,7 +9,6 @@ from pydantic import Field
 
 from aaiclick.api_model import ApiModel
 from aaiclick.data.view_models import ColumnSchema
-from aaiclick.log_models import PageLimit, PageOffset
 
 ORDER_ASC = "ASC"
 ORDER_DESC = "DESC"
@@ -29,7 +28,7 @@ class OrderBy(NamedTuple):
 
 
 class ObjectQuery(ApiModel):
-    """What to read from one object — a dashboard panel, or the saved part of a request."""
+    """What to read from one object — a dashboard panel, or the stored part of a request."""
 
     object: str
     fields: list[str] | None = None  # None = every column
@@ -52,33 +51,41 @@ class ObjectQueryResult(ApiModel):
     text: str | None = None
 
 
-class SavedQueryIn(ObjectQuery):
+PARAM_VALUE = "value"
+PARAM_IDENTIFIER = "identifier"
+PARAM_DIMENSION = "dimension"
+ParamKind = Literal["value", "identifier", "dimension"]
+
+
+class DashboardParam(ApiModel):
+    """A dashboard selector, in QueryView's spec; the SPA kernel interprets it."""
+
     name: str
-    scope: str | None = "persistent"  # "persistent" | "job:<id|name>"; None = offered under every scope
-    cell_view: str | None = None  # raw YAML, see aaiclick/viewer/cell_view.py
+    kind: ParamKind = PARAM_VALUE
+    options: list[str | int | float] | None = None
+    options_sql: str | None = None
+    default: Literal["none"] | None = None  # "none": start unselected
 
 
-class SavedQuery(SavedQueryIn):
-    updated_at: datetime
+class RunQueriesRequest(ApiModel):
+    """Panels to run under one scope — a dashboard's queries with its params substituted."""
 
-
-class SavedQueryFilter(ApiModel):
-    scope: str | None = None  # also matches queries saved with no scope
-    object: str | None = None
-    limit: PageLimit = 50
-    offset: PageOffset = 0
-
-
-class DashboardIn(ApiModel):
-    name: str
     scope: str = "persistent"
-    html: str
-    # panel name → query, run under the dashboard's scope; capped since every panel runs at once
+    # panel name → query; capped since every panel runs at once
     queries: dict[str, ObjectQuery] = Field(max_length=MAX_DASHBOARD_PANELS)
 
 
+class DashboardIn(RunQueriesRequest):
+    name: str
+    html: str
+    # {name} placeholders in a panel's where take the selected value
+    params: list[DashboardParam] = Field(default_factory=list, max_length=MAX_DASHBOARD_PANELS)
+
+
 class Dashboard(DashboardIn):
-    queries: dict[str, ObjectQuery]  # uncapped: the cap guards writes, not dashboards already stored
+    # uncapped: the caps guard writes, not dashboards already stored
+    queries: dict[str, ObjectQuery]
+    params: list[DashboardParam] = Field(default_factory=list)
     updated_at: datetime
 
 

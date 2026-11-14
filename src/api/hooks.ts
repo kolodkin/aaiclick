@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import type { QueryRows } from "@qv/core";
-import { deleteJSON, fetchJSON, postJSON, postText, putJSON } from "./client";
+import { deleteJSON, fetchJSON, postJSON, putJSON } from "./client";
 import { isTaskStarted, isTerminalTask } from "../lib/status";
 import { ALL, jobOfScope } from "../lib/viewer";
 import type {
@@ -14,7 +14,6 @@ import type {
   Dashboard,
   DashboardResults,
   DashboardSummary,
-  Deleted,
   InviteUserRequest,
   InviteView,
   JobDetail,
@@ -34,8 +33,6 @@ import type {
   SandboxConfigView,
   SandboxFileDetailView,
   SandboxFileView,
-  SavedQuery,
-  SavedQueryBody,
   SubmitSandboxRequest,
   TaskDetail,
   TaskLogs,
@@ -237,59 +234,16 @@ export function useObject(scope: string, name: string) {
   });
 }
 
-const PREVIEW_LIMIT = 100;
-
-// `POST /viewer/query` returns ClickHouse's JSONCompact verbatim — the kernel's
-// `QueryRows` shape (`meta`, `data`) plus `rows` / `statistics`.
-const queryRows = (req: Omit<ObjectQueryRequest, "fmt">) =>
-  postJSON<QueryRows>("/viewer/query", { ...req, fmt: "json" });
-
-// The first page of an object's rows — a POST-backed read, cached per object.
-export function useObjectRows(scope: string, object: string) {
+// One page of an object's rows. `POST /viewer/query` returns ClickHouse's
+// JSONCompact verbatim — the kernel's `QueryRows` shape (`meta`, `data`) plus
+// `rows` / `statistics`. A re-run (paging, a new order) keeps the previous page
+// on screen until the next one lands.
+export function useObjectRows(req: Omit<ObjectQueryRequest, "fmt">) {
   return useQuery({
-    queryKey: ["object-rows", scope, object],
-    queryFn: () => queryRows({ scope, object, limit: PREVIEW_LIMIT, offset: 0 }),
+    queryKey: ["object-rows", req],
+    queryFn: () => postJSON<QueryRows>("/viewer/query", { ...req, fmt: "json" }),
+    placeholderData: keepPreviousData,
     refetchInterval: false,
-  });
-}
-
-// The query panel runs on demand (Execute, paging, params): a mutation whose
-// result is panel state.
-export function useQueryObject() {
-  return useMutation({ mutationFn: queryRows });
-}
-
-// The same page as `CSVWithNames` text, for download.
-export function useQueryObjectCsv() {
-  return useMutation({
-    mutationFn: (req: Omit<ObjectQueryRequest, "fmt">) => postText("/viewer/query", { ...req, fmt: "csv" }),
-  });
-}
-
-export function useSavedQueries(scope: string, object?: string) {
-  const params = new URLSearchParams({ scope });
-  if (object) params.set("object", object);
-  return useQuery({
-    queryKey: ["saved-queries", scope, object ?? ""],
-    queryFn: () => fetchJSON<Page<SavedQuery>>(`/viewer/queries?${params}`),
-    refetchInterval: false,
-  });
-}
-
-export function useSaveQuery() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ name, body }: { name: string; body: SavedQueryBody }) =>
-      putJSON<SavedQuery>(`/viewer/queries/${encodeURIComponent(name)}`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-queries"] }),
-  });
-}
-
-export function useDeleteSavedQuery() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (name: string) => deleteJSON<Deleted>(`/viewer/queries/${encodeURIComponent(name)}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-queries"] }),
   });
 }
 
@@ -310,14 +264,9 @@ export function useDashboard(name: string) {
   });
 }
 
-export function useRunDashboard(name: string) {
-  return useQuery({
-    queryKey: ["dashboard-results", name],
-    queryFn: () => postJSON<DashboardResults>(`/viewer/dashboards/${encodeURIComponent(name)}:run`),
-    enabled: name.length > 0,
-    refetchInterval: false,
-  });
-}
+// Panels under one scope, column-oriented — the `window.queries` contract.
+export const runQueries = (scope: string, queries: Dashboard["queries"]) =>
+  postJSON<DashboardResults>("/viewer/runqueries", { scope, queries });
 
 // --- API tokens ---------------------------------------------------------
 

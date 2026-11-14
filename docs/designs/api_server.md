@@ -55,7 +55,7 @@ Each surface is a thin renderer over one internal API typed with pydantic view m
 | `PageLimit`, `PageOffset` | Bounds on every `*Filter`: `1 ≤ limit ≤ MAX_PAGE_LIMIT` (1000), `offset ≥ 0`; out of range is `422` |
 | `UtcDateTime`             | Request datetimes (`since`, `expires_at`, …) normalized to naive UTC                                |
 
-Inputs are `*Request` models (`RunJobRequest`, `RegisterJobRequest`, …) and one `*Filter` per list endpoint. Viewer models (`ObjectQueryRequest`, `SavedQueryIn`, `DashboardIn`, their filters and results) live in `aaiclick/viewer/view_models.py`; see `docs/designs/viewer.md`.
+Inputs are `*Request` models (`RunJobRequest`, `RegisterJobRequest`, …) and one `*Filter` per list endpoint. Viewer models (`ObjectQueryRequest`, `DashboardIn`, `RunQueriesRequest` and their results) live in `aaiclick/viewer/view_models.py`; see `docs/designs/viewer.md`.
 
 **Snowflake ids on the wire**: every 64-bit id field (`id`, `job_id`, `execution_worker_id`, …) is a `SnowflakeId`, serialized as a JSON *string* so JavaScript keeps it exact instead of rounding past `Number.MAX_SAFE_INTEGER` (2^53-1). It is serialization-only: the Python attribute and `model_dump()` stay `int`, and request paths/bodies accept the numeric string and coerce it back. The generated SPA types (`src/api/schema.ts`) declare these fields `string`.
 
@@ -129,14 +129,12 @@ async def list_jobs(filter: JobListFilter = JobListFilter()) -> Page[JobView]: .
 | `data delete <name>`         | `delete_object(name)`              | `DELETE /objects/{name}`             | `delete_object`          |
 | `data purge`                 | `purge_objects(filter)`            | `POST /objects:purge`                | `purge_objects`          |
 | `data query <object>`        | `query_object(request)`            | `POST /viewer/query`                 | `query_object`           |
-| `view queries list`          | `list_saved_queries(filter)`       | `GET /viewer/queries`                | `list_saved_queries`     |
-| `view queries save`          | `save_query(query)`                | `PUT /viewer/queries/{name}`         | `save_query`             |
-| `view queries delete`        | `delete_saved_query(name)`         | `DELETE /viewer/queries/{name}`      | `delete_saved_query`     |
 | `view dashboards list`       | `list_dashboards()`                | `GET /viewer/dashboards`             | `list_dashboards`        |
 | `view dashboards get`        | `get_dashboard(name)`              | `GET /viewer/dashboards/{name}`      | `get_dashboard`          |
 | `view dashboards save`       | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`      | `save_dashboard`         |
 | `view dashboards delete`     | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}`   | `delete_dashboard`       |
 | `view dashboards run`        | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`          |
+| —                            | `run_queries(request)`             | `POST /viewer/runqueries`            | `run_queries`            |
 | `task list`                  | `list_tasks(filter)`               | `GET /tasks`                         | `list_tasks`             |
 | —                            | `get_task(id)`                     | `GET /tasks/{id}`                    | `get_task`               |
 | —                            | `get_task_logs(id, tail, attempt)` | `GET /tasks/{id}/logs`               | `get_task_logs`          |

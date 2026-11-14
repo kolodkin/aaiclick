@@ -15,7 +15,6 @@ import {
   Home,
   JobDetail,
   Jobs,
-  Query,
   Registered,
   RegisterForm,
   RunConfirm,
@@ -81,8 +80,6 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
       return <ResetPassword token={route.token} onDone={() => onPrompt("")} />;
     case "data":
       return <Data scope={route.scope} object={route.object} onPrompt={onPrompt} />;
-    case "query":
-      return <Query scope={route.scope} object={route.object} onPrompt={onPrompt} />;
     case "dashboard":
       return <Dashboard name={route.name} onPrompt={onPrompt} />;
     case "sandbox":

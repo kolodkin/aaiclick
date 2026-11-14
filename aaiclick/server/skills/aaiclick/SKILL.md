@@ -51,10 +51,11 @@ exposed here: it belongs to the CLI and the deployment. If no worker is
 
 # Viewer
 
-- Saved queries: `list_saved_queries`, `save_query` (create or replace by
-  `name`), `delete_saved_query`.
 - Dashboards: `list_dashboards`, `get_dashboard`, `save_dashboard` (HTML plus
-  named object queries), `delete_dashboard`, `run_dashboard` to run every panel.
+  named object queries and optional `params` selectors), `delete_dashboard`,
+  `run_dashboard` to run every panel as stored.
+- `run_queries` runs named object queries under one scope — a dashboard's
+  panels with its `{param}` placeholders already substituted.
 
 # Lineage triage
 

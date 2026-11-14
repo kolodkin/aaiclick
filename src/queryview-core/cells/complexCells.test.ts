@@ -16,8 +16,14 @@ describe("parseComplexType", () => {
   });
 
   test("Array(Tuple(...)) and Array(Map(...)) record the element kind", () => {
-    expect(parseComplexType("Array(Tuple(id Int32, name String))")).toEqual({ kind: "array", element: "tuple" });
-    expect(parseComplexType("Array(Map(String, UInt64))")).toEqual({ kind: "array", element: "map" });
+    expect(parseComplexType("Array(Tuple(id Int32, name String))")).toEqual({
+      kind: "array",
+      element: "tuple",
+    });
+    expect(parseComplexType("Array(Map(String, UInt64))")).toEqual({
+      kind: "array",
+      element: "map",
+    });
   });
 
   test("Array(Nullable(String)) is still a scalar array", () => {

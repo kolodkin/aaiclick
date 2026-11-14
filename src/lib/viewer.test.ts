@@ -4,7 +4,6 @@ import {
   fieldsFromSchema,
   formatBytes,
   orderColsToPairs,
-  pairsToOrderCols,
   scopeKey,
   jobScopeLabel,
   scopeLabel,
@@ -32,7 +31,7 @@ describe("scope keys", () => {
 });
 
 describe("order by adapters", () => {
-  test("round trip", () => {
+  test("cols to wire pairs", () => {
     const cols = [
       { name: "a", dir: "ASC" as const },
       { name: "b", dir: "DESC" as const },
@@ -41,8 +40,6 @@ describe("order by adapters", () => {
       ["a", "ASC"],
       ["b", "DESC"],
     ]);
-    expect(pairsToOrderCols(orderColsToPairs(cols))).toEqual(cols);
-    expect(pairsToOrderCols(undefined)).toEqual([]);
   });
 });
 

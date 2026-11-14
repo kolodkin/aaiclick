@@ -29,7 +29,6 @@ Usage:
     python -m aaiclick data delete <name>       # Delete persistent object
     python -m aaiclick data purge --after ISO   # Delete persistent objects by time
     python -m aaiclick data query <object> [--scope job:<ref>] [--where EXPR]   # Read rows of an object
-    python -m aaiclick view queries list|save|delete                            # Saved viewer queries
     python -m aaiclick view dashboards list|get|save|delete|run                 # Dashboards
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
 """
@@ -81,7 +80,7 @@ from aaiclick.view_models import (
     RunJobRequest,
     TaskListFilter,
 )
-from aaiclick.viewer.view_models import DashboardIn, ObjectQueryRequest, OrderBy, SavedQueryFilter, SavedQueryIn
+from aaiclick.viewer.view_models import DashboardIn, ObjectQueryRequest, OrderBy
 
 _JSON_HELP = "Emit JSON instead of a table"
 
@@ -383,32 +382,6 @@ async def _run_data_query(args: argparse.Namespace) -> None:
     _render(args, result, cli_renderers.render_query_result)
 
 
-async def _run_view_queries_list(args: argparse.Namespace) -> None:
-    page = await _run_internal_api(
-        internal_api.list_saved_queries(SavedQueryFilter(scope=args.scope, object=args.object))
-    )
-    _render(args, page, cli_renderers.render_saved_queries_page)
-
-
-async def _run_view_queries_save(args: argparse.Namespace) -> None:
-    cell_view = Path(args.cell_view).read_text() if args.cell_view else None
-    query = SavedQueryIn(
-        name=args.name,
-        scope=args.scope,
-        object=args.object,
-        where=args.where,
-        fields=_parse_fields(args.fields),
-        order_by=_parse_order_by(args.order_by),
-        cell_view=cell_view,
-    )
-    _render(args, await _run_internal_api(internal_api.save_query(query)), cli_renderers.render_saved_query)
-
-
-async def _run_view_queries_delete(args: argparse.Namespace) -> None:
-    deleted = await _run_internal_api(internal_api.delete_saved_query(args.name))
-    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "saved query"))
-
-
 async def _run_view_dashboards_list(args: argparse.Namespace) -> None:
     _render(args, await _run_internal_api(internal_api.list_dashboards()), cli_renderers.render_dashboards_page)
 
@@ -418,7 +391,7 @@ async def _run_view_dashboards_get(args: argparse.Namespace) -> None:
 
 
 async def _run_view_dashboards_save(args: argparse.Namespace) -> None:
-    doc = json.loads(Path(args.file).read_text())  # {"scope"?, "html", "queries": {panel: {...}}}
+    doc = json.loads(Path(args.file).read_text())  # {"scope"?, "html", "queries": {panel: {...}}, "params"?}
     dashboard = DashboardIn(name=args.name, **doc)
     _render(args, await _run_internal_api(internal_api.save_dashboard(dashboard)), cli_renderers.render_dashboard)
 
@@ -1126,31 +1099,9 @@ def build_parser() -> argparse.ArgumentParser:
     data_query_parser.add_argument("--csv", action="store_true", help="Print CSV instead of a table")
     _add_json_flag(data_query_parser)
 
-    # view queries ... / view dashboards ...
-    view_parser = subparsers.add_parser("view", help="Saved viewer queries and dashboards")
+    # view dashboards ...
+    view_parser = subparsers.add_parser("view", help="Viewer dashboards")
     view_subparsers = view_parser.add_subparsers(dest="view_command", help="View commands")
-
-    vq = view_subparsers.add_parser("queries", help="Saved queries")
-    vq_sub = vq.add_subparsers(dest="view_verb")
-    p = vq_sub.add_parser("list", help="List saved queries")
-    p.set_defaults(handler=_run_view_queries_list)
-    p.add_argument("--scope", default=None)
-    p.add_argument("--object", default=None)
-    _add_json_flag(p)
-    p = vq_sub.add_parser("save", help="Create or replace a saved query")
-    p.set_defaults(handler=_run_view_queries_save)
-    p.add_argument("name")
-    p.add_argument("object")
-    p.add_argument("--scope", default="persistent")
-    p.add_argument("--where", default=None)
-    p.add_argument("--fields", default=None)
-    p.add_argument("--order-by", dest="order_by", default=None)
-    p.add_argument("--cell-view", dest="cell_view", default=None, help="Path to a cell_view YAML file")
-    _add_json_flag(p)
-    p = vq_sub.add_parser("delete", help="Delete a saved query")
-    p.set_defaults(handler=_run_view_queries_delete)
-    p.add_argument("name")
-    _add_json_flag(p)
 
     vd = view_subparsers.add_parser("dashboards", help="Dashboards")
     vd_sub = vd.add_subparsers(dest="view_verb")
@@ -1164,7 +1115,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = vd_sub.add_parser("save", help="Create or replace a dashboard from a JSON file")
     p.set_defaults(handler=_run_view_dashboards_save)
     p.add_argument("name")
-    p.add_argument("--file", required=True, help='JSON: {"scope"?, "html", "queries": {panel: {object, ...}}}')
+    p.add_argument(
+        "--file", required=True, help='JSON: {"scope"?, "html", "queries": {panel: {object, ...}}, "params"?}'
+    )
     _add_json_flag(p)
     p = vd_sub.add_parser("delete", help="Delete a dashboard")
     p.set_defaults(handler=_run_view_dashboards_delete)

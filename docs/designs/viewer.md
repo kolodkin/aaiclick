@@ -1,7 +1,7 @@
-Viewer: Objects, Query, and Dashboard Modes
+Viewer: Object and Dashboard Modes
 ---
 
-Three prompt-driven SPA modes (`@data`, `@query`, `@dashboard`) and the
+Two prompt-driven SPA modes (`@data`, `@dashboard`) and the
 `internal_api` verbs behind them, exposed through REST, MCP and CLI like every
 other command. The rendering kernel comes from QueryView; everything else is
 aaiclick's own. UX per mode: `docs/designs/ui.md`.
@@ -9,8 +9,8 @@ aaiclick's own. UX per mode: `docs/designs/ui.md`.
 # QueryView Coupling
 
 The only shared code is QueryView's frontend kernel, `frontend/src/core`
-(React 19, Tailwind 4, `js-yaml`): result rows, cell views, complex-type
-cells, query params, field pickers, and the dashboard sandbox. No Python
+(React 19, Tailwind 4, `js-yaml`): result rows, complex-type cells, field
+pickers, and the dashboard sandbox with its params and widgets. No Python
 dependency, no runtime coupling — once aaiclick owns catalog, storage, auth
 and MCP, the kernel is all that is left to reuse.
 
@@ -18,11 +18,12 @@ and MCP, the kernel is all that is left to reuse.
 
 `src/queryview-core/` is a verbatim copy of `frontend/src/core` at the commit
 recorded in its `README.md`, imported as `@qv/core` (tsconfig `paths` + Vite
-and vitest `resolve.alias`); its `glass-*` classes are ported to
-`src/styles/queryview-core.css`. The folder is never edited here: a change
-goes to QueryView first (its lint rules keep the kernel free of routing,
-fetching and app state), then the copy is refreshed and `npm run check` /
-`npm test` re-run.
+and vitest `resolve.alias`). Its stylesheet, `kernel.css`, brings Tailwind
+and the `glass-*` rules; `src/styles/globals.css` imports it and sets the
+`--qv-*` theme variables to aaiclick's lemon accent. The folder is never
+edited here: a change goes to QueryView first (its lint rules keep the kernel
+free of routing, fetching, app state and imports from outside it), then the
+copy is refreshed and `npm run check` / `npm test` re-run.
 
 ## The contract the kernel expects
 
@@ -30,12 +31,11 @@ fetching and app state), then the copy is refreshed and `npm run check` /
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
 | result rows       | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact`, 64-bit integers / decimals / denormals quoted, named tuples as objects | `POST /viewer/query` returns ClickHouse's output verbatim |
 | column types      | `meta[].type`, ClickHouse type strings                                                                                                   | same response                                             |
-| cell views        | raw YAML (`link` / `custom`, `params:` block); `{name}` params substitute into the `where` expression                                    | `viewer_queries.cell_view`, validated server-side         |
-| presentation      | `order_by: [{name, dir}]`, `fields: [col]`                                                                                               | `viewer_queries.order_by` / `fields`                      |
-| dashboard results | `{query: {column: values}}` for `window.queries`                                                                                         | `run_dashboard`                                           |
-| CSV download      | text from a separate request                                                                                                             | `query_object` with `fmt="csv"`                           |
+| presentation      | `order_by: [{name, dir}]`, `fields: [col]`                                                                                               | the object view's pickers; `order_by` goes to the server  |
+| dashboard results | `{query: {column: values}}` for `window.queries`                                                                                         | `run_queries`                                             |
+| dashboard params  | `[{name, kind, options, default}]`; `{name}` placeholders substitute into a string per panel                                             | `viewer_dashboards.params`, each panel's `where`          |
 
-These are QueryView's `/api/db/query`, predefined-query and `/api/runqueries`
+These are QueryView's `/api/db/query`, dashboard and `/api/runqueries`
 shapes; keeping them identical is what lets the copy stay verbatim. The one
 adapter, `src/lib/viewer.ts`, converts aaiclick's wire order-by pair
 (`[name, dir]`) and object schema to the kernel's types.
@@ -45,7 +45,7 @@ adapter, `src/lib/viewer.ts`, converts aaiclick's wire order-by pair
 **Implementation**: `aaiclick/viewer/scope.py`
 
 Objects are shown under a scope key — a string, so it fits the prompt, the
-URL, saved queries and CLI flags:
+URL, dashboards and CLI flags:
 
 | Scope            | Tables listed                                    |
 |------------------|--------------------------------------------------|
@@ -54,7 +54,7 @@ URL, saved queries and CLI flags:
 | `job:<id\|name>` | `table_registry` rows with the resolved `job_id` |
 
 A job scope resolves like `get_job`: an id names one run, a name the latest
-run with that name. Saved queries and dashboards store the key as given, so
+run with that name. Dashboards store the key as given, so
 `job:nightly_etl` follows each new run while `job:123` stays pinned. Temp and
 oplog tables never appear. `all` is a listing scope only
 (`GET /objects?scope=all`); each item carries its own `job_id` / `job_name`,
@@ -105,47 +105,49 @@ Every function runs under `orch_context()`. Models:
 |---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
 | `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` (MCP, CLI)        |
 | `query_object_bytes(ObjectQueryRequest)`    | `bytes`                                | the page as ClickHouse sent it — what REST returns verbatim (`application/json` / `text/csv`), no decode or re-encode |
-| `list_saved_queries(SavedQueryFilter)`      | `Page[SavedQuery]`                     | by `scope` and `object`; a query saved with `scope=None` matches every scope                                          |
-| `save_query(SavedQueryIn)`                  | `SavedQuery`                           | upsert on `name`; validates `where` and the `cell_view` YAML shape                                                    |
-| `delete_saved_query(name)`                  | `Deleted`                              |                                                                                                                       |
 | `list_dashboards()` / `get_dashboard(name)` | `Page[DashboardSummary]` / `Dashboard` |                                                                                                                       |
-| `save_dashboard(DashboardIn)`               | `Dashboard`                            | upsert on `name`; `queries` is `dict[panel, ObjectQuery]`                                                             |
+| `save_dashboard(DashboardIn)`               | `Dashboard`                            | upsert on `name`; `queries` is `dict[panel, ObjectQuery]`, `params` the selector specs                                |
 | `delete_dashboard(name)`                    | `Deleted`                              |                                                                                                                       |
-| `run_dashboard(name)`                       | `DashboardResults`                     | runs the panels concurrently under the dashboard's scope; column-oriented, the `window.queries` contract              |
+| `run_queries(RunQueriesRequest)`            | `DashboardResults`                     | runs the panels concurrently under one scope; column-oriented, the `window.queries` contract                          |
+| `run_dashboard(name)`                       | `DashboardResults`                     | `run_queries` over the dashboard's panels as stored — no param substitution                                           |
 
-`ObjectQuery` (object, fields, where, order_by) is a dashboard panel; a saved
-query adds `name`, `scope` and `cell_view`; a request adds `scope`, paging and
-`fmt`. Code-declared queries need no separate mechanism: job code calls
-`save_query` through the same `internal_api`.
+`ObjectQuery` (object, fields, where, order_by) is a dashboard panel; a
+request adds `scope`, paging and `fmt`.
+
+## Dashboard params
+
+A dashboard's `params` are QueryView's selector specs (`name`, `kind`,
+`options`, `default: none`), interpreted by the kernel in the browser. A
+`{name}` placeholder in a panel's `where` takes the chosen value: a quoted
+literal (backslashes escaped, as ClickHouse reads them), or a backtick-quoted
+identifier for `kind: identifier`. The SPA substitutes, then sends the panels
+to `run_queries`, so the result passes the same `where` guard as any query; a
+panel whose selector is unchosen is held back. `save_dashboard` rejects
+`options_sql` (`future.md`).
 
 ## Storage
 
 **Implementation**: `aaiclick/viewer/models.py`
 
-`viewer_queries` and `viewer_dashboards`, unique on `name`, migrated through
-the Alembic chain. `cell_view` is raw YAML and `order_by` / `fields` /
-`queries` are JSON text, stored verbatim and interpreted by the kernel; the
-server validates shape, and `where` with the rules above.
+`viewer_dashboards`, unique on `name`, migrated through the Alembic chain.
+`queries` and `params` are JSON text; the server validates each panel's
+`where` with the rules above.
 
 ## Surfaces
 
 - **REST** (`/viewer` prefix, the objects router's dependencies):
   `POST /query` (raw ClickHouse text, no parse / re-serialise on the server),
-  `GET|PUT|DELETE /queries[/{name}]`, `GET|PUT|DELETE /dashboards[/{name}]`,
-  `POST /dashboards/{name}:run`. Any user may read and run; members and
+  `GET|PUT|DELETE /dashboards[/{name}]`, `POST /dashboards/{name}:run`,
+  `POST /runqueries`. Any user may read and run; members and
   admins save; nothing here drops data.
 - **MCP**: one tool per verb, each opening `orch_context()`. The
   lineage-scoped `lineage_query` stays as is.
 - **CLI**: `data query <object> [--scope job:<ref>] [--where EXPR] [--fields
-  a,b] [--order-by col:desc]`, `view queries list|save|delete`, `view
-  dashboards list|get|save|delete|run`.
+  a,b] [--order-by col:desc]`, `view dashboards list|get|save|delete|run`.
 
 # Frontend
 
-Object rows in `@data` come from the same `query_object` with no
-constraints, so `@data` and `@query` share one hook and one result shape. The
-Fields picker is fed from the object's schema; only static `params:` options
-render (`future.md`).
+`@data`'s object view and `@dashboard` are described in `ui.md`.
 
 Local mode (`python -m aaiclick local start`) runs the API and workers in one
 process, so the viewer's ClickHouse access nests into the runtime context and
@@ -156,9 +158,10 @@ over clickhouse-connect. Nothing in the viewer is per-process.
 
 - chdb: `query_object` over persistent and job objects — fields, `where`,
   ordering, paging, CSV, the `where` guard, unknown objects and jobs;
-  saved-query and dashboard round-trips; `run_dashboard` column orientation.
+  dashboard round-trips; `run_dashboard` / `run_queries` column orientation.
 - Routers: routes, 404 / 422 problems, 401 without a token in distributed
   mode.
 - Vitest (`npm test`): the kernel's own tests, prompt parsing, the adapter.
-- Playwright (seeded before the server starts): `@data` previews the seeded
-  object, `@query` runs and pages, `@dashboard` renders the saved dashboard.
+- Playwright (seeded before the server starts): `@data` lists, orders and
+  pages the seeded object, `@dashboard` renders the saved dashboard and
+  re-runs it through `setParams`.

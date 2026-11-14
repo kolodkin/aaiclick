@@ -4,6 +4,9 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // shortcut: aaiclick builds and serves no widget bundle yet, so a dashboard's
+  // <qv-*> tags stay unrendered; serve /widgets.js to adopt them (future.md).
+  define: { __WIDGETS_URL__: JSON.stringify("/widgets.js") },
   resolve: {
     alias: { "@qv/core": "/src/queryview-core/index.ts" },
   },
