@@ -106,16 +106,9 @@ def test_init_compose_server_carries_auth_credentials(tmp_path):
     assert env["AAICLICK_ADMIN_PASSWORD"]
 
 
-def test_init_compose_worker_runs_the_docker_runner(tmp_path):
-    """The compose stack dispatches container tasks to the mounted host daemon."""
-    target = tmp_path / "docker-compose.yaml"
-    init_compose(target, image_tag="v1.0.0")
-    env = yaml.safe_load(target.read_text())["services"]["worker"]["environment"]
-    assert env["AAICLICK_RUNNER"] == "docker"
-
-
 def test_init_compose_builds_on_rootless_buildkitd(tmp_path):
-    """Builds run on a rootless buildkitd, never the host daemon the worker mounts."""
+    """The worker dispatches container tasks to the mounted host daemon, but
+    builds run on a rootless buildkitd, never that daemon."""
     target = tmp_path / "docker-compose.yaml"
     init_compose(target, image_tag="v1.0.0")
     parsed = yaml.safe_load(target.read_text())
@@ -123,7 +116,9 @@ def test_init_compose_builds_on_rootless_buildkitd(tmp_path):
     assert buildkitd["image"].startswith("moby/buildkit:v") and buildkitd["image"].endswith("-rootless")
     assert {"seccomp=unconfined", "apparmor=unconfined"} <= set(buildkitd["security_opt"])
     assert "docker.sock" not in str(buildkitd)
-    assert parsed["services"]["worker"]["environment"]["AAICLICK_BUILDKIT_ADDR"] == "tcp://buildkitd:1234"
+    worker_env = parsed["services"]["worker"]["environment"]
+    assert worker_env["AAICLICK_RUNNER"] == "docker"
+    assert worker_env["AAICLICK_BUILDKIT_ADDR"] == "tcp://buildkitd:1234"
     toml = parsed["configs"]["buildkitd_toml"]["content"]
     assert '[registry."host.docker.internal:5000"]' in toml and "http = true" in toml
 
