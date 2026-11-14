@@ -98,7 +98,7 @@ jobs:
       # failures, so assert the data the installed package needs.
       - name: Verify wheel contains required data files
         run: |
-          wheel=$(ls dist/aaiclick_core-*.whl | head -n 1)
+          wheel=$(ls dist/aaiclick_client-*.whl | head -n 1)
           contents=$(unzip -l "$wheel")
           missing=0
           for path in \
@@ -267,7 +267,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-local.txt
-          uv pip install --no-deps --no-index --find-links dist/ aaiclick-core
+          uv pip install --no-deps --no-index --find-links dist/ aaiclick-client
 
       - name: Setup local backend
         run: uv run --no-project python -m aaiclick setup
@@ -309,7 +309,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --no-index --find-links dist/ "aaiclick-core[distributed]"
+          uv pip install --no-deps --no-index --find-links dist/ "aaiclick-client[distributed]"
 
       - *ghcr-login
 

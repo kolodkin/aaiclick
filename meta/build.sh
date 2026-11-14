@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the `aaiclick` meta wheel + sdist pinned to aaiclick-core==VERSION.
+# Build the `aaiclick` meta wheel + sdist pinned to aaiclick-client==VERSION.
 # Usage: meta/build.sh VERSION OUT_DIR
 set -euo pipefail
 version="$1"
@@ -15,5 +15,5 @@ uv build "$work" --out-dir "$out"
 
 wheel="$(ls "$out"/aaiclick-"${version}"-*.whl)"
 unzip -p "$wheel" "aaiclick-${version}.dist-info/METADATA" \
-  | grep -qxF "Requires-Dist: aaiclick-core[all]==${version}" \
-  || { echo "meta wheel $wheel does not pin aaiclick-core[all]==${version}" >&2; exit 1; }
+  | grep -qxF "Requires-Dist: aaiclick-client[all]==${version}" \
+  || { echo "meta wheel $wheel does not pin aaiclick-client[all]==${version}" >&2; exit 1; }

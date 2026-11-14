@@ -21,7 +21,7 @@ pip install aaiclick
 python -m aaiclick setup
 ```
 
-The same install also runs against a remote ClickHouse server + PostgreSQL. For a slim install inside a task image, use `pip install "aaiclick-core[client]"`.
+The same install also runs against a remote ClickHouse server + PostgreSQL. For a slim install inside a task image, use `pip install aaiclick-client`.
 
 For lineage triage with your coding agent (Claude Code, Codex, any MCP client):
 

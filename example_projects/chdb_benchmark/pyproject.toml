@@ -5,10 +5,10 @@ description = "Benchmark comparing aaiclick Object API against native chdb SQL"
 requires-python = ">=3.11"
 
 dependencies = [
-    "aaiclick-core[all]",
+    "aaiclick-client[all]",
     "rich>=13.0",
 ]
 
 # The monorepo checkout, not a PyPI release — examples always exercise this tree.
 [tool.uv.sources]
-aaiclick-core = { path = "../..", editable = true }
+aaiclick-client = { path = "../..", editable = true }

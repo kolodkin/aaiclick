@@ -12,7 +12,7 @@ LABEL org.opencontainers.image.description="aaiclick API server + runner base"
 # Same set as the `aaiclick` package; core directly so source-built e2e images need no meta wheel.
 RUN pip install --no-cache-dir \
     --index-url "${PIP_INDEX_URL}" \
-    "aaiclick-core[all]==${AAICLICK_VERSION}"
+    "aaiclick-client[all]==${AAICLICK_VERSION}"
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 1000 aaiclick

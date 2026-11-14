@@ -273,7 +273,7 @@ def setup(*, force: bool = False) -> SetupResult:
     if is_chdb():
         chdb_path = get_chdb_data_path()
         Path(chdb_path).mkdir(parents=True, exist_ok=True)
-        # Load only the backend in use: chdb ships in the aaiclick-core[local] extra.
+        # Load only the backend in use: chdb ships in the aaiclick-client[local] extra.
         from aaiclick.data.object_context.chdb_client import get_shared_session  # noqa: PLC0415
 
         # chdb's Session is a per-process singleton; open it here so later
@@ -285,7 +285,7 @@ def setup(*, force: bool = False) -> SetupResult:
             SetupStep(
                 name="clickhouse",
                 status="skipped",
-                detail="remote server — requires pip install aaiclick-core[distributed]",
+                detail="remote server — requires pip install aaiclick-client[distributed]",
             )
         )
 
@@ -302,7 +302,7 @@ def setup(*, force: bool = False) -> SetupResult:
             SetupStep(
                 name="postgres",
                 status="skipped",
-                detail="requires pip install aaiclick-core[distributed]; run migrations separately",
+                detail="requires pip install aaiclick-client[distributed]; run migrations separately",
             )
         )
 

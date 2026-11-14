@@ -5,15 +5,15 @@ Getting Started
 
 `pip install aaiclick` installs everything: embedded chdb + SQLite, the remote
 ClickHouse / PostgreSQL drivers, and the REST + MCP server. The code ships in
-`aaiclick-core`; install it directly for a slimmer set:
+`aaiclick-client`, which on its own carries only the remote drivers:
 
-| Install                             | Adds to the core deps                        | For                            |
-|-------------------------------------|----------------------------------------------|--------------------------------|
-| `aaiclick`                          | `aaiclick-core[all]`                         | Default: everything            |
-| `aaiclick-core[local]`              | chdb, aiosqlite                              | Embedded backend only          |
-| `aaiclick-core[client]`             | clickhouse-connect, aiohttp, asyncpg         | Task code in a container image |
-| `aaiclick-core[distributed]`        | `client` + psycopg2 (migrations)             | Workers on ClickHouse + PG     |
-| `aaiclick-core[server]`             | FastAPI, uvicorn, fastmcp                    | REST + MCP server, UI          |
+| Install                         | Adds                                                  | For                            |
+|---------------------------------|-------------------------------------------------------|--------------------------------|
+| `aaiclick`                      | `aaiclick-client[all]`                                | Default: everything            |
+| `aaiclick-client`               | Remote drivers: clickhouse-connect, aiohttp, asyncpg  | Task code in a container image |
+| `aaiclick-client[local]`        | chdb, aiosqlite                                       | Embedded backend               |
+| `aaiclick-client[distributed]`  | psycopg2 (migrations)                                 | Workers on ClickHouse + PG     |
+| `aaiclick-client[server]`       | FastAPI, uvicorn, fastmcp                             | REST + MCP server, UI          |
 
 === "Local (chdb + SQLite)"
 
