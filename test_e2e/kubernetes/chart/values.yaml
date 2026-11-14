@@ -1,17 +1,19 @@
+# nodePorts equal the standard ports: CI widens the k3s NodePort range so each
+# service is reachable on the runner at localhost:<standard port>.
 postgres:
   image: postgres:18.6
   user: aaiclick
   password: secret
   db: aaiclick
-  nodePort: 30432
+  nodePort: 5432
 clickhouse:
   image: clickhouse/clickhouse-server:26.10
   user: default
   password: click123
-  nodePort: 30123
+  nodePort: 8123
 pypiserver:
   image: pypiserver/pypiserver:v2.3.2
-  nodePort: 30080
+  nodePort: 8080
 registry:
   image: registry:2
-  nodePort: 30500
+  nodePort: 5000

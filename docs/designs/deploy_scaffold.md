@@ -147,7 +147,7 @@ the local-only gate), so they run concurrently.
 | test-package-local      | chdb + SQLite, no infra                                                                                                                                                                                                                               |
 | test-package            | Data/orch matrix; infra from the scaffolded compose file (full stack up, waiting for `migrate` to exit 0) instead of `services:` blocks                                                                                                               |
 | test-compose-e2e        | `compose init`, tags pointed at `-rc`, `docker compose up`, wait for server health, then `docker compose exec` into the server to register/run a job via the CLI and poll `job list --json`                                                           |
-| test-helm-e2e           | kind cluster with the `-rc` images side-loaded (`kind load docker-image`), `k8s init` chart, `helm lint` + `helm install`, a port-forwarded server-health smoke, and a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`) |
+| test-helm-e2e           | k3s cluster with the `-rc` images side-loaded (`k3s ctr images import`), `k8s init` chart, `helm lint` + `helm install`, a port-forwarded server-health smoke, and a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`)   |
 | test-package-docker-e2e | `_docker-e2e-reusable.yaml`; `base_image` is the `-rc` base, so git builds without a Dockerfile layer on the promoted digest                                                                                                                          |
 
 ## promote-images
