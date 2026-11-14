@@ -51,8 +51,6 @@ which renders `.Chart.AppVersion`.
 
 ## Credentials
 
-**Implementation**: `deploy/helm/aaiclick/templates/credentials.yaml`
-
 Two paths, production first:
 
 1. **`auth.existingSecret`**: a Secret managed outside Helm (External Secrets
@@ -65,17 +63,18 @@ Two paths, production first:
    (`lookup`, so `helm upgrade` keeps it), else random (`randAlphaNum 48` for
    `jwt-secret`, 24 for passwords). `sql-url` / `ch-url` are `env.sqlUrl` /
    `env.chUrl`, else built from the generated passwords (URL-encoded).
-   `helm.sh/resource-policy: keep` makes the Secret survive `helm uninstall`,
-   so a reinstall keeps the database passwords.
+   `helm.sh/resource-policy: keep` keeps the Secret through `helm uninstall`,
+   so a reinstall still matches an external database's passwords.
 
-Pods read every credential through `secretKeyRef`, and carry a
-`checksum/credentials` annotation over the credential inputs in values, so a
-changed one rolls them. It hashes values, not the rendered Secret: a fresh
-install renders random values per include, which would roll every pod on the
-first no-op upgrade. With no `existingSecret`, the render fails unless
-`devDependencies.enabled` is on or both `env.sqlUrl` and `env.chUrl` are set,
-rather than shipping an empty database URL.
-`NOTES.txt` prints how to read the admin password.
+- **Pods** read every credential through `secretKeyRef`. `NOTES.txt` prints
+  how to read the admin password.
+- **`checksum/credentials`** rolls the pods when a credential input in
+  values changes. It hashes values, not the rendered Secret: a fresh install
+  renders random values per include, which would roll every pod on the first
+  no-op upgrade.
+- **No database, no render**: without `existingSecret`, the render fails
+  unless `devDependencies.enabled` is on or both `env.sqlUrl` and
+  `env.chUrl` are set, rather than shipping an empty database URL.
 
 - **`lookup` over Airflow's `pre-install` hook Secret**: Argo CD runs Helm
   hooks on every sync, so a hook regenerates either way; `lookup` also covers
@@ -83,10 +82,6 @@ rather than shipping an empty database URL.
 - **Known limit**: `lookup` is empty under `helm template` / Argo CD, so
   generated values rotate on every render there. GitOps installs must set
   `auth.existingSecret`.
-
-`deploy/helm/check.sh` lints the chart and asserts on renders (generated
-Secret, `existingSecret`, external URLs, image tags, the no-database
-failure, a stable checksum); the PR `chart` job runs it.
 
 ## Publishing
 
@@ -157,7 +152,7 @@ edited. It refuses rather than warns, because a log line nobody reads leaves
 a public secret in use. Superset does the same for its shipped `CHANGE_ME`
 secret key.
 
-# Release pipeline restructure
+# Release pipeline
 
 **Implementation**: `.github/workflows/publish.yaml`
 
@@ -212,8 +207,10 @@ vX.Y.Z`, then `helm push` to `oci://ghcr.io/kolodkin/charts`.
 
 - `test_e2e/compose/test_env_init.py` runs `env.init.sh` as a user would
   (PR CI, "Misc local" group).
-- `deploy/helm/check.sh` covers chart renders; helm templates are not YAML
-  before rendering, so they get no Python tests.
+- `deploy/helm/check.sh` lints the chart and asserts on renders: generated
+  Secret, `existingSecret`, external URLs, image tags, the no-database
+  failure, a stable checksum. The PR `chart` job runs it; helm templates are
+  not YAML before rendering, so they get no Python tests.
 - `test_e2e/compose/` drives the reference stack in CI: server health, an
   execution worker registered, and a job round trip via `docker compose exec`
   into the server.

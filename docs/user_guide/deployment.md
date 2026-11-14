@@ -158,7 +158,8 @@ kubectl get secret aaiclick-credentials -o jsonpath='{.data.admin-password}' | b
 
 **Production credentials**: create the Secret outside Helm (External Secrets
 Operator, Sealed Secrets, Vault, `kubectl`) with keys `jwt-secret`,
-`admin-password`, `sql-url` and `ch-url`, and name it with
+`admin-password`, `sql-url` and `ch-url` (plus `pg-password` and
+`ch-password` with `devDependencies`), and name it with
 `--set auth.existingSecret=<name>`. The chart then renders no credentials.
 
 !!! warning "`helm template` and Argo CD rotate generated credentials"
@@ -166,11 +167,10 @@ Operator, Sealed Secrets, Vault, `kubectl`) with keys `jwt-secret`,
     Secret and generates new values on every render. Set
     `auth.existingSecret` for GitOps installs.
 
-The chart
-ships a server Deployment, a worker Deployment on the `aaiclick-kubectl`
-image with `AAICLICK_RUNNER=kubernetes`, the background worker, `buildkitd`,
-and dev PostgreSQL + ClickHouse under `devDependencies`, off by default and
-switched on above for evaluation. They keep no volumes: for anything real,
+The chart ships a server Deployment, a worker Deployment on the
+`aaiclick-kubectl` image with `AAICLICK_RUNNER=kubernetes`, the background
+worker, `buildkitd`, and dev PostgreSQL + ClickHouse under `devDependencies`,
+off by default and switched on above for evaluation. They keep no volumes: for anything real,
 leave them off and point `env.sqlUrl` / `env.chUrl` at managed databases.
 
 One worker replica drives many Pods at once, bounded by what the cluster
