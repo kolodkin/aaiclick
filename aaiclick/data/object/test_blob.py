@@ -141,7 +141,7 @@ async def test_export_rejects_reserved_ch_settings(ctx, setting):
 
 async def test_export_rejects_unsupported_scheme(ctx):
     obj = await create_object_from_value([1])
-    with pytest.raises(ValueError, match="http, https or s3"):
+    with pytest.raises(ValueError, match="http, https, s3 or az"):
         await obj.export("ftp://example.com/data.parquet")
 
 
@@ -230,7 +230,7 @@ async def test_located_object_rejects_insert_from_url(ctx, sample_url):
 @pytest.mark.parametrize(
     "url, kwargs, match",
     [
-        pytest.param("ftp://example.com/data.parquet", {}, "http, https or s3", id="bad-scheme"),
+        pytest.param("ftp://example.com/data.parquet", {}, "http, https, s3 or az", id="bad-scheme"),
         pytest.param(
             "s3://bucket/data.parquet",
             {"columns": ["id"], "column_types": {}},
@@ -267,7 +267,7 @@ async def test_located_object_cannot_be_named(ctx):
         pytest.param({"format": "Parquet') COMMENT 'injected' --"}, "Invalid format name", id="format-injection"),
         pytest.param({"format": None}, "Invalid format name", id="format-missing"),
         pytest.param({"location": "relative/data.parquet"}, "absolute path|chdb backend", id="location-relative"),
-        pytest.param({"location": "ftp://example.com/data.parquet"}, "http, https or s3", id="location-bad-scheme"),
+        pytest.param({"location": "ftp://example.com/data.parquet"}, "http, https, s3 or az", id="location-bad-scheme"),
     ],
 )
 async def test_create_object_validates_location_and_format(ctx, overrides, match):
