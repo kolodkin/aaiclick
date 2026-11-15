@@ -91,8 +91,9 @@ Azure secret reaches the SQL aaiclick sends, the operation log or
 On chdb `ensure_azure_connection` (`object_context/ch_client.py`) runs
 `CREATE NAMED COLLECTION IF NOT EXISTS` then `ALTER ... SET`, so a collection
 persisted by an earlier session follows the current environment. Those two
-statements are the only ones carrying the secret; they run in-process and are
-never oplog-recorded.
+statements are the only ones carrying the secret and are never oplog-recorded,
+but chdb persists the collection, key included, as plain text under its data
+directory's `named_collections/`.
 
 The collection holds only the endpoint and credentials: aaiclick always adds
 `container`, `blob_path` and `format`, and overriding a stored key needs

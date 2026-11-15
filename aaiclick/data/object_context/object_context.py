@@ -345,7 +345,8 @@ async def create_object(
         validate_format_name(schema.format)
         validate_connection(schema.location, schema.connection)
         if is_az_url(schema.location):
-            schema.connection = await ensure_azure_connection(schema.connection)
+            connection = await ensure_azure_connection(schema.connection)
+            schema = schema.model_copy(update={"connection": connection})
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None

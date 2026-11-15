@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterator
+from typing import NamedTuple
 
 import pyarrow.parquet as pq
 import pytest
@@ -27,7 +28,7 @@ from sqlalchemy import text
 from aaiclick import create_object_from_value, open_object_from_url
 from aaiclick.backend import internal_table, is_chdb
 from aaiclick.data.azure import AZURE_CONNECTION_ENV
-from aaiclick.data.object_context import get_ch_client
+from aaiclick.data.object_context import ch_client, get_ch_client
 from aaiclick.data.url_utils import AzUrl, parse_az_url
 from aaiclick.orchestration.execution.runner import deserialize_task_params
 from aaiclick.orchestration.orch_context import task_scope
@@ -64,7 +65,13 @@ class Container:
         return pq.read_table(io.BytesIO(body)).to_pydict()
 
 
-def _start_azurite() -> tuple[subprocess.Popen, str, str]:
+class Azurite(NamedTuple):
+    proc: subprocess.Popen
+    endpoint: str
+    workdir: str
+
+
+def _start_azurite() -> Azurite:
     npx = shutil.which("npx")
     if npx is None:
         pytest.skip("npx not found; set AAICLICK_TEST_AZURITE_ENDPOINT to use a running Azurite")
@@ -72,55 +79,41 @@ def _start_azurite() -> tuple[subprocess.Popen, str, str]:
         s.bind(("", 0))
         port = s.getsockname()[1]
     workdir = tempfile.mkdtemp(prefix="azurite-")
-    proc = subprocess.Popen(
-        [
-            npx,
-            "-y",
-            "-p",
-            "azurite",
-            "azurite-blob",
-            "--silent",
-            "--location",
-            workdir,
-            "--blobHost",
-            "127.0.0.1",
-            "--blobPort",
-            str(port),
-            "--skipApiVersionCheck",
-            "--loose",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    args = ["-y", "-p", "azurite@3.34.0", "azurite-blob", "--silent", "--location", workdir]
+    args += ["--blobHost", "127.0.0.1", "--blobPort", str(port), "--skipApiVersionCheck", "--loose"]
+    proc = subprocess.Popen([npx, *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline and proc.poll() is None:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
-                return proc, f"http://127.0.0.1:{port}", workdir
+                return Azurite(proc, f"http://127.0.0.1:{port}", workdir)
         except OSError:
             time.sleep(0.5)
     proc.terminate()
-    raise RuntimeError(f"Azurite did not start (exit code {proc.poll()})")
+    proc.wait()
+    shutil.rmtree(workdir, ignore_errors=True)
+    raise RuntimeError(f"Azurite did not start (exit code {proc.returncode})")
 
 
 @pytest.fixture(scope="module")
 def container() -> Iterator[Container]:
     """Azurite plus the test container; on chdb, the connection string in our env."""
     endpoint = os.getenv("AAICLICK_TEST_AZURITE_ENDPOINT") or None
-    proc = workdir = None
+    azurite = None
     if endpoint is None:
         if not is_chdb():
             pytest.skip("ClickHouse server tests need AAICLICK_TEST_AZURITE_ENDPOINT and the azurite_test collection")
-        proc, endpoint, workdir = _start_azurite()
+        azurite = _start_azurite()
+        endpoint = azurite.endpoint
     try:
         with pytest.MonkeyPatch.context() as env:
             env.setenv(AZURE_CONNECTION_ENV, _connection_string(endpoint))
             yield Container(endpoint)
     finally:
-        if proc is not None and workdir is not None:
-            proc.terminate()
-            proc.wait()
-            shutil.rmtree(workdir, ignore_errors=True)
+        if azurite is not None:
+            azurite.proc.terminate()
+            azurite.proc.wait()
+            shutil.rmtree(azurite.workdir, ignore_errors=True)
 
 
 # =============================================================================
@@ -150,6 +143,7 @@ async def test_open_rejects_bad_azure_arguments(ctx, url, connection, match):
         ("az://reports/2026/daily.parquet", AzUrl("reports", "2026/daily.parquet")),
         ("az://reports/part-?.parquet", AzUrl("reports", "part-?.parquet")),
         ("az://reports/a#b.parquet", AzUrl("reports", "a#b.parquet")),
+        ("AZ://reports/x.parquet", AzUrl("reports", "x.parquet")),
     ],
 )
 def test_parse_az_url(url, expected):
@@ -168,6 +162,22 @@ async def test_non_ascii_connection_name_is_rejected_before_sql(ctx, monkeypatch
     monkeypatch.setenv(AZURE_CONNECTION_ENV, "AccountName=a;AccountKey=SECRETKEY")
     with pytest.raises(ValueError, match="Invalid connection name") as raised:
         await open_object_from_url("az://c/p.parquet", connection="café")
+    assert "SECRETKEY" not in str(raised.value)
+
+
+@pytest.mark.skipif(not is_chdb(), reason="the env var is chdb's credential source")
+async def test_failed_collection_ddl_keeps_key_out_of_exception(ctx, monkeypatch):
+    """ClickHouse's error echoes the statement; neither message nor chain may carry it."""
+    monkeypatch.setenv(AZURE_CONNECTION_ENV, "AccountName=a;AccountKey=SECRETKEY")
+
+    class EchoingClient:
+        async def command(self, sql, **_):
+            raise RuntimeError(f"Syntax error: {sql}")
+
+    monkeypatch.setattr(ch_client, "get_ch_client", EchoingClient)
+    with pytest.raises(ValueError, match="Could not define named collection") as raised:
+        await open_object_from_url("az://c/p.parquet", connection="lake")
+    assert raised.value.__context__ is None
     assert "SECRETKEY" not in str(raised.value)
 
 

@@ -201,14 +201,18 @@ async def ensure_azure_connection(connection: str | None) -> str:
     name = connection or DEFAULT_AZURE_CONNECTION
     literal = quote_sql_literal(secret)
     ch = get_ch_client()
+    failed = False
     try:
         # shortcut: every connection name maps to the one env var, add per-name env vars when a local job needs two accounts.
         await ch.command(f"CREATE NAMED COLLECTION IF NOT EXISTS {name} AS connection_string = {literal}")
         # A collection left by an earlier session may point at another endpoint.
         await ch.command(f"ALTER NAMED COLLECTION {name} SET connection_string = {literal}")
     except Exception:
-        # ClickHouse errors echo the statement, key included: drop it and the chain.
-        raise ValueError(f"Could not define named collection {name!r} from {AZURE_CONNECTION_ENV}") from None
+        failed = True
+    # Raised outside the handler: ClickHouse's error echoes the statement, key
+    # included, and would otherwise stay reachable as __context__.
+    if failed:
+        raise ValueError(f"Could not define named collection {name!r} from {AZURE_CONNECTION_ENV}")
     return name
 
 

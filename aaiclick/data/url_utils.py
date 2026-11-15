@@ -56,7 +56,7 @@ def parse_az_url(url: str) -> AzUrl:
     Split on the raw string: ``urlparse`` would cut the path at a ``?`` glob
     or a ``#``, both legal in blob names.
     """
-    container, _, blob_path = url.removeprefix(f"{AZ_SCHEME}://").partition("/")
+    container, _, blob_path = url.split("://", 1)[1].partition("/")
     return AzUrl(container, blob_path)
 
 

@@ -544,7 +544,8 @@ daily = await open_object_from_url(url, connection="lake")
 | ClickHouse server | a named collection the operator defines; `connection=` required |
 
 On chdb every `connection` name reads the one environment variable, so job code
-written for a server runs unchanged; `connection` may be omitted there. On a
+written for a server runs unchanged; `connection` may be omitted there. chdb
+saves the collection, key included, in plain text under its data directory. On a
 server, define the collection in `config.d` with only the endpoint and
 credentials — aaiclick sends `container`, `blob_path` and `format` itself — and
 grant it to the aaiclick user:
