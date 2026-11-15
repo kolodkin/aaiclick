@@ -108,6 +108,8 @@ jobs:
           - group: Data local
             test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
+            # One shared Azurite, so xdist workers do not each start one via npx.
+            azurite: true
           - group: Orch local
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
             extras: ""
@@ -137,8 +139,19 @@ jobs:
         run: |
           uv run python -m aaiclick setup
 
+      - name: Start Azurite
+        if: matrix.azurite
+        run: |
+          docker run -d --name azurite -p 10000:10000 \
+            mcr.microsoft.com/azure-storage/azurite:3.34.0 \
+            azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose --skipApiVersionCheck
+          for _ in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/10000) 2>/dev/null && exit 0; sleep 1; done
+          docker logs azurite; exit 1
+
       - name: Run tests
         uses: ./.github/actions/run-pytest
+        env:
+          AAICLICK_TEST_AZURITE_ENDPOINT: ${{ matrix.azurite && 'http://127.0.0.1:10000' || '' }}
         with:
           command: uv run pytest ${{ matrix.test-paths }} -n auto -v
           report-name: "Pytest Results (${{ matrix.group }})"
@@ -334,8 +347,10 @@ jobs:
       - name: Start Azurite
         run: |
           docker run -d --name azurite -p 10000:10000 \
-            mcr.microsoft.com/azure-storage/azurite \
+            mcr.microsoft.com/azure-storage/azurite:3.34.0 \
             azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose --skipApiVersionCheck
+          for _ in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/10000) 2>/dev/null && exit 0; sleep 1; done
+          docker logs azurite; exit 1
 
       - name: Start ClickHouse with the S3 profile and Azure collection
         run: |

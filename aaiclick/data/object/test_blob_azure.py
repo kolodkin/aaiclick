@@ -93,20 +93,20 @@ def _start_azurite() -> tuple[subprocess.Popen, str, str]:
         stderr=subprocess.DEVNULL,
     )
     deadline = time.monotonic() + 120
-    while time.monotonic() < deadline:
+    while time.monotonic() < deadline and proc.poll() is None:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
                 return proc, f"http://127.0.0.1:{port}", workdir
         except OSError:
             time.sleep(0.5)
     proc.terminate()
-    raise RuntimeError("Azurite did not start within 120s")
+    raise RuntimeError(f"Azurite did not start (exit code {proc.poll()})")
 
 
 @pytest.fixture(scope="module")
 def container() -> Iterator[Container]:
     """Azurite plus the test container; on chdb, the connection string in our env."""
-    endpoint = os.getenv("AAICLICK_TEST_AZURITE_ENDPOINT")
+    endpoint = os.getenv("AAICLICK_TEST_AZURITE_ENDPOINT") or None
     proc = workdir = None
     if endpoint is None:
         if not is_chdb():
@@ -144,8 +144,16 @@ async def test_open_rejects_bad_azure_arguments(ctx, url, connection, match):
         await open_object_from_url(url, connection=connection)
 
 
-def test_parse_az_url():
-    assert parse_az_url("az://reports/2026/daily.parquet") == AzUrl("reports", "2026/daily.parquet")
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("az://reports/2026/daily.parquet", AzUrl("reports", "2026/daily.parquet")),
+        ("az://reports/part-?.parquet", AzUrl("reports", "part-?.parquet")),
+        ("az://reports/a#b.parquet", AzUrl("reports", "a#b.parquet")),
+    ],
+)
+def test_parse_az_url(url, expected):
+    assert parse_az_url(url) == expected
 
 
 @pytest.mark.skipif(not is_chdb(), reason="the env var is chdb's credential source")
@@ -153,6 +161,14 @@ async def test_chdb_missing_env_var(ctx, monkeypatch):
     monkeypatch.delenv(AZURE_CONNECTION_ENV, raising=False)
     with pytest.raises(ValueError, match=AZURE_CONNECTION_ENV):
         await open_object_from_url("az://c/p.parquet", connection=_CONNECTION)
+
+
+async def test_non_ascii_connection_name_is_rejected_before_sql(ctx, monkeypatch):
+    """ClickHouse cannot parse it, and its syntax error would echo the key."""
+    monkeypatch.setenv(AZURE_CONNECTION_ENV, "AccountName=a;AccountKey=SECRETKEY")
+    with pytest.raises(ValueError, match="Invalid connection name") as raised:
+        await open_object_from_url("az://c/p.parquet", connection="café")
+    assert "SECRETKEY" not in str(raised.value)
 
 
 @pytest.mark.skipif(is_chdb(), reason="chdb falls back to the env var")
@@ -204,6 +220,15 @@ async def test_open_glob(ctx, container):
         obj = await create_object_from_value([part])
         await obj.export(container.url(f"glob/part-{part}.parquet"), overwrite=True, connection=_CONNECTION)
     opened = await open_object_from_url(container.url("glob/part-*.parquet"), connection=_CONNECTION)
+    assert sorted(await opened.data()) == [1, 2]
+
+
+async def test_open_single_character_glob(ctx, container):
+    """``?`` is a ClickHouse glob, not the start of a query string."""
+    for part in (1, 2):
+        obj = await create_object_from_value([part])
+        await obj.export(container.url(f"qglob/part-{part}.parquet"), overwrite=True, connection=_CONNECTION)
+    opened = await open_object_from_url(container.url("qglob/part-?.parquet"), connection=_CONNECTION)
     assert sorted(await opened.data()) == [1, 2]
 
 

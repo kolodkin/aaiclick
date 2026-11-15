@@ -34,7 +34,7 @@ def validate_blob_url(url: str) -> None:
     if not parsed.netloc:
         noun = "container" if parsed.scheme == AZ_SCHEME else "host or bucket"
         raise ValueError(f"Blob URL must have a valid {noun}")
-    if parsed.scheme == AZ_SCHEME and not parsed.path.lstrip("/"):
+    if parsed.scheme == AZ_SCHEME and not parse_az_url(url).blob_path:
         raise ValueError("az:// URL must name a blob path after the container")
     # The URL is rendered into SQL and stored in the registry, so it must not
     # be able to carry a secret: no userinfo, no query parameters.
@@ -51,9 +51,13 @@ def is_az_url(url: str) -> bool:
 
 
 def parse_az_url(url: str) -> AzUrl:
-    """Split ``az://container/path`` into container and blob path."""
-    parsed = urlparse(url)
-    return AzUrl(parsed.netloc, parsed.path.lstrip("/"))
+    """Split ``az://container/path`` into container and blob path.
+
+    Split on the raw string: ``urlparse`` would cut the path at a ``?`` glob
+    or a ``#``, both legal in blob names.
+    """
+    container, _, blob_path = url.removeprefix(f"{AZ_SCHEME}://").partition("/")
+    return AzUrl(container, blob_path)
 
 
 def validate_connection(url: str, connection: str | None) -> None:
@@ -61,9 +65,11 @@ def validate_connection(url: str, connection: str | None) -> None:
     for anything but an ``az://`` URL. The name is inlined into SQL."""
     if connection is None:
         return
-    if not is_url(url) or not is_az_url(url):
+    if not is_az_url(url):
         raise ValueError("connection applies only to az:// URLs")
-    if not connection.isidentifier():
+    # ASCII only: ClickHouse rejects other bare identifiers, and its syntax
+    # error would echo the secret-bearing CREATE NAMED COLLECTION.
+    if not (connection.isascii() and connection.isidentifier()):
         raise ValueError(f"Invalid connection name {connection!r}: expected a ClickHouse named collection")
 
 
