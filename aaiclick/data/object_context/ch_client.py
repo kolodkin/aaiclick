@@ -186,10 +186,9 @@ _EXPORT_RESERVED_SETTINGS = frozenset(
 async def ensure_azure_connection(connection: str | None) -> str:
     """Return the named collection an ``az://`` URL reads and writes through.
 
-    A ClickHouse server must be told which operator-defined collection to use.
-    On chdb the collection is (re)defined from AZURE_STORAGE_CONNECTION_STRING:
-    the one statement that carries the secret, run in-process and never
-    oplog-recorded.
+    A server needs an operator-defined collection named. On chdb it is
+    (re)defined from AZURE_STORAGE_CONNECTION_STRING; those statements carry
+    the key, are never oplog-recorded, and chdb saves them to disk.
     """
     if not is_chdb():
         if connection is None:

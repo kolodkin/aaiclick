@@ -79,30 +79,26 @@ bucket-style `http(s)://host/bucket/key`.
 
 `az://container/path` renders as `azureBlobStorage(<collection>, container =
 '...', blob_path = '...', format = '...')` for open, the pointer engine and
-export alike. The endpoint and key live in a ClickHouse named collection, so no
-Azure secret reaches the SQL aaiclick sends, the operation log or
-`table_registry.schema_doc`; `Schema.connection` stores only its name.
+export. The endpoint and key live in a ClickHouse named collection, so no
+secret reaches aaiclick's SQL, the operation log or `schema_doc`;
+`Schema.connection` stores only the name.
 
-| Backend           | Collection                                                                                   |
-|-------------------|----------------------------------------------------------------------------------------------|
-| ClickHouse server | Operator-defined in `config.d`; `connection=` required; user needs `NAMED COLLECTION ON` it |
-| chdb              | Created from `AZURE_STORAGE_CONNECTION_STRING` on each use, under any requested name         |
+| Backend           | Collection                                                                       |
+|-------------------|----------------------------------------------------------------------------------|
+| ClickHouse server | Operator-defined in `config.d`; `connection=` required; needs `NAMED COLLECTION` |
+| chdb              | Defined from `AZURE_STORAGE_CONNECTION_STRING` on each use, any name             |
 
-On chdb `ensure_azure_connection` (`object_context/ch_client.py`) runs
-`CREATE NAMED COLLECTION IF NOT EXISTS` then `ALTER ... SET`, so a collection
-persisted by an earlier session follows the current environment. Those two
-statements are the only ones carrying the secret and are never oplog-recorded,
-but chdb persists the collection, key included, as plain text under its data
-directory's `named_collections/`.
-
-The collection holds only the endpoint and credentials: aaiclick always adds
-`container`, `blob_path` and `format`, and overriding a stored key needs
-`SHOW NAMED COLLECTIONS SECRETS`. Export maps `overwrite` to
-`azure_truncate_on_insert`; it and `azure_create_new_file_on_insert` are
-reserved like their S3 twins.
-
-Not supported: the server's own managed / workload identity — see
-`docs/designs/future.md` — "Blob Storage Support".
+- **chdb**: `CREATE ... IF NOT EXISTS` then `ALTER ... SET`, so a collection
+  persisted by an earlier session follows the current env. These two
+  statements alone carry the key and are never oplog-recorded, but chdb saves
+  the collection, key included, as plain text under its data directory.
+- **Collection contract**: endpoint and credentials only. aaiclick always adds
+  `container`, `blob_path` and `format`; overriding a stored key needs
+  `SHOW NAMED COLLECTIONS SECRETS`.
+- **Export**: `overwrite` maps to `azure_truncate_on_insert`; it and
+  `azure_create_new_file_on_insert` are reserved, as for S3.
+- **Not supported**: the server's own managed / workload identity —
+  `docs/designs/future.md` — "Blob Storage Support".
 
 # Testing
 
