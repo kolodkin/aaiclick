@@ -2101,12 +2101,16 @@ export interface components {
          *                   ``S3`` / ``File`` engine pointer and ``engine`` / ``order_by``
          *                   do not apply.
          *         format: ClickHouse format of the file(s) at ``location``.
+         *         connection: ClickHouse named collection an ``az://`` ``location`` reads
+         *                     through — a name, never a secret.
          */
         Schema: {
             /** Columns */
             columns: {
                 [key: string]: components["schemas"]["ColumnInfo"];
             };
+            /** Connection */
+            connection: string | null;
             /** Engine */
             engine: ("MergeTree" | "AggregatingMergeTree" | "Memory") | null;
             /** Fieldtype */
