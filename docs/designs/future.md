@@ -24,15 +24,21 @@ Items deferred until preconditions are met.
 ## Blob Storage Support
 
 Deferred until it can be tested against real buckets — emulators (moto,
-Azurite) only cover part of it. Shipped: export to a bucket and read-only
-located Objects (`docs/designs/blob_storage.md`). Still open:
+Azurite) only cover part of it. Shipped: export to a bucket, read-only
+located Objects, and Azure through named collections
+(`docs/designs/blob_storage.md`). Still open:
 
 - **Named located Objects** — `name` / `scope` so a pointer is reopenable by
   name on another server (`schema_doc` already carries the location).
-- **GCS and Azure** — `gs://` via the `S3` engine with HMAC keys, `az://` via
-  `AzureBlobStorage`.
-- **Per-object credentials** — a named collection chosen per object, e.g.
-  `open_object_from_url(url, connection="lake")` rendering
+- **GCS** — `gs://` via the `S3` engine with HMAC keys.
+- **Azure server identity** — `az://` without `connection=`, ClickHouse
+  using its managed / workload identity. Azure has no opt-in guard like
+  `s3_allow_server_credentials_in_user_queries`, so every user would borrow the
+  server's identity, and the ClickHouse docs disagree on whether the table
+  function supports it. Needs a check on a real Azure VM.
+- **Per-object credentials for S3** — as Azure's `connection=` already does
+  (`docs/designs/blob_storage.md` — "Azure"): a named collection per object,
+  e.g. `open_object_from_url(url, connection="lake")` rendering
   `s3(lake, url=...)`: keys in ClickHouse config, several buckets per
   deploy; needs `named_collection_control` grants. Or the caller's own keys
   in SQL, which needs oplog redaction.

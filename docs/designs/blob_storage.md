@@ -1,7 +1,8 @@
 Blob Storage
 ---
 
-An `Object` can point at a file in S3-compatible object storage instead of
+An `Object` can point at a file in S3-compatible object storage or Azure Blob
+Storage instead of
 owning a ClickHouse table, and any Object or View can be exported to a bucket.
 Files are the contract: a job exports its result, the URL travels to the next
 job as a plain string, and that job opens it read-only on any cluster. User
@@ -12,7 +13,8 @@ guide: `docs/user_guide/object.md` — "Blob Storage". Deferred pieces:
 
 **Implementation**: `aaiclick/data/object/url.py`
 
-A *located* Object's table is an `ENGINE = S3(url, format)` pointer. `Schema`
+A *located* Object's table is an `ENGINE = S3(url, format)` pointer
+(`AzureBlobStorage` for `az://`, see [Azure](#azure)). `Schema`
 carries `location` and `format`; everything above the engine clause is
 unchanged, so operators, views, joins and aggregations run SQL against the
 table name as for any Object, and computed results land in temp tables.
@@ -71,6 +73,36 @@ lend until the operator supplies them.
 `s3://bucket/key` resolves to AWS; S3-compatible servers (MinIO) take
 bucket-style `http(s)://host/bucket/key`.
 
+# Azure
+
+**Implementation**: `aaiclick/data/azure.py`
+
+`az://container/path` renders as `azureBlobStorage(<collection>, container =
+'...', blob_path = '...', format = '...')` for open, the pointer engine and
+export alike. The endpoint and key live in a ClickHouse named collection, so no
+Azure secret reaches the SQL aaiclick sends, the operation log or
+`table_registry.schema_doc`; `Schema.connection` stores only its name.
+
+| Backend           | Collection                                                                                   |
+|-------------------|----------------------------------------------------------------------------------------------|
+| ClickHouse server | Operator-defined in `config.d`; `connection=` required; user needs `NAMED COLLECTION ON` it |
+| chdb              | Created from `AZURE_STORAGE_CONNECTION_STRING` on each use, under any requested name         |
+
+On chdb `ensure_azure_connection` (`object_context/ch_client.py`) runs
+`CREATE NAMED COLLECTION IF NOT EXISTS` then `ALTER ... SET`, so a collection
+persisted by an earlier session follows the current environment. Those two
+statements are the only ones carrying the secret; they run in-process and are
+never oplog-recorded.
+
+The collection holds only the endpoint and credentials: aaiclick always adds
+`container`, `blob_path` and `format`, and overriding a stored key needs
+`SHOW NAMED COLLECTIONS SECRETS`. Export maps `overwrite` to
+`azure_truncate_on_insert`; it and `azure_create_new_file_on_insert` are
+reserved like their S3 twins.
+
+Not supported: the server's own managed / workload identity — see
+`docs/designs/future.md` — "Blob Storage Support".
+
 # Testing
 
 `aaiclick/data/object/test_blob.py` runs against an in-process moto server on
@@ -81,3 +113,9 @@ dedicated `Blob storage dist` CI job — which starts ClickHouse with the
 `users.d` file mounted and fails on a skip — and skips in the jobs that use
 stock service containers. `claudeai/run.sh` uses the same `users.d` file and
 starts a real MinIO for manual checks.
+
+`aaiclick/data/object/test_blob_azure.py` runs against Azurite, Microsoft's
+Azure Storage emulator: started with `npx` locally (chdb, connection string in
+the env), or the container the `Blob storage dist` job runs, whose ClickHouse
+mounts `docker/clickhouse/test/` to define and grant the `azurite_test`
+collection. Without `AAICLICK_TEST_AZURITE_ENDPOINT` the server-side tests skip.

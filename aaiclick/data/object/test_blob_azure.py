@@ -6,8 +6,6 @@ module starts it with ``npx``; set AAICLICK_TEST_AZURITE_ENDPOINT to use one
 already running (the ``Blob storage dist`` CI job, where the ClickHouse server
 defines the ``azurite_test`` collection in ``config.d``). On chdb the
 connection string comes from AZURE_STORAGE_CONNECTION_STRING.
-
-See docs/designs/blob_storage.md — "Azure".
 """
 
 from __future__ import annotations
