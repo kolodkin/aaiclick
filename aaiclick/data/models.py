@@ -413,6 +413,8 @@ class Schema(ApiModel):
                   ``S3`` / ``File`` engine pointer and ``engine`` / ``order_by``
                   do not apply.
         format: ClickHouse format of the file(s) at ``location``.
+        connection: ClickHouse named collection an ``az://`` ``location`` reads
+                    through — a name, never a secret.
     """
 
     fieldtype: str
@@ -422,6 +424,7 @@ class Schema(ApiModel):
     order_by: str | None = None
     location: str | None = None
     format: str | None = None
+    connection: str | None = None
 
 
 def build_order_by_clause(columns: list[str]) -> str:

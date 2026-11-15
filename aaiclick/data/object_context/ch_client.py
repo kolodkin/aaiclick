@@ -20,9 +20,10 @@ import pyarrow as pa
 from aaiclick.backend import is_chdb
 from aaiclick.snowflake import get_snowflake_id
 
+from ..azure import AZURE_CONNECTION_ENV, DEFAULT_AZURE_CONNECTION, azure_args
 from ..models import QueryStats
 from ..sql_utils import quote_sql_literal
-from ..url_utils import require_local_backend
+from ..url_utils import is_az_url, require_local_backend
 
 
 class QueryResult(Protocol):
@@ -171,25 +172,67 @@ async def export_query_to_file(query: str, path: str, fmt: str, settings: dict[s
 # Settings a bucket export keeps for itself: ``overwrite`` owns truncation,
 # creating a new file would write to a key other than the URL returned, and
 # lending the server's S3 identity is the operator's call (blob_storage.md).
-_S3_EXPORT_RESERVED_SETTINGS = frozenset(
-    {"s3_truncate_on_insert", "s3_create_new_file_on_insert", "s3_allow_server_credentials_in_user_queries"}
+_EXPORT_RESERVED_SETTINGS = frozenset(
+    {
+        "s3_truncate_on_insert",
+        "s3_create_new_file_on_insert",
+        "s3_allow_server_credentials_in_user_queries",
+        "azure_truncate_on_insert",
+        "azure_create_new_file_on_insert",
+    }
 )
 
 
+async def ensure_azure_connection(connection: str | None) -> str:
+    """Return the named collection an ``az://`` URL reads and writes through.
+
+    A ClickHouse server must be told which operator-defined collection to use.
+    On chdb the collection is (re)defined from AZURE_STORAGE_CONNECTION_STRING:
+    the one statement that carries the secret, run in-process and never
+    oplog-recorded.
+    """
+    if not is_chdb():
+        if connection is None:
+            raise ValueError("an az:// URL needs connection= on a ClickHouse server")
+        return connection
+    secret = os.getenv(AZURE_CONNECTION_ENV)
+    if not secret:
+        raise ValueError(f"Set {AZURE_CONNECTION_ENV} to read or write az:// URLs on chdb")
+    name = connection or DEFAULT_AZURE_CONNECTION
+    literal = quote_sql_literal(secret)
+    ch = get_ch_client()
+    # shortcut: every connection name maps to the one env var, add per-name env vars when a local job needs two accounts.
+    await ch.command(f"CREATE NAMED COLLECTION IF NOT EXISTS {name} AS connection_string = {literal}")
+    # A collection left by an earlier session may point at another endpoint.
+    await ch.command(f"ALTER NAMED COLLECTION {name} SET connection_string = {literal}")
+    return name
+
+
 async def export_query_to_url(
-    query: str, url: str, fmt: str, overwrite: bool = False, settings: dict[str, str | int] | None = None
+    query: str,
+    url: str,
+    fmt: str,
+    overwrite: bool = False,
+    settings: dict[str, str | int] | None = None,
+    connection: str | None = None,
 ) -> str:
     """Write a ``SELECT`` query result to a bucket URL in *fmt*, server-side.
 
-    ``INSERT INTO FUNCTION s3(url, fmt) <query>`` on both backends: the bytes
-    never pass through Python and the SQL carries no credentials — ClickHouse
-    resolves them itself. An existing key is an error unless *overwrite*.
+    ``INSERT INTO FUNCTION s3(url, fmt) <query>`` — or ``azureBlobStorage(...)``
+    through the *connection* named collection for ``az://`` — on both backends:
+    the bytes never pass through Python and the SQL carries no credentials.
+    An existing key is an error unless *overwrite*.
     """
-    if reserved := _S3_EXPORT_RESERVED_SETTINGS.intersection(settings or ()):
+    if reserved := _EXPORT_RESERVED_SETTINGS.intersection(settings or ()):
         raise ValueError(f"ch_settings cannot set {sorted(reserved)} on export")
+    if is_az_url(url):
+        connection = await ensure_azure_connection(connection)
+        target, truncate = f"azureBlobStorage({azure_args(url, fmt, connection)})", "azure_truncate_on_insert"
+    else:
+        target, truncate = f"s3({quote_sql_literal(url)}, '{fmt}')", "s3_truncate_on_insert"
     await get_ch_client().command(
-        f"INSERT INTO FUNCTION s3({quote_sql_literal(url)}, '{fmt}') {query}",
-        settings={**(settings or {}), "s3_truncate_on_insert": int(overwrite)},
+        f"INSERT INTO FUNCTION {target} {query}",
+        settings={**(settings or {}), truncate: int(overwrite)},
     )
     return url
 

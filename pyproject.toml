@@ -69,6 +69,7 @@ test = [
     "pytest-xdist>=3.8.0",
     "pytest-split>=0.10.0",
     "moto[s3]>=5.1",
+    "azure-storage-blob>=12.20",
     "flask>=3.0",
     "flask-cors>=4.0",
 ]
