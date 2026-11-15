@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from sqlmodel import select
 
-from aaiclick.orchestration.models import PRESERVATION_FULL, Job
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.models import PRESERVATION_FULL
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
-from . import errors, registered_jobs
+from . import errors, jobs, registered_jobs
 
 # A real importable callable, used wherever a registration must pass the
 # entrypoint-resolution check that ``register_job`` runs before persisting.
@@ -176,8 +174,7 @@ async def test_unregister_job_keeps_past_runs_unlinked(orch_ctx):
     assert deleted.name == "to_unregister"
     page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="to_unregister"))
     assert page.items == []
-    async with get_sql_session() as session:
-        job = (await session.execute(select(Job).where(Job.id == run.id))).scalar_one()
+    job = await jobs.get_job(run.id)
     assert job.name == "to_unregister"
     assert job.registered_job_id is None
 

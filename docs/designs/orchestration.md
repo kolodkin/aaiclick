@@ -277,7 +277,7 @@ Workers detect cancellation by polling task status. **Known limitation**: CPU-bo
 
 **Implementation**: `aaiclick/orchestration/registered_jobs.py`
 
-Catalog of known jobs, separate from runs. Each entry stores entrypoint, optional cron schedule, default kwargs, preservation-mode default and enabled flag. Re-registering needs `replace=True`; enable/disable recompute `next_run_at`.
+Catalog of known jobs, separate from runs. Each entry stores entrypoint, optional cron schedule, default kwargs, preservation-mode default and enabled flag. Re-registering needs `replace=True`; enable/disable recompute `next_run_at`. Unregistering deletes the entry and nulls `registered_job_id` on its past runs.
 
 ## Preservation Config Precedence
 
