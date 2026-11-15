@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aaiclick.backend import internal_table
 from aaiclick.data.object_context import ChClient, get_ch_client
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
@@ -279,7 +280,7 @@ async def test_delete_job_data_exempts_persistent_tables(orch_ctx, bg_db):
 
 
 async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
-    result = await ch.query(f"SELECT DISTINCT job_id FROM {table}")
+    result = await ch.query(f"SELECT DISTINCT job_id FROM {internal_table(table)}")
     return {row[0] for row in result.result_rows}
 
 
@@ -290,11 +291,11 @@ async def test_delete_job_data_purges_ch_log_tables(orch_ctx, bg_db):
     ch = get_ch_client()
     for jid in (job_id, other_job_id):
         await ch.command(
-            "INSERT INTO operation_log (result_table, operation, kwargs, job_id, created_at) "
+            f"INSERT INTO {internal_table('operation_log')} (result_table, operation, kwargs, job_id, created_at) "
             f"VALUES ('t_{jid}', 'create', map(), {jid}, now64(3))"
         )
         await ch.command(
-            "INSERT INTO task_logs (task_id, job_id, run_id, seq, stream, line, created_at) "
+            f"INSERT INTO {internal_table('task_logs')} (task_id, job_id, run_id, seq, stream, line, created_at) "
             f"VALUES ({jid}, {jid}, {jid}, 0, 'stdout', 'hello', now64(3))"
         )
 
@@ -315,12 +316,12 @@ async def test_delete_job_data_keeps_job_when_log_purge_fails(orch_ctx, bg_db):
     job_id = 558
     await insert_job(bg_db, job_id, status="COMPLETED")
     ch = get_ch_client()
-    await ch.command("DROP TABLE task_logs")
+    await ch.command(f"DROP TABLE {internal_table('task_logs')}")
     await ch.command(
-        f"CREATE TABLE task_logs (raw UInt64, job_id UInt64 ALIAS raw + throwIf(raw = {job_id}, 'purge failed')) "
+        f"CREATE TABLE {internal_table('task_logs')} (raw UInt64, job_id UInt64 ALIAS raw + throwIf(raw = {job_id}, 'purge failed')) "
         "ENGINE = MergeTree ORDER BY raw"
     )
-    await ch.command(f"INSERT INTO task_logs (raw) VALUES ({job_id})")
+    await ch.command(f"INSERT INTO {internal_table('task_logs')} (raw) VALUES ({job_id})")
 
     worker = make_worker()
 

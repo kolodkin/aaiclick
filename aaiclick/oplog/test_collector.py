@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
+from aaiclick.backend import internal_table
 from aaiclick.data.object_context import create_object_from_value
 from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.oplog.oplog_api import oplog_record, oplog_record_sample
@@ -24,7 +25,7 @@ async def test_oplog_writes_on_operation(orch_ctx):
 
     row = (
         await ch.query(
-            f"SELECT operation, task_id, job_id, run_id FROM operation_log WHERE result_table = '{table_name}' LIMIT 1"
+            f"SELECT operation, task_id, job_id, run_id FROM {internal_table('operation_log')} WHERE result_table = '{table_name}' LIMIT 1"
         )
     ).result_rows
     assert row and row[0] == ("create_from_value", 42, 99, 420)
@@ -89,7 +90,9 @@ async def test_concat_records_kwargs(orch_ctx):
 
     ch = get_ch_client()
     row = (
-        await ch.query(f"SELECT operation, kwargs FROM operation_log WHERE result_table = '{result_table}' LIMIT 1")
+        await ch.query(
+            f"SELECT operation, kwargs FROM {internal_table('operation_log')} WHERE result_table = '{result_table}' LIMIT 1"
+        )
     ).result_rows
     assert row
     operation, kwargs_raw = row[0]

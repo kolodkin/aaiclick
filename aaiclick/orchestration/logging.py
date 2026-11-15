@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from typing import Literal, cast, get_args
 
 from aaiclick.async_wait import wait_or_timeout
-from aaiclick.backend import is_chdb, is_local
+from aaiclick.backend import internal_table, is_chdb, is_local
 from aaiclick.data.object_context import ChClient, get_ch_client
 from aaiclick.data.object_context.ch_client import create_ch_client
 from aaiclick.log_models import MAX_TASK_LOG_LINES, STDERR_STREAM, STDOUT_STREAM, LogLine, LogStream
@@ -220,7 +220,7 @@ async def flush_task_logs(
             ch_client = get_ch_client()
         column_types = await get_column_types(ch_client, "task_logs")
         await ch_client.insert(
-            "task_logs",
+            internal_table("task_logs"),
             rows,
             column_names=_TASK_LOG_COLS,
             column_type_names=[column_types[c] for c in _TASK_LOG_COLS],
@@ -237,7 +237,7 @@ async def read_task_logs(task_id: int, run_id: int, tail: int = MAX_TASK_LOG_LIN
     emission order, fetched with a ``seq``-descending ``LIMIT``.
     """
     result = await get_ch_client().query(
-        "SELECT stream, line, created_at FROM task_logs "
+        f"SELECT stream, line, created_at FROM {internal_table('task_logs')} "
         "WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64} "
         "ORDER BY seq DESC LIMIT {tail:UInt64}",
         parameters={"task_id": task_id, "run_id": run_id, "tail": min(tail, MAX_TASK_LOG_LINES)},
@@ -254,7 +254,8 @@ async def last_task_log_time(task_id: int, run_id: int) -> datetime | None:
     client = get_ch_client() if is_chdb() else await create_ch_client()
     try:
         result = await client.query(
-            "SELECT created_at FROM task_logs WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64} "
+            f"SELECT created_at FROM {internal_table('task_logs')} "
+            "WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64} "
             "ORDER BY seq DESC LIMIT 1",
             parameters={"task_id": task_id, "run_id": run_id},
         )

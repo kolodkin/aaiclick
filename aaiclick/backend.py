@@ -24,6 +24,8 @@ import os
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from aaiclick.data.sql_utils import quote_identifier
+
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
 """Loopback names, as a bind address (``::1``) or a ``Host`` header (``[::1]``)."""
 
@@ -117,6 +119,32 @@ def parse_ch_url() -> dict:
         "password": unquote(parsed.password or ""),
         "database": parsed.path.lstrip("/") or "default",
     }
+
+
+def internal_db_for(data_db: str) -> str:
+    """Internal database paired with ``data_db``: ``<data_db>_internal``.
+
+    A ``data_db`` already ending in ``_internal`` is refused: it would be
+    another deployment's internal database.
+    """
+    if data_db.endswith("_internal"):
+        raise ValueError(f"AAICLICK_CH_URL database {data_db!r} must not end in '_internal'")
+    return f"{data_db}_internal"
+
+
+def internal_db() -> str:
+    """Database holding aaiclick's internal CH tables, beside the data database.
+
+    ``<data_db>_internal`` keeps ``operation_log`` / ``task_logs`` /
+    ``schema_migrations`` out of the user-object database. chdb's data
+    database is always ``default``.
+    """
+    return internal_db_for("default" if is_chdb() else parse_ch_url()["database"])
+
+
+def internal_table(name: str) -> str:
+    """``name`` qualified with :func:`internal_db`, backtick-quoted for SQL."""
+    return f"{quote_identifier(internal_db())}.{quote_identifier(name)}"
 
 
 def redact_url(url: str) -> str:

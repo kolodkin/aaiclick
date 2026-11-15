@@ -38,9 +38,19 @@ from sqlalchemy import create_engine, text
 from sqlmodel import col, select
 
 from aaiclick.__main__ import main
-from aaiclick.backend import get_root, is_chdb, is_local, is_sqlite, parse_ch_url
+from aaiclick.backend import (
+    get_root,
+    internal_db,
+    internal_db_for,
+    internal_table,
+    is_chdb,
+    is_local,
+    is_sqlite,
+    parse_ch_url,
+)
 from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 from aaiclick.data.object_context import ChClient, get_ch_client
+from aaiclick.data.sql_utils import quote_identifier, quote_sql_literal
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -147,15 +157,10 @@ async def reset_sql_tables() -> None:
         await session.commit()
 
 
-async def ch_table_ddl(ch: ChClient) -> dict[str, str]:
-    """``create_table_query`` of each table in the active CH database, by name."""
-    result = await ch.query("SELECT name, create_table_query FROM system.tables WHERE database = currentDatabase()")
-    return {row[0]: row[1] for row in result.result_rows}
-
-
 async def list_ch_tables(ch: ChClient) -> set[str]:
-    """Names of the tables in the active CH database."""
-    return set(await ch_table_ddl(ch))
+    """Names of the tables in the active CH (data) database."""
+    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
+    return {row[0] for row in result.result_rows}
 
 
 async def create_ch_tables(ch: ChClient, *names: str) -> None:
@@ -164,11 +169,20 @@ async def create_ch_tables(ch: ChClient, *names: str) -> None:
         await ch.command(f"CREATE TABLE {name} (x UInt8) ENGINE = Memory")
 
 
+async def _all_table_ddl(ch: ChClient) -> dict[str, str]:
+    """``create_table_query`` of every table in the data and internal databases, by qualified name."""
+    result = await ch.query(
+        "SELECT database, name, create_table_query FROM system.tables"
+        f" WHERE database IN (currentDatabase(), {quote_sql_literal(internal_db())})"
+    )
+    return {f"{quote_identifier(db)}.{quote_identifier(name)}": ddl for db, name, ddl in result.result_rows}
+
+
 @dataclass
 class _MigratedSchema:
-    """The CH database as ``ch_upgrade`` leaves an empty one."""
+    """The CH databases as ``ch_upgrade`` leaves empty ones."""
 
-    tables: dict[str, str] = field(default_factory=dict)  # name -> create_table_query
+    tables: dict[str, str] = field(default_factory=dict)  # qualified name -> create_table_query
     versions: list[str] | None = None  # None until the first full rebuild
 
 
@@ -182,28 +196,26 @@ async def _matches_migrated_schema(ch: ChClient, tables: dict[str, str]) -> bool
         return False
     if any(tables.get(name) != ddl for name, ddl in _migrated_schema.tables.items()):
         return False
-    # The DDL matched, so schema_migrations exists — skip ch_applied_versions' CREATE.
-    result = await ch.query("SELECT version FROM schema_migrations ORDER BY version")
-    return [row[0] for row in result.result_rows] == _migrated_schema.versions
+    return await ch_applied_versions(ch) == _migrated_schema.versions
 
 
 async def drop_all_ch_tables() -> None:
-    """Reset the active CH database to its freshly migrated, empty state.
+    """Reset the active data and internal CH databases to their freshly migrated, empty state.
 
     Truncates the migration-created tables while they match the last full
     rebuild; otherwise drops everything and re-applies migrations (see
     ``docs/designs/testing.md``).
     """
     ch = get_ch_client()
-    tables = await ch_table_ddl(ch)
+    tables = await _all_table_ddl(ch)
     keep = _migrated_schema.tables.keys() if await _matches_migrated_schema(ch, tables) else set()
     if dropped := tables.keys() - keep:
-        await ch.command("DROP TABLE IF EXISTS " + ", ".join(f"`{name}`" for name in dropped))
-    for table_name in keep - {"schema_migrations"}:
-        await ch.command(f"TRUNCATE TABLE `{table_name}`")
+        await ch.command("DROP TABLE IF EXISTS " + ", ".join(dropped))
+    for table_name in keep - {internal_table("schema_migrations")}:
+        await ch.command(f"TRUNCATE TABLE {table_name}")
     if not keep:
         await ch_upgrade(ch)
-        _migrated_schema.tables = await ch_table_ddl(ch)
+        _migrated_schema.tables = await _all_table_ddl(ch)
         _migrated_schema.versions = await ch_applied_versions(ch)
     # Column types cached from the dropped tables must not leak into the
     # next test (which may recreate them with a different shape).
@@ -361,6 +373,7 @@ def worker_ch_database() -> Iterator[None]:
 
     admin = _admin()
     admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
+    admin.command(f"DROP DATABASE IF EXISTS {quote_identifier(internal_db_for(db_name))}")
     admin.command(f"CREATE DATABASE `{db_name}`")
     admin.close()
 
@@ -372,6 +385,7 @@ def worker_ch_database() -> Iterator[None]:
         finally:
             admin = _admin()
             admin.command(f"DROP DATABASE IF EXISTS `{db_name}`")
+            admin.command(f"DROP DATABASE IF EXISTS {quote_identifier(internal_db_for(db_name))}")
             admin.close()
 
 

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from aaiclick.backend import is_local
+from aaiclick.backend import internal_db, is_local
 from aaiclick.data.object_context import ChClient
+from aaiclick.data.sql_utils import quote_sql_literal
 
 from .migrate import ch_pending, ch_upgrade
 
@@ -46,7 +47,7 @@ async def get_column_types(ch_client: ChClient, table: str) -> dict[str, str]:
         tables_in = ", ".join(f"'{t}'" for t in INTERNAL_TABLES)
         result = await ch_client.query(
             f"SELECT table, name, type FROM system.columns"
-            f" WHERE database = currentDatabase() AND table IN ({tables_in})"
+            f" WHERE database = {quote_sql_literal(internal_db())} AND table IN ({tables_in})"
             f" ORDER BY table, position"
         )
         for table_name, column, ch_type in result.result_rows:
