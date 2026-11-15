@@ -247,6 +247,21 @@ Shipped design: `viewer.md`.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
 
+## Fresh Prompt Suggestions After Writes
+
+Prompt autocomplete caches rows under `["prompt-source", key, text]` for
+30 s (`src/components/PromptDropdown.tsx`). Writes in `src/api/hooks.ts`
+refresh only their own list query, so after `unregister`, `register`,
+`enable` or `disable` the dropdown can still offer the old row for up to
+30 s; picking a deleted job then fails with 404.
+
+- Fix once in `useInvalidating`: also invalidate `["prompt-source"]` on
+  success, so every write refreshes suggestions.
+- Move `useRegisterJob` and `useToggleRegisteredJob` onto
+  `useInvalidating`; they call `useMutation` directly today.
+
+**When to revisit**: when a stale suggestion confuses a real user.
+
 ## Job Graph — Collapsible Groups
 
 Group containers are fixed frames (`src/components/graph/GroupNode.tsx`), so
