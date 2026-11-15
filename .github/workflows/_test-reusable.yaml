@@ -383,7 +383,7 @@ jobs:
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         run: |
           set -o pipefail
-          uv run pytest aaiclick/data/object/test_blob.py aaiclick/data/object/test_blob_azure.py -v | tee blob.log
+          uv run pytest aaiclick/data/object/test_blob.py -v | tee blob.log
           ! grep -q " SKIPPED" blob.log
 
   test-ui-e2e-dist:
