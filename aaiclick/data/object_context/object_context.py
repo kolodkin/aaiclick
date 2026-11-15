@@ -59,7 +59,7 @@ from ..scope import (
     name_from_table,
 )
 from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal
-from ..url_utils import is_az_url, is_url, validate_connection, validate_location
+from ..url_utils import is_az_url, is_url, validate_location
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -341,9 +341,8 @@ async def create_object(
     if schema.location is not None:
         if name is not None:
             raise ValueError("located objects cannot be named yet")
-        validate_location(schema.location)
+        validate_location(schema.location, schema.connection)
         validate_format_name(schema.format)
-        validate_connection(schema.location, schema.connection)
         if is_az_url(schema.location):
             connection = await ensure_azure_connection(schema.connection)
             schema = schema.model_copy(update={"connection": connection})

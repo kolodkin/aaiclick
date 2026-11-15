@@ -489,6 +489,27 @@ async def test_failed_collection_ddl_keeps_key_out_of_exception(ctx, monkeypatch
     assert "SECRETKEY" not in str(raised.value)
 
 
+async def test_chdb_defines_collection_once_per_client(ctx, monkeypatch):
+    """Efficiency contract: one CREATE + ALTER per client and key, not per call.
+    A rotated key is redefined."""
+    monkeypatch.setattr(ch_client, "is_chdb", lambda: True)
+    monkeypatch.setenv(AZURE_CONNECTION_ENV, "AccountName=a;AccountKey=ONE")
+    statements: list[str] = []
+
+    class RecordingClient:
+        async def command(self, sql, **_):
+            statements.append(sql)
+
+    client = RecordingClient()
+    monkeypatch.setattr(ch_client, "get_ch_client", lambda: client)
+    for _ in range(3):
+        assert await ch_client.ensure_azure_connection("lake") == "lake"
+    assert len(statements) == 2
+    monkeypatch.setenv(AZURE_CONNECTION_ENV, "AccountName=a;AccountKey=TWO")
+    await ch_client.ensure_azure_connection("lake")
+    assert len(statements) == 4
+
+
 async def test_server_needs_connection(ctx, monkeypatch):
     monkeypatch.setattr(ch_client, "is_chdb", lambda: False)
     with pytest.raises(ValueError, match="needs connection"):

@@ -86,7 +86,7 @@ secret reaches aaiclick's SQL, the operation log or `schema_doc`;
 | Backend           | Collection                                                                       |
 |-------------------|----------------------------------------------------------------------------------|
 | ClickHouse server | Operator-defined in `config.d`; `connection=` required; needs `NAMED COLLECTION` |
-| chdb              | Defined from `AZURE_STORAGE_CONNECTION_STRING` on each use, any name             |
+| chdb              | Defined from `AZURE_STORAGE_CONNECTION_STRING` once per client and key, any name |
 
 - **chdb**: `CREATE ... IF NOT EXISTS` then `ALTER ... SET`, so a collection
   persisted by an earlier session follows the current env. These two

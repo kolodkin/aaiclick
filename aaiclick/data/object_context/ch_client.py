@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import weakref
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -183,12 +184,18 @@ _EXPORT_RESERVED_SETTINGS = frozenset(
 )
 
 
+# Per-client, not per-context: a client's chdb session keeps its collections for
+# the client's lifetime, and the weak keys drop with the client.
+_azure_defined: weakref.WeakKeyDictionary[ChClient, set[tuple[str, int]]] = weakref.WeakKeyDictionary()
+
+
 async def ensure_azure_connection(connection: str | None) -> str:
     """Return the named collection an ``az://`` URL reads and writes through.
 
     A server needs an operator-defined collection named. On chdb it is
-    (re)defined from AZURE_STORAGE_CONNECTION_STRING; those statements carry
-    the key, are never oplog-recorded, and chdb saves them to disk.
+    (re)defined from AZURE_STORAGE_CONNECTION_STRING once per client and key;
+    those statements carry the key, are never oplog-recorded, and chdb saves
+    them to disk.
     """
     if not is_chdb():
         if connection is None:
@@ -198,8 +205,11 @@ async def ensure_azure_connection(connection: str | None) -> str:
     if not secret:
         raise ValueError(f"Set {AZURE_CONNECTION_ENV} to read or write az:// URLs on chdb")
     name = connection or DEFAULT_AZURE_CONNECTION
-    literal = quote_sql_literal(secret)
     ch = get_ch_client()
+    defined = _azure_defined.setdefault(ch, set())
+    if (name, hash(secret)) in defined:
+        return name
+    literal = quote_sql_literal(secret)
     try:
         # shortcut: every connection name maps to the one env var, add per-name env vars when a local job needs two accounts.
         await ch.command(f"CREATE NAMED COLLECTION IF NOT EXISTS {name} AS connection_string = {literal}")
@@ -208,6 +218,7 @@ async def ensure_azure_connection(connection: str | None) -> str:
     except Exception:
         pass
     else:
+        defined.add((name, hash(secret)))
         return name
     # Raised outside the handler: ClickHouse's error echoes the statement, key
     # included, and would otherwise stay reachable as __context__.

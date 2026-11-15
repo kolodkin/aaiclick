@@ -19,7 +19,7 @@ from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, Co
 from ..object_context import create_object, get_ch_client
 from ..object_context.ch_client import ensure_azure_connection
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
-from ..url_utils import is_az_url, is_url, validate_connection, validate_location
+from ..url_utils import is_az_url, is_url, validate_location
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
@@ -394,8 +394,7 @@ async def open_object_from_url(
     """
     if not is_url(url):
         url = str(Path(url).resolve())
-    validate_location(url)
-    validate_connection(url, connection)
+    validate_location(url, connection)
     if columns is not None:
         _validate_url_columns(columns)
     if format is None:
