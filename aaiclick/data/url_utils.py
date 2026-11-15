@@ -9,6 +9,7 @@ from typing import NamedTuple
 from urllib.parse import urlparse
 
 from aaiclick.backend import is_chdb
+from aaiclick.names import name_error
 
 AZ_SCHEME = "az"
 BLOB_URL_SCHEMES = ("http", "https", "s3", AZ_SCHEME)
@@ -27,7 +28,7 @@ def is_url(path: str) -> bool:
 
 
 def validate_blob_url(url: str) -> None:
-    """Reject a URL the ClickHouse ``s3`` function / ``S3`` engine cannot address."""
+    """Reject a URL the ClickHouse ``s3`` / ``azureBlobStorage`` sources cannot address."""
     parsed = urlparse(url)
     if parsed.scheme not in BLOB_URL_SCHEMES:
         raise ValueError(f"Blob URL must use http, https, s3 or az scheme, got '{parsed.scheme}'")
@@ -69,8 +70,8 @@ def validate_connection(url: str, connection: str | None) -> None:
         raise ValueError("connection applies only to az:// URLs")
     # ASCII only: ClickHouse rejects other bare identifiers, and its syntax
     # error would echo the secret-bearing CREATE NAMED COLLECTION.
-    if not (connection.isascii() and connection.isidentifier()):
-        raise ValueError(f"Invalid connection name {connection!r}: expected a ClickHouse named collection")
+    if err := name_error("connection", connection):
+        raise ValueError(err)
 
 
 def require_local_backend() -> None:

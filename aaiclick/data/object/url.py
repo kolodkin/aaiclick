@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..azure import azure_args
+from ..azure import blob_function
 from ..formats import FORMAT_AUTO, JSON_BLOB_FORMATS, format_for_extension, validate_format_name
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
@@ -409,9 +409,9 @@ async def open_object_from_url(
         select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"
         if is_az_url(url):
             connection = await ensure_azure_connection(connection)
-            source = f"azureBlobStorage({azure_args(url, format, connection)})"
-        else:
-            source = f"{'s3' if is_url(url) else 'file'}({quote_sql_literal(url)}, '{format}')"
+        source = (
+            blob_function(url, format, connection) if is_url(url) else f"file({quote_sql_literal(url)}, '{format}')"
+        )
         described = await get_ch_client().query(f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)")
         column_types = {row[0]: parse_ch_type(row[1]) for row in described.result_rows}
     names = columns or list(column_types)

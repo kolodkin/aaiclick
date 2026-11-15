@@ -5,7 +5,8 @@ Azurite, Microsoft's Azure Storage emulator, stands in for Azure. Locally the
 module starts it with ``npx``; set AAICLICK_TEST_AZURITE_ENDPOINT to use one
 already running (the ``Blob storage dist`` CI job, where the ClickHouse server
 defines the ``azurite_test`` collection in ``config.d``). On chdb the
-connection string comes from AZURE_STORAGE_CONNECTION_STRING.
+connection string comes from AZURE_STORAGE_CONNECTION_STRING. Under xdist, set
+the endpoint so workers share one Azurite.
 """
 
 from __future__ import annotations
@@ -150,8 +151,8 @@ def test_parse_az_url(url, expected):
     assert parse_az_url(url) == expected
 
 
-@pytest.mark.skipif(not is_chdb(), reason="the env var is chdb's credential source")
 async def test_chdb_missing_env_var(ctx, monkeypatch):
+    monkeypatch.setattr(ch_client, "is_chdb", lambda: True)
     monkeypatch.delenv(AZURE_CONNECTION_ENV, raising=False)
     with pytest.raises(ValueError, match=AZURE_CONNECTION_ENV):
         await open_object_from_url("az://c/p.parquet", connection=_CONNECTION)
@@ -165,9 +166,9 @@ async def test_non_ascii_connection_name_is_rejected_before_sql(ctx, monkeypatch
     assert "SECRETKEY" not in str(raised.value)
 
 
-@pytest.mark.skipif(not is_chdb(), reason="the env var is chdb's credential source")
 async def test_failed_collection_ddl_keeps_key_out_of_exception(ctx, monkeypatch):
     """ClickHouse's error echoes the statement; neither message nor chain may carry it."""
+    monkeypatch.setattr(ch_client, "is_chdb", lambda: True)
     monkeypatch.setenv(AZURE_CONNECTION_ENV, "AccountName=a;AccountKey=SECRETKEY")
 
     class EchoingClient:
@@ -181,8 +182,8 @@ async def test_failed_collection_ddl_keeps_key_out_of_exception(ctx, monkeypatch
     assert "SECRETKEY" not in str(raised.value)
 
 
-@pytest.mark.skipif(is_chdb(), reason="chdb falls back to the env var")
-async def test_server_needs_connection(ctx):
+async def test_server_needs_connection(ctx, monkeypatch):
+    monkeypatch.setattr(ch_client, "is_chdb", lambda: False)
     with pytest.raises(ValueError, match="needs connection"):
         await open_object_from_url("az://c/p.parquet")
 
@@ -225,20 +226,15 @@ async def test_export_rejects_reserved_azure_settings(ctx, setting):
         await obj.export("az://c/data.parquet", connection=_CONNECTION, ch_settings={setting: 1})
 
 
-async def test_open_glob(ctx, container):
+@pytest.mark.parametrize(
+    "prefix, glob",
+    [("glob", "*"), pytest.param("qglob", "?", id="question-mark-is-a-glob-not-a-query")],
+)
+async def test_open_glob(ctx, container, prefix, glob):
     for part in (1, 2):
         obj = await create_object_from_value([part])
-        await obj.export(container.url(f"glob/part-{part}.parquet"), overwrite=True, connection=_CONNECTION)
-    opened = await open_object_from_url(container.url("glob/part-*.parquet"), connection=_CONNECTION)
-    assert sorted(await opened.data()) == [1, 2]
-
-
-async def test_open_single_character_glob(ctx, container):
-    """``?`` is a ClickHouse glob, not the start of a query string."""
-    for part in (1, 2):
-        obj = await create_object_from_value([part])
-        await obj.export(container.url(f"qglob/part-{part}.parquet"), overwrite=True, connection=_CONNECTION)
-    opened = await open_object_from_url(container.url("qglob/part-?.parquet"), connection=_CONNECTION)
+        await obj.export(container.url(f"{prefix}/part-{part}.parquet"), overwrite=True, connection=_CONNECTION)
+    opened = await open_object_from_url(container.url(f"{prefix}/part-{glob}.parquet"), connection=_CONNECTION)
     assert sorted(await opened.data()) == [1, 2]
 
 

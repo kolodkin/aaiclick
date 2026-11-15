@@ -20,7 +20,7 @@ import pyarrow as pa
 from aaiclick.backend import is_chdb
 from aaiclick.snowflake import get_snowflake_id
 
-from ..azure import AZURE_CONNECTION_ENV, DEFAULT_AZURE_CONNECTION, azure_args
+from ..azure import AZURE_CONNECTION_ENV, DEFAULT_AZURE_CONNECTION, blob_function
 from ..models import QueryStats
 from ..sql_utils import quote_sql_literal
 from ..url_utils import is_az_url, require_local_backend
@@ -201,19 +201,18 @@ async def ensure_azure_connection(connection: str | None) -> str:
     name = connection or DEFAULT_AZURE_CONNECTION
     literal = quote_sql_literal(secret)
     ch = get_ch_client()
-    failed = False
     try:
         # shortcut: every connection name maps to the one env var, add per-name env vars when a local job needs two accounts.
         await ch.command(f"CREATE NAMED COLLECTION IF NOT EXISTS {name} AS connection_string = {literal}")
         # A collection left by an earlier session may point at another endpoint.
         await ch.command(f"ALTER NAMED COLLECTION {name} SET connection_string = {literal}")
     except Exception:
-        failed = True
+        pass
+    else:
+        return name
     # Raised outside the handler: ClickHouse's error echoes the statement, key
     # included, and would otherwise stay reachable as __context__.
-    if failed:
-        raise ValueError(f"Could not define named collection {name!r} from {AZURE_CONNECTION_ENV}")
-    return name
+    raise ValueError(f"Could not define named collection {name!r} from {AZURE_CONNECTION_ENV}")
 
 
 async def export_query_to_url(
@@ -235,11 +234,9 @@ async def export_query_to_url(
         raise ValueError(f"ch_settings cannot set {sorted(reserved)} on export")
     if is_az_url(url):
         connection = await ensure_azure_connection(connection)
-        target, truncate = f"azureBlobStorage({azure_args(url, fmt, connection)})", "azure_truncate_on_insert"
-    else:
-        target, truncate = f"s3({quote_sql_literal(url)}, '{fmt}')", "s3_truncate_on_insert"
+    truncate = "azure_truncate_on_insert" if is_az_url(url) else "s3_truncate_on_insert"
     await get_ch_client().command(
-        f"INSERT INTO FUNCTION {target} {query}",
+        f"INSERT INTO FUNCTION {blob_function(url, fmt, connection)} {query}",
         settings={**(settings or {}), truncate: int(overwrite)},
     )
     return url

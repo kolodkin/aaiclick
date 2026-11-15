@@ -1,0 +1,18 @@
+name: Start Azurite
+description: >-
+  Start Azurite, Microsoft's Azure Storage emulator, on port 10000 and wait
+  for it. Exports AAICLICK_TEST_AZURITE_ENDPOINT so
+  aaiclick/data/object/test_blob_azure.py shares it instead of starting its own.
+
+runs:
+  using: composite
+  steps:
+    - name: Start Azurite
+      shell: bash
+      run: |
+        docker run -d --name azurite -p 10000:10000 \
+          mcr.microsoft.com/azure-storage/azurite:3.34.0 \
+          azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose --skipApiVersionCheck
+        echo "AAICLICK_TEST_AZURITE_ENDPOINT=http://127.0.0.1:10000" >> "$GITHUB_ENV"
+        for _ in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/10000) 2>/dev/null && exit 0; sleep 1; done
+        docker logs azurite; exit 1
