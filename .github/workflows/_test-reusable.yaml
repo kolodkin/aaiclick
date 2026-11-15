@@ -315,9 +315,10 @@ jobs:
 
   test-blob-dist:
     # Blob storage needs a ClickHouse whose profile lends its S3 identity to
-    # queries (docker/clickhouse/users.d/s3.xml). `services:` containers start
-    # before checkout and cannot mount a repo file, so this job starts
-    # ClickHouse itself. The same tests skip in the Data dist groups.
+    # queries (docker/clickhouse/users.d/s3.xml) and, for Azure, defines the
+    # azurite_test named collection (docker/clickhouse/test/). `services:`
+    # containers start before checkout and cannot mount a repo file, so this
+    # job starts ClickHouse itself. The same tests skip in the Data dist groups.
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -330,13 +331,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Start ClickHouse with the S3 profile
+      - name: Start Azurite
+        run: |
+          docker run -d --name azurite -p 10000:10000 \
+            mcr.microsoft.com/azure-storage/azurite \
+            azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose --skipApiVersionCheck
+
+      - name: Start ClickHouse with the S3 profile and Azure collection
         run: |
           docker run -d --name clickhouse -p 8123:8123 \
             -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=click123 \
             -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=0 \
             -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
             -v "$PWD/docker/clickhouse/users.d/s3.xml:/etc/clickhouse-server/users.d/s3.xml:ro" \
+            -v "$PWD/docker/clickhouse/test/users.d/azurite.xml:/etc/clickhouse-server/users.d/named-collections.xml:ro" \
+            -v "$PWD/docker/clickhouse/test/config.d/azurite.xml:/etc/clickhouse-server/config.d/azurite.xml:ro" \
             --add-host=host.docker.internal:host-gateway \
             clickhouse/clickhouse-server:26.10
 
@@ -369,9 +378,12 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
+          AAICLICK_TEST_AZURITE_ENDPOINT: http://127.0.0.1:10000
         run: |
           set -o pipefail
-          uv run pytest aaiclick/data/object/test_blob.py -v | tee blob.log
+          # The env-var test is chdb-only; deselect it rather than weaken the skip check.
+          uv run pytest aaiclick/data/object/test_blob.py aaiclick/data/object/test_blob_azure.py -v \
+            --deselect aaiclick/data/object/test_blob_azure.py::test_chdb_missing_env_var | tee blob.log
           ! grep -q " SKIPPED" blob.log
 
   test-ui-e2e-dist:
