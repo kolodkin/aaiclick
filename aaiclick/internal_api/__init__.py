@@ -34,6 +34,7 @@ from .registered_jobs import (
     enable_job,
     list_registered_jobs,
     register_job,
+    unregister_job,
 )
 from .tasks import get_task, list_tasks
 from .viewer import (

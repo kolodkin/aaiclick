@@ -174,6 +174,7 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
     case "run":
     case "enable":
     case "disable":
+    case "unregister":
       return registered(cmd, text);
     case "@data":
       return objects(cmd, null, text);

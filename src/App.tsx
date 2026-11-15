@@ -24,6 +24,7 @@ import {
   TaskDetail,
   ToggleConfirm,
   Tokens,
+  UnregisterConfirm,
   Invite,
   Users,
 } from "./views";
@@ -66,6 +67,8 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
       return <CancelConfirm refId={route.ref} onPrompt={onPrompt} />;
     case "toggle-confirm":
       return <ToggleConfirm name={route.name} enabled={route.enabled} onPrompt={onPrompt} />;
+    case "unregister-confirm":
+      return <UnregisterConfirm name={route.name} onPrompt={onPrompt} />;
     case "tokens":
       return <Tokens onPrompt={onPrompt} />;
     case "account":

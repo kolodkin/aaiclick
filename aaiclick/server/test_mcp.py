@@ -52,6 +52,7 @@ EXPECTED_TOOLS = {
     "register_job",
     "enable_job",
     "disable_job",
+    "unregister_job",
     "get_task",
     "get_task_logs",
     "list_tasks",

@@ -23,6 +23,7 @@ describe("viewer routes", () => {
   test("enable / disable confirm a registered-job toggle", () => {
     expect(parsePrompt("enable etl")).toEqual({ kind: "toggle-confirm", name: "etl", enabled: true });
     expect(parsePrompt("disable etl")).toEqual({ kind: "toggle-confirm", name: "etl", enabled: false });
+    expect(parsePrompt("unregister etl")).toEqual({ kind: "unregister-confirm", name: "etl" });
   });
 
   test("help shows the home command reference", () => {

@@ -8,6 +8,7 @@ export { RunForm } from "./RunForm";
 export { RegisterForm } from "./RegisterForm";
 export { CancelConfirm } from "./CancelConfirm";
 export { ToggleConfirm } from "./ToggleConfirm";
+export { UnregisterConfirm } from "./UnregisterConfirm";
 export { Tokens } from "./Tokens";
 export { Account } from "./Account";
 export { Invite } from "./Invite";

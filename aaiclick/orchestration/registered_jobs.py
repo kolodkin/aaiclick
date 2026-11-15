@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from croniter import croniter
-from sqlmodel import select
+from sqlmodel import select, update
 
 from ..backend import is_local
 from ..datetime_utils import utc_now
@@ -293,6 +293,23 @@ async def disable_job(name: str) -> RegisteredJob:
         await session.commit()
         await session.refresh(job)
         return job
+
+
+async def unregister_job(name: str) -> None:
+    """Delete a registered job; its past runs stay, unlinked.
+
+    Args:
+        name: Job name
+
+    Raises:
+        RegisteredJobNotFound: If no job with this name exists
+    """
+    async with get_sql_session() as session:
+        job = await _get_registered_or_raise(session, name)
+        # Unlink here, not via FK ondelete="SET NULL": changing the FK rebuilds jobs on SQLite.
+        await session.execute(update(Job).where(Job.registered_job_id == job.id).values(registered_job_id=None))
+        await session.delete(job)
+        await session.commit()
 
 
 async def list_registered_jobs(

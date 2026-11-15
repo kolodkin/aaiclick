@@ -248,7 +248,7 @@ Registering an existing name fails (HTTP 409). Pass `--replace` (Python
 signature change leaves stale `default_kwargs`. Every field is replaced: omitting `--schedule`
 clears the schedule, and `enabled` resets to true.
 
-## Enable, disable, list registrations
+## Enable, disable, unregister, list registrations
 
 === "Python"
 
@@ -258,12 +258,14 @@ clears the schedule, and `enabled` resets to true.
         disable_job,
         enable_job,
         list_registered_jobs,
+        unregister_job,
     )
 
     async with orch_context():
         await enable_job("crawl")
         await disable_job("crawl")
         registrations = await list_registered_jobs(enabled_only=True)
+        await unregister_job("crawl")  # past runs stay, unlinked
     ```
 
 === "CLI"
@@ -271,6 +273,7 @@ clears the schedule, and `enabled` resets to true.
     ```bash
     python -m aaiclick job enable crawl
     python -m aaiclick job disable crawl
+    python -m aaiclick job unregister crawl
     python -m aaiclick registered-job list
     ```
 
@@ -279,6 +282,7 @@ clears the schedule, and `enabled` resets to true.
     ```bash
     curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/crawl/enable
     curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/crawl/disable
+    curl -X DELETE http://127.0.0.1:5255/api/v0/registered-jobs/crawl
     curl http://127.0.0.1:5255/api/v0/registered-jobs
     ```
 
