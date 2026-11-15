@@ -306,6 +306,7 @@ async def unregister_job(name: str) -> None:
     """
     async with get_sql_session() as session:
         job = await _get_registered_or_raise(session, name)
+        # Unlink here, not via FK ondelete="SET NULL": changing the FK rebuilds jobs on SQLite.
         await session.execute(update(Job).where(Job.registered_job_id == job.id).values(registered_job_id=None))
         await session.delete(job)
         await session.commit()
