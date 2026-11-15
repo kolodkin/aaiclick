@@ -3,28 +3,6 @@ Future Plans
 
 Planned work across aaiclick, ordered by priority.
 
-# Blob Storage Support
-
-Shipped: export to a bucket and read-only located Objects
-(`docs/designs/blob_storage.md`). Still open:
-
-- **Named located Objects** — `name` / `scope` so a pointer is reopenable by
-  name on another server (`schema_doc` already carries the location).
-- **GCS and Azure** — `gs://` via the `S3` engine with HMAC keys, `az://` via
-  `AzureBlobStorage`.
-- **Per-object credentials** — a named collection chosen per object, e.g.
-  `open_object_from_url(url, connection="lake")` rendering
-  `s3(lake, url=...)`: keys in ClickHouse config, several buckets per
-  deploy; needs `named_collection_control` grants. Or the caller's own keys
-  in SQL, which needs oplog redaction.
-- **Lake formats** (Iceberg, Delta) as further schemes.
-
-Rejected: a writable located Object. The S3 engine's only append is a new file
-per insert read back through a glob — export to a new key under a prefix gives
-the same layout without unverified read-after-write, concurrent-writer hazards
-or orphan files. Revisit only if several tasks must append in place to one
-bucket-backed table.
-
 # Coverage Reporting
 
 Coverage is off by default: its CI log table went unread and it slowed every
@@ -42,6 +20,29 @@ with the v1.0.0 release.
 # Deferred
 
 Items deferred until preconditions are met.
+
+## Blob Storage Support
+
+Deferred until it can be tested against real buckets — emulators (moto,
+Azurite) only cover part of it. Shipped: export to a bucket and read-only
+located Objects (`docs/designs/blob_storage.md`). Still open:
+
+- **Named located Objects** — `name` / `scope` so a pointer is reopenable by
+  name on another server (`schema_doc` already carries the location).
+- **GCS and Azure** — `gs://` via the `S3` engine with HMAC keys, `az://` via
+  `AzureBlobStorage`.
+- **Per-object credentials** — a named collection chosen per object, e.g.
+  `open_object_from_url(url, connection="lake")` rendering
+  `s3(lake, url=...)`: keys in ClickHouse config, several buckets per
+  deploy; needs `named_collection_control` grants. Or the caller's own keys
+  in SQL, which needs oplog redaction.
+- **Lake formats** (Iceberg, Delta) as further schemes.
+
+Rejected: a writable located Object. The S3 engine's only append is a new file
+per insert read back through a glob — export to a new key under a prefix gives
+the same layout without unverified read-after-write, concurrent-writer hazards
+or orphan files. Revisit only if several tasks must append in place to one
+bucket-backed table.
 
 ## Kubernetes Worker Follow-ups
 
