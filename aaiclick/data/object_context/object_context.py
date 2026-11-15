@@ -27,7 +27,7 @@ from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
 from .. import object as object_module
-from ..azure import azure_args
+from ..blob_sql import blob_args
 from ..formats import validate_format_name
 from ..models import (
     AAI_ID_COLUMN,
@@ -368,13 +368,10 @@ async def create_object(
         # Located Object: a pointer over files in object storage or on local
         # disk. No credentials here — ClickHouse resolves them
         # (docs/designs/blob_storage.md).
-        if is_az_url(schema.location):
-            assert schema.connection is not None and schema.format is not None
-            engine_clause = (
-                f"ENGINE = AzureBlobStorage({azure_args(schema.location, schema.format, schema.connection)})"
-            )
-        elif is_url(schema.location):
-            engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
+        if is_url(schema.location):
+            assert schema.format is not None
+            blob_engine = "AzureBlobStorage" if is_az_url(schema.location) else "S3"
+            engine_clause = f"ENGINE = {blob_engine}({blob_args(schema.location, schema.format, schema.connection)})"
         else:
             engine_clause = f"ENGINE = File('{schema.format}', {quote_sql_literal(schema.location)})"
     else:

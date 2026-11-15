@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..azure import blob_function
+from ..blob_sql import blob_function
 from ..formats import FORMAT_AUTO, JSON_BLOB_FORMATS, format_for_extension, validate_format_name
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
@@ -375,10 +375,10 @@ async def open_object_from_url(
             does not map, ClickHouse detects the format itself.
         column_types: Column types, skipping schema inference. Keys are the
             columns to expose when ``columns`` is omitted.
-        connection: ClickHouse named collection an ``az://container/path``
-            URL reads through, e.g. ``"lake"``. On chdb the collection comes
-            from ``AZURE_STORAGE_CONNECTION_STRING``; on a ClickHouse server
-            it is required.
+        connection: ClickHouse named collection holding the credentials,
+            e.g. ``"lake"``: required for ``az://`` on a server, optional for
+            S3. On chdb, S3 uses the process env and Azure
+            ``AZURE_STORAGE_CONNECTION_STRING``.
 
     Returns:
         Object: array-shaped when the only column is ``value`` (the shape an

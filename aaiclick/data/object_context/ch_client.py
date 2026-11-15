@@ -21,7 +21,7 @@ import pyarrow as pa
 from aaiclick.backend import is_chdb
 from aaiclick.snowflake import get_snowflake_id
 
-from ..azure import AZURE_CONNECTION_ENV, DEFAULT_AZURE_CONNECTION, blob_function
+from ..blob_sql import AZURE_CONNECTION_ENV, DEFAULT_AZURE_CONNECTION, blob_function
 from ..models import QueryStats
 from ..sql_utils import quote_sql_literal
 from ..url_utils import is_az_url, require_local_backend

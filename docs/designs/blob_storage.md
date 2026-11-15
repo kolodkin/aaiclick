@@ -73,9 +73,18 @@ lend until the operator supplies them.
 `s3://bucket/key` resolves to AWS; S3-compatible servers (MinIO) take
 bucket-style `http(s)://host/bucket/key`.
 
-# Azure
+**Implementation**: `aaiclick/data/blob_sql.py`
 
-**Implementation**: `aaiclick/data/azure.py`
+`connection="lake"` names a ClickHouse named collection holding the keys
+instead: `s3(lake, url = '...', format = '...')`, and `S3(...)` likewise for
+the pointer engine. Each bucket can use its own keys, and the opt-in above does
+not apply. The collection holds only `access_key_id` / `secret_access_key` —
+aaiclick sends `url` and `format`. On chdb `connection` is ignored for S3: no
+server config can hold a collection, and the process env already serves. The
+name is still stored in `Schema.connection`, so job code runs unchanged on both
+backends.
+
+# Azure
 
 `az://container/path` renders as `azureBlobStorage(<collection>, container =
 '...', blob_path = '...', format = '...')` for open, the pointer engine and

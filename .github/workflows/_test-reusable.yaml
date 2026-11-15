@@ -322,7 +322,7 @@ jobs:
   test-blob-dist:
     # Blob storage needs a ClickHouse whose profile lends its S3 identity to
     # queries (docker/clickhouse/users.d/s3.xml) and, for Azure, defines the
-    # azurite_test named collection (docker/clickhouse/test/). `services:`
+    # s3_test / azurite_test named collections (docker/clickhouse/test/). `services:`
     # containers start before checkout and cannot mount a repo file, so this
     # job starts ClickHouse itself. The same tests skip in the Data dist groups.
     needs: lint
@@ -340,15 +340,15 @@ jobs:
       - name: Start Azurite
         uses: ./.github/actions/start-azurite
 
-      - name: Start ClickHouse with the S3 profile and Azure collection
+      - name: Start ClickHouse with the S3 profile and test collections
         run: |
           docker run -d --name clickhouse -p 8123:8123 \
             -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=click123 \
             -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=0 \
             -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
             -v "$PWD/docker/clickhouse/users.d/s3.xml:/etc/clickhouse-server/users.d/s3.xml:ro" \
-            -v "$PWD/docker/clickhouse/test/users.d/azurite.xml:/etc/clickhouse-server/users.d/named-collections.xml:ro" \
-            -v "$PWD/docker/clickhouse/test/config.d/azurite.xml:/etc/clickhouse-server/config.d/azurite.xml:ro" \
+            -v "$PWD/docker/clickhouse/test/users.d/named-collections.xml:/etc/clickhouse-server/users.d/named-collections.xml:ro" \
+            -v "$PWD/docker/clickhouse/test/config.d/named-collections.xml:/etc/clickhouse-server/config.d/named-collections.xml:ro" \
             --add-host=host.docker.internal:host-gateway \
             clickhouse/clickhouse-server:26.10
 

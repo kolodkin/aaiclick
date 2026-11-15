@@ -1,7 +1,12 @@
-<!-- Test only: the azurite_test named collection for aaiclick/data/object/test_blob_azure.py
-     in the "Blob storage dist" CI job. The key is Azurite's published development key. -->
+<!-- Test only: named collections for aaiclick/data/object/test_blob.py in the
+     "Blob storage dist" CI job. The keys are moto's test pair and Azurite's
+     published development key. -->
 <clickhouse>
     <named_collections>
+        <s3_test>
+            <access_key_id>testing</access_key_id>
+            <secret_access_key>testing</secret_access_key>
+        </s3_test>
         <azurite_test>
             <connection_string>DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://host.docker.internal:10000/devstoreaccount1;</connection_string>
         </azurite_test>

@@ -79,11 +79,11 @@ def parse_az_url(url: str) -> AzUrl:
 
 def validate_connection(url: str, connection: str | None) -> None:
     """Reject a ``connection`` that is not a named-collection name, or is given
-    for anything but an ``az://`` URL. The name is inlined into SQL."""
+    for a local path. The name is inlined into SQL."""
     if connection is None:
         return
-    if not is_az_url(url):
-        raise ValueError("connection applies only to az:// URLs")
+    if not is_url(url):
+        raise ValueError("connection applies only to bucket URLs")
     # ASCII only: ClickHouse rejects other bare identifiers, and its syntax
     # error would echo the secret-bearing CREATE NAMED COLLECTION.
     if err := name_error("connection", connection):

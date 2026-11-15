@@ -12,6 +12,7 @@ Shared behavior runs once per backend through the ``store`` fixture:
 
 from __future__ import annotations
 
+import copy
 import io
 import os
 import shutil
@@ -31,7 +32,7 @@ from sqlalchemy import text
 
 from aaiclick import ColumnInfo, Schema, create_object, create_object_from_value, open_object_from_url
 from aaiclick.backend import internal_table, is_chdb
-from aaiclick.data.azure import AZURE_CONNECTION_ENV
+from aaiclick.data.blob_sql import AZURE_CONNECTION_ENV
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.data.object_context import ch_client, get_ch_client
 from aaiclick.data.url_utils import AzUrl, parse_az_url
@@ -45,6 +46,7 @@ _HOST = os.getenv("AAICLICK_TEST_FILESERVER_HOST", "localhost")
 _KEYS = {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing"}
 _CONTAINER = "aaiclick-test"
 _CONNECTION = "azurite_test"
+_S3_CONNECTION = "s3_test"
 # Azurite's published development account — not a secret.
 _DEV_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
 
@@ -177,20 +179,41 @@ def bucket() -> Iterator[Bucket]:
         server.stop()
 
 
-@pytest.fixture(params=["s3", "azure"])
+@pytest.fixture
+def s3_collection(bucket) -> Bucket:
+    """The same bucket, read and written through the ``s3_test`` named collection."""
+    via = copy.copy(bucket)
+    via.connection = _S3_CONNECTION
+    return via
+
+
+@pytest.fixture(params=["s3", "s3_collection", "azure"])
 def store(request) -> Bucket | Container:
     """The behavior every backend shares runs once against each."""
-    return request.getfixturevalue("bucket" if request.param == "s3" else "container")
+    return request.getfixturevalue(
+        {"s3": "bucket", "s3_collection": "s3_collection", "azure": "container"}[request.param]
+    )
 
 
 @pytest.fixture(autouse=True)
 async def server_lends_s3_identity(request, ctx) -> None:
-    """Skip S3 tests on a remote ClickHouse whose profile does not lend its
-    S3 identity to queries (docker/clickhouse/users.d/s3.xml); chdb has no such
-    guard, and tests that never reach a bucket run everywhere."""
+    """Skip S3 tests on a remote ClickHouse that cannot reach the bucket: one
+    whose profile does not lend its S3 identity to queries
+    (docker/clickhouse/users.d/s3.xml), or, through a collection, one that does
+    not define ``s3_test`` (docker/clickhouse/test/). chdb uses our env either
+    way, and tests that never reach a bucket run everywhere."""
     callspec = getattr(request.node, "callspec", None)
-    uses_s3 = "bucket" in request.fixturenames or (callspec is not None and callspec.params.get("store") == "s3")
-    if not uses_s3 or is_chdb():
+    store = callspec.params.get("store") if callspec is not None else None
+    if is_chdb():
+        return
+    if store == "s3_collection":
+        result = await get_ch_client().query(
+            f"SELECT count() FROM system.named_collections WHERE name = '{_S3_CONNECTION}'"
+        )
+        if result.result_rows[0][0] == 0:
+            pytest.skip(f"ClickHouse defines no {_S3_CONNECTION} named collection")
+        return
+    if "bucket" not in request.fixturenames and store != "s3":
         return
     result = await get_ch_client().query(
         "SELECT value FROM system.settings WHERE name = 's3_allow_server_credentials_in_user_queries'"
@@ -435,7 +458,6 @@ async def test_located_object_survives_a_task_boundary(ctx, store, sample_url):
         ("az://container", "lake", "blob path"),
         ("az:///path.parquet", "lake", "container"),
         ("az://c/p.parquet?sig=abc", "lake", "query parameters"),
-        ("s3://b/k.parquet", "lake", "connection"),
         ("/tmp/x.parquet", "lake", "connection|chdb backend"),
         ("az://c/p.parquet", "bad name", "connection"),
     ],

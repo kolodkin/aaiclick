@@ -701,9 +701,10 @@ class Object:
 
         An ``http(s)://`` or ``s3://`` *path* is written to object storage by
         ClickHouse itself (``INSERT INTO FUNCTION s3()``) on both backends.
-        An ``az://container/path`` goes to Azure Blob Storage through the
-        ClickHouse named collection *connection* (e.g. ``"lake"``); on chdb
-        the collection comes from ``AZURE_STORAGE_CONNECTION_STRING``.
+        An ``az://container/path`` goes to Azure Blob Storage. *connection*
+        names a ClickHouse named collection holding the credentials (e.g.
+        ``"lake"``): required for ``az://`` on a server, optional for S3. On
+        chdb, S3 uses the process env and Azure ``AZURE_STORAGE_CONNECTION_STRING``.
         Writing to an existing key raises unless ``overwrite=True``; a local
         file is always replaced.
 

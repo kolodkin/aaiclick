@@ -527,6 +527,28 @@ both once you have bucket credentials.
     no setting of its own for this: lending the server's identity is the
     ClickHouse operator's decision.
 
+To use different keys per bucket instead, name a ClickHouse named collection
+with `connection=` — no profile line needed. Define it in `config.d` with only
+the keys, and grant it as for [Azure](#azure):
+
+```xml
+<clickhouse>
+  <named_collections>
+    <lake>
+      <access_key_id>...</access_key_id>
+      <secret_access_key>...</secret_access_key>
+    </lake>
+  </named_collections>
+</clickhouse>
+```
+
+```python
+url = await daily.export("s3://lake/reports/daily.parquet", connection="lake")
+```
+
+On chdb `connection` is ignored for S3 — the process env is used — so the same
+code runs locally.
+
 ## Azure
 
 `az://container/path` reads and writes Azure Blob Storage through a ClickHouse
