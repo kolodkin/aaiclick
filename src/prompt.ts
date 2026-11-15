@@ -76,7 +76,7 @@ export function parsePrompt(raw: string): Route {
   if (p.startsWith("cancel ")) return { kind: "cancel-confirm", ref: p.slice(7).trim() };
   if (p.startsWith("enable ")) return { kind: "toggle-confirm", name: p.slice(7).trim(), enabled: true };
   if (p.startsWith("disable ")) return { kind: "toggle-confirm", name: p.slice(8).trim(), enabled: false };
-  if (p.startsWith("unregister ")) return { kind: "unregister-confirm", name: p.slice(11).trim() };
+  if (p.startsWith("unregister ")) return { kind: "unregister-confirm", name: p.slice("unregister ".length).trim() };
   return { kind: "unknown", raw: p };
 }
 

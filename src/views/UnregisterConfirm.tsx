@@ -25,7 +25,7 @@ export function UnregisterConfirm({ name, onPrompt }: { name: string; onPrompt: 
         </h2>
         <p className="sub">The registration is deleted. Past runs stay in job history.</p>
         <div className="form-actions">
-          <AdminButton className="btn" disabled={unregister.isPending} onClick={onConfirm}>
+          <AdminButton className="btn btn-danger" disabled={unregister.isPending} onClick={onConfirm}>
             Unregister
           </AdminButton>
           <button className="btn" onClick={() => onPrompt("@registered")}>
