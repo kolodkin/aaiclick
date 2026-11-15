@@ -24,7 +24,8 @@ schemas.
 - There is no tool that waits for a job. Re-check `get_job` on your own schedule.
 - `cancel_job` stops a job and its unfinished tasks.
 - Catalog: `list_registered_jobs`, `register_job` (`entrypoint`, optional cron
-  `schedule`, `default_kwargs`), `enable_job` / `disable_job`.
+  `schedule`, `default_kwargs`), `enable_job` / `disable_job`,
+  `unregister_job` (past runs are kept, unlinked).
 
 # Tasks
 

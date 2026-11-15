@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
-from aaiclick.view_models import Page, Problem, ProblemCode
+from aaiclick.view_models import Deleted, Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -74,3 +74,15 @@ async def test_enable_unknown_returns_404(orch_ctx, app_client):
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())
     assert problem.code is ProblemCode.NOT_FOUND
+
+
+async def test_unregister_job(orch_ctx, app_client):
+    await _register_job_impl(name="http_unreg", entrypoint="myapp.http_unreg")
+
+    response = await app_client.delete(f"{API_PREFIX}/registered-jobs/http_unreg")
+    assert response.status_code == 200
+    assert Deleted.model_validate(response.json()).name == "http_unreg"
+
+    again = await app_client.delete(f"{API_PREFIX}/registered-jobs/http_unreg")
+    assert again.status_code == 404
+    assert Problem.model_validate(again.json()).code is ProblemCode.NOT_FOUND

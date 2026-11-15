@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.orchestration.view_models import RegisteredJobView
-from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
+from aaiclick.view_models import Deleted, Page, RegisteredJobFilter, RegisterJobRequest
 
 from ..auth import require_admin
 from ..deps import orch_scope
@@ -49,3 +49,13 @@ async def enable_job(name: str) -> RegisteredJobView:
 )
 async def disable_job(name: str) -> RegisteredJobView:
     return await rj_api.disable_job(name)
+
+
+@router.delete(
+    "/{name}",
+    response_model=Deleted,
+    dependencies=[Depends(require_admin)],
+    responses=problem_responses(403, 404),
+)
+async def unregister_job(name: str) -> Deleted:
+    return await rj_api.unregister_job(name)

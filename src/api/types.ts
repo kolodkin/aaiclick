@@ -18,6 +18,7 @@ export type TaskLogs = S["TaskLogsView"];
 export type TaskAttempt = S["TaskAttemptView"];
 export type LogLine = S["LogLine"];
 export type RegisteredJobView = S["RegisteredJobView"];
+export type Deleted = S["Deleted"];
 export type SandboxFileView = S["SandboxFileView"];
 export type SandboxFileDetailView = S["SandboxFileDetailView"];
 export type SandboxConfigView = S["SandboxConfigView"];

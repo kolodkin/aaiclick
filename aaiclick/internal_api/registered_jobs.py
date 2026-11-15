@@ -23,11 +23,14 @@ from aaiclick.orchestration.registered_jobs import (
 from aaiclick.orchestration.registered_jobs import (
     register_job as _register_job_impl,
 )
+from aaiclick.orchestration.registered_jobs import (
+    unregister_job as _unregister_job_impl,
+)
 from aaiclick.orchestration.view_models import (
     RegisteredJobView,
     registered_job_to_view,
 )
-from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
+from aaiclick.view_models import Deleted, Page, RegisteredJobFilter, RegisterJobRequest
 
 from .errors import Conflict, Invalid, NotFound
 from .pagination import name_like, paginate
@@ -144,3 +147,15 @@ async def disable_job(name: str) -> RegisteredJobView:
     except RegisteredJobNotFound as exc:
         raise NotFound(str(exc)) from exc
     return registered_job_to_view(registered)
+
+
+async def unregister_job(name: str) -> Deleted:
+    """Delete a registered job; its past runs stay, unlinked from the registration.
+
+    Raises ``NotFound`` if no registration matches ``name``.
+    """
+    try:
+        await _unregister_job_impl(name)
+    except RegisteredJobNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    return Deleted(name=name)

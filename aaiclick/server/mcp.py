@@ -196,6 +196,13 @@ async def disable_job(name: str) -> RegisteredJobView:
         return await rj_api.disable_job(name)
 
 
+@mcp.tool(tags={TAG_ADMIN})
+async def unregister_job(name: str) -> Deleted:
+    """Delete a registered job; its past runs stay, unlinked from the registration."""
+    async with orch_context():
+        return await rj_api.unregister_job(name)
+
+
 # --- tasks ------------------------------------------------------------
 
 

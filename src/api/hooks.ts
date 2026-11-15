@@ -14,6 +14,7 @@ import type {
   Dashboard,
   DashboardResults,
   DashboardSummary,
+  Deleted,
   InviteUserRequest,
   InviteView,
   JobDetail,
@@ -207,6 +208,12 @@ export function useToggleRegisteredJob() {
       postJSON<RegisteredJobView>(`/registered-jobs/${encodeURIComponent(name)}/${enabled ? "enable" : "disable"}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["registered-jobs"] }),
   });
+}
+
+export function useUnregisterJob() {
+  return useInvalidating(["registered-jobs"], (name: string) =>
+    deleteJSON<Deleted>(`/registered-jobs/${encodeURIComponent(name)}`),
+  );
 }
 
 // --- viewer ---------------------------------------------------------------

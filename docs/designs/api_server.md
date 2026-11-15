@@ -121,6 +121,7 @@ async def list_jobs(filter: JobListFilter = JobListFilter()) -> Page[JobView]: .
 | `registered-job list`        | `list_registered_jobs(filter)`     | `GET /registered-jobs`               | `list_registered_jobs`   |
 | `job enable <name>`          | `enable_job(name)`                 | `POST /registered-jobs/{n}/enable`   | `enable_job`             |
 | `job disable <name>`         | `disable_job(name)`                | `POST /registered-jobs/{n}/disable`  | `disable_job`            |
+| `job unregister <name>`      | `unregister_job(name)`             | `DELETE /registered-jobs/{n}`        | `unregister_job`         |
 | `execution-worker list`      | `list_execution_workers(filter)`   | `GET /execution-workers`             | `list_execution_workers` |
 | `execution-worker start`     | — (blocking CLI loop)              | —                                    | —                        |
 | `execution-worker stop <id>` | `stop_execution_worker(id)`        | —                                    | —                        |

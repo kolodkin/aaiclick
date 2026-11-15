@@ -19,6 +19,7 @@ Usage:
     python -m aaiclick job wait <ref>           # Block until a job reaches a terminal status
     python -m aaiclick job enable <name>        # Enable a registered job
     python -m aaiclick job disable <name>       # Disable a registered job
+    python -m aaiclick job unregister <name>    # Delete a registered job
     python -m aaiclick task get <id>            # Get task details by ID
     python -m aaiclick register-job <entrypoint> # Register a job
     python -m aaiclick run-job <name>           # Run a job immediately
@@ -297,6 +298,11 @@ async def _run_job_enable(args: argparse.Namespace) -> None:
 async def _run_job_disable(args: argparse.Namespace) -> None:
     view = await _run_internal_api(internal_api.disable_job(args.name))
     _render(args, view, cli_renderers.render_registered_job_disabled)
+
+
+async def _run_job_unregister(args: argparse.Namespace) -> None:
+    deleted = await _run_internal_api(internal_api.unregister_job(args.name))
+    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "registered job"))
 
 
 async def _run_task_list(args: argparse.Namespace) -> None:
@@ -827,6 +833,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     job_disable_parser.add_argument("name", type=str, help="Registered job name")
     _add_json_flag(job_disable_parser)
+
+    # job unregister <name>
+    job_unregister_parser = job_subparsers.add_parser(
+        "unregister",
+        help="Delete a registered job (past runs are kept)",
+    )
+    job_unregister_parser.add_argument("name", type=str, help="Registered job name")
+    _add_json_flag(job_unregister_parser)
 
     # Add task subcommand
     task_parser = subparsers.add_parser(
@@ -1359,6 +1373,9 @@ def _dispatch() -> None:
 
         elif args.job_command == "disable":
             asyncio.run(_run_job_disable(args))
+
+        elif args.job_command == "unregister":
+            asyncio.run(_run_job_unregister(args))
 
         else:
             subcommands["job"].print_help()

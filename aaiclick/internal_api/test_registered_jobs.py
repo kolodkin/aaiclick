@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from sqlmodel import select
 
-from aaiclick.orchestration.models import PRESERVATION_FULL
+from aaiclick.orchestration.models import PRESERVATION_FULL, Job
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
+from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
@@ -162,6 +165,26 @@ async def test_disable_job_clears_next_run(orch_ctx):
 async def test_disable_job_missing_raises_not_found(orch_ctx):
     with pytest.raises(errors.NotFound):
         await registered_jobs.disable_job("ghost_job")
+
+
+async def test_unregister_job_keeps_past_runs_unlinked(orch_ctx):
+    await _register_job_impl(name="to_unregister", entrypoint="myapp.to_unregister")
+    run = await _run_job_impl("to_unregister", "myapp.to_unregister")
+
+    deleted = await registered_jobs.unregister_job("to_unregister")
+
+    assert deleted.name == "to_unregister"
+    page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="to_unregister"))
+    assert page.items == []
+    async with get_sql_session() as session:
+        job = (await session.execute(select(Job).where(Job.id == run.id))).scalar_one()
+    assert job.name == "to_unregister"
+    assert job.registered_job_id is None
+
+
+async def test_unregister_job_missing_raises_not_found(orch_ctx):
+    with pytest.raises(errors.NotFound):
+        await registered_jobs.unregister_job("ghost_job")
 
 
 async def test_register_job_build_skips_host_entrypoint_validation(orch_ctx):
