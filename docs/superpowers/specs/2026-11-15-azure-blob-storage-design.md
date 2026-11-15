@@ -98,6 +98,15 @@ daily = await open_object_from_url("az://acct/reports/2026/daily.parquet")
   `format`, which aaiclick always sends and would otherwise need
   `SHOW NAMED COLLECTIONS SECRETS` to override. Documented; the CI collection
   follows it.
+- **Where the collection lives**: production is a ClickHouse server, so the
+  operator defines it in the server's `config.d` — the key never passes
+  through aaiclick. chdb works with a collection created by
+  `CREATE NAMED COLLECTION`, but that puts the key through the aaiclick
+  process, so on chdb it is test-only (Azurite's public dev key) and
+  documented as such.
+- **Verify on the server first**: the "does `ENGINE = AzureBlobStorage(lake,
+  ...)` take keyword overrides" check runs on ClickHouse server
+  (`clickhouse/clickhouse-server:26.10`, the CI image) before chdb.
 - `export` returns the URL it was given; the connection is not encoded in it.
   The next job passes the same `connection` — the operator's config, like the
   S3 server identity.
