@@ -150,7 +150,7 @@ async def disable_job(name: str) -> RegisteredJobView:
 
 
 async def unregister_job(name: str) -> Deleted:
-    """Delete a registered job; its past runs stay, unlinked from the registration.
+    """Delete a registered job; its past runs stay, unlinked.
 
     Raises ``NotFound`` if no registration matches ``name``.
     """

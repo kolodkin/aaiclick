@@ -296,7 +296,7 @@ async def disable_job(name: str) -> RegisteredJob:
 
 
 async def unregister_job(name: str) -> None:
-    """Delete a registered job; past runs keep their history but lose the link.
+    """Delete a registered job; its past runs stay, unlinked.
 
     Args:
         name: Job name
