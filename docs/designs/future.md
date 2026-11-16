@@ -245,6 +245,10 @@ Shipped design: `viewer.md`.
   widget's page and order-by. Until then a tag stays unrendered.
 - **Dashboard params outside the browser**: `run_dashboard` (MCP, CLI) runs
   panels as stored, so a `where` holding a `{param}` placeholder fails there.
+- **Task values beyond `@data`**: `@task <id>` shows no Inputs / Result
+  panels linking to the task's value rows; `data list` has no `--kind` flag
+  or columns for them; and the job listing is one page of 1000 rows with no
+  cursor.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
 

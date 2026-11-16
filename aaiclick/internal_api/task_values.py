@@ -1,5 +1,7 @@
 """Task inputs and results as rows of a job's object listing.
 
+See docs/designs/viewer.md — "Task Values".
+
 A job's ``tasks.kwargs`` / ``tasks.result`` JSON, shown next to its objects:
 ``list_task_values`` builds one ``ObjectView`` per top-level kwarg and per
 non-null result, ``read_task_value`` reads one by address. Nothing is stored.
