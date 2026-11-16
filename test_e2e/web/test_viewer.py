@@ -198,3 +198,60 @@ def test_data_scrolls_old_job_into_view(page, base_url: str) -> None:
         }""",
         timeout=15000,
     )
+
+
+@_spa_built
+@_local_only
+def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@data job {OBJECTS_JOB}")
+    table = page.get_by_test_id("objects-table")
+    # The job's own kwargs lead the list.
+    playwright_api.expect(table.locator("tbody tr").first).to_contain_text(f"{OBJECTS_JOB}.day")
+    value_row = table.locator("tr", has_text="extract.limit")
+    playwright_api.expect(value_row).to_contain_text("value")
+    playwright_api.expect(value_row).to_contain_text("1000")
+    ref_row = table.locator("tr", has_text="load.df")
+    playwright_api.expect(ref_row).to_contain_text("task")
+    playwright_api.expect(ref_row).to_contain_text("extract.result")
+    shot("data-task-values")
+
+    rows = table.locator("tbody tr")
+    page.get_by_test_id("filter-chip-job").click()
+    playwright_api.expect(rows).to_have_count(2)
+    playwright_api.expect(rows.last).to_contain_text(f"{OBJECTS_JOB}.result")
+    page.get_by_test_id("filter-chip-tasks").click()
+    playwright_api.expect(rows).to_have_count(3)
+    playwright_api.expect(value_row).to_have_count(1)
+    page.get_by_test_id("filter-chip-objects").click()
+    playwright_api.expect(value_row).to_have_count(0)
+    playwright_api.expect(table.locator("tr", has_text="raw_sales")).to_have_count(1)
+    page.get_by_test_id("filter-chip-all").click()
+
+    # A ref's link follows it to the producing task's result.
+    ref_row.get_by_role("button").click()
+    view = page.get_by_test_id("value-view")
+    playwright_api.expect(view).to_contain_text("extract.result")
+    playwright_api.expect(view.get_by_test_id("object-rows")).to_contain_text("rows")
+    shot("data-task-value")
+
+
+@_spa_built
+@_local_only
+def test_data_task_values_on_phone(page, base_url: str, shot) -> None:
+    page.set_viewport_size({"width": 412, "height": 900})
+    open_page(page, f"{base_url}/?p=@data job {OBJECTS_JOB}")
+    table = page.get_by_test_id("objects-table")
+    table.locator("tr", has_text="extract.limit").wait_for(timeout=15000)
+    # The wide table scrolls inside its own container; the page itself must not.
+    assert page.evaluate("document.documentElement.scrollWidth") <= 412
+    # No room for the Value / Target column: the value sits under the name.
+    under = table.locator("tr", has_text="extract.limit").locator(".value-under")
+    playwright_api.expect(under).to_be_visible()
+    playwright_api.expect(under).to_have_text("1000")
+    playwright_api.expect(table.locator("th.col-value")).to_be_hidden()
+    table.scroll_into_view_if_needed()
+    shot("data-task-values-phone")
+    table.locator("tr", has_text="extract.limit").click()
+    page.get_by_test_id("value-view").get_by_test_id("object-rows").wait_for(timeout=15000)
+    assert page.evaluate("document.documentElement.scrollWidth") <= 412
+    shot("data-task-value-phone")

@@ -218,16 +218,24 @@ export function useUnregisterJob() {
 
 // --- viewer ---------------------------------------------------------------
 
+const TASK_VALUES_LIMIT = 1000;
+
 function jobParam(scope: string): string {
   if (scope === ALL) return "?scope=all";
   const job = jobOfScope(scope);
   return job ? `?job=${encodeURIComponent(job)}` : "";
 }
 
-export function useObjects(scope: string) {
+// `taskValues` adds a job's task inputs and results before its objects (job scopes only).
+// shortcut: one page of TASK_VALUES_LIMIT rows, no paging; add a cursor when jobs outgrow it.
+export function useObjects(scope: string, taskValues = false) {
+  const withValues = taskValues && jobOfScope(scope) !== null;
   return useQuery({
-    queryKey: ["objects", scope],
-    queryFn: () => fetchJSON<Page<ObjectView>>(`/objects${jobParam(scope)}`),
+    queryKey: ["objects", scope, withValues],
+    queryFn: () =>
+      fetchJSON<Page<ObjectView>>(
+        `/objects${jobParam(scope)}${withValues ? `&kind=all&limit=${TASK_VALUES_LIMIT}` : ""}`,
+      ),
     refetchInterval: false,
   });
 }

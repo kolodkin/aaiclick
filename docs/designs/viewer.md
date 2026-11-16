@@ -80,6 +80,55 @@ functions) and runs with `readonly=2`. Columns come from the object's
 registered schema, so there is no `DESCRIBE` step. Free-form SQL across
 objects: `future.md`.
 
+## Task Values
+
+**Implementation**: `aaiclick/internal_api/task_values.py`
+
+A job's Python inputs and results are JSON in `tasks.kwargs` /
+`tasks.result` (`task_interface.md`), never tables. A job listing with
+`kind="all"` adds one row per top-level kwarg and per non-null result of
+every task; nothing is stored for it. The default `kind="object"` is the
+plain object listing; `"value"` / `"ref"` list only those task rows.
+
+| Kind     | Row is                                    | `preview`                       |
+|----------|-------------------------------------------|---------------------------------|
+| `object` | a `table_registry` table                  | —                               |
+| `value`  | an untagged value, `native` or `pydantic` | its JSON, cut at 120 characters |
+| `ref`    | any other `_aaiclick_type`                | what it points at               |
+
+Only the top-level value decides the kind, so a list or dict holding refs is
+a `value` shown as stored.
+
+A `ref` row carries a `ref_type`, and a `target` when there is something to
+open:
+
+| `_aaiclick_type` | `ref_type` | `preview`                                                              | `target`                                |
+|------------------|------------|------------------------------------------------------------------------|-----------------------------------------|
+| `object`         | `object`   | the object's name                                                      | that object, if this job's              |
+| `view`           | `view`     | its source object's name                                               | that object, if this job's              |
+| `upstream`       | `task`     | `<task_name>.result`                                                   | that task's result row, once it has one |
+| `group_results`  | `group`    | `group <id> results`, plus `(<n> tasks)` when direct members are found | —                                       |
+| `callable`       | `function` | the entrypoint                                                         | —                                       |
+| anything else    | the type   | the type                                                               | —                                       |
+
+Order: the job's own kwargs, the job's result, the other tasks' results,
+the other tasks' kwargs, then the objects. The job's own are its entry
+task's — the task named after the job — and carry `owner="job"`; other task
+rows carry `owner="task"`. `total` and `limit` span everything; a cut page
+drops task rows before objects.
+
+A task row is addressed by task id, since task names repeat within a job:
+`<task_id>.<kwarg>` for an input, `<task_id>` for a result. Its `label` is
+`<task_name>.<kwarg>` / `<task_name>.result`. Object names cannot start with
+a digit, so an address never collides with one.
+
+`query_object` accepts an address in `object` under a job scope and runs no
+SQL: it returns the stored JSON as text in one `value` cell, in the kernel's
+`{meta, data}` shape — text, because a browser would round the 64-bit ids
+inside a ref. `native` is unwrapped; `pydantic` and refs come back as
+stored. `where`, `fields` and `order_by` are rejected, and a value over
+1 MiB is replaced by `{"truncated": true, "bytes": <n>}`.
+
 # Backend
 
 The viewer builds on three additions to `aaiclick/data` and

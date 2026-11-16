@@ -1583,16 +1583,32 @@ export interface components {
         ObjectDetail: {
             /** Created At */
             created_at: string | null;
+            /** Direction */
+            direction: ("in" | "out") | null;
             /** Job Id */
             job_id: string | null;
             /** Job Name */
             job_name: string | null;
+            /**
+             * Kind
+             * @default object
+             * @enum {string}
+             */
+            kind: "object" | "value" | "ref";
+            /** Label */
+            label: string | null;
             /** Lineage Summary */
             lineage_summary: string | null;
             /** Name */
             name: string;
+            /** Owner */
+            owner: ("job" | "task") | null;
             /** Persistent */
             persistent: boolean;
+            /** Preview */
+            preview: string | null;
+            /** Ref Type */
+            ref_type: string | null;
             /** Row Count */
             row_count: number | null;
             /**
@@ -1605,6 +1621,10 @@ export interface components {
             /** Table */
             table: string;
             table_schema: components["schemas"]["Schema"];
+            /** Target */
+            target: string | null;
+            /** Task Id */
+            task_id: string | null;
         };
         /**
          * ObjectQuery
@@ -1673,14 +1693,30 @@ export interface components {
         ObjectView: {
             /** Created At */
             created_at: string | null;
+            /** Direction */
+            direction: ("in" | "out") | null;
             /** Job Id */
             job_id: string | null;
             /** Job Name */
             job_name: string | null;
+            /**
+             * Kind
+             * @default object
+             * @enum {string}
+             */
+            kind: "object" | "value" | "ref";
+            /** Label */
+            label: string | null;
             /** Name */
             name: string;
+            /** Owner */
+            owner: ("job" | "task") | null;
             /** Persistent */
             persistent: boolean;
+            /** Preview */
+            preview: string | null;
+            /** Ref Type */
+            ref_type: string | null;
             /** Row Count */
             row_count: number | null;
             /**
@@ -1692,6 +1728,10 @@ export interface components {
             size_bytes: number | null;
             /** Table */
             table: string;
+            /** Target */
+            target: string | null;
+            /** Task Id */
+            task_id: string | null;
         };
         OrderBy: [
             string,
@@ -3371,6 +3411,7 @@ export interface operations {
                 prefix?: string | null;
                 scope?: ("temp" | "temp_named" | "job" | "global") | "all" | null;
                 job?: number | string | null;
+                kind?: "object" | "value" | "ref" | "all";
                 limit?: number;
                 cursor?: string | null;
             };

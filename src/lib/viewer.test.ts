@@ -3,6 +3,7 @@ import {
   dataPrompt,
   fieldsFromSchema,
   formatBytes,
+  isAddress,
   orderColsToPairs,
   scopeKey,
   jobScopeLabel,
@@ -63,5 +64,16 @@ describe("formatBytes", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2.0 KB");
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+});
+
+describe("isAddress", () => {
+  test.each([
+    ["7302", true],
+    ["7302.df", true],
+    ["orders", false],
+    ["_7302", false],
+  ])("%s", (name, want) => {
+    expect(isAddress(name)).toBe(want);
   });
 });

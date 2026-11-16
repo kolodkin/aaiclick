@@ -6,10 +6,18 @@ import type { ObjectView } from "../api/types";
 import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";
 import { MetaGrid } from "../components/MetaGrid";
-import { ObjectsTable } from "../components/ObjectsTable";
+import { ObjectsTable, TargetCell } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, fieldsFromSchema, formatBytes, jobOfScope, jobScopeLabel, orderColsToPairs } from "../lib/viewer";
+import {
+  dataPrompt,
+  fieldsFromSchema,
+  formatBytes,
+  isAddress,
+  jobOfScope,
+  jobScopeLabel,
+  orderColsToPairs,
+} from "../lib/viewer";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
@@ -23,7 +31,7 @@ export function Data({
   object: string | null;
   onPrompt: (v: string) => void;
 }) {
-  const objects = useObjects(scope);
+  const objects = useObjects(scope, true);
   const selected = object ? objects.data?.items.find((o) => o.name === object) : undefined;
 
   return (
@@ -45,7 +53,9 @@ export function Data({
         <div className="viewer-main">
           {objects.isLoading && <p className="sub">loading…</p>}
           {objects.isError && <p className="err">failed to load objects</p>}
-          {object ? (
+          {object && isAddress(object) ? (
+            <ValueView key={`${scope}/${object}`} scope={scope} address={object} view={selected} onPrompt={onPrompt} />
+          ) : object ? (
             <ObjectExplorer
               key={`${scope}/${object}`}
               scope={scope}
@@ -54,11 +64,82 @@ export function Data({
               onPrompt={onPrompt}
             />
           ) : (
-            objects.data && <ObjectsTable objects={objects.data.items} onPrompt={onPrompt} />
+            objects.data && (
+              <>
+                {objects.data.total != null && objects.data.total > objects.data.items.length && (
+                  <p className="sub" data-testid="objects-cut">
+                    Showing {objects.data.items.length} of {objects.data.total} rows
+                  </p>
+                )}
+                <ObjectsTable objects={objects.data.items} onPrompt={onPrompt} />
+              </>
+            )
           )}
         </div>
       </div>
     </>
+  );
+}
+
+// One task input or result: the header comes from its list row, the stored
+// JSON from the same query route as an object's rows, as a single cell.
+function ValueView({
+  scope,
+  address,
+  view,
+  onPrompt,
+}: {
+  scope: string;
+  address: string;
+  view: ObjectView | undefined;
+  onPrompt: (v: string) => void;
+}) {
+  const query = useObjectRows({ scope, object: address, order_by: [], limit: 1, offset: 0 });
+  const rows = query.data ?? null;
+  const columns = rows ? columnNames(rows) : [];
+  const scopeText = jobScopeLabel(scope, view?.job_name);
+  const job = jobOfScope(scope);
+  return (
+    <div data-testid="value-view">
+      <div className="detail-head">
+        <div className="title-row">
+          <h2>
+            <span className="mono">{view?.label ?? address}</span>
+          </h2>
+        </div>
+        <MetaGrid
+          items={[
+            { k: "Kind", v: view ? <span className={`badge kind-${view.kind}`}>{view.kind}</span> : "—" },
+            { k: "Task", v: address.split(".")[0], mono: true },
+            // From the address, so it is right before the list row loads: only an input has a kwarg part.
+            { k: "Direction", v: address.includes(".") ? "input" : "result" },
+            { k: "Scope", v: scopeText },
+            ...(view?.kind === "ref"
+              ? [{ k: "Points to", v: <TargetCell o={view} onPrompt={onPrompt} />, mono: true }]
+              : []),
+          ]}
+        />
+      </div>
+      <Chips
+        chips={[
+          { label: `← ${scopeText}`, cmd: dataPrompt(scope) },
+          ...(job ? [{ label: `@job ${job}`, cmd: `@job ${job}` }] : []),
+        ]}
+        onPrompt={onPrompt}
+      />
+      {query.isPending && <p className="sub">loading value…</p>}
+      {query.isError && <p className="err">{query.error.message}</p>}
+      {rows && (
+        <ResultsTable
+          columns={columns}
+          rows={rows.data}
+          types={columnTypes(rows)}
+          shownIdx={columns.map((_, i) => i)}
+          testid="object-rows"
+          className="max-h-[70vh]"
+        />
+      )}
+    </div>
   );
 }
 

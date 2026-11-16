@@ -8,6 +8,8 @@ builds the SELECT (see docs/designs/viewer.md).
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,8 +48,12 @@ from aaiclick.viewer.view_models import (
     RunQueriesRequest,
 )
 
+from . import jobs as jobs_api
 from . import objects as objects_api
 from .errors import Invalid, NotFound
+from .task_values import is_address, read_task_value
+
+_VALUE_COLUMN = "value"
 
 
 def _scope_job(key: str) -> str | None:
@@ -89,10 +95,35 @@ def _order_clause(obj: Object, order_by: list[OrderBy]) -> str | None:
     return ", ".join(parts)
 
 
+async def _task_value_bytes(request: ObjectQueryRequest) -> bytes:
+    """One task input or result as a one-row, one-column page."""
+    if request.where is not None or request.fields is not None or request.order_by:
+        raise Invalid("a task value takes no where, fields or order_by")
+    job_ref = _scope_job(request.scope)
+    if job_ref is None:
+        raise NotFound(f"Object not found: {request.object}")
+    job = await jobs_api.resolve_job(job_ref)
+    # JSON text, not a nested value: the browser would round a bare 64-bit int
+    # (task and group ids inside refs), and the kernel parses JSON text cells.
+    text = json.dumps(await read_task_value(job.id, request.object), ensure_ascii=False)
+    if request.fmt == FMT_CSV:
+        out = io.StringIO()
+        csv.writer(out).writerows([[_VALUE_COLUMN], [text]])
+        return out.getvalue().encode("utf-8")
+    return json.dumps({"meta": [{"name": _VALUE_COLUMN, "type": "String"}], "data": [[text]], "rows": 1}).encode(
+        "utf-8"
+    )
+
+
 async def query_object_bytes(request: ObjectQueryRequest) -> bytes:
     """One page of an object as ClickHouse sent it — ``JSONCompact`` or
     ``CSVWithNames``. The REST route returns these bytes verbatim, so the SPA's
-    kernel reads ``{meta, data}`` with no parse or re-serialise in between."""
+    kernel reads ``{meta, data}`` with no parse or re-serialise in between.
+
+    A task-value address (``task_values.is_address``) runs no SQL: the stored
+    JSON comes back in the same shape, as one ``value`` cell."""
+    if is_address(request.object):
+        return await _task_value_bytes(request)
     _check_where(request.where)
     obj = await objects_api.open_scoped(request.object, _scope_job(request.scope))
     view = obj.view(

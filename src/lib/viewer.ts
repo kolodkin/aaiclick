@@ -71,3 +71,10 @@ export function formatBytes(bytes: number | null | undefined): string {
   }
   return `${value.toFixed(1)} ${units[i]}`;
 }
+
+// A task input or result inside a job scope (`<task_id>.<kwarg>` or `<task_id>`)
+// rather than an object: object names never start with a digit. The server
+// validates the rest and answers "not found" for a malformed one.
+export function isAddress(name: string): boolean {
+  return /^\d/.test(name);
+}

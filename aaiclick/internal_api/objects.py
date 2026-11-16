@@ -31,6 +31,8 @@ from aaiclick.data.object_context import (
 )
 from aaiclick.data.scope import GLOBAL_PREFIX, JOB_PREFIX, SCOPE_GLOBAL, SCOPE_JOB, scope_of
 from aaiclick.data.view_models import (
+    OBJECT_KIND_ALL,
+    OBJECT_KIND_OBJECT,
     ObjectDetail,
     ObjectView,
 )
@@ -49,6 +51,7 @@ from aaiclick.view_models import (
 
 from . import jobs as jobs_api
 from .errors import Invalid, NotFound
+from .task_values import list_task_values
 
 
 async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
@@ -79,8 +82,17 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     otherwise ``scope=None`` / ``"global"`` lists the ``p_*`` tables. Any
     other scope raises ``Invalid``. Job-scoped items carry ``job_id`` /
     ``job_name``. Prefix filter, order and limit run in SQL.
+
+    ``filter.kind`` other than ``"object"`` needs ``job`` and adds that job's
+    task inputs and results (``task_values``) before its objects: ``"all"``
+    lists both, ``"value"`` / ``"ref"`` only those task rows. ``prefix`` then
+    matches a task row's label; ``total`` and ``limit`` span both parts, and a
+    cut page drops task rows before objects.
     """
     filter = filter or ObjectFilter()
+    if filter.kind != OBJECT_KIND_OBJECT and filter.job is None:
+        raise Invalid("kind requires job (id or name)")
+    job = None
     table_col = col(TableRegistry.table_name)
     job_id_col = col(TableRegistry.job_id)
     is_global = table_col.startswith(GLOBAL_PREFIX, autoescape=True)
@@ -108,16 +120,19 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     if filter.prefix:
         clause = and_(clause, name_col.startswith(filter.prefix, autoescape=True))
 
-    async with get_sql_session() as session:
-        total = (await session.execute(select(func.count()).select_from(TableRegistry).where(clause))).scalar_one()
-        result = await session.execute(
-            select(name_col, table_col, job_id_col, Job.name, TableRegistry.created_at)
-            .outerjoin(Job, col(Job.id) == job_id_col)
-            .where(clause)
-            .order_by(name_col, table_col)
-            .limit(filter.limit)
-        )
-    paged = [(row[0], row[1], row[2], row[3], row[4]) for row in result.all()]
+    total, paged = 0, []
+    # "value" / "ref" list task rows only: no registry query to run.
+    if filter.kind in (OBJECT_KIND_OBJECT, OBJECT_KIND_ALL):
+        async with get_sql_session() as session:
+            total = (await session.execute(select(func.count()).select_from(TableRegistry).where(clause))).scalar_one()
+            result = await session.execute(
+                select(name_col, table_col, job_id_col, Job.name, TableRegistry.created_at)
+                .outerjoin(Job, col(Job.id) == job_id_col)
+                .where(clause)
+                .order_by(name_col, table_col)
+                .limit(filter.limit)
+            )
+        paged = [(row[0], row[1], row[2], row[3], row[4]) for row in result.all()]
 
     metadata = await _fetch_table_metadata([table for _, table, _, _, _ in paged])
 
@@ -138,6 +153,15 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
                 **metadata.get(table, {}),
             )
         )
+    if job is not None and filter.kind != OBJECT_KIND_OBJECT:
+        task_rows = [
+            row
+            for row in await list_task_values(job)
+            if filter.kind in (OBJECT_KIND_ALL, row.kind) and (row.label or "").startswith(filter.prefix or "")
+        ]
+        total += len(task_rows)
+        # The objects keep their place on a cut page; task rows fill what is left.
+        items = task_rows[: max(0, filter.limit - len(items))] + items
     return Page[ObjectView](items=items, total=total)
 
 

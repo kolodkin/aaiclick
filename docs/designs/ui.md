@@ -159,13 +159,27 @@ tick every second while the job is active, so running bars grow.
 
 **Implementation**: `src/views/Data.tsx`
 
-**Prompt**: `@data` (all scopes), `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>` (no `job`: persistent)
+**Prompt**: `@data` (all scopes), `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>` (no `job`: persistent), `@data job <ref> <address>` (a task value)
 
 Left: a scope tree — All, Persistent, then the jobs (newest first, name
 filter). Right: the objects of the selected scope (name, scope —
 `persistent` or `job`, job name, rows, size, created), or, with an object
 named, the object view. A job object's back chip returns to `@job <id>`; an
 `@data` chip lists the scope.
+
+A job scope also lists its tasks' inputs and results, before its objects
+(`viewer.md` — "Task Values"):
+
+- **Columns**: Kind (`object` / `value` / `ref`) and Value / Target replace
+  Scope and Job. Value / Target is a value's JSON preview, or a ref's type
+  tag and what it points at — a link when it can be opened. On a phone the
+  column is hidden and the value sits under the name.
+- **Chips** filter the rows: job (its own kwargs and result), tasks,
+  objects, all.
+- **A cut page** says "Showing N of M rows".
+- **Opening a task row** shows its header (kind, task, direction, points-to)
+  and the stored JSON as one cell of the same `ResultsTable`, with no paging
+  or pickers.
 
 The object view is QueryView's explorer over one object: a header, then
 Refresh, Limit (applied on blur or Enter) and Previous / Next, the kernel's
