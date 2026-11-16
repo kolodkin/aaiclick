@@ -86,7 +86,8 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     ``filter.kind`` other than ``"object"`` needs ``job`` and adds that job's
     task inputs and results (``task_values``) before its objects: ``"all"``
     lists both, ``"value"`` / ``"ref"`` only those task rows. ``prefix`` then
-    matches a task row's label; ``total`` and ``limit`` span both parts.
+    matches a task row's label; ``total`` and ``limit`` span both parts, and a
+    cut page drops task rows before objects.
     """
     filter = filter or ObjectFilter()
     if filter.kind != OBJECT_KIND_OBJECT and filter.job is None:
@@ -159,7 +160,8 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
             if filter.kind in (OBJECT_KIND_ALL, row.kind) and (row.label or "").startswith(filter.prefix or "")
         ]
         total += len(task_rows)
-        items = (task_rows + items)[: filter.limit]
+        # The objects keep their place on a cut page; task rows fill what is left.
+        items = task_rows[: max(0, filter.limit - len(items))] + items
     return Page[ObjectView](items=items, total=total)
 
 

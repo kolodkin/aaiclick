@@ -64,7 +64,16 @@ export function Data({
               onPrompt={onPrompt}
             />
           ) : (
-            objects.data && <ObjectsTable objects={objects.data.items} onPrompt={onPrompt} />
+            objects.data && (
+              <>
+                {objects.data.total != null && objects.data.total > objects.data.items.length && (
+                  <p className="sub" data-testid="objects-cut">
+                    Showing {objects.data.items.length} of {objects.data.total} rows
+                  </p>
+                )}
+                <ObjectsTable objects={objects.data.items} onPrompt={onPrompt} />
+              </>
+            )
           )}
         </div>
       </div>
@@ -102,7 +111,8 @@ function ValueView({
           items={[
             { k: "Kind", v: view ? <span className={`badge kind-${view.kind}`}>{view.kind}</span> : "—" },
             { k: "Task", v: view?.task_id ?? address.split(".")[0], mono: true },
-            { k: "Direction", v: view?.direction === "out" ? "result" : "input" },
+            // From the address, so it is right before the list row loads: only an input has a kwarg part.
+            { k: "Direction", v: address.includes(".") ? "input" : "result" },
             { k: "Scope", v: scopeText },
             ...(view?.kind === "ref"
               ? [{ k: "Points to", v: <TargetCell o={view} onPrompt={onPrompt} />, mono: true }]

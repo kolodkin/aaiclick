@@ -196,5 +196,9 @@ async def test_list_objects_kind_adds_task_rows():
     values = await objects.list_objects(ObjectFilter(job=job.id, kind="value", limit=1))
     assert ([o.label for o in values.items], values.total) == (["t.result"], 2)
 
+    # A cut page keeps the objects: task rows only fill what the limit leaves.
+    cut = await objects.list_objects(ObjectFilter(job=job.id, kind="all", limit=2))
+    assert ([o.label or o.name for o in cut.items], cut.total) == (["t.result", "orders"], 3)
+
     prefixed = await objects.list_objects(ObjectFilter(job=job.id, kind="all", prefix="t.r"))
     assert [o.label for o in prefixed.items] == ["t.result"]

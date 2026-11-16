@@ -89,7 +89,8 @@ A job's Python inputs and results never become tables: they are JSON in
 `kind="all"` adds one row per top-level kwarg and per non-null result of
 every task, before the job's objects. Nothing is stored for it. The default
 `kind="object"` is the plain object listing; `"value"` / `"ref"` list only
-those task rows. `total` and `limit` span both parts.
+those task rows. `total` and `limit` span both parts; a cut page drops task rows before
+objects.
 
 | Kind     | Row is                                    | `preview`                         |
 |----------|-------------------------------------------|-----------------------------------|
@@ -122,8 +123,9 @@ A task row is addressed by task id, since task names repeat within a job:
 a digit, so an address never collides with one.
 
 `query_object` accepts an address in `object` under a job scope and runs no
-SQL: it returns the stored JSON as one `value` cell of type `JSON`, in the
-kernel's `{meta, data}` shape. `native` is unwrapped; `pydantic` and refs
+SQL: it returns the stored JSON as text in one `value` cell, in the kernel's
+`{meta, data}` shape — text, because a browser would round the 64-bit ids
+inside a ref. `native` is unwrapped; `pydantic` and refs
 come back as stored. `where`, `fields` and `order_by` are rejected, and a
 value over 1 MiB is replaced by `{"truncated": true, "bytes": <n>}`.
 

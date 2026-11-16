@@ -103,12 +103,16 @@ async def _task_value_bytes(request: ObjectQueryRequest) -> bytes:
     if job_ref is None:
         raise NotFound(f"Object not found: {request.object}")
     job = await jobs_api.resolve_job(job_ref)
-    value = await read_task_value(job.id, request.object)
+    # JSON text, not a nested value: the browser would round a bare 64-bit int
+    # (task and group ids inside refs), and the kernel parses JSON text cells.
+    text = json.dumps(await read_task_value(job.id, request.object), ensure_ascii=False)
     if request.fmt == FMT_CSV:
         out = io.StringIO()
-        csv.writer(out).writerows([[_VALUE_COLUMN], [json.dumps(value, ensure_ascii=False)]])
+        csv.writer(out).writerows([[_VALUE_COLUMN], [text]])
         return out.getvalue().encode("utf-8")
-    return json.dumps({"meta": [{"name": _VALUE_COLUMN, "type": "JSON"}], "data": [[value]], "rows": 1}).encode("utf-8")
+    return json.dumps({"meta": [{"name": _VALUE_COLUMN, "type": "String"}], "data": [[text]], "rows": 1}).encode(
+        "utf-8"
+    )
 
 
 async def query_object_bytes(request: ObjectQueryRequest) -> bytes:

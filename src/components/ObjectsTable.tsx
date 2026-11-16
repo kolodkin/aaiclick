@@ -44,7 +44,8 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
   // Task rows only come with a job scope, where Scope and Job would repeat one
   // value on every row; they give way to Kind and Value / Target.
   const hasTaskRows = objects.some((o) => o.kind !== "object");
-  const shown = objects.filter((o) => matches(o, filter));
+  // The chips are hidden without task rows, so a filter left from a job scope must not apply.
+  const shown = hasTaskRows ? objects.filter((o) => matches(o, filter)) : objects;
   return (
     <>
       {hasTaskRows && (

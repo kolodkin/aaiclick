@@ -27,6 +27,7 @@ async def _pipeline() -> tuple[Job, Task, Task]:
             "fmt": callable_ref("m.f"),
             "parts": group_results_ref(7),
             "odd": {"_aaiclick_type": "mystery"},
+            "ext": {"_aaiclick_type": "object", "table": "p_shared", "persistent": True},
         },
         name="clean",
     )
@@ -56,6 +57,8 @@ async def test_list_task_values_kinds_refs_and_targets():
         (f"{load.id}", "load.result", "ref", "out", "object", "orders", "orders"),
         (f"{clean.id}", "clean.result", "value", "out", None, '{"dropped": 12}', None),
         (f"{clean.id}.df", "clean.df", "ref", "in", "task", "load.result", f"{load.id}"),
+        # an object outside this job's scope has nothing to open here
+        (f"{clean.id}.ext", "clean.ext", "ref", "in", "object", "shared", None),
         (f"{clean.id}.fmt", "clean.fmt", "ref", "in", "function", "m.f", None),
         # an unknown _aaiclick_type lists under its raw type
         (f"{clean.id}.odd", "clean.odd", "ref", "in", "mystery", "mystery", None),
@@ -63,7 +66,27 @@ async def test_list_task_values_kinds_refs_and_targets():
         (f"{clean.id}.rules", "clean.rules", "value", "in", None, 'm.Rules {"dedupe": true}', None),
     ]
     assert {(r.scope, r.job_id, r.job_name, r.task_id is not None) for r in rows} == {("job", job.id, "load", True)}
-    assert [r.owner for r in rows] == ["job"] * 3 + ["task"] * 6
+    assert [r.owner for r in rows] == ["job"] * 3 + ["task"] * 7
+
+
+async def test_list_task_values_skips_non_dict_kwargs():
+    """A hand-edited row whose kwargs is not a dict must not break the job's listing."""
+    job = await create_job("tv_job", create_task(_SAMPLE_TASK, {"n": 1}, name="t"))
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        task.kwargs = [1, 2]  # type: ignore[assignment]
+        session.add(task)
+        await session.commit()
+    assert await task_values.list_task_values(job) == []
+    with pytest.raises(errors.NotFound):
+        await task_values.read_task_value(job.id, f"{task.id}.n")
+
+
+@pytest.mark.parametrize("address", ["9" * 19, "9" * 25], ids=["over_int64", "over_19_digits"])
+async def test_read_task_value_oversized_id_not_found(address):
+    job = await create_job("tv_job", _SAMPLE_TASK)
+    with pytest.raises(errors.NotFound):
+        await task_values.read_task_value(job.id, address)
 
 
 async def test_list_task_values_preview_is_cut():

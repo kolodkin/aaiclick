@@ -158,7 +158,7 @@ async def _job_with_task_value() -> tuple[Job, Task]:
     job = await create_job("value_job", create_task(_SAMPLE_TASK, {"n": 1}, name="t"))
     async with get_sql_session() as session:
         task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
-        task.result = native_ref({"kept": 2})
+        task.result = native_ref({"kept": 2, "id": 2**60})
         session.add(task)
         await session.commit()
     return job, task
@@ -167,8 +167,9 @@ async def _job_with_task_value() -> tuple[Job, Task]:
 async def test_query_object_task_value():
     job, task = await _job_with_task_value()
     res = await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object=f"{task.id}"))
-    assert [(c.name, c.type) for c in res.meta] == [("value", "JSON")]
-    assert res.data == [[{"kept": 2}]]
+    # The value travels as JSON text: a bare 64-bit int would be rounded by the browser.
+    assert [(c.name, c.type) for c in res.meta] == [("value", "String")]
+    assert res.data == [['{"kept": 2, "id": 1152921504606846976}']]
     as_csv = await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object=f"{task.id}.n", fmt="csv"))
     assert as_csv.text == "value\r\n1\r\n"
 

@@ -35,7 +35,7 @@ from aaiclick.data.object.refs import (
     VALUE,
     VIEW,
 )
-from aaiclick.data.scope import SCOPE_JOB, name_from_table
+from aaiclick.data.scope import JOB_PREFIX, SCOPE_JOB, name_from_table
 from aaiclick.data.view_models import (
     DIRECTION_IN,
     DIRECTION_OUT,
@@ -61,12 +61,19 @@ REF_TYPE_GROUP = "group"
 REF_TYPE_FUNCTION = "function"
 
 _RESULT = "result"
-_ADDRESS_RE = re.compile(r"^(\d+)(?:\.([A-Za-z_][A-Za-z0-9_]*))?$")
+# 19 digits hold any int64; a longer run is not a task id.
+_ADDRESS_RE = re.compile(r"^(\d{1,19})(?:\.([A-Za-z_][A-Za-z0-9_]*))?$")
+_MAX_TASK_ID = 2**63 - 1
 
 
 def is_address(name: str) -> bool:
     """True when ``name`` is a task-value address rather than an object name."""
     return _ADDRESS_RE.match(name) is not None
+
+
+def _kwargs(stored: object) -> dict[str, JsonValue]:
+    """A task's kwargs, or nothing when a hand-edited row holds something else."""
+    return stored if isinstance(stored, dict) else {}
 
 
 def _dump(value: JsonValue) -> str:
@@ -80,7 +87,9 @@ class _Described(NamedTuple):
     target: str | None = None
 
 
-def _describe(value: JsonValue, task_names: dict[int, str], group_sizes: Counter[int]) -> _Described:
+def _describe(
+    value: JsonValue, task_names: dict[int, str], group_sizes: Counter[int], job_table_prefix: str
+) -> _Described:
     """How one stored value lists.
 
     Reads ``_aaiclick_type`` directly: ``ref_kind()`` raises on an unknown
@@ -99,7 +108,10 @@ def _describe(value: JsonValue, task_names: dict[int, str], group_sizes: Counter
     ref_type, preview, target = str(tag), str(tag), None
     if tag in (OBJECT, VIEW) and isinstance(value.get(TABLE), str):
         ref_type = REF_TYPE_OBJECT
-        preview = target = name_from_table(str(value[TABLE]))
+        table = str(value[TABLE])
+        preview = name_from_table(table)
+        # Links open in this job's scope, so only this job's own tables get one.
+        target = preview if table.startswith(job_table_prefix) else None
     elif tag == UPSTREAM:
         ref_type = REF_TYPE_TASK
         task_id = value.get(TASK_ID)
@@ -138,7 +150,7 @@ async def list_task_values(job: Job) -> list[ObjectView]:
     rows: list[ObjectView] = []
     for task in tasks:
         entries: list[tuple[str, str, ValueDirection, JsonValue]] = [
-            (f"{task.id}.{key}", key, DIRECTION_IN, value) for key, value in sorted((task.kwargs or {}).items())
+            (f"{task.id}.{key}", key, DIRECTION_IN, value) for key, value in sorted(_kwargs(task.kwargs).items())
         ]
         if task.result is not None:
             entries.append((str(task.id), _RESULT, DIRECTION_OUT, task.result))
@@ -158,7 +170,7 @@ async def list_task_values(job: Job) -> list[ObjectView]:
                     # The entry task is named after the job (as get_job_result finds it),
                     # so its rows are the job's own inputs and result.
                     owner=OWNER_JOB if task.name == job.name else OWNER_TASK,
-                    **_describe(value, task_names, group_sizes)._asdict(),
+                    **_describe(value, task_names, group_sizes, f"{JOB_PREFIX}{job.id}_")._asdict(),
                 )
             )
 
@@ -183,6 +195,8 @@ async def read_task_value(job_id: int, address: str) -> JsonValue:
     if match is None:
         raise NotFound(f"Object not found: {address}")
     task_id, key = int(match.group(1)), match.group(2)
+    if task_id > _MAX_TASK_ID:
+        raise NotFound(f"Object not found: {address}")
     async with get_sql_session() as session:
         row = (
             await session.execute(
@@ -196,9 +210,10 @@ async def read_task_value(job_id: int, address: str) -> JsonValue:
         if value is None:
             raise NotFound(f"Task {task_id} has no result")
     else:
-        if key not in (row.kwargs or {}):
+        kwargs = _kwargs(row.kwargs)
+        if key not in kwargs:
             raise NotFound(f"Object not found: {address}")
-        value = row.kwargs[key]
+        value = kwargs[key]
     if isinstance(value, dict) and value.get(AAICLICK_TYPE) == NATIVE:
         value = value.get(VALUE)
     size = len(_dump(value).encode())
