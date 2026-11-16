@@ -84,7 +84,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     ``job_name``. Prefix filter, order and limit run in SQL.
 
     ``filter.kind`` other than ``"object"`` needs ``job`` and adds that job's
-    task inputs and results (``task_values``) after its objects: ``"all"``
+    task inputs and results (``task_values``) before its objects: ``"all"``
     lists both, ``"value"`` / ``"ref"`` only those task rows. ``prefix`` then
     matches a task row's label; ``total`` and ``limit`` span both parts.
     """
@@ -159,7 +159,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
             if filter.kind in (OBJECT_KIND_ALL, row.kind) and (row.label or "").startswith(filter.prefix or "")
         ]
         total += len(task_rows)
-        items = (items + task_rows)[: filter.limit]
+        items = (task_rows + items)[: filter.limit]
     return Page[ObjectView](items=items, total=total)
 
 

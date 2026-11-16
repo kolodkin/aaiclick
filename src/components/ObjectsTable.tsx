@@ -38,7 +38,8 @@ export function TargetCell({ o, onPrompt }: { o: ObjectView; onPrompt: (v: strin
 export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onPrompt: (v: string) => void }) {
   const [kind, setKind] = useState<Kind | "all">("all");
   if (objects.length === 0) return <p className="sub">No objects in this scope</p>;
-  // Task rows only come with a job scope; without them the table is today's.
+  // Task rows only come with a job scope, where Scope and Job would repeat one
+  // value on every row; they give way to Kind and Value / Target.
   const hasTaskRows = objects.some((o) => o.kind !== "object");
   const shown = kind === "all" ? objects : objects.filter((o) => o.kind === kind);
   return (
@@ -65,8 +66,8 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
             <th>Name</th>
             {hasTaskRows && <th>Kind</th>}
             {hasTaskRows && <th>Value / Target</th>}
-            <th>Scope</th>
-            <th>Job</th>
+            {!hasTaskRows && <th>Scope</th>}
+            {!hasTaskRows && <th>Job</th>}
             <th>Rows</th>
             <th>Size</th>
             <th>Created</th>
@@ -93,10 +94,12 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
                   <TargetCell o={o} onPrompt={onPrompt} />
                 </td>
               )}
-              <td>{o.job_id != null ? "job" : "persistent"}</td>
-              <td className="mono" title={o.job_id != null ? `#${o.job_id}` : undefined}>
-                {o.job_id != null ? (o.job_name ?? `#${o.job_id}`) : "—"}
-              </td>
+              {!hasTaskRows && <td>{o.job_id != null ? "job" : "persistent"}</td>}
+              {!hasTaskRows && (
+                <td className="mono" title={o.job_id != null ? `#${o.job_id}` : undefined}>
+                  {o.job_id != null ? (o.job_name ?? `#${o.job_id}`) : "—"}
+                </td>
+              )}
               <td className="mono">{o.row_count ?? "—"}</td>
               <td className="mono">{formatBytes(o.size_bytes)}</td>
               <td>{relativeTime(o.created_at)}</td>

@@ -205,6 +205,8 @@ def test_data_scrolls_old_job_into_view(page, base_url: str) -> None:
 def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@data job {OBJECTS_JOB}")
     table = page.get_by_test_id("objects-table")
+    # The job's own kwargs lead the list.
+    playwright_api.expect(table.locator("tbody tr").first).to_contain_text(f"{OBJECTS_JOB}.day")
     value_row = table.locator("tr", has_text="extract.limit")
     playwright_api.expect(value_row).to_contain_text("value")
     playwright_api.expect(value_row).to_contain_text("1000")

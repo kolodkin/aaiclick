@@ -246,6 +246,11 @@ async def seed_viewer_objects() -> None:
             by_name["load"].kwargs = {"df": upstream_ref(by_name["extract"].id)}
             session.add_all([by_name["extract"], by_name["load"]])
             await session.commit()
+        # A task named after the job is its entry task: the job's own kwargs and result.
+        entry = create_task(ENTRYPOINT, {"day": "2026-11-15"}, name=OBJECTS_JOB)
+        entry.status = TASK_COMPLETED
+        entry.result = native_ref({"loaded": 2})
+        await commit_tasks([entry], job_id=job_id)
     async with orch_context(), task_scope(task_id=seed_id, job_id=job_id, run_id=seed_id):
         # Six: enough that the menu shows its filter box.
         for name in ("daily_totals", "raw_sales", "customers", "orders_clean", "returns", "weekly_totals"):

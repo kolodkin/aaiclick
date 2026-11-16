@@ -189,12 +189,12 @@ async def test_list_objects_kind_adds_task_rows():
 
     everything = await objects.list_objects(ObjectFilter(job=job.id, kind="all"))
     assert ([(o.kind, o.label or o.name) for o in everything.items], everything.total) == (
-        [("object", "orders"), ("value", "t.n"), ("value", "t.result")],
+        [("value", "t.result"), ("value", "t.n"), ("object", "orders")],
         3,
     )
 
     values = await objects.list_objects(ObjectFilter(job=job.id, kind="value", limit=1))
-    assert ([o.label for o in values.items], values.total) == (["t.n"], 2)
+    assert ([o.label for o in values.items], values.total) == (["t.result"], 2)
 
     prefixed = await objects.list_objects(ObjectFilter(job=job.id, kind="all", prefix="t.r"))
     assert [o.label for o in prefixed.items] == ["t.result"]

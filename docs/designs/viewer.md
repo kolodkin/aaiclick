@@ -86,8 +86,8 @@ objects: `future.md`.
 
 A job's Python inputs and results never become tables: they are JSON in
 `tasks.kwargs` / `tasks.result` (`task_interface.md`). A job listing with
-`kind="all"` appends one row per top-level kwarg and per non-null result of
-every task, after the job's objects. Nothing is stored for it. The default
+`kind="all"` adds one row per top-level kwarg and per non-null result of
+every task, before the job's objects. Nothing is stored for it. The default
 `kind="object"` is the plain object listing; `"value"` / `"ref"` list only
 those task rows. `total` and `limit` span both parts.
 
@@ -107,6 +107,10 @@ open:
 | `group_results`  | `group`    | `group <id> results (<n> tasks)` | —                       |
 | `callable`       | `function` | the entrypoint                   | —                       |
 | anything else    | the type   | the type                         | —                       |
+
+Rows come in this order: the job's own kwargs, the job's result, the other
+tasks' results, the other tasks' kwargs, then the objects. The job's own are
+its entry task's — the task named after the job.
 
 Only the top-level value decides the kind, so a list or dict holding refs is
 a `value` shown as stored.

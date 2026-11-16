@@ -117,7 +117,11 @@ def _describe(value: JsonValue, task_names: dict[int, str], group_sizes: Counter
 
 
 async def list_task_values(job: Job) -> list[ObjectView]:
-    """Every input and result of ``job``'s tasks: by task id, inputs by name, then the result."""
+    """Every input and result of ``job``'s tasks.
+
+    Order: the job's own kwargs, the job's result, the other tasks' results,
+    then the other tasks' kwargs.
+    """
     async with get_sql_session() as session:
         tasks = (
             await session.execute(
@@ -152,7 +156,18 @@ async def list_task_values(job: Job) -> list[ObjectView]:
                     **_describe(value, task_names, group_sizes)._asdict(),
                 )
             )
-    return rows
+    # The entry task is named after the job (as get_job_result finds it), so its
+    # rows are the job's own inputs and result. The sort is stable: sections keep
+    # task-id order, inputs by name.
+    entry_ids = {t.id for t in tasks if t.name == job.name}
+
+    def section(row: ObjectView) -> int:
+        is_input = row.direction == DIRECTION_IN
+        if row.task_id in entry_ids:
+            return 0 if is_input else 1
+        return 3 if is_input else 2
+
+    return sorted(rows, key=section)
 
 
 async def read_task_value(job_id: int, address: str) -> JsonValue:

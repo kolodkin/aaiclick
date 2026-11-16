@@ -31,7 +31,8 @@ async def _pipeline() -> tuple[Job, Task, Task]:
         name="clean",
     )
     idle = create_task(_SAMPLE_TASK, name="idle")
-    job = await create_job("tv_job", load)
+    # The job is named after its entry task, as @job does: "load" is the job-level task.
+    job = await create_job("load", load)
     await commit_tasks([clean, idle], job_id=job.id)
     async with get_sql_session() as session:
         for row in (await session.execute(select(Task).where(Task.job_id == job.id))).scalars():
@@ -47,20 +48,21 @@ async def _pipeline() -> tuple[Job, Task, Task]:
 async def test_list_task_values_kinds_refs_and_targets():
     job, load, clean = await _pipeline()
     rows = await task_values.list_task_values(job)
+    # The job's own kwargs and result, then the other tasks' results, then their kwargs.
     assert [(r.name, r.label, r.kind, r.direction, r.ref_type, r.preview, r.target) for r in rows] == [
         (f"{load.id}.limit", "load.limit", "value", "in", None, "1000", None),
         # a kwarg named "result" is not the task's result
         (f"{load.id}.result", "load.result", "value", "in", None, '"kw"', None),
         (f"{load.id}", "load.result", "ref", "out", "object", "orders", "orders"),
+        (f"{clean.id}", "clean.result", "value", "out", None, '{"dropped": 12}', None),
         (f"{clean.id}.df", "clean.df", "ref", "in", "task", "load.result", f"{load.id}"),
         (f"{clean.id}.fmt", "clean.fmt", "ref", "in", "function", "m.f", None),
         # an unknown _aaiclick_type lists under its raw type
         (f"{clean.id}.odd", "clean.odd", "ref", "in", "mystery", "mystery", None),
         (f"{clean.id}.parts", "clean.parts", "ref", "in", "group", "group 7 results (0 tasks)", None),
         (f"{clean.id}.rules", "clean.rules", "value", "in", None, 'm.Rules {"dedupe": true}', None),
-        (f"{clean.id}", "clean.result", "value", "out", None, '{"dropped": 12}', None),
     ]
-    assert {(r.scope, r.job_id, r.job_name, r.task_id is not None) for r in rows} == {("job", job.id, "tv_job", True)}
+    assert {(r.scope, r.job_id, r.job_name, r.task_id is not None) for r in rows} == {("job", job.id, "load", True)}
 
 
 async def test_list_task_values_preview_is_cut():

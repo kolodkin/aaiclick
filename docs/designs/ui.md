@@ -167,8 +167,9 @@ filter). Right: the objects of the selected scope (name, scope —
 named, the object view. A job object's back chip returns to `@job <id>`; an
 `@data` chip lists the scope.
 
-A job scope also lists its tasks' inputs and results (`viewer.md` — "Task
-Values"), with two more columns: Kind (`object` / `value` / `ref`) and
+A job scope lists its tasks' inputs and results before its objects — the
+job's own kwargs and result first (`viewer.md` — "Task Values") — with two
+more columns in place of Scope and Job (one value per row there): Kind (`object` / `value` / `ref`) and
 Value / Target — a value's JSON preview, or a ref's type tag and what it
 points at, a link when it can be opened. Chips above the table filter by
 kind. Opening a task row shows its header (kind, task, direction, points-to)
