@@ -21,6 +21,7 @@ from typing import Any, Generic, Literal, TypeVar
 from pydantic import Field, model_validator
 
 from .api_model import ApiModel
+from .data.view_models import OBJECT_KIND_OBJECT, ObjectKindFilter
 from .log_models import (
     MAX_PAGE_LIMIT,
     STDERR_STREAM,
@@ -206,6 +207,7 @@ class ObjectFilter(ApiModel):
     prefix: str | None = None
     scope: ObjectScope | Literal["all"] | None = None
     job: RefId | None = None  # list one job's objects: id, or name → latest run
+    kind: ObjectKindFilter = OBJECT_KIND_OBJECT  # "value" / "ref" / "all" add a job's task rows
     limit: PageLimit = 50
     cursor: str | None = None
 

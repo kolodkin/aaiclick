@@ -1,0 +1,188 @@
+"""Task inputs and results as rows of a job's object listing.
+
+A job's ``tasks.kwargs`` / ``tasks.result`` JSON, shown next to its objects:
+``list_task_values`` builds one ``ObjectView`` per top-level kwarg and per
+non-null result, ``read_task_value`` reads one by address. Nothing is stored.
+
+An address is ``<task_id>.<kwarg>`` for an input and ``<task_id>`` for a
+result. Object names cannot start with a digit, so the two never collide.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections import Counter
+from typing import NamedTuple
+
+from pydantic import JsonValue
+from sqlmodel import col, select
+
+from aaiclick.data.object.refs import (
+    AAICLICK_TYPE,
+    CALLABLE,
+    ENTRYPOINT,
+    GROUP_ID,
+    GROUP_RESULTS,
+    NATIVE,
+    OBJECT,
+    PYDANTIC,
+    TABLE,
+    TASK_ID,
+    UPSTREAM,
+    VALUE,
+    VIEW,
+)
+from aaiclick.data.scope import SCOPE_JOB, name_from_table
+from aaiclick.data.view_models import (
+    DIRECTION_IN,
+    DIRECTION_OUT,
+    OBJECT_KIND_REF,
+    OBJECT_KIND_VALUE,
+    ObjectKind,
+    ObjectView,
+    ValueDirection,
+)
+from aaiclick.orchestration.models import Job, Task
+from aaiclick.orchestration.orch_context import get_sql_session
+
+from .errors import NotFound
+
+PREVIEW_CHARS = 120
+MAX_VALUE_BYTES = 1024 * 1024
+
+REF_TYPE_OBJECT = "object"
+REF_TYPE_TASK = "task"
+REF_TYPE_GROUP = "group"
+REF_TYPE_FUNCTION = "function"
+
+_RESULT = "result"
+_ADDRESS_RE = re.compile(r"^(\d+)(?:\.([A-Za-z_][A-Za-z0-9_]*))?$")
+
+
+def is_address(name: str) -> bool:
+    """True when ``name`` is a task-value address rather than an object name."""
+    return _ADDRESS_RE.match(name) is not None
+
+
+def _dump(value: JsonValue) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+class _Described(NamedTuple):
+    kind: ObjectKind
+    preview: str
+    ref_type: str | None = None
+    target: str | None = None
+
+
+def _describe(value: JsonValue, task_names: dict[int, str], group_sizes: Counter[int]) -> _Described:
+    """How one stored value lists.
+
+    Reads ``_aaiclick_type`` directly: ``ref_kind()`` raises on an unknown
+    type, and a listing must show it instead.
+    """
+    tag = value.get(AAICLICK_TYPE) if isinstance(value, dict) else None
+    if tag is None or tag == NATIVE:
+        shown = value.get(VALUE) if tag == NATIVE and isinstance(value, dict) else value
+        return _Described(OBJECT_KIND_VALUE, _dump(shown)[:PREVIEW_CHARS])
+    if not isinstance(value, dict):
+        raise TypeError("a tagged value is a dict")
+    if tag == PYDANTIC:
+        text = f"{value.get('type')} {_dump(value.get('data'))}"
+        return _Described(OBJECT_KIND_VALUE, text[:PREVIEW_CHARS])
+
+    ref_type, preview, target = str(tag), str(tag), None
+    if tag in (OBJECT, VIEW) and isinstance(value.get(TABLE), str):
+        ref_type = REF_TYPE_OBJECT
+        preview = target = name_from_table(str(value[TABLE]))
+    elif tag == UPSTREAM:
+        ref_type = REF_TYPE_TASK
+        task_id = value.get(TASK_ID)
+        name = task_names.get(task_id) if isinstance(task_id, int) else None
+        # A string task_id is a handle to a sibling not committed yet: nothing to open.
+        preview = f"{name}.{_RESULT}" if name else f"task {task_id}"
+        target = str(task_id) if name else None
+    elif tag == GROUP_RESULTS:
+        ref_type = REF_TYPE_GROUP
+        group_id = value.get(GROUP_ID)
+        size = group_sizes[group_id] if isinstance(group_id, int) else 0
+        preview = f"group {group_id} results ({size} tasks)"
+    elif tag == CALLABLE:
+        ref_type = REF_TYPE_FUNCTION
+        preview = str(value.get(ENTRYPOINT))
+    return _Described(OBJECT_KIND_REF, preview, ref_type, target)
+
+
+async def list_task_values(job: Job) -> list[ObjectView]:
+    """Every input and result of ``job``'s tasks: by task id, inputs by name, then the result."""
+    async with get_sql_session() as session:
+        tasks = (
+            await session.execute(
+                select(Task.id, Task.name, Task.group_id, Task.kwargs, Task.result, Task.created_at)
+                .where(col(Task.job_id) == job.id)
+                .order_by(col(Task.id))
+            )
+        ).all()
+    task_names = {t.id: t.name for t in tasks}
+    group_sizes = Counter(t.group_id for t in tasks if t.group_id is not None)
+
+    rows: list[ObjectView] = []
+    for task in tasks:
+        entries: list[tuple[str, str, ValueDirection, JsonValue]] = [
+            (f"{task.id}.{key}", key, DIRECTION_IN, value) for key, value in sorted((task.kwargs or {}).items())
+        ]
+        if task.result is not None:
+            entries.append((str(task.id), _RESULT, DIRECTION_OUT, task.result))
+        for address, key, direction, value in entries:
+            rows.append(
+                ObjectView(
+                    name=address,
+                    table="",
+                    scope=SCOPE_JOB,
+                    persistent=False,
+                    job_id=job.id,
+                    job_name=job.name,
+                    created_at=task.created_at,
+                    label=f"{task.name}.{key}",
+                    task_id=task.id,
+                    direction=direction,
+                    **_describe(value, task_names, group_sizes)._asdict(),
+                )
+            )
+    return rows
+
+
+async def read_task_value(job_id: int, address: str) -> JsonValue:
+    """The value at ``address`` in job ``job_id`` as stored, ``native`` unwrapped.
+
+    A value over ``MAX_VALUE_BYTES`` comes back as ``{"truncated": true,
+    "bytes": n}``. Raises ``NotFound`` for a malformed address, another job's
+    task, a missing kwarg or a task with no result yet.
+    """
+    match = _ADDRESS_RE.match(address)
+    if match is None:
+        raise NotFound(f"Object not found: {address}")
+    task_id, key = int(match.group(1)), match.group(2)
+    async with get_sql_session() as session:
+        row = (
+            await session.execute(
+                select(Task.kwargs, Task.result).where(col(Task.id) == task_id, col(Task.job_id) == job_id)
+            )
+        ).first()
+    if row is None:
+        raise NotFound(f"Object not found: {address}")
+    if key is None:
+        value = row.result
+        if value is None:
+            raise NotFound(f"Task {task_id} has no result")
+    else:
+        if key not in (row.kwargs or {}):
+            raise NotFound(f"Object not found: {address}")
+        value = row.kwargs[key]
+    if isinstance(value, dict) and value.get(AAICLICK_TYPE) == NATIVE:
+        value = value.get(VALUE)
+    size = len(_dump(value).encode())
+    if size > MAX_VALUE_BYTES:
+        return {"truncated": True, "bytes": size}
+    return value
