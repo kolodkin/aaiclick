@@ -13,11 +13,13 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urlparse
 
+from ..blob_sql import blob_function
 from ..formats import FORMAT_AUTO, JSON_BLOB_FORMATS, format_for_extension, validate_format_name
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..object_context import create_object, get_ch_client
+from ..object_context.ch_client import ensure_azure_connection
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
-from ..url_utils import is_url, validate_location
+from ..url_utils import is_az_url, is_url, validate_location
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
@@ -349,6 +351,7 @@ async def open_object_from_url(
     columns: list[str] | None = None,
     format: str | None = None,
     column_types: dict[str, ColumnInfo] | None = None,
+    connection: str | None = None,
 ) -> object_module.Object:
     """
     Open a file in object storage, or on local disk, as a read-only Object,
@@ -364,7 +367,7 @@ async def open_object_from_url(
     ``url`` carries no credentials — ClickHouse resolves them itself.
 
     Args:
-        url: ``http(s)://`` or ``s3://`` URL of the file, or a local path
+        url: ``http(s)://``, ``s3://`` or ``az://`` URL of the file, or a local path
             (chdb backend only). Globs are passed through.
         columns: Columns to expose. Defaults to every column in the file.
         format: Any ClickHouse input format, e.g. ``"Parquet"``. Defaults to
@@ -372,6 +375,10 @@ async def open_object_from_url(
             does not map, ClickHouse detects the format itself.
         column_types: Column types, skipping schema inference. Keys are the
             columns to expose when ``columns`` is omitted.
+        connection: ClickHouse named collection holding the credentials,
+            e.g. ``"lake"``: required for ``az://`` on a server, optional for
+            S3. On chdb, S3 uses the process env and Azure
+            ``AZURE_STORAGE_CONNECTION_STRING``.
 
     Returns:
         Object: array-shaped when the only column is ``value`` (the shape an
@@ -387,7 +394,7 @@ async def open_object_from_url(
     """
     if not is_url(url):
         url = str(Path(url).resolve())
-    validate_location(url)
+    validate_location(url, connection)
     if columns is not None:
         _validate_url_columns(columns)
     if format is None:
@@ -399,7 +406,11 @@ async def open_object_from_url(
 
     if column_types is None:
         select = ", ".join(quote_identifier(c) for c in columns) if columns else "*"
-        source = f"{'s3' if is_url(url) else 'file'}({quote_sql_literal(url)}, '{format}')"
+        if is_az_url(url):
+            connection = await ensure_azure_connection(connection)
+        source = (
+            blob_function(url, format, connection) if is_url(url) else f"file({quote_sql_literal(url)}, '{format}')"
+        )
         described = await get_ch_client().query(f"DESCRIBE (SELECT {select} FROM {source} LIMIT 0)")
         column_types = {row[0]: parse_ch_type(row[1]) for row in described.result_rows}
     names = columns or list(column_types)
@@ -414,5 +425,6 @@ async def open_object_from_url(
         columns={name: column_types[name].with_fieldtype(FIELDTYPE_ARRAY) for name in names},
         location=url,
         format=format,
+        connection=connection,
     )
     return await create_object(schema)

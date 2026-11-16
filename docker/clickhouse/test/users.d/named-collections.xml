@@ -1,0 +1,11 @@
+<!-- Test only: lets the default user read named collections (s3_test, azurite_test).
+     In production, grant just the collection: GRANT NAMED COLLECTION ON lake TO <user>.
+     Mount it under a name sorting after the image's default-user.xml, which
+     redefines the default user. -->
+<clickhouse>
+    <users>
+        <default>
+            <named_collection_control>1</named_collection_control>
+        </default>
+    </users>
+</clickhouse>

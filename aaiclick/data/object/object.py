@@ -62,7 +62,7 @@ from ..object_context import (
 from ..object_context.ch_client import ChClient, execute_for_stats, export_query_to_file, export_query_to_url
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import quote_identifier, quote_sql_literal, validate_where_expression
-from ..url_utils import is_url, validate_blob_url
+from ..url_utils import is_url, validate_blob_url, validate_connection
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
@@ -680,6 +680,7 @@ class Object:
         overwrite: bool = False,
         format: str | None = None,
         ch_settings: dict[str, str | int] | None = None,
+        connection: str | None = None,
     ) -> str:
         """Export the object's data to a local file or a bucket URL.
 
@@ -700,6 +701,10 @@ class Object:
 
         An ``http(s)://`` or ``s3://`` *path* is written to object storage by
         ClickHouse itself (``INSERT INTO FUNCTION s3()``) on both backends.
+        An ``az://container/path`` goes to Azure Blob Storage. *connection*
+        names a ClickHouse named collection holding the credentials (e.g.
+        ``"lake"``): required for ``az://`` on a server, optional for S3. On
+        chdb, S3 uses the process env and Azure ``AZURE_STORAGE_CONNECTION_STRING``.
         Writing to an existing key raises unless ``overwrite=True``; a local
         file is always replaced.
 
@@ -715,6 +720,7 @@ class Object:
         # Before the extension lookup: a URL carrying a secret must fail as such.
         if is_url(path):
             validate_blob_url(path)
+        validate_connection(path, connection)
         fmt = format or format_for_extension(path)
         validate_format_name(fmt)
         # The chdb build has no bzip2 writer; its own error names neither the suffix nor the path.
@@ -722,7 +728,7 @@ class Object:
             raise ValueError("chdb cannot write .bz2 files; use .gz, .xz, .zst, .br, .lz4 or .snappy")
         select_sql = self._build_select(columns="*")
         if is_url(path):
-            return await export_query_to_url(select_sql, path, fmt, overwrite, ch_settings)
+            return await export_query_to_url(select_sql, path, fmt, overwrite, ch_settings, connection)
         return await export_query_to_file(select_sql, path, fmt, ch_settings)
 
     async def execute(

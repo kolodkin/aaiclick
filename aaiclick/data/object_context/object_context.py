@@ -27,6 +27,7 @@ from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
 from .. import object as object_module
+from ..blob_sql import blob_args
 from ..formats import validate_format_name
 from ..models import (
     AAI_ID_COLUMN,
@@ -58,7 +59,7 @@ from ..scope import (
     name_from_table,
 )
 from ..sql_utils import naive_utc, quote_identifier, quote_sql_literal
-from ..url_utils import is_url, validate_location
+from ..url_utils import is_az_url, is_url, validate_location
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -66,7 +67,7 @@ from .arrow_ingest import (
     struct_array_to_columns,
     struct_type_to_columns,
 )
-from .ch_client import _ch_client_var, create_ch_client, get_ch_client
+from .ch_client import _ch_client_var, create_ch_client, ensure_azure_connection, get_ch_client
 from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, read_table_schema, register_table
 
 # Per-resource ContextVars — each set by object_context() on entry, reset on exit.
@@ -340,8 +341,11 @@ async def create_object(
     if schema.location is not None:
         if name is not None:
             raise ValueError("located objects cannot be named yet")
-        validate_location(schema.location)
+        validate_location(schema.location, schema.connection)
         validate_format_name(schema.format)
+        if is_az_url(schema.location):
+            connection = await ensure_azure_connection(schema.connection)
+            schema = schema.model_copy(update={"connection": connection})
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
@@ -365,7 +369,9 @@ async def create_object(
         # disk. No credentials here — ClickHouse resolves them
         # (docs/designs/blob_storage.md).
         if is_url(schema.location):
-            engine_clause = f"ENGINE = S3({quote_sql_literal(schema.location)}, '{schema.format}')"
+            assert schema.format is not None
+            blob_engine = "AzureBlobStorage" if is_az_url(schema.location) else "S3"
+            engine_clause = f"ENGINE = {blob_engine}({blob_args(schema.location, schema.format, schema.connection)})"
         else:
             engine_clause = f"ENGINE = File('{schema.format}', {quote_sql_literal(schema.location)})"
     else:

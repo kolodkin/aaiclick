@@ -478,8 +478,9 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
 - **Shape**: a dict Object, or an array when the file's only column is
   `value` (what an exported array has).
 - **URLs**: `s3://bucket/key` for AWS, `http(s)://host/bucket/key` for
-  S3-compatible servers such as MinIO. Globs pass through to ClickHouse;
-  userinfo and query parameters (signed URLs) are rejected.
+  S3-compatible servers such as MinIO, `az://container/path` for
+  [Azure](#azure). Globs pass through to ClickHouse; userinfo and query
+  parameters (signed URLs) are rejected.
 
 ## Local files
 
@@ -525,6 +526,70 @@ both once you have bucket credentials.
     Only public buckets work on a server that has not opted in. aaiclick has
     no setting of its own for this: lending the server's identity is the
     ClickHouse operator's decision.
+
+To use different keys per bucket instead, name a ClickHouse named collection
+with `connection=` — no profile line needed. Define it in `config.d` with only
+the keys, and grant it as for [Azure](#azure):
+
+```xml
+<clickhouse>
+  <named_collections>
+    <lake>
+      <access_key_id>...</access_key_id>
+      <secret_access_key>...</secret_access_key>
+    </lake>
+  </named_collections>
+</clickhouse>
+```
+
+```python
+url = await daily.export("s3://lake/reports/daily.parquet", connection="lake")
+```
+
+On chdb `connection` is ignored for S3 — the process env is used — so the same
+code runs locally.
+
+## Azure
+
+`az://container/path` reads and writes Azure Blob Storage through a ClickHouse
+named collection — the account endpoint and key never appear in a URL or in the
+SQL aaiclick sends. Pass its name as `connection=`:
+
+```python
+url = await daily.export("az://reports/2026/daily.parquet", connection="lake")
+daily = await open_object_from_url(url, connection="lake")
+```
+
+| Backend           | Where the credentials go                                        |
+|-------------------|-----------------------------------------------------------------|
+| chdb (embedded)   | `AZURE_STORAGE_CONNECTION_STRING` in the aaiclick environment   |
+| ClickHouse server | a named collection the operator defines; `connection=` required |
+
+On chdb every `connection` name reads the one environment variable, so job code
+written for a server runs unchanged; `connection` may be omitted there. chdb
+saves the collection, key included, in plain text under its data directory. On a
+server, define the collection in `config.d` with only the endpoint and
+credentials — aaiclick sends `container`, `blob_path` and `format` itself — and
+grant it to the aaiclick user:
+
+```xml
+<clickhouse>
+  <named_collections>
+    <lake>
+      <connection_string>DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net</connection_string>
+    </lake>
+  </named_collections>
+</clickhouse>
+```
+
+```sql
+GRANT NAMED COLLECTION ON lake TO aaiclick
+```
+
+!!! warning "Without the grant every `az://` call fails with `ACCESS_DENIED`"
+    ClickHouse checks `NAMED COLLECTION ON <name>` on each query. A collection
+    that stores `container` or `blob_path` needs `SHOW NAMED COLLECTIONS SECRETS`
+    as well, since aaiclick overrides them.
 
 # Views
 

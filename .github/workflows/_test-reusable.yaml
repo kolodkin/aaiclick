@@ -108,6 +108,8 @@ jobs:
           - group: Data local
             test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
+            # One shared Azurite, so xdist workers do not each start one via npx.
+            azurite: true
           - group: Orch local
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
             extras: ""
@@ -136,6 +138,10 @@ jobs:
       - name: Setup local backend
         run: |
           uv run python -m aaiclick setup
+
+      - name: Start Azurite
+        if: matrix.azurite
+        uses: ./.github/actions/start-azurite
 
       - name: Run tests
         uses: ./.github/actions/run-pytest
@@ -315,9 +321,10 @@ jobs:
 
   test-blob-dist:
     # Blob storage needs a ClickHouse whose profile lends its S3 identity to
-    # queries (docker/clickhouse/users.d/s3.xml). `services:` containers start
-    # before checkout and cannot mount a repo file, so this job starts
-    # ClickHouse itself. The same tests skip in the Data dist groups.
+    # queries (docker/clickhouse/users.d/s3.xml) and, for Azure, defines the
+    # s3_test / azurite_test named collections (docker/clickhouse/test/). `services:`
+    # containers start before checkout and cannot mount a repo file, so this
+    # job starts ClickHouse itself. The same tests skip in the Data dist groups.
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -330,13 +337,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Start ClickHouse with the S3 profile
+      - name: Start Azurite
+        uses: ./.github/actions/start-azurite
+
+      - name: Start ClickHouse with the S3 profile and test collections
         run: |
           docker run -d --name clickhouse -p 8123:8123 \
             -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=click123 \
             -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=0 \
             -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing \
             -v "$PWD/docker/clickhouse/users.d/s3.xml:/etc/clickhouse-server/users.d/s3.xml:ro" \
+            -v "$PWD/docker/clickhouse/test/users.d/named-collections.xml:/etc/clickhouse-server/users.d/named-collections.xml:ro" \
+            -v "$PWD/docker/clickhouse/test/config.d/named-collections.xml:/etc/clickhouse-server/config.d/named-collections.xml:ro" \
             --add-host=host.docker.internal:host-gateway \
             clickhouse/clickhouse-server:26.10
 
