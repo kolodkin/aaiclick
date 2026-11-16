@@ -11,9 +11,11 @@ Mock: https://claude.ai/artifact/LvWF6XQRGHjNvpai2KuQPp
 
 # Rows
 
-A `job:<ref>` scope lists the job's objects as today, then one row per
-top-level kwarg and one per non-null result of every task in the job.
-`persistent` lists no task rows; `all` is unchanged.
+With `kind="all"`, a job listing returns the job's objects as today, then
+one row per top-level kwarg and one per non-null result of every task in the
+job. The default (`kind="object"`) is today's listing, so the CLI, MCP and
+the job page's objects menu are unchanged. The `persistent` and `all` scopes
+never list task rows.
 
 | Kind     | Row is                                    | Value / Target column                |
 |----------|-------------------------------------------|--------------------------------------|
@@ -27,7 +29,7 @@ A `ref` row's tag and target come from its `_aaiclick_type`:
 |-------------------|------------|---------------------------------|-------------------------|
 | `object`, `view`  | `object`   | the object's name               | that object             |
 | `upstream`        | `task`     | `<task_name>.result`            | that task's result row  |
-| `group_results`   | `group`    | `group <id> results (<n> tasks)`| the group in `@job`     |
+| `group_results`   | `group`    | `group <id> results (<n> tasks)`| nothing                 |
 | `callable`        | `function` | the entrypoint, plain text      | nothing                 |
 
 An unknown `_aaiclick_type` is a `ref` tagged with the raw type and no link,
@@ -64,25 +66,29 @@ ObjectKind = Literal["object", "value", "ref"]
 class ObjectView(ApiModel):
     ...
     kind: ObjectKind = "object"
+    label: str | None = None      # display name of a task row
     task_id: SnowflakeId | None = None
     direction: Literal["in", "out"] | None = None
     ref_type: str | None = None   # "object" | "task" | "group" | "function" | raw type
     preview: str | None = None    # value preview or ref target text
-    target: str | None = None     # address the link opens; None = no link
+    target: str | None = None     # object name or address the link opens; None = no link
 ```
 
 For task rows `name` is the address, `table` is empty and `row_count` /
-`size_bytes` are null. `ObjectFilter` gains `kind: ObjectKind | None`; the
-SPA's all / objects / values / refs chips set it.
+`size_bytes` are null. `ObjectFilter` gains
+`kind: ObjectKind | Literal["all"] = "object"`; any value but `"object"`
+requires `job`. The SPA requests `all` and filters by chip client-side.
 
-Task rows are built in Python from one `SELECT id, name, kwargs, result FROM
-tasks WHERE job_id = …`, ordered by task id then kwarg name, and appended
-after the object rows. The cursor covers both parts.
+Task rows are built in Python from one query over the job's tasks, ordered by
+task id, inputs by kwarg name then the result, and appended after the object
+rows. `total` counts both parts and `limit` cuts the combined list; `prefix`
+matches a task row's label.
 
 ## Reading one
 
-`query_object` and `get_object` accept an address in `object`. For one, no
-SQL runs: the stored JSON is returned in the kernel's shape,
+`query_object` accepts an address in `object` (job scopes only);
+`get_object` does not — the list row carries all the detail there is. For an
+address, no SQL runs: the stored JSON is returned in the kernel's shape,
 
 ```json
 {"meta": [{"name": "value", "type": "JSON"}], "data": [[<stored value>]]}
@@ -100,8 +106,8 @@ REST, MCP and CLI get this through the existing verbs.
 - `ObjectsTable`: Kind and Value / Target columns, shown in job scopes; the
   kind chips above it. Rows / Size / Created show `—` for task rows.
 - `Data` object view, for an address: header panel (kind, task, direction,
-  ref type, points-to link), then `ResultsTable` with the one cell. Limit,
-  paging, Fields and Order by are hidden.
+  ref type, points-to link) from the list row, then `ResultsTable` with the
+  one cell. Limit, paging, Fields and Order by are hidden.
 - The prompt accepts `@data job <ref> <address>`.
 
 # Out of Scope
