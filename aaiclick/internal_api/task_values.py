@@ -56,6 +56,7 @@ PREVIEW_CHARS = 120
 MAX_VALUE_BYTES = 1024 * 1024
 
 REF_TYPE_OBJECT = "object"
+REF_TYPE_VIEW = "view"
 REF_TYPE_TASK = "task"
 REF_TYPE_GROUP = "group"
 REF_TYPE_FUNCTION = "function"
@@ -88,7 +89,11 @@ class _Described(NamedTuple):
 
 
 def _describe(
-    value: JsonValue, task_names: dict[int, str], group_sizes: Counter[int], job_table_prefix: str
+    value: JsonValue,
+    task_names: dict[int, str],
+    with_result: set[int],
+    group_sizes: Counter[int],
+    job_table_prefix: str,
 ) -> _Described:
     """How one stored value lists.
 
@@ -107,7 +112,7 @@ def _describe(
 
     ref_type, preview, target = str(tag), str(tag), None
     if tag in (OBJECT, VIEW) and isinstance(value.get(TABLE), str):
-        ref_type = REF_TYPE_OBJECT
+        ref_type = REF_TYPE_OBJECT if tag == OBJECT else REF_TYPE_VIEW
         table = str(value[TABLE])
         preview = name_from_table(table)
         # Links open in this job's scope, so only this job's own tables get one.
@@ -118,12 +123,14 @@ def _describe(
         name = task_names.get(task_id) if isinstance(task_id, int) else None
         # A string task_id is a handle to a sibling not committed yet: nothing to open.
         preview = f"{name}.{_RESULT}" if name else f"task {task_id}"
-        target = str(task_id) if name else None
+        # Nothing to open until that task has stored a result.
+        target = str(task_id) if task_id in with_result else None
     elif tag == GROUP_RESULTS:
         ref_type = REF_TYPE_GROUP
         group_id = value.get(GROUP_ID)
         size = group_sizes[group_id] if isinstance(group_id, int) else 0
-        preview = f"group {group_id} results ({size} tasks)"
+        # Direct members only; a nested group or a handle counts none, so say nothing then.
+        preview = f"group {group_id} results" + (f" ({size} tasks)" if size else "")
     elif tag == CALLABLE:
         ref_type = REF_TYPE_FUNCTION
         preview = str(value.get(ENTRYPOINT))
@@ -145,6 +152,7 @@ async def list_task_values(job: Job) -> list[ObjectView]:
             )
         ).all()
     task_names = {t.id: t.name for t in tasks}
+    with_result = {t.id for t in tasks if t.result is not None}
     group_sizes = Counter(t.group_id for t in tasks if t.group_id is not None)
 
     rows: list[ObjectView] = []
@@ -170,7 +178,7 @@ async def list_task_values(job: Job) -> list[ObjectView]:
                     # The entry task is named after the job (as get_job_result finds it),
                     # so its rows are the job's own inputs and result.
                     owner=OWNER_JOB if task.name == job.name else OWNER_TASK,
-                    **_describe(value, task_names, group_sizes, f"{JOB_PREFIX}{job.id}_")._asdict(),
+                    **_describe(value, task_names, with_result, group_sizes, f"{JOB_PREFIX}{job.id}_")._asdict(),
                 )
             )
 

@@ -19,9 +19,11 @@ pytestmark = pytest.mark.usefixtures("orch_ctx")
 
 async def _pipeline() -> tuple[Job, Task, Task]:
     load = create_task(_SAMPLE_TASK, {"limit": 1000, "result": "kw"}, name="load")
+    idle = create_task(_SAMPLE_TASK, name="idle")
     clean = create_task(
         _SAMPLE_TASK,
         {
+            "pending": upstream_ref(idle.id),
             "df": upstream_ref(load.id),
             "rules": {"_aaiclick_type": "pydantic", "type": "m.Rules", "data": {"dedupe": True}},
             "fmt": callable_ref("m.f"),
@@ -31,7 +33,6 @@ async def _pipeline() -> tuple[Job, Task, Task]:
         },
         name="clean",
     )
-    idle = create_task(_SAMPLE_TASK, name="idle")
     # The job is named after its entry task, as @job does: "load" is the job-level task.
     job = await create_job("load", load)
     await commit_tasks([clean, idle], job_id=job.id)
@@ -41,6 +42,7 @@ async def _pipeline() -> tuple[Job, Task, Task]:
                 row.result = {"_aaiclick_type": "object", "table": f"j_{job.id}_orders", "persistent": True}
             elif row.name == "clean":
                 row.result = native_ref({"dropped": 12})
+                row.kwargs = {**row.kwargs, "v": {"_aaiclick_type": "view", "table": f"j_{job.id}_orders"}}
             session.add(row)
         await session.commit()
     return job, load, clean
@@ -62,11 +64,16 @@ async def test_list_task_values_kinds_refs_and_targets():
         (f"{clean.id}.fmt", "clean.fmt", "ref", "in", "function", "m.f", None),
         # an unknown _aaiclick_type lists under its raw type
         (f"{clean.id}.odd", "clean.odd", "ref", "in", "mystery", "mystery", None),
-        (f"{clean.id}.parts", "clean.parts", "ref", "in", "group", "group 7 results (0 tasks)", None),
+        # no member count when none is found: nested groups and handles are not resolved
+        (f"{clean.id}.parts", "clean.parts", "ref", "in", "group", "group 7 results", None),
+        # an upstream task with no result yet has nothing to open
+        (f"{clean.id}.pending", "clean.pending", "ref", "in", "task", "idle.result", None),
         (f"{clean.id}.rules", "clean.rules", "value", "in", None, 'm.Rules {"dedupe": true}', None),
+        # a view is not its source object: the tag says so
+        (f"{clean.id}.v", "clean.v", "ref", "in", "view", "orders", "orders"),
     ]
     assert {(r.scope, r.job_id, r.job_name, r.task_id is not None) for r in rows} == {("job", job.id, "load", True)}
-    assert [r.owner for r in rows] == ["job"] * 3 + ["task"] * 7
+    assert [r.owner for r in rows] == ["job"] * 3 + ["task"] * 9
 
 
 async def test_list_task_values_skips_non_dict_kwargs():

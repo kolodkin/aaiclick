@@ -226,7 +226,7 @@ function jobParam(scope: string): string {
   return job ? `?job=${encodeURIComponent(job)}` : "";
 }
 
-// `taskValues` adds a job's task inputs and results after its objects (job scopes only).
+// `taskValues` adds a job's task inputs and results before its objects (job scopes only).
 // shortcut: one page of TASK_VALUES_LIMIT rows, no paging; add a cursor when jobs outgrow it.
 export function useObjects(scope: string, taskValues = false) {
   const withValues = taskValues && jobOfScope(scope) !== null;

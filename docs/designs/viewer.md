@@ -101,13 +101,14 @@ objects.
 A `ref` row carries a `ref_type`, and a `target` when there is something to
 open:
 
-| `_aaiclick_type` | `ref_type` | `preview`                        | `target`                |
-|------------------|------------|----------------------------------|-------------------------|
-| `object`, `view` | `object`   | the object's name                | that object             |
-| `upstream`       | `task`     | `<task_name>.result`             | that task's result row  |
-| `group_results`  | `group`    | `group <id> results (<n> tasks)` | —                       |
-| `callable`       | `function` | the entrypoint                   | —                       |
-| anything else    | the type   | the type                         | —                       |
+| `_aaiclick_type` | `ref_type` | `preview`                                                              | `target`                                |
+|------------------|------------|------------------------------------------------------------------------|-----------------------------------------|
+| `object`         | `object`   | the object's name                                                      | that object, if this job's              |
+| `view`           | `view`     | its source object's name                                               | that object, if this job's              |
+| `upstream`       | `task`     | `<task_name>.result`                                                   | that task's result row, once it has one |
+| `group_results`  | `group`    | `group <id> results`, plus `(<n> tasks)` when direct members are found | —                                       |
+| `callable`       | `function` | the entrypoint                                                         | —                                       |
+| anything else    | the type   | the type                                                               | —                                       |
 
 Rows come in this order: the job's own kwargs, the job's result, the other
 tasks' results, the other tasks' kwargs, then the objects. The job's own are
