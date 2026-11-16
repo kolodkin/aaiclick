@@ -233,3 +233,20 @@ def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
     playwright_api.expect(view).to_contain_text("extract.result")
     playwright_api.expect(view.get_by_test_id("object-rows")).to_contain_text("rows")
     shot("data-task-value")
+
+
+@_spa_built
+@_local_only
+def test_data_task_values_on_phone(page, base_url: str, shot) -> None:
+    page.set_viewport_size({"width": 412, "height": 900})
+    open_page(page, f"{base_url}/?p=@data job {OBJECTS_JOB}")
+    table = page.get_by_test_id("objects-table")
+    table.locator("tr", has_text="extract.limit").wait_for(timeout=15000)
+    # The wide table scrolls inside its own container; the page itself must not.
+    assert page.evaluate("document.documentElement.scrollWidth") <= 412
+    table.scroll_into_view_if_needed()
+    shot("data-task-values-phone")
+    table.locator("tr", has_text="extract.limit").click()
+    page.get_by_test_id("value-view").get_by_test_id("object-rows").wait_for(timeout=15000)
+    assert page.evaluate("document.documentElement.scrollWidth") <= 412
+    shot("data-task-value-phone")
