@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import String, and_, case, cast, false, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 from sqlmodel import col, select
 
 from aaiclick.data.object import Object
@@ -120,19 +120,19 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     if filter.prefix:
         clause = and_(clause, name_col.startswith(filter.prefix, autoescape=True))
 
-    if filter.kind not in (OBJECT_KIND_OBJECT, OBJECT_KIND_ALL):
-        clause = and_(clause, false())
-
-    async with get_sql_session() as session:
-        total = (await session.execute(select(func.count()).select_from(TableRegistry).where(clause))).scalar_one()
-        result = await session.execute(
-            select(name_col, table_col, job_id_col, Job.name, TableRegistry.created_at)
-            .outerjoin(Job, col(Job.id) == job_id_col)
-            .where(clause)
-            .order_by(name_col, table_col)
-            .limit(filter.limit)
-        )
-    paged = [(row[0], row[1], row[2], row[3], row[4]) for row in result.all()]
+    total, paged = 0, []
+    # "value" / "ref" list task rows only: no registry query to run.
+    if filter.kind in (OBJECT_KIND_OBJECT, OBJECT_KIND_ALL):
+        async with get_sql_session() as session:
+            total = (await session.execute(select(func.count()).select_from(TableRegistry).where(clause))).scalar_one()
+            result = await session.execute(
+                select(name_col, table_col, job_id_col, Job.name, TableRegistry.created_at)
+                .outerjoin(Job, col(Job.id) == job_id_col)
+                .where(clause)
+                .order_by(name_col, table_col)
+                .limit(filter.limit)
+            )
+        paged = [(row[0], row[1], row[2], row[3], row[4]) for row in result.all()]
 
     metadata = await _fetch_table_metadata([table for _, table, _, _, _ in paged])
 

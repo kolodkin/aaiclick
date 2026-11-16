@@ -110,7 +110,7 @@ function ValueView({
         <MetaGrid
           items={[
             { k: "Kind", v: view ? <span className={`badge kind-${view.kind}`}>{view.kind}</span> : "—" },
-            { k: "Task", v: view?.task_id ?? address.split(".")[0], mono: true },
+            { k: "Task", v: address.split(".")[0], mono: true },
             // From the address, so it is right before the list row loads: only an input has a kwarg part.
             { k: "Direction", v: address.includes(".") ? "input" : "result" },
             { k: "Scope", v: scopeText },

@@ -100,12 +100,11 @@ def _describe(
     Reads ``_aaiclick_type`` directly: ``ref_kind()`` raises on an unknown
     type, and a listing must show it instead.
     """
-    tag = value.get(AAICLICK_TYPE) if isinstance(value, dict) else None
-    if tag is None or tag == NATIVE:
-        shown = value.get(VALUE) if tag == NATIVE and isinstance(value, dict) else value
-        return _Described(OBJECT_KIND_VALUE, _dump(shown)[:PREVIEW_CHARS])
-    if not isinstance(value, dict):
-        raise TypeError("a tagged value is a dict")
+    if not isinstance(value, dict) or value.get(AAICLICK_TYPE) is None:
+        return _Described(OBJECT_KIND_VALUE, _dump(value)[:PREVIEW_CHARS])
+    tag = value[AAICLICK_TYPE]
+    if tag == NATIVE:
+        return _Described(OBJECT_KIND_VALUE, _dump(value.get(VALUE))[:PREVIEW_CHARS])
     if tag == PYDANTIC:
         text = f"{value.get('type')} {_dump(value.get('data'))}"
         return _Described(OBJECT_KIND_VALUE, text[:PREVIEW_CHARS])
@@ -153,6 +152,7 @@ async def list_task_values(job: Job) -> list[ObjectView]:
         ).all()
     task_names = {t.id: t.name for t in tasks}
     with_result = {t.id for t in tasks if t.result is not None}
+    job_table_prefix = f"{JOB_PREFIX}{job.id}_"
     group_sizes = Counter(t.group_id for t in tasks if t.group_id is not None)
 
     rows: list[ObjectView] = []
@@ -178,7 +178,7 @@ async def list_task_values(job: Job) -> list[ObjectView]:
                     # The entry task is named after the job (as get_job_result finds it),
                     # so its rows are the job's own inputs and result.
                     owner=OWNER_JOB if task.name == job.name else OWNER_TASK,
-                    **_describe(value, task_names, with_result, group_sizes, f"{JOB_PREFIX}{job.id}_")._asdict(),
+                    **_describe(value, task_names, with_result, group_sizes, job_table_prefix)._asdict(),
                 )
             )
 
@@ -205,20 +205,18 @@ async def read_task_value(job_id: int, address: str) -> JsonValue:
     task_id, key = int(match.group(1)), match.group(2)
     if task_id > _MAX_TASK_ID:
         raise NotFound(f"Object not found: {address}")
+    # The address says which column holds the value: no kwarg part means the result.
+    column = col(Task.result) if key is None else col(Task.kwargs)
     async with get_sql_session() as session:
-        row = (
-            await session.execute(
-                select(Task.kwargs, Task.result).where(col(Task.id) == task_id, col(Task.job_id) == job_id)
-            )
-        ).first()
+        row = (await session.execute(select(column).where(col(Task.id) == task_id, col(Task.job_id) == job_id))).first()
     if row is None:
         raise NotFound(f"Object not found: {address}")
     if key is None:
-        value = row.result
+        value = row[0]
         if value is None:
             raise NotFound(f"Task {task_id} has no result")
     else:
-        kwargs = _kwargs(row.kwargs)
+        kwargs = _kwargs(row[0])
         if key not in kwargs:
             raise NotFound(f"Object not found: {address}")
         value = kwargs[key]

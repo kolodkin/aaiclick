@@ -22,7 +22,7 @@ OBJECT_KIND_VALUE = "value"
 OBJECT_KIND_REF = "ref"
 OBJECT_KIND_ALL = "all"
 ObjectKind = Literal["object", "value", "ref"]
-ObjectKindFilter = Literal["object", "value", "ref", "all"]
+ObjectKindFilter = Literal[ObjectKind, "all"]
 
 DIRECTION_IN = "in"
 DIRECTION_OUT = "out"

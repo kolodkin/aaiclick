@@ -72,9 +72,7 @@ describe("isAddress", () => {
     ["7302", true],
     ["7302.df", true],
     ["orders", false],
-    ["7302.", false],
-    ["7302.2.3", false],
-    ["9".repeat(25), false],
+    ["_7302", false],
   ])("%s", (name, want) => {
     expect(isAddress(name)).toBe(want);
   });

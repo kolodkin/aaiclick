@@ -72,8 +72,9 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${value.toFixed(1)} ${units[i]}`;
 }
 
-// A task input or result inside a job scope: `<task_id>.<kwarg>` or `<task_id>`.
-// Same pattern as the server's `task_values.is_address`; object names never start with a digit.
+// A task input or result inside a job scope (`<task_id>.<kwarg>` or `<task_id>`)
+// rather than an object: object names never start with a digit. The server
+// validates the rest and answers "not found" for a malformed one.
 export function isAddress(name: string): boolean {
-  return /^\d{1,19}(\.[A-Za-z_][A-Za-z0-9_]*)?$/.test(name);
+  return /^\d/.test(name);
 }
