@@ -7,7 +7,7 @@ import pytest
 from aaiclick.data.object_context import create_object_from_value
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
-from aaiclick.orchestration.models import JOB_FAILED
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED
 from aaiclick.orchestration.operators import foreach, map, reduce
 
 
@@ -32,6 +32,9 @@ UNIMPORTABLE = {
     "nested": _make_nested(),
     "bound_method": Holder().method,
     "partial": functools.partial(identity, k=2),
+    "task_wrapped_lambda": task(lambda row: row),
+    # Carries the qualname of ``identity``; a worker would import that instead.
+    "wraps_closure": functools.wraps(identity)(_make_nested()),
 }
 CALLS = {
     "kwarg": lambda fn, data: call_fn(fn=fn),
@@ -73,3 +76,18 @@ async def test_unimportable_callable_fails_in_the_job_body(orch_ctx, kind, call,
     assert j.status == JOB_FAILED
     assert f"Argument '{arg}' got" in j.error
     assert "a module-level function is required" in j.error
+
+
+@job("test_callable_job_kwarg")
+def callable_kwarg_pipeline(fn):
+    return call_fn(fn=fn)
+
+
+async def test_unimportable_callable_job_kwarg_raises_on_submit(orch_ctx):
+    with pytest.raises(TypeError, match="Argument 'fn' got .* a module-level function is required"):
+        await callable_kwarg_pipeline(fn=lambda row: row)
+
+
+async def test_module_level_function_job_kwarg_runs(orch_ctx):
+    j = await ajob_test(callable_kwarg_pipeline, fn=identity)
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"

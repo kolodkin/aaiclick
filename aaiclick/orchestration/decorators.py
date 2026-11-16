@@ -31,6 +31,7 @@ Example:
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, overload
@@ -60,6 +61,11 @@ def _collect_upstreams(value: Any, upstream_tasks: list[Task | Group]) -> None:
     elif isinstance(value, dict):
         for v in value.values():
             _collect_upstreams(v, upstream_tasks)
+
+
+def _unwrap(value: Any) -> Any:
+    """The function behind a ``TaskFactory``; anything else as is."""
+    return value.func if isinstance(value, TaskFactory) else value
 
 
 def _serialize_value(value: Any, name: str) -> Any:
@@ -92,16 +98,18 @@ def _serialize_value(value: Any, name: str) -> Any:
     elif isinstance(value, dict):
         return {k: _serialize_value(v, name) for k, v in value.items()}
     elif callable(value):
-        if isinstance(value, TaskFactory):
-            return callable_ref(value.entrypoint)
-        # Workers resolve "module.attr", so the qualname must be a plain module attribute.
-        qualname = getattr(value, "__qualname__", None)
-        if not isinstance(qualname, str) or "." in qualname or "<" in qualname:
+        # A worker imports "module.name" (unwrapping a TaskFactory), so that
+        # path must lead back to this same function.
+        module = sys.modules.get(getattr(value, "__module__", None) or "")
+        found = getattr(module, getattr(value, "__qualname__", None) or "", None)
+        if found is None or _unwrap(found) is not _unwrap(value):
             raise TypeError(
                 f"Argument {name!r} got {value!r}, which a worker cannot import by path; "
                 "a module-level function is required (not a lambda, nested function, "
                 "bound method or functools.partial)."
             )
+        if isinstance(value, TaskFactory):
+            return callable_ref(value.entrypoint)
         return callable_ref(_callable_to_string(value))
     else:
         # Native Python types: str, int, float, bool, None
