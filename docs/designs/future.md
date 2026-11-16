@@ -246,9 +246,17 @@ Shipped design: `viewer.md`.
 - **Dashboard params outside the browser**: `run_dashboard` (MCP, CLI) runs
   panels as stored, so a `where` holding a `{param}` placeholder fails there.
 - **Task values beyond `@data`**: `@task <id>` shows no Inputs / Result
-  panels linking to the task's value rows; `data list` has no `--kind` flag
-  or columns for them; and the job listing is one page of 1000 rows with no
-  cursor.
+  panels linking to the task's value rows, and `data list` has no `--kind`
+  flag or columns for them.
+- **Task values as their own resource**: task rows ride in `ObjectView` and
+  `list_objects`, and `query_object` short-circuits for an address. A
+  `TaskValueView` model with its own listing and value routes would give
+  them a cursor (today: one page of 1000 rows, task rows cut first), a
+  bounded preview (today every value of the job is loaded and serialised per
+  listing), an out-of-band truncation flag, and addresses for kwarg names
+  that are not identifiers.
+- **Keyboard access to chips**: `Chips` renders `<span>`s, so the Data
+  view's row filters and every other chip row are mouse-only.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
 
