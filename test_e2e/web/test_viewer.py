@@ -198,3 +198,29 @@ def test_data_scrolls_old_job_into_view(page, base_url: str) -> None:
         }""",
         timeout=15000,
     )
+
+
+@_spa_built
+@_local_only
+def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@data job {OBJECTS_JOB}")
+    table = page.get_by_test_id("objects-table")
+    value_row = table.locator("tr", has_text="extract.limit")
+    playwright_api.expect(value_row).to_contain_text("value")
+    playwright_api.expect(value_row).to_contain_text("1000")
+    ref_row = table.locator("tr", has_text="load.df")
+    playwright_api.expect(ref_row).to_contain_text("task")
+    playwright_api.expect(ref_row).to_contain_text("extract.result")
+    shot("data-task-values")
+
+    page.get_by_test_id("kind-chip-object").click()
+    playwright_api.expect(value_row).to_have_count(0)
+    playwright_api.expect(table.locator("tr", has_text="raw_sales")).to_have_count(1)
+    page.get_by_test_id("kind-chip-all").click()
+
+    # A ref's link follows it to the producing task's result.
+    ref_row.get_by_role("button").click()
+    view = page.get_by_test_id("value-view")
+    playwright_api.expect(view).to_contain_text("extract.result")
+    playwright_api.expect(view.get_by_test_id("object-rows")).to_contain_text("rows")
+    shot("data-task-value")
