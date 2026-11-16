@@ -1,6 +1,7 @@
 """A callable task argument must be importable by path, or the call that passes it fails."""
 
 import functools
+import re
 
 import pytest
 
@@ -74,8 +75,7 @@ async def test_unimportable_callable_fails_in_the_job_body(orch_ctx, kind, call,
     """The job body that passes the callable fails, naming the argument, not a downstream task on import."""
     j = await ajob_test(unimportable_callable_pipeline, kind=kind, call=call)
     assert j.status == JOB_FAILED
-    assert f"Argument '{arg}' got" in j.error
-    assert "a module-level function is required" in j.error
+    assert re.search(f"Argument '{arg}' got .* a module-level function is required", j.error or "")
 
 
 @job("test_callable_job_kwarg")
