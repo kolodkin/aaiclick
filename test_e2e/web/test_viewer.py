@@ -215,10 +215,17 @@ def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
     playwright_api.expect(ref_row).to_contain_text("extract.result")
     shot("data-task-values")
 
-    page.get_by_test_id("kind-chip-object").click()
+    rows = table.locator("tbody tr")
+    page.get_by_test_id("filter-chip-job").click()
+    playwright_api.expect(rows).to_have_count(2)
+    playwright_api.expect(rows.last).to_contain_text(f"{OBJECTS_JOB}.result")
+    page.get_by_test_id("filter-chip-tasks").click()
+    playwright_api.expect(rows).to_have_count(3)
+    playwright_api.expect(value_row).to_have_count(1)
+    page.get_by_test_id("filter-chip-objects").click()
     playwright_api.expect(value_row).to_have_count(0)
     playwright_api.expect(table.locator("tr", has_text="raw_sales")).to_have_count(1)
-    page.get_by_test_id("kind-chip-all").click()
+    page.get_by_test_id("filter-chip-all").click()
 
     # A ref's link follows it to the producing task's result.
     ref_row.get_by_role("button").click()

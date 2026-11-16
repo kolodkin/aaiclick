@@ -171,8 +171,8 @@ A job scope lists its tasks' inputs and results before its objects — the
 job's own kwargs and result first (`viewer.md` — "Task Values") — with two
 more columns in place of Scope and Job (one value per row there): Kind (`object` / `value` / `ref`) and
 Value / Target — a value's JSON preview, or a ref's type tag and what it
-points at, a link when it can be opened. Chips above the table filter by
-kind. Opening a task row shows its header (kind, task, direction, points-to)
+points at, a link when it can be opened. Chips above the table filter the rows: job
+(its own kwargs and result), tasks, objects, all. Opening a task row shows its header (kind, task, direction, points-to)
 and the stored JSON as one cell of the same `ResultsTable`, with no paging
 or pickers.
 

@@ -1601,6 +1601,8 @@ export interface components {
             lineage_summary: string | null;
             /** Name */
             name: string;
+            /** Owner */
+            owner: ("job" | "task") | null;
             /** Persistent */
             persistent: boolean;
             /** Preview */
@@ -1707,6 +1709,8 @@ export interface components {
             label: string | null;
             /** Name */
             name: string;
+            /** Owner */
+            owner: ("job" | "task") | null;
             /** Persistent */
             persistent: boolean;
             /** Preview */

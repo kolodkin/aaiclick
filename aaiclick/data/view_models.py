@@ -28,6 +28,11 @@ DIRECTION_IN = "in"
 DIRECTION_OUT = "out"
 ValueDirection = Literal["in", "out"]
 
+# Whose value a task row is: the job's own (its entry task's) or another task's.
+OWNER_JOB = "job"
+OWNER_TASK = "task"
+ValueOwner = Literal["job", "task"]
+
 
 class ColumnSchema(ApiModel):
     """One result column: its name and ClickHouse type string."""
@@ -54,6 +59,7 @@ class ObjectView(ApiModel):
     label: str | None = None
     task_id: SnowflakeId | None = None
     direction: ValueDirection | None = None
+    owner: ValueOwner | None = None
     ref_type: str | None = None
     preview: str | None = None
     target: str | None = None

@@ -41,6 +41,8 @@ from aaiclick.data.view_models import (
     DIRECTION_OUT,
     OBJECT_KIND_REF,
     OBJECT_KIND_VALUE,
+    OWNER_JOB,
+    OWNER_TASK,
     ObjectKind,
     ObjectView,
     ValueDirection,
@@ -153,17 +155,17 @@ async def list_task_values(job: Job) -> list[ObjectView]:
                     label=f"{task.name}.{key}",
                     task_id=task.id,
                     direction=direction,
+                    # The entry task is named after the job (as get_job_result finds it),
+                    # so its rows are the job's own inputs and result.
+                    owner=OWNER_JOB if task.name == job.name else OWNER_TASK,
                     **_describe(value, task_names, group_sizes)._asdict(),
                 )
             )
-    # The entry task is named after the job (as get_job_result finds it), so its
-    # rows are the job's own inputs and result. The sort is stable: sections keep
-    # task-id order, inputs by name.
-    entry_ids = {t.id for t in tasks if t.name == job.name}
 
+    # The sort is stable: sections keep task-id order, inputs by name.
     def section(row: ObjectView) -> int:
         is_input = row.direction == DIRECTION_IN
-        if row.task_id in entry_ids:
+        if row.owner == OWNER_JOB:
             return 0 if is_input else 1
         return 3 if is_input else 2
 

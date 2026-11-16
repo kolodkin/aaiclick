@@ -110,7 +110,8 @@ open:
 
 Rows come in this order: the job's own kwargs, the job's result, the other
 tasks' results, the other tasks' kwargs, then the objects. The job's own are
-its entry task's — the task named after the job.
+its entry task's — the task named after the job — and carry `owner="job"`;
+the other task rows carry `owner="task"`.
 
 Only the top-level value decides the kind, so a list or dict holding refs is
 a `value` shown as stored.

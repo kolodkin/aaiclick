@@ -63,6 +63,7 @@ async def test_list_task_values_kinds_refs_and_targets():
         (f"{clean.id}.rules", "clean.rules", "value", "in", None, 'm.Rules {"dedupe": true}', None),
     ]
     assert {(r.scope, r.job_id, r.job_name, r.task_id is not None) for r in rows} == {("job", job.id, "load", True)}
+    assert [r.owner for r in rows] == ["job"] * 3 + ["task"] * 6
 
 
 async def test_list_task_values_preview_is_cut():

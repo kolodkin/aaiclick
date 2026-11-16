@@ -3,12 +3,15 @@ import type { ObjectView } from "../api/types";
 import { relativeTime } from "../lib/format";
 import { dataPrompt, formatBytes, objectScope } from "../lib/viewer";
 
-type Kind = ObjectView["kind"];
-const KINDS: { kind: Kind; label: string }[] = [
-  { kind: "object", label: "objects" },
-  { kind: "value", label: "values" },
-  { kind: "ref", label: "refs" },
-];
+// Whose rows to show: the job's own kwargs and result, the other tasks', or the objects.
+type Filter = "job" | "tasks" | "objects" | "all";
+const FILTERS: Filter[] = ["job", "tasks", "objects", "all"];
+
+function matches(o: ObjectView, filter: Filter): boolean {
+  if (filter === "all") return true;
+  if (filter === "objects") return o.kind === "object";
+  return o.owner === (filter === "job" ? "job" : "task");
+}
 
 // The Value / Target cell of a task row: a value's JSON preview, or a ref's
 // type tag and what it points at — a link when the target can be opened.
@@ -36,26 +39,26 @@ export function TargetCell({ o, onPrompt }: { o: ObjectView; onPrompt: (v: strin
 }
 
 export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onPrompt: (v: string) => void }) {
-  const [kind, setKind] = useState<Kind | "all">("all");
+  const [filter, setFilter] = useState<Filter>("all");
   if (objects.length === 0) return <p className="sub">No objects in this scope</p>;
   // Task rows only come with a job scope, where Scope and Job would repeat one
   // value on every row; they give way to Kind and Value / Target.
   const hasTaskRows = objects.some((o) => o.kind !== "object");
-  const shown = kind === "all" ? objects : objects.filter((o) => o.kind === kind);
+  const shown = objects.filter((o) => matches(o, filter));
   return (
     <>
       {hasTaskRows && (
-        <div className="chips" role="group" aria-label="Filter by kind">
-          {[{ kind: "all" as const, label: "all" }, ...KINDS].map((k) => (
+        <div className="chips" role="group" aria-label="Filter rows">
+          {FILTERS.map((f) => (
             <button
-              key={k.kind}
+              key={f}
               type="button"
-              className={`chip${kind === k.kind ? " chip-active" : ""}`}
-              aria-pressed={kind === k.kind}
-              data-testid={`kind-chip-${k.kind}`}
-              onClick={() => setKind(k.kind)}
+              className={`chip${filter === f ? " chip-active" : ""}`}
+              aria-pressed={filter === f}
+              data-testid={`filter-chip-${f}`}
+              onClick={() => setFilter(f)}
             >
-              {k.label} {k.kind === "all" ? objects.length : objects.filter((o) => o.kind === k.kind).length}
+              {f} {objects.filter((o) => matches(o, f)).length}
             </button>
           ))}
         </div>
