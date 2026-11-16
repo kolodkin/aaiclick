@@ -108,9 +108,7 @@ def _serialize_value(value: Any, name: str) -> Any:
                 "a module-level function is required (not a lambda, nested function, "
                 "bound method or functools.partial)."
             )
-        if isinstance(value, TaskFactory):
-            return callable_ref(value.entrypoint)
-        return callable_ref(_callable_to_string(value))
+        return callable_ref(_callable_to_string(_unwrap(value)))
     else:
         # Native Python types: str, int, float, bool, None
         return value
