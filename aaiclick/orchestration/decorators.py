@@ -31,6 +31,7 @@ Example:
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, overload
@@ -62,7 +63,12 @@ def _collect_upstreams(value: Any, upstream_tasks: list[Task | Group]) -> None:
             _collect_upstreams(v, upstream_tasks)
 
 
-def _serialize_value(value: Any) -> Any:
+def _unwrap(value: Any) -> Any:
+    """The function behind a ``TaskFactory``; anything else as is."""
+    return value.func if isinstance(value, TaskFactory) else value
+
+
+def _serialize_value(value: Any, name: str) -> Any:
     """Serialize a value for storage in task kwargs.
 
     Handles:
@@ -72,9 +78,14 @@ def _serialize_value(value: Any) -> Any:
 
     Args:
         value: Any value to serialize
+        name: Argument name, for error messages
 
     Returns:
         Serialized value suitable for JSON storage
+
+    Raises:
+        TypeError: If ``value`` is a callable a worker cannot import by path
+            (lambda, nested function, bound method, ``functools.partial``).
     """
     if isinstance(value, Task):
         return upstream_ref(value.id)
@@ -83,13 +94,21 @@ def _serialize_value(value: Any) -> Any:
     elif isinstance(value, Object):
         return value._serialize_ref()
     elif isinstance(value, (list, tuple)):
-        return [_serialize_value(v) for v in value]
+        return [_serialize_value(v, name) for v in value]
     elif isinstance(value, dict):
-        return {k: _serialize_value(v) for k, v in value.items()}
+        return {k: _serialize_value(v, name) for k, v in value.items()}
     elif callable(value):
-        if isinstance(value, TaskFactory):
-            return callable_ref(value.entrypoint)
-        return callable_ref(_callable_to_string(value))
+        # A worker imports "module.name" (unwrapping a TaskFactory), so that
+        # path must lead back to this same function.
+        module = sys.modules.get(getattr(value, "__module__", None) or "")
+        found = getattr(module, getattr(value, "__qualname__", None) or "", None)
+        if found is None or _unwrap(found) is not _unwrap(value):
+            raise TypeError(
+                f"Argument {name!r} got {value!r}, which a worker cannot import by path; "
+                "a module-level function is required (not a lambda, nested function, "
+                "bound method or functools.partial)."
+            )
+        return callable_ref(_callable_to_string(_unwrap(value)))
     else:
         # Native Python types: str, int, float, bool, None
         return value
@@ -140,7 +159,7 @@ class TaskFactory:
             _collect_upstreams(value, upstream_tasks)
 
         # Serialize kwargs
-        serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
+        serialized_kwargs = {k: _serialize_value(v, k) for k, v in kwargs.items()}
 
         task = create_task(
             self.entrypoint,
@@ -243,7 +262,7 @@ class JobFactory:
         ``task_kwargs`` is a plain dict, not ``**kwargs``, so an entry point
         argument never binds to one of this method's own parameters.
         """
-        serialized_kwargs = {k: _serialize_value(v) for k, v in task_kwargs.items()}
+        serialized_kwargs = {k: _serialize_value(v, k) for k, v in task_kwargs.items()}
 
         job = new_job_row(self.name, run_type=RUN_MANUAL, preservation_mode=preservation_mode)
 

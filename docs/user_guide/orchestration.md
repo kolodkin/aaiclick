@@ -483,6 +483,12 @@ All three accept a `Task` or an `Object` as input and return the expander
 finalize task that runs after every partition task, so a consumer sees it
 filled. See [Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
+!!! warning "Callbacks must be module-level functions"
+    A worker imports the callback by path, and the same holds for any function
+    passed as a task argument. A lambda, nested function, bound method or
+    `functools.partial` raises `TypeError` when the task is created; pass
+    extra values through `args` / `kwargs` instead.
+
 !!! warning "Output schema equals input schema"
     Both operators allocate the output from the input's schema, and ClickHouse
     casts returned values to it on insert: a `map()` callback returning `2.5`
