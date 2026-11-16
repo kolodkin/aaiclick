@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import pytest
+from sqlmodel import select
 
+from aaiclick.data.object.refs import native_ref
 from aaiclick.data.object_context import (
     create_object_from_value,
     list_persistent_objects,
 )
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.datetime_utils import utc_now
-from aaiclick.orchestration.factories import create_job
-from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.models import Task
+from aaiclick.orchestration.orch_context import get_sql_session, task_scope
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.view_models import ObjectFilter, Page, PurgeObjectsRequest
 
@@ -87,6 +90,7 @@ async def test_list_objects_limit_paginates_but_keeps_total():
     [
         pytest.param(ObjectFilter(scope="temp"), id="non_global_scope"),
         pytest.param(ObjectFilter(scope="job"), id="job_scope_without_job"),
+        pytest.param(ObjectFilter(kind="all"), id="kind_without_job"),
     ],
 )
 async def test_list_objects_invalid_filter_raises(object_filter):
@@ -168,3 +172,29 @@ async def test_list_objects_job_scope_by_ref():
         await create_object_from_value([4], name="persist_job", scope="job")
     filtered = await objects.list_objects(ObjectFilter(scope="all", prefix="persist", limit=1))
     assert ([(o.name, o.scope) for o in filtered.items], filtered.total) == ([("persist", "global")], 2)
+
+
+async def test_list_objects_kind_adds_task_rows():
+    job = await create_job("kinds_job", create_task(_SAMPLE_TASK, {"n": 1}, name="t"))
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        task.result = native_ref(2)
+        session.add(task)
+        await session.commit()
+    async with task_scope(task_id=get_snowflake_id(), job_id=job.id, run_id=get_snowflake_id()):
+        await create_object_from_value([1, 2], name="orders", scope="job")
+
+    default = await objects.list_objects(ObjectFilter(job=job.id))
+    assert [o.name for o in default.items] == ["orders"]
+
+    everything = await objects.list_objects(ObjectFilter(job=job.id, kind="all"))
+    assert ([(o.kind, o.label or o.name) for o in everything.items], everything.total) == (
+        [("object", "orders"), ("value", "t.n"), ("value", "t.result")],
+        3,
+    )
+
+    values = await objects.list_objects(ObjectFilter(job=job.id, kind="value", limit=1))
+    assert ([o.label for o in values.items], values.total) == (["t.n"], 2)
+
+    prefixed = await objects.list_objects(ObjectFilter(job=job.id, kind="all", prefix="t.r"))
+    assert [o.label for o in prefixed.items] == ["t.result"]

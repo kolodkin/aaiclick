@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import pytest
+from sqlmodel import select
 
+from aaiclick.data.object.refs import native_ref
 from aaiclick.data.object_context import create_object_from_value
 from aaiclick.internal_api import errors, viewer
-from aaiclick.orchestration.factories import create_job
-from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.models import Job, Task
+from aaiclick.orchestration.orch_context import get_sql_session, task_scope
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.viewer.view_models import (
     DashboardIn,
@@ -149,3 +152,42 @@ async def test_save_dashboard_validates_panels():
         await viewer.save_dashboard(
             DashboardIn(name="bad", html="<p/>", queries={"p": ObjectQuery(object="orders", where="x IN (SELECT 1)")})
         )
+
+
+async def _job_with_task_value() -> tuple[Job, Task]:
+    job = await create_job("value_job", create_task(_SAMPLE_TASK, {"n": 1}, name="t"))
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        task.result = native_ref({"kept": 2})
+        session.add(task)
+        await session.commit()
+    return job, task
+
+
+async def test_query_object_task_value():
+    job, task = await _job_with_task_value()
+    res = await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object=f"{task.id}"))
+    assert [(c.name, c.type) for c in res.meta] == [("value", "JSON")]
+    assert res.data == [[{"kept": 2}]]
+    as_csv = await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object=f"{task.id}.n", fmt="csv"))
+    assert as_csv.text == "value\r\n1\r\n"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param({"where": "1"}, id="where"),
+        pytest.param({"fields": ["value"]}, id="fields"),
+        pytest.param({"order_by": [OrderBy("value", "ASC")]}, id="order_by"),
+    ],
+)
+async def test_query_object_task_value_rejects_constraints(extra):
+    job, task = await _job_with_task_value()
+    with pytest.raises(errors.Invalid):
+        await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object=f"{task.id}", **extra))
+
+
+async def test_query_object_address_outside_job_scope_is_not_found():
+    _, task = await _job_with_task_value()
+    with pytest.raises(errors.NotFound):
+        await viewer.query_object(ObjectQueryRequest(object=f"{task.id}"))

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import String, and_, case, cast, func, or_
+from sqlalchemy import String, and_, case, cast, false, func, or_
 from sqlmodel import col, select
 
 from aaiclick.data.object import Object
@@ -31,6 +31,8 @@ from aaiclick.data.object_context import (
 )
 from aaiclick.data.scope import GLOBAL_PREFIX, JOB_PREFIX, SCOPE_GLOBAL, SCOPE_JOB, scope_of
 from aaiclick.data.view_models import (
+    OBJECT_KIND_ALL,
+    OBJECT_KIND_OBJECT,
     ObjectDetail,
     ObjectView,
 )
@@ -49,6 +51,7 @@ from aaiclick.view_models import (
 
 from . import jobs as jobs_api
 from .errors import Invalid, NotFound
+from .task_values import list_task_values
 
 
 async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
@@ -79,8 +82,16 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     otherwise ``scope=None`` / ``"global"`` lists the ``p_*`` tables. Any
     other scope raises ``Invalid``. Job-scoped items carry ``job_id`` /
     ``job_name``. Prefix filter, order and limit run in SQL.
+
+    ``filter.kind`` other than ``"object"`` needs ``job`` and adds that job's
+    task inputs and results (``task_values``) after its objects: ``"all"``
+    lists both, ``"value"`` / ``"ref"`` only those task rows. ``prefix`` then
+    matches a task row's label; ``total`` and ``limit`` span both parts.
     """
     filter = filter or ObjectFilter()
+    if filter.kind != OBJECT_KIND_OBJECT and filter.job is None:
+        raise Invalid("kind requires job (id or name)")
+    job = None
     table_col = col(TableRegistry.table_name)
     job_id_col = col(TableRegistry.job_id)
     is_global = table_col.startswith(GLOBAL_PREFIX, autoescape=True)
@@ -107,6 +118,9 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     )
     if filter.prefix:
         clause = and_(clause, name_col.startswith(filter.prefix, autoescape=True))
+
+    if filter.kind not in (OBJECT_KIND_OBJECT, OBJECT_KIND_ALL):
+        clause = and_(clause, false())
 
     async with get_sql_session() as session:
         total = (await session.execute(select(func.count()).select_from(TableRegistry).where(clause))).scalar_one()
@@ -138,6 +152,14 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
                 **metadata.get(table, {}),
             )
         )
+    if job is not None and filter.kind != OBJECT_KIND_OBJECT:
+        task_rows = [
+            row
+            for row in await list_task_values(job)
+            if filter.kind in (OBJECT_KIND_ALL, row.kind) and (row.label or "").startswith(filter.prefix or "")
+        ]
+        total += len(task_rows)
+        items = (items + task_rows)[: filter.limit]
     return Page[ObjectView](items=items, total=total)
 
 
