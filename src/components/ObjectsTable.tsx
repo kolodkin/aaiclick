@@ -69,7 +69,7 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
           <tr>
             <th>Name</th>
             {hasTaskRows && <th>Kind</th>}
-            {hasTaskRows && <th>Value / Target</th>}
+            {hasTaskRows && <th className="col-value">Value / Target</th>}
             {!hasTaskRows && <th>Scope</th>}
             {!hasTaskRows && <th>Job</th>}
             <th>Rows</th>
@@ -87,6 +87,12 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
               <td>
                 <span className="name-link mono">{o.label ?? o.name}</span>
                 {o.direction && <span className="io-tag">{o.direction}</span>}
+                {/* Phones hide the Value / Target column and show it here, under the name. */}
+                {o.kind !== "object" && (
+                  <div className="value-under mono">
+                    <TargetCell o={o} onPrompt={onPrompt} />
+                  </div>
+                )}
               </td>
               {hasTaskRows && (
                 <td>
@@ -94,7 +100,7 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
                 </td>
               )}
               {hasTaskRows && (
-                <td className="mono">
+                <td className="mono col-value">
                   <TargetCell o={o} onPrompt={onPrompt} />
                 </td>
               )}

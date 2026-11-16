@@ -244,6 +244,11 @@ def test_data_task_values_on_phone(page, base_url: str, shot) -> None:
     table.locator("tr", has_text="extract.limit").wait_for(timeout=15000)
     # The wide table scrolls inside its own container; the page itself must not.
     assert page.evaluate("document.documentElement.scrollWidth") <= 412
+    # No room for the Value / Target column: the value sits under the name.
+    under = table.locator("tr", has_text="extract.limit").locator(".value-under")
+    playwright_api.expect(under).to_be_visible()
+    playwright_api.expect(under).to_have_text("1000")
+    playwright_api.expect(table.locator("th.col-value")).to_be_hidden()
     table.scroll_into_view_if_needed()
     shot("data-task-values-phone")
     table.locator("tr", has_text="extract.limit").click()
