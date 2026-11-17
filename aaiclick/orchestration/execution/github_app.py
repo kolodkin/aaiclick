@@ -71,7 +71,8 @@ def _api(
             with urllib.request.urlopen(request, timeout=30) as response:
                 status, raw = response.status, response.read()
         except urllib.error.HTTPError as e:
-            status, raw = e.code, e.read()
+            with e:  # closes the 3.14 tempfile body; gc cleanup would raise ResourceWarning
+                status, raw = e.code, e.read()
     except (OSError, http.client.HTTPException) as e:
         reason = e.reason if isinstance(e, urllib.error.URLError) else type(e).__name__
         raise _ApiError(f"{method} api.github.com{path} failed: {reason}") from None
