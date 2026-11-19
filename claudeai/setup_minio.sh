@@ -6,6 +6,9 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_guard.sh"
+# MinIO's root credentials are the AWS pair the tests use.
+. "$here/env.sh"
+creds="$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY"
 
 cache="$here/../.cache"
 dir="$cache/minio"
@@ -22,7 +25,7 @@ if [ "${1:-}" = "stop" ]; then
   exit 0
 fi
 
-# :9100 because ClickHouse's TCP port holds :9000. Credentials match env.sh.
+# :9100 because ClickHouse's TCP port holds :9000.
 if up; then
   echo "[minio] already up on :9100"
 else
@@ -35,7 +38,7 @@ else
     GOBIN="$(cd "$dir" && pwd)" GOFLAGS=-mod=mod go install "github.com/minio/minio@$version"
     echo "[minio] installed $("$dir/minio" --version | head -1)"
   fi
-  MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+  MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
     nohup "$dir/minio" server "$dir/data" --address :9100 --console-address :9101 \
     >"$cache/minio.log" 2>&1 &
   echo $! >"$pidfile"
@@ -45,6 +48,6 @@ else
   echo "[minio] up on :9100"
 fi
 # The bucket is created with curl's SigV4 since mc is gone.
-curl -fs -X PUT --aws-sigv4 aws:amz:us-east-1:s3 --user minioadmin:minioadmin localhost:9100/aaiclick-test >/dev/null \
-  || curl -fs --aws-sigv4 aws:amz:us-east-1:s3 --user minioadmin:minioadmin localhost:9100/aaiclick-test >/dev/null \
+curl -fs -X PUT --aws-sigv4 aws:amz:us-east-1:s3 --user "$creds" localhost:9100/aaiclick-test >/dev/null \
+  || curl -fs --aws-sigv4 aws:amz:us-east-1:s3 --user "$creds" localhost:9100/aaiclick-test >/dev/null \
   || { echo "[minio] error: cannot create bucket aaiclick-test" >&2; exit 1; }

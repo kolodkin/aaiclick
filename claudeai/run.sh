@@ -11,7 +11,6 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # One entry per claudeai/setup_<svc>.sh; stopped in reverse order.
 services=(clickhouse postgres minio)
-cache="$here/../.cache"
 
 case "${1:-start}" in
   stop)
@@ -25,6 +24,7 @@ esac
 
 for svc in "${services[@]}"; do "$here/setup_$svc.sh"; done
 
+cache="$here/../.cache"
 mkdir -p "$cache"
 
 (cd "$here/.." && uv run --frozen python -m aaiclick migrate upgrade head >"$cache/migrate.log" 2>&1) \
