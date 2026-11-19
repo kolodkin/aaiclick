@@ -12,6 +12,6 @@ pre-commit install
 # No-op when already installed.
 uv run --frozen --extra dev playwright install chromium
 
-# Distributed-backend services for the web environment; started per session by
-# claudeai/run.sh (see .claude/skills/claudeai-run).
-"$(dirname "${BASH_SOURCE[0]}")"/claudeai/setup.sh
+# Distributed-backend services for the web environment: installed and started
+# here, restarted per session by the same script (see .claude/skills/claudeai-run).
+"$(dirname "${BASH_SOURCE[0]}")"/claudeai/run.sh
