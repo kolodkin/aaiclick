@@ -5,7 +5,7 @@
 # CLAUDE_CODE_REMOTE=true is set only in the remote/web container (CLAUDECODE=1
 # is set for any Claude Code session, local included, so it can't gate on that).
 #
-# Source this near the top of each claudeai/*.sh entrypoint and of setup.sh.
+# Source this near the top of each claudeai/*.sh entrypoint.
 # Override the guard for a deliberate local run with CLAUDEAI_ALLOW_LOCAL=1.
 if [ "${CLAUDEAI_ALLOW_LOCAL:-}" != "1" ] && [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   printf '\033[31m[claudeai]\033[0m %s\n' \
