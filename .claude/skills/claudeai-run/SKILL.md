@@ -6,9 +6,10 @@ disable-model-invocation: true
 
 # claudeai-run Skill
 
-Brings up the local distributed-backend services. Binaries and on-disk state are
-installed once by `claudeai/setup.sh` and survive a container resume, but the processes
-don't — so each session must restart them. That's what `claudeai/run.sh` does.
+Brings up the local distributed-backend services. `claudeai/run.sh` calls one
+`claudeai/setup_<svc>.sh` per service; each installs its binary and on-disk state
+under `.cache/` when missing, then starts it. That state survives a container
+resume, but the processes don't — so each session must run it again.
 
 Local mode (chdb + SQLite, the default URLs) needs none of this.
 
@@ -69,8 +70,8 @@ claudeai/run.sh stop
 
 ## If a service won't start
 
-`run.sh` runs `claudeai/setup.sh` itself when the binary or cluster is missing
-(fresh container). To start over, stop the services, delete `.cache/clickhouse`,
+`run.sh` installs whatever binary or cluster is missing (fresh container). To
+start over, stop the services, delete `.cache/clickhouse`,
 `.cache/postgres` or `.cache/minio`, then re-run.
 
 Per-service logs: `.cache/clickhouse.log`, `.cache/postgres/postgres.log`,
