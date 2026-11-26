@@ -4,12 +4,14 @@ import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";
 import { LogViewer } from "../components/LogViewer";
 import { MetaGrid } from "../components/MetaGrid";
-import { ObjectsMenu } from "../components/ObjectsMenu";
+import { ScopeData } from "../components/ScopeData";
 import { StatusBadge } from "../components/StatusBadge";
 import { Truncated } from "../components/Truncated";
 import { durationBetween, relativeTime } from "../lib/format";
+import { scopeKey } from "../lib/viewer";
+import type { TaskViewMode } from "../prompt";
 
-export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string) => void }) {
+export function TaskDetail({ id, view, onPrompt }: { id: string; view: TaskViewMode; onPrompt: (v: string) => void }) {
   const { data: task, isLoading, isError, dataUpdatedAt } = useTask(id);
 
   if (isLoading) return <p className="sub">loading…</p>;
@@ -36,8 +38,6 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
           <h2>
             <span className="mono">{task.name}</span> <StatusBadge status={task.status} />
           </h2>
-          <div className="spacer" />
-          <ObjectsMenu jobId={task.job_id} refreshKey={task.status} onPrompt={onPrompt} />
         </div>
         <p className="sub">
           <LiveStatus updatedAt={dataUpdatedAt} queryKey="task" />
@@ -59,7 +59,24 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
         />
         {task.error && <div className="err">{task.error}</div>}
       </div>
-      <LogViewer key={task.id} task={task} />
+      <Chips
+        chips={[
+          { label: "Log", cmd: `@task ${task.id}`, active: view === "log" },
+          { label: "Data", cmd: `@task ${task.id} data`, active: view === "data", testId: "task-data-tab" },
+        ]}
+        onPrompt={onPrompt}
+      />
+      {view === "data" ? (
+        <ScopeData
+          scope={scopeKey(task.job_id)}
+          object={null}
+          taskId={task.id}
+          refreshKey={task.status}
+          onPrompt={onPrompt}
+        />
+      ) : (
+        <LogViewer key={task.id} task={task} />
+      )}
     </div>
   );
 }

@@ -31,26 +31,13 @@ def test_data_lists_and_previews_object(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@data")
     row = page.get_by_test_id("objects-table").get_by_text("orders", exact=True)
     row.wait_for(timeout=15000)
+    # Persistent objects only: a job's objects are on its own page.
+    playwright_api.expect(page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales")).to_have_count(0)
     row.click()
     page.wait_for_url(lambda url: "orders" in url)
     rows = page.get_by_test_id("object-rows")
     rows.wait_for(timeout=15000)
     assert rows.locator("tbody tr").count() == 3
-
-
-@_spa_built
-@_local_only
-def test_data_all_scopes_labels_and_opens_job_object(page, shot, base_url: str) -> None:
-    open_page(page, f"{base_url}/?p=@data")
-    # Earlier seed runs may leave rows of the same name; any one will do.
-    row = page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales").first
-    playwright_api.expect(row.locator("td").nth(1)).to_have_text("job")
-    playwright_api.expect(row.locator("td").nth(2)).to_have_text(OBJECTS_JOB)
-    shot("data-all-scopes")
-    row.click()
-    page.wait_for_url(lambda url: "job" in url and "raw_sales" in url)
-    page.get_by_test_id("object-rows").wait_for(timeout=15000)
-    shot("data-job-object")
 
 
 @_spa_built
@@ -95,81 +82,51 @@ def test_dashboard_renders_saved_dashboard(page, shot, base_url: str) -> None:
 
 @_spa_built
 @_local_only
-def test_job_objects_menu_opens_object(page, base_url: str, shot) -> None:
+def test_job_data_tab_opens_object(page, base_url: str, shot) -> None:
     open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
-    menu = page.get_by_test_id("job-objects")
-    menu.locator("summary").click()
-    items = menu.locator("li a")
-    assert items.all_inner_texts() == [
-        "customers",
-        "daily_totals",
-        "orders_clean",
-        "raw_sales",
-        "returns",
-        "weekly_totals",
-    ]
-    menu.get_by_test_id("objects-filter").fill("RAW")
-    playwright_api.expect(items).to_have_text(["raw_sales"])
-    # The toggle flips where a click opens the object; back off for the click below.
-    toggle = menu.get_by_test_id("objects-new-tab")
-    toggle.click()
-    assert items.get_by_text("raw_sales").get_attribute("target") == "_blank"
-    shot("job-objects-menu")
-    toggle.click()
-    assert items.get_by_text("raw_sales").get_attribute("target") is None
-    items.get_by_text("raw_sales").click()
+    page.get_by_test_id("job-data-tab").click()
+    page.wait_for_url(lambda url: " data" in unquote_plus(url))
+    table = page.get_by_test_id("objects-table")
+    playwright_api.expect(table.locator("tr", has_text="extract.limit")).to_have_count(1)
+    shot("job-data-tab")
+    table.locator("tr", has_text="raw_sales").click()
     page.wait_for_url(lambda url: "raw_sales" in url)
     page.get_by_test_id("object-rows").wait_for(timeout=15000)
-    shot("job-objects-opened")
-    page.locator(".chip", has_text="←").last.click()
-    page.wait_for_url(lambda url: "@job " in unquote_plus(url))
+    # Still the job page: its header and tabs stay around the object.
     playwright_api.expect(page.locator("h2").first).to_contain_text(OBJECTS_JOB)
-    shot("job-objects-back")
+    shot("job-data-object")
+    page.locator(".chip", has_text="←").last.click()
+    page.wait_for_url(lambda url: unquote_plus(url).endswith(" data"))
+    playwright_api.expect(table.locator("tr", has_text="raw_sales")).to_have_count(1)
 
 
 @_spa_built
 @_local_only
-def test_job_objects_menu_on_phone(page, base_url: str, shot) -> None:
-    # The long job name wraps the button to the left edge; the popup must stay on screen.
-    page.set_viewport_size({"width": 412, "height": 900})
-    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
-    menu = page.get_by_test_id("job-objects")
-    menu.locator("summary").click()
-    box = menu.locator(".objects-popup").bounding_box()
-    assert box["x"] >= 0 and box["x"] + box["width"] <= 412, box
-    shot("job-objects-menu-phone")
-
-
-@_spa_built
-@_local_only
-def test_task_objects_menu_on_phone(page, base_url: str, shot) -> None:
+def test_task_data_tab(page, base_url: str, shot) -> None:
     page.set_viewport_size({"width": 412, "height": 900})
     open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
     page.get_by_text("extract", exact=True).click()
-    page.wait_for_url(lambda url: "%40task" in url or "@task" in url)
-    menu = page.get_by_test_id("job-objects")
-    menu.locator("summary").click()
-    playwright_api.expect(menu.locator("li a")).to_have_count(6)
-    shot("task-objects-menu-phone")
-    page.keyboard.press("Escape")
-    playwright_api.expect(menu.locator("li a").first).to_be_hidden()
+    page.wait_for_url(lambda url: "@task" in unquote_plus(url))
+    page.get_by_test_id("task-data-tab").click()
+    rows = page.get_by_test_id("objects-table").locator("tbody tr")
+    # Only this task's input and result: no objects, no other task's rows, no filter chips.
+    playwright_api.expect(rows).to_have_count(2)
+    playwright_api.expect(rows.filter(has_text="extract.limit")).to_contain_text("1000")
+    playwright_api.expect(rows.filter(has_text="extract.result")).to_have_count(1)
+    playwright_api.expect(page.get_by_test_id("filter-chip-all")).to_have_count(0)
+    shot("task-data-tab-phone")
+    rows.filter(has_text="extract.limit").click()
+    page.get_by_test_id("value-view").get_by_test_id("object-rows").wait_for(timeout=15000)
 
 
 @_spa_built
 @_local_only
-def test_data_job_object_on_phone(page, base_url: str, shot) -> None:
-    page.set_viewport_size({"width": 412, "height": 900})
-    open_page(page, f"{base_url}/?p=@data")
-    page.get_by_test_id("objects-table").locator("tr", has_text="raw_sales").first.click()
-    page.get_by_test_id("object-rows").wait_for(timeout=15000)
-    playwright_api.expect(page.locator(".chip", has_text="←").last).to_contain_text(f"{OBJECTS_JOB} #")
-    jobs = page.locator(".scope-jobs")
-    small = jobs.bounding_box()["height"]
-    shot("data-job-object-phone")
-    page.get_by_test_id("scope-jobs-toggle").click()
-    playwright_api.expect(jobs).to_have_class("scope-jobs is-expanded")
-    assert jobs.bounding_box()["height"] > small
-    shot("data-job-list-expanded-phone")
+def test_task_data_tab_without_values(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
+    page.get_by_text("validate", exact=True).click()
+    page.wait_for_url(lambda url: "@task" in unquote_plus(url))
+    page.get_by_test_id("task-data-tab").click()
+    playwright_api.expect(page.get_by_text("No inputs or result")).to_be_visible()
 
 
 @_spa_built
@@ -186,24 +143,8 @@ def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
 
 @_spa_built
 @_local_only
-def test_data_scrolls_old_job_into_view(page, base_url: str) -> None:
-    # Mid-page, not last: a job created meanwhile shifts the page by one.
-    old = page.request.get(f"{base_url}/api/v0/jobs").json()["items"][30]
-    open_page(page, f"{base_url}/?p=@data job {old['id']}")
-    page.wait_for_function(
-        """() => {
-            const box = document.querySelector('.scope-jobs')?.getBoundingClientRect();
-            const row = document.querySelector('.scope-jobs .is-active')?.getBoundingClientRect();
-            return box && row && row.top >= box.top && row.bottom <= box.bottom;
-        }""",
-        timeout=15000,
-    )
-
-
-@_spa_built
-@_local_only
 def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
-    open_page(page, f"{base_url}/?p=@data job {OBJECTS_JOB}")
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB} data")
     table = page.get_by_test_id("objects-table")
     # The job's own kwargs lead the list.
     playwright_api.expect(table.locator("tbody tr").first).to_contain_text(f"{OBJECTS_JOB}.day")
@@ -239,7 +180,7 @@ def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
 @_local_only
 def test_data_task_values_on_phone(page, base_url: str, shot) -> None:
     page.set_viewport_size({"width": 412, "height": 900})
-    open_page(page, f"{base_url}/?p=@data job {OBJECTS_JOB}")
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB} data")
     table = page.get_by_test_id("objects-table")
     table.locator("tr", has_text="extract.limit").wait_for(timeout=15000)
     # The wide table scrolls inside its own container; the page itself must not.

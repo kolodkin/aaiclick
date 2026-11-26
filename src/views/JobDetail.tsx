@@ -5,22 +5,26 @@ import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";
 import { JobGraph } from "../components/graph/JobGraph";
 import { MetaGrid } from "../components/MetaGrid";
-import { ObjectsMenu } from "../components/ObjectsMenu";
 import { ProgressBar } from "../components/ProgressBar";
+import { ScopeData } from "../components/ScopeData";
 import { StatusBadge } from "../components/StatusBadge";
 import { TasksTable } from "../components/TasksTable";
 import { JobDuration } from "../components/timings/JobDuration";
 import { JobTimings } from "../components/timings/JobTimings";
 import { durationMs, relativeTime } from "../lib/format";
+import { dataPrompt, scopeKey } from "../lib/viewer";
 import type { JobViewMode } from "../prompt";
 
 export function JobDetail({
   name,
   view,
+  item,
   onPrompt,
 }: {
   name: string;
   view: JobViewMode;
+  // One object or task value of the Data tab, instead of its listing.
+  item: string | null;
   onPrompt: (v: string) => void;
 }) {
   const { data: job, isLoading, isError, dataUpdatedAt } = useJob(name);
@@ -39,6 +43,8 @@ export function JobDetail({
   const tableView = view === "table";
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
   const onCancel = () => onPrompt(`cancel ${job.name}`);
+  // By id, not name: a name resolves to the latest rerun, and data must stay this run's.
+  const scope = scopeKey(job.id);
 
   return (
     <>
@@ -49,7 +55,6 @@ export function JobDetail({
             <span className="mono">{job.name}</span> <StatusBadge status={job.status} />
           </h2>
           <div className="spacer" />
-          <ObjectsMenu jobId={job.id} refreshKey={job.completed_tasks} onPrompt={onPrompt} />
           {cancellable && (
             <AdminButton className="btn btn-danger btn-sm" onClick={onCancel}>
               Cancel job
@@ -79,12 +84,16 @@ export function JobDetail({
           { label: "Graph", cmd: `@job ${job.name} graph`, active: view === "graph" },
           { label: "Timings", cmd: `@job ${job.name} timings`, active: view === "timings" },
           { label: "Duration", cmd: `@job ${job.name} duration`, active: view === "duration" },
+          { label: "Data", cmd: dataPrompt(scope), active: view === "data", testId: "job-data-tab" },
         ]}
         onPrompt={onPrompt}
       />
       {view === "graph" && <JobGraph refId={job.name} onPrompt={onPrompt} />}
       {view === "timings" && <JobTimings refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
       {view === "duration" && <JobDuration refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
+      {view === "data" && (
+        <ScopeData scope={scope} object={item} refreshKey={job.completed_tasks} onPrompt={onPrompt} />
+      )}
       {tableView && <TasksTable tasks={job.tasks} onPrompt={onPrompt} />}
     </>
   );

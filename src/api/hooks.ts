@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryKey 
 import type { QueryRows } from "@qv/core";
 import { deleteJSON, fetchJSON, postJSON, putJSON } from "./client";
 import { isTaskStarted, isTerminalTask } from "../lib/status";
-import { ALL, jobOfScope } from "../lib/viewer";
+import { jobOfScope } from "../lib/viewer";
 import type {
   ApiTokenCreated,
   ApiTokenView,
@@ -221,7 +221,6 @@ export function useUnregisterJob() {
 const TASK_VALUES_LIMIT = 1000;
 
 function jobParam(scope: string): string {
-  if (scope === ALL) return "?scope=all";
   const job = jobOfScope(scope);
   return job ? `?job=${encodeURIComponent(job)}` : "";
 }

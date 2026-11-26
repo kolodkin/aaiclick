@@ -56,9 +56,9 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
     case "register":
       return <RegisterForm name={route.name} onPrompt={onPrompt} />;
     case "job":
-      return <JobDetail name={route.name} view={route.view} onPrompt={onPrompt} />;
+      return <JobDetail name={route.name} view={route.view} item={route.item} onPrompt={onPrompt} />;
     case "task":
-      return <TaskDetail id={route.id} onPrompt={onPrompt} />;
+      return <TaskDetail id={route.id} view={route.view} onPrompt={onPrompt} />;
     case "run-confirm":
       return <RunConfirm name={route.name} onPrompt={onPrompt} />;
     case "run-form":
@@ -82,7 +82,7 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
     case "reset":
       return <ResetPassword token={route.token} onDone={() => onPrompt("")} />;
     case "data":
-      return <Data scope={route.scope} object={route.object} onPrompt={onPrompt} />;
+      return <Data object={route.object} onPrompt={onPrompt} />;
     case "dashboard":
       return <Dashboard name={route.name} onPrompt={onPrompt} />;
     case "sandbox":

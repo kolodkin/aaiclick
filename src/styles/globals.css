@@ -282,31 +282,6 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   box-shadow: var(--hi), var(--shadow);
 }
 .detail-head .title-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-/* Objects popup: anchored under its button, kept inside a phone's width. */
-.objects-menu { position: relative; }
-.objects-menu summary { list-style: none; }
-.objects-menu summary::-webkit-details-marker { display: none; }
-.objects-popup {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; padding: 6px;
-  width: 260px; max-width: calc(100vw - 32px);
-  background: #0c1018; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
-.objects-popup-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.objects-popup-head .scope-filter { flex: 1; min-width: 0; margin: 0; }
-.objects-popup .chip { flex: none; font-size: 11px; }
-.objects-empty { margin: 4px 8px; font-size: 12px; }
-.objects-popup ul { margin: 0; padding: 0; list-style: none; max-height: 60vh; overflow: auto; }
-.objects-popup li a {
-  display: block; padding: 6px 8px; border-radius: 6px; font-size: 12px; color: var(--text); text-decoration: none;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.objects-popup li a:hover, .objects-popup li a:focus-visible { background: var(--accent-soft); }
-.objects-more { display: block; padding: 6px 8px; font-size: 12px; color: var(--accent); text-decoration: none; }
-/* Phones: a long name wraps the button to the left edge, where a right-anchored
-   popup hangs off-screen; span the title row instead (top:auto keeps it under the button). */
-@media (max-width: 640px) {
-  .detail-head .title-row { position: relative; }
-  .objects-menu { position: static; }
-  .objects-popup { top: auto; left: 0; right: 0; width: auto; margin-top: 6px; }
-}
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
 /* Content-sized items share a row, wrapping only when out of width, so the
    header stays short. */
@@ -491,28 +466,8 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .ggroup-FAILED, .ggroup-UPSTREAM_FAILED { border-color: var(--red); }
 .ggroup-CANCELLED { border-color: var(--yellow); }
 
-/* ---- viewer (@data) ---- */
-.viewer-layout { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
-.viewer-main { min-width: 0; overflow-x: auto; }
-/* Phones: stack the scope tree above the objects so the table keeps the full width. */
-@media (max-width: 720px) { .viewer-layout { grid-template-columns: 1fr; } }
-.scope-tree { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--hi), var(--shadow); padding: 10px; font-size: 13px; }
-.scope-group { display: flex; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
-  font-weight: 700; margin: 12px 6px 6px; }
-.scope-node { padding: 6px 8px; border-radius: 8px; cursor: pointer; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.scope-node:hover { background: rgba(250,255,105,.07); }
-.scope-node.is-active { background: var(--accent-soft); color: var(--accent); }
-.scope-node .sub-inline { color: var(--muted); font-size: 11px; }
-.scope-filter { width: 100%; margin: 0 0 6px; padding: 5px 8px; border: 1px solid var(--border);
-  border-radius: 8px; background: rgba(255,255,255,.05); color: var(--text); font-size: 12px; }
-.scope-filter:focus { outline: none; border-color: var(--accent); }
-.scope-toggle { margin-left: auto; }
-/* Small by default so the job list doesn't crowd out the objects; the toggle expands it. */
-.scope-jobs { position: relative; max-height: 180px; overflow-y: auto; }
-.scope-jobs.is-expanded { max-height: 60vh; }
+/* ---- a scope's data (job Data tab, task Data tab, @data) ---- */
+.scope-data { min-width: 0; overflow-x: auto; }
 
 /* The vendored kernel's theme tokens (src/queryview-core/kernel.css). */
 :root {
