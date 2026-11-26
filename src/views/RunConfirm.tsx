@@ -13,7 +13,7 @@ export function RunConfirm({ name, onPrompt }: { name: string; onPrompt: (v: str
       {
         onSuccess: (job) => {
           toast(`Started ${name} — job #${job.id}`);
-          onPrompt(`@job ${name}`);
+          onPrompt(`@job ${job.id}`);
         },
         onError: (e) => toast(`Run failed: ${e.message}`),
       },

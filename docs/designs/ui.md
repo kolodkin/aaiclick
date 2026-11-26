@@ -59,7 +59,8 @@ The input edits a draft; the view follows only the committed prompt.
 | `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
-- Jobs insert their id: a name opens the latest run.
+- Job and task rows read `name (short id)` — the id's last 6 digits — and insert the full id.
+- Everything the UI links to is by id; a typed job name opens the latest run.
 - Tasks and jobs also match a whole id, so a pasted id finds its row.
 - `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
@@ -83,7 +84,7 @@ Jobs, newest `created_at` first.
 
 | Column   | Source field | Notes                                    |
 |----------|--------------|------------------------------------------|
-| Name     | `name`       | Clickable — sets prompt to `@job <name>` |
+| Name     | `name`       | Clickable — sets prompt to `@job <id>`   |
 | Status   | `status`     | Colored badge                            |
 | Progress | computed     | `completed_tasks / total_tasks`          |
 | Created  | `created_at` | Relative time (e.g., "2m ago")           |

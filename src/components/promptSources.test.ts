@@ -93,6 +93,15 @@ describe("fetchPage", () => {
     expect((await matchSource(draft, { sandbox: false })!.fetchPage(0)).items[0].insert).toBe(insert);
   });
 
+  // A row always names its id, so same-named runs and tasks can be told apart.
+  test.each([
+    ["@job ", { id: "7523769567175368706", name: "etl" }, "etl (368706)"],
+    ["@task ", { id: "7523769567175368707", name: "load", job_id: "1" }, "load (368707)"],
+  ])("%s rows read name (short id)", async (draft, row, label) => {
+    fetchMock.mockResolvedValue({ items: [{ status: "RUNNING", created_at: "2026-01-01T00:00:00Z", ...row }] });
+    expect((await matchSource(draft, { sandbox: false })!.fetchPage(0)).items[0].label).toBe(label);
+  });
+
   test("@data persistent narrows by the object prefix and keeps the keyword", async () => {
     fetchMock.mockResolvedValue({ items: [{ name: "orders" }] });
     const page = await matchSource("@data persistent or", { sandbox: false })!.fetchPage(0);

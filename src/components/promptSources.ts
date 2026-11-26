@@ -3,6 +3,7 @@
 // them, how the typed text narrows them, and what a picked row inserts.
 import { fetchJSON } from "../api/client";
 import { JOB_VIEW_SUFFIX } from "../prompt";
+import { shortId } from "../lib/viewer";
 import type {
   DashboardSummary,
   JobStatus,
@@ -67,8 +68,8 @@ function tasks(text: string): SourceMatch {
     text,
     fetchPage: paged<TaskView>("/tasks", { name: like(text) }, (t) => ({
       id: t.id,
-      label: t.name,
-      detail: `job ${t.job_id}`,
+      label: `${t.name} (${shortId(t.id)})`,
+      detail: `job ${shortId(t.job_id)}`,
       status: t.status,
       at: t.created_at,
       insert: `@task ${t.id}`,
@@ -83,8 +84,7 @@ function jobs(cmd: string, text: string): SourceMatch {
     text,
     fetchPage: paged<JobView>("/jobs", { name: like(text) }, (j) => ({
       id: j.id,
-      label: j.name,
-      detail: j.id,
+      label: `${j.name} (${shortId(j.id)})`,
       status: j.status,
       at: j.created_at,
       insert: `${cmd} ${j.id}`,
