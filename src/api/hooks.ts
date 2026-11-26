@@ -223,12 +223,12 @@ function jobParam(scope: string): string {
   return job ? `?job=${encodeURIComponent(job)}` : "";
 }
 
-// `taskValues` adds a job's task inputs and results before its objects (job scopes only).
+// A job scope lists its task inputs and results before its objects.
 // shortcut: one page of TASK_VALUES_LIMIT rows, no paging; add a cursor when jobs outgrow it.
-export function useObjects(scope: string, taskValues = false) {
-  const withValues = taskValues && jobOfScope(scope) !== null;
+export function useObjects(scope: string) {
+  const withValues = jobOfScope(scope) !== null;
   return useQuery({
-    queryKey: ["objects", scope, withValues],
+    queryKey: ["objects", scope],
     queryFn: () =>
       fetchJSON<Page<ObjectView>>(
         `/objects${jobParam(scope)}${withValues ? `&kind=all&limit=${TASK_VALUES_LIMIT}` : ""}`,

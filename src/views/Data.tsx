@@ -7,7 +7,7 @@ import { PERSISTENT } from "../lib/viewer";
 
 export function Data({ object, onPrompt }: { object: string | null; onPrompt: (v: string) => void }) {
   // Shares ScopeData's query (same key), only to report its freshness.
-  const objects = useObjects(PERSISTENT, true);
+  const objects = useObjects(PERSISTENT);
   return (
     <>
       <h2>Data</h2>

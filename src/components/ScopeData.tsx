@@ -36,7 +36,7 @@ export function ScopeData(props: ScopeDataProps) {
 }
 
 function ScopeBody({ scope, object, taskId, refreshKey, onPrompt }: ScopeDataProps) {
-  const objects = useObjects(scope, true);
+  const objects = useObjects(scope);
   const qc = useQueryClient();
   const seenKey = useRef(refreshKey);
   useEffect(() => {
@@ -63,17 +63,13 @@ function ScopeBody({ scope, object, taskId, refreshKey, onPrompt }: ScopeDataPro
           Showing {items.length} of {total} rows
         </p>
       )}
-      {taskId === undefined ? (
-        <ObjectsTable objects={items} onPrompt={onPrompt} />
-      ) : (
-        <ObjectsTable
-          // shortcut: filters the job's one page; past TASK_VALUES_LIMIT rows the server drops task rows first (the notice above says so), so add a task filter to GET /objects then.
-          objects={items.filter((o) => o.task_id === taskId)}
-          filters={false}
-          emptyText={cut ? "Not among the rows shown" : "No inputs or result"}
-          onPrompt={onPrompt}
-        />
-      )}
+      <ObjectsTable
+        // shortcut: a task's rows are filtered from the job's one page; past TASK_VALUES_LIMIT rows the server drops task rows first, so add a task filter to GET /objects then.
+        objects={taskId === undefined ? items : items.filter((o) => o.task_id === taskId)}
+        filters={taskId === undefined}
+        emptyText={taskId === undefined ? undefined : cut ? "Not among the rows shown" : "No inputs or result"}
+        onPrompt={onPrompt}
+      />
     </>
   );
 }

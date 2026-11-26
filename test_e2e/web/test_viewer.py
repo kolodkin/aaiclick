@@ -21,12 +21,6 @@ playwright_api = pytest.importorskip("playwright.sync_api")
 
 from seed import OBJECTS_JOB, WIDE_JOB  # noqa: E402  (must follow the playwright guard)
 
-
-def _job_id(page, base_url: str, name: str) -> str:
-    """The latest run of the seeded job ``name``: the UI opens jobs by id only."""
-    return page.request.get(f"{base_url}/api/v0/jobs", params={"name": name}).json()["items"][0]["id"]
-
-
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs through chdb (local mode)")
 
@@ -89,7 +83,7 @@ def test_dashboard_renders_saved_dashboard(page, shot, base_url: str) -> None:
 @_spa_built
 @_local_only
 def test_job_data_tab_opens_object(page, base_url: str, shot) -> None:
-    open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, OBJECTS_JOB)}")
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
     page.get_by_test_id("job-data-tab").click()
     page.wait_for_url(lambda url: " data" in unquote_plus(url))
     table = page.get_by_test_id("objects-table")
@@ -114,7 +108,7 @@ def test_job_data_tab_opens_object(page, base_url: str, shot) -> None:
 @_local_only
 def test_task_data_tab(page, base_url: str, shot) -> None:
     page.set_viewport_size({"width": 412, "height": 900})
-    open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, OBJECTS_JOB)}")
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
     page.get_by_text("extract", exact=True).click()
     page.wait_for_url(lambda url: "@task" in unquote_plus(url))
     page.get_by_test_id("task-data-tab").click()
@@ -145,7 +139,7 @@ def test_typed_names_open_the_latest_job_and_task(page, base_url: str) -> None:
 @_spa_built
 @_local_only
 def test_task_data_tab_without_values(page, base_url: str) -> None:
-    open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, OBJECTS_JOB)}")
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
     page.get_by_text("validate", exact=True).click()
     page.wait_for_url(lambda url: "@task" in unquote_plus(url))
     page.get_by_test_id("task-data-tab").click()
@@ -155,10 +149,10 @@ def test_task_data_tab_without_values(page, base_url: str) -> None:
 @_spa_built
 @_local_only
 def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
-    open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, WIDE_JOB)}")
+    open_page(page, f"{base_url}/?p=@job {WIDE_JOB}")
     page.get_by_text("part_000", exact=True).wait_for(timeout=15000)
     shot("job-table-100-tasks")
-    open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, WIDE_JOB)} graph")
+    open_page(page, f"{base_url}/?p=@job {WIDE_JOB} graph")
     # The canvas renders only on-screen nodes, so wait on the hub, not a count.
     page.locator(".gnode", has_text="fan_out").wait_for(timeout=15000)
     shot("job-graph-100-tasks")
@@ -167,7 +161,7 @@ def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
 @_spa_built
 @_local_only
 def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
-    open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, OBJECTS_JOB)} data")
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB} data")
     table = page.get_by_test_id("objects-table")
     # The job's own kwargs lead the list.
     playwright_api.expect(table.locator("tbody tr").first).to_contain_text(f"{OBJECTS_JOB}.day")
@@ -203,7 +197,7 @@ def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:
 @_local_only
 def test_data_task_values_on_phone(page, base_url: str, shot) -> None:
     page.set_viewport_size({"width": 412, "height": 900})
-    open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, OBJECTS_JOB)} data")
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB} data")
     table = page.get_by_test_id("objects-table")
     table.locator("tr", has_text="extract.limit").wait_for(timeout=15000)
     # The wide table scrolls inside its own container; the page itself must not.

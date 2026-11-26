@@ -2,7 +2,6 @@
 // Maps a prompt draft to the values its command takes: which endpoint lists
 // them, how the typed text narrows them, and what a picked row inserts.
 import { fetchJSON } from "../api/client";
-import { JOB_VIEW_SUFFIX } from "../prompt";
 import { shortId } from "../lib/viewer";
 import type {
   DashboardSummary,
@@ -166,11 +165,9 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
   const [, cmd, text] = m;
   switch (cmd) {
     case "@task":
-      // A trailing view (`@task load data`) is not part of the name.
-      return tasks(text.replace(/\s+data$/, ""));
     case "@job":
-      // A trailing view (`@job etl graph`) is not part of the name.
-      return jobs(cmd, text.replace(JOB_VIEW_SUFFIX, ""));
+      // The ref is the first word: a view after it (`@job etl graph`, `@task load data`) is not part of the name.
+      return cmd === "@task" ? tasks(text.split(/\s+/)[0]) : jobs(cmd, text.split(/\s+/)[0]);
     case "cancel":
       return jobs(cmd, text);
     case "run":

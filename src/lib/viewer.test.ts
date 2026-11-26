@@ -7,15 +7,13 @@ import {
   orderColsToPairs,
   scopeKey,
   jobScopeLabel,
-  scopeLabel,
 } from "./viewer";
 
 describe("scope keys", () => {
   test("persistent and job", () => {
     expect(scopeKey(null)).toBe("persistent");
     expect(scopeKey("nightly_etl")).toBe("job:nightly_etl");
-    expect(scopeLabel("persistent")).toBe("Persistent");
-    expect(scopeLabel("job:123")).toBe("Job 123");
+    expect(jobScopeLabel("persistent", undefined)).toBe("Persistent");
     expect(jobScopeLabel("job:7523769567175368706", "etl")).toBe("etl #368706");
     expect(jobScopeLabel("job:123", undefined)).toBe("Job 123");
   });

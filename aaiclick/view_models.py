@@ -159,7 +159,7 @@ class RegisterJobRequest(ApiModel):
 
 
 class JobListFilter(ApiModel):
-    """Filter parameters for ``internal_api.list_jobs``."""
+    """Filter parameters for ``internal_api.list_jobs``; ``name`` is a ``LIKE`` pattern that also matches a whole job id."""
 
     status: JobStatus | None = None
     name: str | None = None
@@ -170,7 +170,10 @@ class JobListFilter(ApiModel):
 
 
 class TaskListFilter(ApiModel):
-    """Filter parameters for ``internal_api.list_tasks``; ``name`` is a ``LIKE`` pattern where only ``%`` is a wildcard."""
+    """Filter parameters for ``internal_api.list_tasks``.
+
+    ``name`` is a ``LIKE`` pattern where only ``%`` is a wildcard; it also matches a whole task id.
+    """
 
     name: str | None = None
     job: RefId | None = None
