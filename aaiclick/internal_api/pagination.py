@@ -28,18 +28,17 @@ def name_like(column: str, pattern: str) -> ColumnElement[bool]:
     return col(column).like(escaped, escape=_LIKE_ESCAPE)
 
 
-def name_or_id_like(name_column: str, id_column: int, pattern: str) -> ColumnElement[bool]:
-    """:func:`name_like`, or the row whose id is ``pattern`` when that is one whole number.
+def search_name_or_id(name_column: str, id_column: int, text: str) -> ColumnElement[bool]:
+    """Rows whose name contains ``text``, or whose id is ``text`` when that is one whole number.
 
-    Lets one search box take a name or a pasted id. The id match is exact, so
-    it stays on the primary key.
+    ``text`` is plain: no character in it is a wildcard. The id match is exact,
+    so it stays on the primary key.
     """
-    by_name = name_like(name_column, pattern)
-    digits = pattern.strip("%")
+    by_name = col(name_column).contains(text, autoescape=True)
     # The length check comes first: int() refuses a number of thousands of digits.
-    if not digits.isascii() or not digits.isdigit() or len(digits) > len(str(_MAX_ID)) or int(digits) > _MAX_ID:
+    if not text.isascii() or not text.isdigit() or len(text) > len(str(_MAX_ID)) or int(text) > _MAX_ID:
         return by_name
-    return or_(by_name, col(id_column) == int(digits))
+    return or_(by_name, col(id_column) == int(text))
 
 
 class PageRows(NamedTuple, Generic[T]):

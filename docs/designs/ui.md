@@ -82,7 +82,7 @@ The input edits a draft; the view follows only the committed prompt.
 
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
 - `@job <ref> task ` lists that job's tasks.
-- Tasks and jobs also match a whole id, so a pasted id finds its row.
+- Jobs and tasks narrow through the lists' `search` filter, which also matches a whole id, so a pasted id finds its row.
 - `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
 # Modes

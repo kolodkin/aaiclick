@@ -62,23 +62,15 @@ async def test_list_jobs_name_underscore_is_literal(orch_ctx):
     assert [j.name for j in page.items] == ["etl_v2"]
 
 
-async def test_list_jobs_name_also_matches_whole_id(orch_ctx):
-    """A pattern that is one number finds the job with that id."""
-    created = await create_job("by_id_pattern", _SAMPLE_TASK)
+async def test_list_jobs_search_finds_by_name_or_id(orch_ctx):
+    created = await create_job("search_target", _SAMPLE_TASK)
     await create_job("other", _SAMPLE_TASK)
 
-    page = await jobs.list_jobs(JobListFilter(name=f"%{created.id}%"))
+    by_name = await jobs.list_jobs(JobListFilter(search="rch_tar"))
+    by_id = await jobs.list_jobs(JobListFilter(search=str(created.id)))
 
-    assert [j.id for j in page.items] == [created.id]
-
-
-async def test_list_jobs_name_of_too_many_digits_matches_nothing(orch_ctx):
-    """A number no id can hold is only a name pattern, not an id lookup that overflows."""
-    await create_job("digits", _SAMPLE_TASK)
-
-    page = await jobs.list_jobs(JobListFilter(name="9" * 5000))
-
-    assert page.items == []
+    assert [j.id for j in by_name.items] == [created.id]
+    assert [j.id for j in by_id.items] == [created.id]
 
 
 async def test_get_job_by_int_id(orch_ctx):

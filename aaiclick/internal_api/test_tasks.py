@@ -117,11 +117,32 @@ async def test_list_tasks_unknown_job_raises(orch_ctx):
         await tasks.list_tasks(TaskListFilter(job="no_such_job"))
 
 
-async def test_list_tasks_name_also_matches_whole_id(orch_ctx):
-    """A pattern that is one number finds the task with that id: the prompt
-    dropdown narrows by ``name`` whether a name or a pasted id was typed."""
+@pytest.mark.parametrize(
+    "search",
+    [
+        pytest.param("imple_ta", id="name-contains"),
+        pytest.param("{id}", id="whole-id"),
+    ],
+)
+async def test_list_tasks_search_finds_by_name_or_id(orch_ctx, search):
     _, simple_id = await _two_jobs()
 
-    page = await tasks.list_tasks(TaskListFilter(name=f"%{simple_id}%"))
+    page = await tasks.list_tasks(TaskListFilter(search=search.format(id=simple_id)))
 
     assert [t.id for t in page.items] == [simple_id]
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        pytest.param("simple%task", id="percent-is-literal"),
+        pytest.param("simple-task", id="underscore-is-literal"),
+        pytest.param("9" * 5000, id="number-no-id-can-hold"),
+    ],
+)
+async def test_list_tasks_search_is_plain_text(orch_ctx, search):
+    await _two_jobs()
+
+    page = await tasks.list_tasks(TaskListFilter(search=search))
+
+    assert page.items == []

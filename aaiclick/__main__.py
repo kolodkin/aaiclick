@@ -793,7 +793,7 @@ def build_parser() -> argparse.ArgumentParser:
     job_list_parser.add_argument(
         "--like",
         default=None,
-        help="Filter by name pattern; %% is the only wildcard (e.g. '%%etl%%'). A whole job ID also matches",
+        help="Filter by name pattern; %% is the only wildcard (e.g. '%%etl%%')",
     )
     job_list_parser.add_argument(
         "--limit",
@@ -855,9 +855,7 @@ def build_parser() -> argparse.ArgumentParser:
     # task list
     task_list_parser = task_subparsers.add_parser("list", help="List tasks across jobs, newest first")
     task_list_parser.add_argument(
-        "--like",
-        default=None,
-        help="Filter by name pattern; %% is the only wildcard (e.g. '%%load%%'). A whole task ID also matches",
+        "--like", default=None, help="Filter by name pattern; %% is the only wildcard (e.g. '%%load%%')"
     )
     task_list_parser.add_argument("--job", default=None, help="Only tasks of this job (ID or name)")
     task_list_parser.add_argument("--status", choices=list(get_args(TaskStatus)), default=None, help="Filter by status")

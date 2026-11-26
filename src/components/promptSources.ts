@@ -66,7 +66,7 @@ function tasks(text: string, job?: string): SourceMatch {
   return {
     key: job ? `tasks:${job}` : "tasks",
     text,
-    fetchPage: paged<TaskView>("/tasks", { name: like(text), job }, (t) => ({
+    fetchPage: paged<TaskView>("/tasks", { search: text, job }, (t) => ({
       id: t.id,
       label: `${t.name} (${shortId(t.id)})`,
       detail: `job ${shortId(t.job_id)}`,
@@ -82,7 +82,7 @@ function jobs(cmd: string, text: string): SourceMatch {
   return {
     key: `jobs:${cmd}`,
     text,
-    fetchPage: paged<JobView>("/jobs", { name: like(text) }, (j) => ({
+    fetchPage: paged<JobView>("/jobs", { search: text }, (j) => ({
       id: j.id,
       label: `${j.name} (${shortId(j.id)})`,
       status: j.status,

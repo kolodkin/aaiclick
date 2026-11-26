@@ -65,13 +65,13 @@ describe("fetchPage", () => {
   test("tasks narrow by name and page by offset", async () => {
     fetchMock.mockResolvedValue({ items: [] });
     await matchSource("@task load", { sandbox: false })!.fetchPage(PAGE);
-    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&name=%25load%25`);
+    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&search=load`);
   });
 
   test("tasks of a job narrow to that job and insert the task id", async () => {
     fetchMock.mockResolvedValue({ items: [{ id: "7", name: "load", job_id: "1", status: "PENDING" }] });
     const page = await matchSource("@job etl task lo", { sandbox: false })!.fetchPage(0);
-    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=0&name=%25lo%25&job=etl`);
+    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=0&search=lo&job=etl`);
     expect(page.items[0].insert).toBe("@task 7");
   });
 
