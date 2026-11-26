@@ -38,6 +38,28 @@ Clicks update the prompt, and the prompt drives the view:
 
 Home lists no `@task` command — tasks are reached through a job, or by typing `@task <id>`.
 
+## Ids and Names
+
+**Decision**: a link the UI makes always carries an id; a name is only ever
+typed, and then means "the latest".
+
+| Typed                           | Opens                                   |
+|---------------------------------|-----------------------------------------|
+| `@job <name>`, `cancel <name>`  | the latest run of that name             |
+| `@job <ref> task <name>`        | that run's latest task of that name     |
+| `@job <ref> data <object>`      | that run's object                       |
+
+- **Why ids in links**: a job name is shared by every rerun, so a name link
+  silently moves to a newer run. Table rows, tabs, chips, Cancel and the
+  post-Run redirect therefore use ids, and a page reached by name switches to
+  its id on the first click.
+- **Why names when typed**: nobody types a snowflake. A name is the short
+  way to "what did the last run do".
+- **Dropdown**: job and task rows read `name (short id)` — the id's last 6
+  digits — and insert the full id, so same-named runs can be told apart.
+- **Name-only things**: registered jobs, objects and dashboards have no id;
+  their name is their identity (`run nightly_etl`, `@data orders`).
+
 ## Prompt dropdown
 
 **Implementation**: `src/components/Header.tsx`
@@ -59,8 +81,6 @@ The input edits a draft; the view follows only the committed prompt.
 | `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
-- Job and task rows read `name (short id)` — the id's last 6 digits — and insert the full id.
-- The UI links jobs and tasks by id. A typed name stands for the latest: `@job <name>` is the latest run, `@job <ref> task <name>` its latest task of that name, `@job <name> data <object>` an object of that run.
 - `@job <ref> task ` lists that job's tasks.
 - Tasks and jobs also match a whole id, so a pasted id finds its row.
 - `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
