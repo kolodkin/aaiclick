@@ -163,7 +163,8 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
   const [, cmd, text] = m;
   switch (cmd) {
     case "@task":
-      return tasks(text);
+      // A trailing view (`@task load data`) is not part of the name.
+      return tasks(text.replace(/\s+data$/, ""));
     case "@job":
       // A trailing view (`@job etl graph`) is not part of the name.
       return jobs(cmd, text.replace(JOB_VIEW_SUFFIX, ""));

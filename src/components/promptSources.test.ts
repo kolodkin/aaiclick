@@ -9,6 +9,7 @@ describe("matchSource", () => {
   test.each([
     ["@task ", "tasks", ""],
     ["@task load", "tasks", "load"],
+    ["@task load data", "tasks", "load"],
     ["@job etl", "jobs:@job", "etl"],
     ["cancel ", "jobs:cancel", ""],
     ["run nightly", "registered:run", "nightly"],
