@@ -17,7 +17,7 @@ export function JobsTable({ jobs, onPrompt }: { jobs: JobView[]; onPrompt: (v: s
       </thead>
       <tbody>
         {jobs.map((j) => (
-          <tr key={j.id} className="clickable" onClick={() => onPrompt(`@job ${j.name}`)}>
+          <tr key={j.id} className="clickable" onClick={() => onPrompt(`@job ${j.id}`)}>
             <td>
               <span className="name-link mono">{j.name}</span>
             </td>
