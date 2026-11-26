@@ -62,11 +62,12 @@ function paged<T>(path: string, params: Record<string, string | undefined>, toIt
 
 const like = (text: string) => (text ? `%${text}%` : undefined);
 
-function tasks(text: string): SourceMatch {
+// `job` (an id or a name) narrows to that job's tasks; it is in the key so the two lists never share a cache.
+function tasks(text: string, job?: string): SourceMatch {
   return {
-    key: "tasks",
+    key: job ? `tasks:${job}` : "tasks",
     text,
-    fetchPage: paged<TaskView>("/tasks", { name: like(text) }, (t) => ({
+    fetchPage: paged<TaskView>("/tasks", { name: like(text), job }, (t) => ({
       id: t.id,
       label: `${t.name} (${shortId(t.id)})`,
       detail: `job ${shortId(t.job_id)}`,
@@ -156,6 +157,8 @@ function sandboxFiles(): SourceMatch {
 export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMatch | null {
   let m = /^@job (\S+) data (.*)$/.exec(draft);
   if (m) return objects(`@job ${m[1]} data`, m[1], m[2]);
+  m = /^@job (\S+) task (.*)$/.exec(draft);
+  if (m) return tasks(m[2], m[1]);
   m = /^(@data) persistent (.*)$/.exec(draft);
   if (m) return objects(`${m[1]} persistent`, null, m[2]);
   m = /^(\S+) (.*)$/.exec(draft);

@@ -14,6 +14,7 @@ import {
   Data,
   Home,
   JobDetail,
+  JobTask,
   Jobs,
   Registered,
   RegisterForm,
@@ -56,7 +57,9 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
     case "register":
       return <RegisterForm name={route.name} onPrompt={onPrompt} />;
     case "job":
-      return <JobDetail id={route.id} view={route.view} item={route.item} onPrompt={onPrompt} />;
+      return <JobDetail jobRef={route.ref} view={route.view} item={route.item} onPrompt={onPrompt} />;
+    case "job-task":
+      return <JobTask job={route.job} task={route.task} onPrompt={onPrompt} />;
     case "task":
       return <TaskDetail id={route.id} view={route.view} onPrompt={onPrompt} />;
     case "run-confirm":

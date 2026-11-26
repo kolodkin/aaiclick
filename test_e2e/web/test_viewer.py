@@ -131,6 +131,19 @@ def test_task_data_tab(page, base_url: str, shot) -> None:
 
 @_spa_built
 @_local_only
+def test_typed_names_open_the_latest_job_and_task(page, base_url: str) -> None:
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB} task extract")
+    playwright_api.expect(page.locator("h2").first).to_contain_text("extract")
+    # The task page itself links by id.
+    page.get_by_test_id("task-data-tab").click()
+    page.wait_for_url(lambda url: "@task " in unquote_plus(url))
+    playwright_api.expect(page.get_by_test_id("objects-table").locator("tbody tr")).to_have_count(2)
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB} task no_such_task")
+    playwright_api.expect(page.get_by_text("Task not found")).to_be_visible()
+
+
+@_spa_built
+@_local_only
 def test_task_data_tab_without_values(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@job {_job_id(page, base_url, OBJECTS_JOB)}")
     page.get_by_text("validate", exact=True).click()

@@ -23,6 +23,8 @@ describe("matchSource", () => {
     ["@job etl data", "jobs:@job", "etl"],
     ["@job etl data ", "objects:@job etl data", ""],
     ["@job etl data ord", "objects:@job etl data", "ord"],
+    ["@job etl task ", "tasks:etl", ""],
+    ["@job etl task lo", "tasks:etl", "lo"],
     ["@dashboard sa", "dashboards", ""],
     ["@sandbox ", "sandbox", ""],
     ["@sandbox report", "sandbox", ""],
@@ -63,6 +65,13 @@ describe("fetchPage", () => {
     fetchMock.mockResolvedValue({ items: [] });
     await matchSource("@task load", { sandbox: false })!.fetchPage(PAGE);
     expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&name=%25load%25`);
+  });
+
+  test("tasks of a job narrow to that job and insert the task id", async () => {
+    fetchMock.mockResolvedValue({ items: [{ id: "7", name: "load", job_id: "1", status: "PENDING" }] });
+    const page = await matchSource("@job etl task lo", { sandbox: false })!.fetchPage(0);
+    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=0&name=%25lo%25&job=etl`);
+    expect(page.items[0].insert).toBe("@task 7");
   });
 
   test("a full page has more, a short one does not", async () => {

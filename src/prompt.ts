@@ -7,17 +7,19 @@ export type JobViewMode = "table" | "graph" | "timings" | "duration" | "data";
 export type TaskViewMode = "log" | "data";
 // A trailing view word in a `@job` draft; the prompt dropdown strips it to get the typed name.
 export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration|data)$/;
-// `<id> [graph | timings | duration | data [<item>]]` after `@job`. Ids only:
-// a name is picked from the dropdown, which inserts the id. Words past the
-// item are ignored, as after `@data <object>`.
-const JOB_PROMPT = /^(\d+)(?:\s+(graph|timings|duration|data)(?:\s+(\S+))?)?(?:\s|$)/;
+// `<ref> [graph | timings | duration | data [<item>] | task <name>]` after
+// `@job`. The UI links by id; a typed name stands for the latest run, and
+// `task <name>` for its latest task of that name. Words past the last
+// argument are ignored, as after `@data <object>`.
+const JOB_PROMPT = /^(\S+)(?:\s+(graph|timings|duration|data|task)(?:\s+(\S+))?)?(?:\s|$)/;
 
 export type Route =
   | { kind: "home" }
   | { kind: "jobs" }
   | { kind: "registered" }
   | { kind: "register"; name: string }
-  | { kind: "job"; id: string; view: JobViewMode; item: string | null }
+  | { kind: "job"; ref: string; view: JobViewMode; item: string | null }
+  | { kind: "job-task"; job: string; task: string }
   | { kind: "task"; id: string; view: TaskViewMode }
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
@@ -64,8 +66,9 @@ export function parsePrompt(raw: string): Route {
   if (p.startsWith("@job ")) {
     const m = JOB_PROMPT.exec(p.slice(5).trim());
     if (!m) return { kind: "unknown", raw: p };
-    const view = (m[2] ?? "table") as JobViewMode;
-    return { kind: "job", id: m[1], view, item: view === "data" ? (m[3] ?? null) : null };
+    const [, ref, view = "table", arg] = m;
+    if (view === "task") return arg ? { kind: "job-task", job: ref, task: arg } : { kind: "unknown", raw: p };
+    return { kind: "job", ref, view: view as JobViewMode, item: view === "data" ? (arg ?? null) : null };
   }
   // Ids are 64-bit snowflakes — keep them as opaque strings (parseInt would
   // round past Number.MAX_SAFE_INTEGER and break the lookup).
@@ -78,10 +81,7 @@ export function parsePrompt(raw: string): Route {
     if (rest.endsWith("?")) return { kind: "run-form", name: rest.slice(0, -1).trim() };
     return { kind: "run-confirm", name: rest };
   }
-  if (p.startsWith("cancel ")) {
-    const ref = p.slice(7).trim();
-    return /^\d+$/.test(ref) ? { kind: "cancel-confirm", ref } : { kind: "unknown", raw: p };
-  }
+  if (p.startsWith("cancel ")) return { kind: "cancel-confirm", ref: p.slice(7).trim() };
   if (p.startsWith("enable ")) return { kind: "toggle-confirm", name: p.slice(7).trim(), enabled: true };
   if (p.startsWith("disable ")) return { kind: "toggle-confirm", name: p.slice(8).trim(), enabled: false };
   if (p.startsWith("unregister ")) return { kind: "unregister-confirm", name: p.slice("unregister ".length).trim() };

@@ -60,7 +60,8 @@ The input edits a draft; the view follows only the committed prompt.
 
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
 - Job and task rows read `name (short id)` — the id's last 6 digits — and insert the full id.
-- Jobs and tasks go by id only: `@job` and `cancel` reject a name, so typing one and picking its row is the one way in.
+- The UI links jobs and tasks by id. A typed name stands for the latest: `@job <name>` is the latest run, `@job <ref> task <name>` its latest task of that name, `@job <name> data <object>` an object of that run.
+- `@job <ref> task ` lists that job's tasks.
 - Tasks and jobs also match a whole id, so a pasted id finds its row.
 - `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 

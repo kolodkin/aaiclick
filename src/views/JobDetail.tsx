@@ -16,25 +16,26 @@ import { dataPrompt, scopeKey } from "../lib/viewer";
 import type { JobViewMode } from "../prompt";
 
 export function JobDetail({
-  id,
+  jobRef,
   view,
   item,
   onPrompt,
 }: {
-  id: string;
+  // An id, or a typed name: the latest run of it.
+  jobRef: string;
   view: JobViewMode;
   // One object or task value of the Data tab, instead of its listing.
   item: string | null;
   onPrompt: (v: string) => void;
 }) {
-  const { data: job, isLoading, isError, dataUpdatedAt } = useJob(id);
+  const { data: job, isLoading, isError, dataUpdatedAt } = useJob(jobRef);
 
   if (isLoading) return <p className="sub">loading…</p>;
   if (isError || !job)
     return (
       <>
         <h2>Job not found</h2>
-        <p className="sub mono">#{id}</p>
+        <p className="sub mono">{jobRef}</p>
         <Chips chips={[{ label: "@jobs", cmd: "@jobs" }]} onPrompt={onPrompt} />
       </>
     );
