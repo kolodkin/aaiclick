@@ -115,3 +115,13 @@ async def test_list_tasks_paging(orch_ctx):
 async def test_list_tasks_unknown_job_raises(orch_ctx):
     with pytest.raises(errors.NotFound):
         await tasks.list_tasks(TaskListFilter(job="no_such_job"))
+
+
+async def test_list_tasks_name_also_matches_whole_id(orch_ctx):
+    """A pattern that is one number finds the task with that id: the prompt
+    dropdown narrows by ``name`` whether a name or a pasted id was typed."""
+    _, simple_id = await _two_jobs()
+
+    page = await tasks.list_tasks(TaskListFilter(name=f"%{simple_id}%"))
+
+    assert [t.id for t in page.items] == [simple_id]

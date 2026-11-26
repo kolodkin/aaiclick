@@ -62,6 +62,16 @@ async def test_list_jobs_name_underscore_is_literal(orch_ctx):
     assert [j.name for j in page.items] == ["etl_v2"]
 
 
+async def test_list_jobs_name_also_matches_whole_id(orch_ctx):
+    """A pattern that is one number finds the job with that id."""
+    created = await create_job("by_id_pattern", _SAMPLE_TASK)
+    await create_job("other", _SAMPLE_TASK)
+
+    page = await jobs.list_jobs(JobListFilter(name=f"%{created.id}%"))
+
+    assert [j.id for j in page.items] == [created.id]
+
+
 async def test_get_job_by_int_id(orch_ctx):
     created = await create_job("by_int", _SAMPLE_TASK)
 

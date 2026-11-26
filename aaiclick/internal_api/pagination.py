@@ -12,19 +12,33 @@ from collections.abc import Sequence
 from typing import Generic, NamedTuple, TypeVar
 
 from sqlalchemy.sql.elements import ColumnElement
-from sqlmodel import col, func, select
+from sqlmodel import col, func, or_, select
 
 from aaiclick.orchestration.orch_context import get_sql_session
 
 T = TypeVar("T")
 
 _LIKE_ESCAPE = "\\"
+_MAX_ID = 2**63 - 1
 
 
 def name_like(column: str, pattern: str) -> ColumnElement[bool]:
     """``column LIKE pattern`` where only ``%`` is a wildcard; ``_`` matches itself."""
     escaped = pattern.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("_", _LIKE_ESCAPE + "_")
     return col(column).like(escaped, escape=_LIKE_ESCAPE)
+
+
+def name_or_id_like(name_column: str, id_column: int, pattern: str) -> ColumnElement[bool]:
+    """:func:`name_like`, or the row whose id is ``pattern`` when that is one whole number.
+
+    Lets one search box take a name or a pasted id. The id match is exact, so
+    it stays on the primary key.
+    """
+    by_name = name_like(name_column, pattern)
+    digits = pattern.strip("%")
+    if not digits.isascii() or not digits.isdigit() or int(digits) > _MAX_ID:
+        return by_name
+    return or_(by_name, col(id_column) == int(digits))
 
 
 class PageRows(NamedTuple, Generic[T]):

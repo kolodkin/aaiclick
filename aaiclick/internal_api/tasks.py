@@ -30,7 +30,7 @@ from aaiclick.view_models import Page, TaskListFilter
 
 from .errors import NotFound
 from .jobs import resolve_job
-from .pagination import name_like, paginate
+from .pagination import name_or_id_like, paginate
 
 
 async def _require_visible_task(task_id: int) -> Task:
@@ -44,14 +44,15 @@ async def _require_visible_task(task_id: int) -> Task:
 async def list_tasks(filter: TaskListFilter | None = None) -> Page[TaskView]:
     """Return a page of tasks across all jobs, newest first.
 
-    Ordered by snowflake ``id`` (time-ordered, PK-indexed). ``filter.job``
+    Ordered by snowflake ``id`` (time-ordered, PK-indexed). ``filter.name``
+    is a ``LIKE`` pattern that also matches a whole task id. ``filter.job``
     accepts an id or a name (latest run); raises ``NotFound`` if it matches
     no job.
     """
     filter = filter or TaskListFilter()
     predicates = []
     if filter.name is not None:
-        predicates.append(name_like(Task.name, filter.name))
+        predicates.append(name_or_id_like(Task.name, Task.id, filter.name))
     if filter.job is not None:
         job = await resolve_job(filter.job)
         predicates.append(col(Task.job_id) == job.id)

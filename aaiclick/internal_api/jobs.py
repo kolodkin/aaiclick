@@ -36,7 +36,7 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, Invalid, NotFound
-from .pagination import name_like, paginate
+from .pagination import name_or_id_like, paginate
 
 
 @asynccontextmanager
@@ -79,7 +79,8 @@ async def resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job:
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """Return a page of jobs ordered by ``created_at`` descending.
 
-    ``filter.name`` is a ``LIKE`` pattern where only ``%`` is a wildcard (caller supplies it).
+    ``filter.name`` is a ``LIKE`` pattern where only ``%`` is a wildcard (caller supplies it);
+    a pattern that is one whole number also matches the job with that id.
     ``filter.since`` filters on ``created_at >= since``. Pagination uses
     ``filter.limit`` / ``filter.offset``; ``filter.cursor`` is reserved for a
     future cursor-based REST/MCP surface and is currently ignored.
@@ -90,7 +91,7 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     if filter.status is not None:
         predicates.append(Job.status == filter.status)
     if filter.name is not None:
-        predicates.append(name_like(Job.name, filter.name))
+        predicates.append(name_or_id_like(Job.name, Job.id, filter.name))
     if filter.since is not None:
         predicates.append(Job.created_at >= filter.since)
 

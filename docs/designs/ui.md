@@ -60,6 +60,7 @@ The input edits a draft; the view follows only the committed prompt.
 
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
 - Jobs insert their id: a name opens the latest run.
+- Tasks and jobs also match a whole id, so a pasted id finds its row.
 - `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
 # Modes
