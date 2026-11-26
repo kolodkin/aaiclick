@@ -42,7 +42,7 @@ export function JobDetail({
   // Named once: the badge above and the body below must not drift apart.
   const tableView = view === "table";
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
-  const onCancel = () => onPrompt(`cancel ${job.name}`);
+  const onCancel = () => onPrompt(`cancel ${job.id}`);
   // Every tab links by id, not name: a name resolves to the latest rerun, and
   // switching tabs must stay on this run.
   const scope = scopeKey(job.id);
