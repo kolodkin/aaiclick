@@ -6,7 +6,7 @@ import { PERSISTENT } from "./lib/viewer";
 export type JobViewMode = "table" | "graph" | "timings" | "duration" | "data";
 export type TaskViewMode = "log" | "data";
 // A trailing view word in a `@job` draft; the prompt dropdown strips it to get the typed name.
-export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration|data)$/;
+export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration|data|task)$/;
 // `<ref> [graph | timings | duration | data [<item>] | task <name>]` after
 // `@job`. The UI links by id; a typed name stands for the latest run, and
 // `task <name>` for its latest task of that name. Words past the last

@@ -23,6 +23,7 @@ describe("matchSource", () => {
     ["@job etl data", "jobs:@job", "etl"],
     ["@job etl data ", "objects:@job etl data", ""],
     ["@job etl data ord", "objects:@job etl data", "ord"],
+    ["@job etl task", "jobs:@job", "etl"],
     ["@job etl task ", "tasks:etl", ""],
     ["@job etl task lo", "tasks:etl", "lo"],
     ["@dashboard sa", "dashboards", ""],

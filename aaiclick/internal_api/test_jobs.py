@@ -72,6 +72,15 @@ async def test_list_jobs_name_also_matches_whole_id(orch_ctx):
     assert [j.id for j in page.items] == [created.id]
 
 
+async def test_list_jobs_name_of_too_many_digits_matches_nothing(orch_ctx):
+    """A number no id can hold is only a name pattern, not an id lookup that overflows."""
+    await create_job("digits", _SAMPLE_TASK)
+
+    page = await jobs.list_jobs(JobListFilter(name="9" * 5000))
+
+    assert page.items == []
+
+
 async def test_get_job_by_int_id(orch_ctx):
     created = await create_job("by_int", _SAMPLE_TASK)
 

@@ -36,7 +36,8 @@ def name_or_id_like(name_column: str, id_column: int, pattern: str) -> ColumnEle
     """
     by_name = name_like(name_column, pattern)
     digits = pattern.strip("%")
-    if not digits.isascii() or not digits.isdigit() or int(digits) > _MAX_ID:
+    # The length check comes first: int() refuses a number of thousands of digits.
+    if not digits.isascii() or not digits.isdigit() or len(digits) > len(str(_MAX_ID)) or int(digits) > _MAX_ID:
         return by_name
     return or_(by_name, col(id_column) == int(digits))
 

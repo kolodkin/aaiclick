@@ -50,12 +50,10 @@ function useInvalidating<V, R>(queryKey: QueryKey, run: (value: V) => Promise<R>
   });
 }
 
-// `poll: false` for callers that only need names (the viewer's scope tree).
-export function useJobs({ poll = true }: { poll?: boolean } = {}) {
+export function useJobs() {
   return useQuery({
     queryKey: ["jobs"],
     queryFn: () => fetchJSON<Page<JobView>>("/jobs"),
-    refetchInterval: poll ? undefined : false,
   });
 }
 

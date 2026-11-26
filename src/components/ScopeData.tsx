@@ -55,9 +55,10 @@ function ScopeBody({ scope, object, taskId, refreshKey, onPrompt }: ScopeDataPro
   if (objects.isLoading) return <p className="sub">loading…</p>;
   if (objects.isError || !objects.data) return <p className="err">failed to load objects</p>;
   const { items, total } = objects.data;
+  const cut = total != null && total > items.length;
   return (
     <>
-      {total != null && total > items.length && (
+      {cut && (
         <p className="sub" data-testid="objects-cut">
           Showing {items.length} of {total} rows
         </p>
@@ -69,7 +70,7 @@ function ScopeBody({ scope, object, taskId, refreshKey, onPrompt }: ScopeDataPro
           // shortcut: filters the job's one page; past TASK_VALUES_LIMIT rows the server drops task rows first (the notice above says so), so add a task filter to GET /objects then.
           objects={items.filter((o) => o.task_id === taskId)}
           filters={false}
-          emptyText="No inputs or result"
+          emptyText={cut ? "Not among the rows shown" : "No inputs or result"}
           onPrompt={onPrompt}
         />
       )}
