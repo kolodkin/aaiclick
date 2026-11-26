@@ -3,12 +3,19 @@ import { parsePrompt, suggestCommands } from "./prompt";
 
 describe("viewer routes", () => {
   test.each([
-    ["@data", { kind: "data", scope: "all", object: null }],
-    ["@data persistent", { kind: "data", scope: "persistent", object: null }],
-    ["@data persistent orders", { kind: "data", scope: "persistent", object: "orders" }],
-    ["@data job nightly_etl", { kind: "data", scope: "job:nightly_etl", object: null }],
-    ["@data job 123 orders", { kind: "data", scope: "job:123", object: "orders" }],
-    ["@data orders", { kind: "data", scope: "persistent", object: "orders" }],
+    ["@data", { kind: "data", object: null }],
+    ["@data persistent", { kind: "data", object: null }],
+    ["@data persistent orders", { kind: "data", object: "orders" }],
+    ["@data orders", { kind: "data", object: "orders" }],
+    ["@job etl", { kind: "job", name: "etl", view: "table", item: null }],
+    ["@job etl graph", { kind: "job", name: "etl", view: "graph", item: null }],
+    ["@job etl timings", { kind: "job", name: "etl", view: "timings", item: null }],
+    ["@job etl duration", { kind: "job", name: "etl", view: "duration", item: null }],
+    ["@job etl data", { kind: "job", name: "etl", view: "data", item: null }],
+    ["@job 123 data sales", { kind: "job", name: "123", view: "data", item: "sales" }],
+    ["@job etl data graph", { kind: "job", name: "etl", view: "data", item: "graph" }],
+    ["@task 7", { kind: "task", id: "7", view: "log" }],
+    ["@task 7 data", { kind: "task", id: "7", view: "data" }],
     ["@dashboard", { kind: "dashboard", name: null }],
     ["@dashboard sales", { kind: "dashboard", name: "sales" }],
   ])("%s", (prompt, route) => {
@@ -32,9 +39,6 @@ describe("viewer routes", () => {
 
   test("existing routes still parse", () => {
     expect(parsePrompt("@jobs")).toEqual({ kind: "jobs" });
-    expect(parsePrompt("@job x graph")).toEqual({ kind: "job", name: "x", view: "graph" });
-    expect(parsePrompt("@job x timings")).toEqual({ kind: "job", name: "x", view: "timings" });
-    expect(parsePrompt("@job x duration")).toEqual({ kind: "job", name: "x", view: "duration" });
   });
 });
 

@@ -105,7 +105,7 @@ function registered(cmd: string, text: string): SourceMatch {
   };
 }
 
-// `scope` is the prompt up to the object (`@data`, `@data persistent`, `@data job etl`).
+// `scope` is the prompt up to the object (`@data`, `@data persistent`, `@job etl data`).
 function objects(scope: string, job: string | null, text: string): SourceMatch {
   return {
     key: `objects:${scope}`,
@@ -154,10 +154,8 @@ function sandboxFiles(): SourceMatch {
 // The command's argument source for `draft`, or null when the draft is not yet
 // `<command> ` (the dropdown then lists commands instead).
 export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMatch | null {
-  let m = /^(@data) job (\S+) (.*)$/.exec(draft);
-  if (m) return objects(`${m[1]} job ${m[2]}`, m[2], m[3]);
-  m = /^(@data) job (\S*)$/.exec(draft);
-  if (m) return jobs(`${m[1]} job`, m[2]);
+  let m = /^@job (\S+) data (.*)$/.exec(draft);
+  if (m) return objects(`@job ${m[1]} data`, m[1], m[2]);
   m = /^(@data) persistent (.*)$/.exec(draft);
   if (m) return objects(`${m[1]} persistent`, null, m[2]);
   m = /^(\S+) (.*)$/.exec(draft);

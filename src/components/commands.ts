@@ -22,10 +22,15 @@ const NAVIGATE: Cmd[] = [
     cmd: "@registered",
     complete: "@registered",
   },
-  { code: "@job <name>", desc: "Job detail — header + tasks table.", cmd: "@jobs", complete: "@job " },
   {
-    code: "@data [persistent | job <ref>] [<object>]",
-    desc: "Objects of every scope, persistent, or one job — and their rows.",
+    code: "@job <name> [data]",
+    desc: "Job detail — tasks, or its inputs, results and objects.",
+    cmd: "@jobs",
+    complete: "@job ",
+  },
+  {
+    code: "@data [<object>]",
+    desc: "Persistent objects and their rows. A job's data is on its page.",
     cmd: "@data",
     complete: "@data",
   },
