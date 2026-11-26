@@ -1,4 +1,4 @@
-// See docs/designs/ui.md — "Job Detail (`@job <name>`)", Timings tab.
+// See docs/designs/ui.md — "Job Detail (`@job <id>`)", Timings tab.
 import { useJobTimings } from "../../api/hooks";
 import type { JobStatus } from "../../api/types";
 import { statusClass } from "../../lib/status";

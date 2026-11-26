@@ -27,13 +27,13 @@ Clicks update the prompt, and the prompt drives the view:
 ```
 (empty prompt)  ──────▶  Help / command reference
 @jobs           ──────▶  Jobs list
-@job <name>     ──────▶  Job detail (tasks, graph, timings, data)
+@job <id>       ──────▶  Job detail (tasks, graph, timings, data)
 @data …         ──────▶  Persistent objects and their rows
 @dashboard …    ──────▶  Saved dashboard in a sandbox
 ```
 
 ```
-@jobs  ──click job row──▶  @job <name>  ──click task row──▶  @task <id>
+@jobs  ──click job row──▶  @job <id>  ──click task row──▶  @task <id>
 ```
 
 Home lists no `@task` command — tasks are reached through a job, or by typing `@task <id>`.
@@ -54,13 +54,13 @@ The input edits a draft; the view follows only the committed prompt.
 | `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
 | `@job`, `cancel`                                | jobs, newest first   | name contains | `<cmd> <id>`        |
 | `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
-| `@data` (+ `persistent`), `@job <ref> data`     | objects of the scope | name prefix   | `<cmd> … <name>`    |
+| `@data` (+ `persistent`), `@job <id> data`      | objects of the scope | name prefix   | `<cmd> … <name>`    |
 | `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
 | `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
 - Job and task rows read `name (short id)` — the id's last 6 digits — and insert the full id.
-- Everything the UI links to is by id; a typed job name opens the latest run.
+- Jobs and tasks go by id only: `@job` and `cancel` reject a name, so typing one and picking its row is the one way in.
 - Tasks and jobs also match a whole id, so a pasted id finds its row.
 - `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
@@ -93,7 +93,7 @@ Jobs, newest `created_at` first.
 Status badges, shared by jobs and tasks: `PENDING` gray, `RUNNING` blue,
 `COMPLETED` green, `FAILED` red, `CANCELLED` yellow.
 
-## Job Detail (`@job <name>`)
+## Job Detail (`@job <id>`)
 
 **Implementation**: `src/views/JobDetail.tsx`
 
@@ -111,13 +111,13 @@ Status badges, shared by jobs and tasks: `PENDING` gray, `RUNNING` blue,
 | Duration   | computed     | `started_at` to `completed_at` or now   |
 
 A Table / Graph / Timings / Duration / Data toggle switches the body. The
-prompt carries the mode — `@job <name> graph`, `timings`, `duration`, `data` —
+prompt carries the mode — `@job <id> graph`, `timings`, `duration`, `data` —
 so the view stays shareable as a URL.
 
-**Data** (`@job <ref> data [<item>]`) is the job's task inputs, results and
+**Data** (`@job <id> data [<item>]`) is the job's task inputs, results and
 objects — see "Data" below for the listing. A row opens `@job <id> data
 <item>`: the object view, or a task value by its address, under the same job
-header. The tab links by job id, so a rerun's page keeps its own data.
+header.
 
 **Graph**: one edge per dependency, so a `Group` dependency is a single edge
 on the group's container — every member waits, as the scheduler enforces.
@@ -164,7 +164,7 @@ task's own inputs and result, each row opening in the job's Data tab.
 
 **Prompt**: `@data` (or `@data persistent`) lists the persistent objects —
 name, rows, size, created; `@data <object>` opens one. A job's data is on its
-own page (`@job <ref> data`).
+own page (`@job <id> data`).
 
 `ScopeData` is the body shared with the job and task Data tabs: a scope's
 listing, or one item of it. A job scope lists its tasks' inputs and results

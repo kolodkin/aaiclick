@@ -23,7 +23,7 @@ const NAVIGATE: Cmd[] = [
     complete: "@registered",
   },
   {
-    code: "@job <name> [data]",
+    code: "@job <id> [data]",
     desc: "Job detail — tasks, or its inputs, results and objects.",
     cmd: "@jobs",
     complete: "@job ",
@@ -56,7 +56,7 @@ const ACTIONS: Cmd[] = [
     cmd: "@registered",
     complete: "run ",
   },
-  { code: "cancel <name|id>", desc: "Cancel a pending/running job.", cmd: "@jobs", complete: "cancel " },
+  { code: "cancel <id>", desc: "Cancel a pending/running job.", cmd: "@jobs", complete: "cancel " },
   {
     code: "register",
     desc: "Register a new job (entrypoint, schedule, kwargs).",

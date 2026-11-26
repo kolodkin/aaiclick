@@ -1,4 +1,4 @@
-// See docs/designs/ui.md — "Job Detail (`@job <name>`)", Duration tab.
+// See docs/designs/ui.md — "Job Detail (`@job <id>`)", Duration tab.
 import { useJobTimings } from "../../api/hooks";
 import type { JobStatus } from "../../api/types";
 import { parseUtc } from "../../lib/format";

@@ -1,4 +1,4 @@
-// See docs/designs/ui.md — "Job Detail (`@job <name>`)".
+// See docs/designs/ui.md — "Job Detail (`@job <id>`)".
 import { useJob } from "../api/hooks";
 import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
@@ -16,25 +16,25 @@ import { dataPrompt, scopeKey } from "../lib/viewer";
 import type { JobViewMode } from "../prompt";
 
 export function JobDetail({
-  name,
+  id,
   view,
   item,
   onPrompt,
 }: {
-  name: string;
+  id: string;
   view: JobViewMode;
   // One object or task value of the Data tab, instead of its listing.
   item: string | null;
   onPrompt: (v: string) => void;
 }) {
-  const { data: job, isLoading, isError, dataUpdatedAt } = useJob(name);
+  const { data: job, isLoading, isError, dataUpdatedAt } = useJob(id);
 
   if (isLoading) return <p className="sub">loading…</p>;
   if (isError || !job)
     return (
       <>
         <h2>Job not found</h2>
-        <p className="sub mono">{name}</p>
+        <p className="sub mono">#{id}</p>
         <Chips chips={[{ label: "@jobs", cmd: "@jobs" }]} onPrompt={onPrompt} />
       </>
     );
@@ -43,8 +43,6 @@ export function JobDetail({
   const tableView = view === "table";
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
   const onCancel = () => onPrompt(`cancel ${job.id}`);
-  // Every tab links by id, not name: a name resolves to the latest rerun, and
-  // switching tabs must stay on this run.
   const scope = scopeKey(job.id);
 
   return (

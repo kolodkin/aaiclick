@@ -5,19 +5,19 @@ import { PERSISTENT } from "./lib/viewer";
 // as the server model.
 export type JobViewMode = "table" | "graph" | "timings" | "duration" | "data";
 export type TaskViewMode = "log" | "data";
-// A trailing view word after `@job <name>`; shared with the prompt dropdown.
+// A trailing view word in a `@job` draft; the prompt dropdown strips it to get the typed name.
 export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration|data)$/;
-// `@job <ref> data <item>`: one of the job's objects or task values. Tried
-// first, so an item named like a view (`data graph`) stays an item; words
-// after the item are ignored, as after `@data <object>`.
-const JOB_DATA_ITEM = /^(\S+)\s+data\s+(\S+)/;
+// `<id> [graph | timings | duration | data [<item>]]` after `@job`. Ids only:
+// a name is picked from the dropdown, which inserts the id. Words past the
+// item are ignored, as after `@data <object>`.
+const JOB_PROMPT = /^(\d+)(?:\s+(graph|timings|duration|data)(?:\s+(\S+))?)?(?:\s|$)/;
 
 export type Route =
   | { kind: "home" }
   | { kind: "jobs" }
   | { kind: "registered" }
   | { kind: "register"; name: string }
-  | { kind: "job"; name: string; view: JobViewMode; item: string | null }
+  | { kind: "job"; id: string; view: JobViewMode; item: string | null }
   | { kind: "task"; id: string; view: TaskViewMode }
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
@@ -62,12 +62,10 @@ export function parsePrompt(raw: string): Route {
   if (p === "@dashboard") return { kind: "dashboard", name: null };
   if (p.startsWith("@dashboard ")) return { kind: "dashboard", name: p.slice(11).trim() || null };
   if (p.startsWith("@job ")) {
-    const rest = p.slice(5).trim();
-    const d = JOB_DATA_ITEM.exec(rest);
-    if (d) return { kind: "job", name: d[1], view: "data", item: d[2] };
-    const m = JOB_VIEW_SUFFIX.exec(rest);
-    if (m && m.index > 0) return { kind: "job", name: rest.slice(0, m.index), view: m[1] as JobViewMode, item: null };
-    return { kind: "job", name: rest, view: "table", item: null };
+    const m = JOB_PROMPT.exec(p.slice(5).trim());
+    if (!m) return { kind: "unknown", raw: p };
+    const view = (m[2] ?? "table") as JobViewMode;
+    return { kind: "job", id: m[1], view, item: view === "data" ? (m[3] ?? null) : null };
   }
   // Ids are 64-bit snowflakes — keep them as opaque strings (parseInt would
   // round past Number.MAX_SAFE_INTEGER and break the lookup).
@@ -80,7 +78,10 @@ export function parsePrompt(raw: string): Route {
     if (rest.endsWith("?")) return { kind: "run-form", name: rest.slice(0, -1).trim() };
     return { kind: "run-confirm", name: rest };
   }
-  if (p.startsWith("cancel ")) return { kind: "cancel-confirm", ref: p.slice(7).trim() };
+  if (p.startsWith("cancel ")) {
+    const ref = p.slice(7).trim();
+    return /^\d+$/.test(ref) ? { kind: "cancel-confirm", ref } : { kind: "unknown", raw: p };
+  }
   if (p.startsWith("enable ")) return { kind: "toggle-confirm", name: p.slice(7).trim(), enabled: true };
   if (p.startsWith("disable ")) return { kind: "toggle-confirm", name: p.slice(8).trim(), enabled: false };
   if (p.startsWith("unregister ")) return { kind: "unregister-confirm", name: p.slice("unregister ".length).trim() };
