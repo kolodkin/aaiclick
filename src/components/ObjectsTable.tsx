@@ -39,22 +39,33 @@ export function TargetCell({ o, onPrompt }: { o: ObjectView; onPrompt: (v: strin
   );
 }
 
-export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onPrompt: (v: string) => void }) {
+export function ObjectsTable({
+  objects,
+  filters = true,
+  emptyText = "No objects in this scope",
+  onPrompt,
+}: {
+  objects: ObjectView[];
+  // The job / tasks / objects / all chips; off when the rows are one task's.
+  filters?: boolean;
+  emptyText?: string;
+  onPrompt: (v: string) => void;
+}) {
   const [filter, setFilter] = useState<Filter>("all");
   const counts = useMemo(() => {
     const n: Record<Filter, number> = { job: 0, tasks: 0, objects: 0, all: objects.length };
     for (const o of objects) n[o.kind === "object" ? "objects" : o.owner === "job" ? "job" : "tasks"] += 1;
     return n;
   }, [objects]);
-  if (objects.length === 0) return <p className="sub">No objects in this scope</p>;
-  // Task rows only come with a job scope, where Scope and Job would repeat one
-  // value on every row; they give way to Kind and Value / Target.
+  if (objects.length === 0) return <p className="sub">{emptyText}</p>;
+  // Task rows only come with a job scope; they bring the Kind and Value / Target columns.
   const hasTaskRows = counts.objects < objects.length;
-  // The chips are hidden without task rows, so a filter left from a job scope must not apply.
-  const shown = hasTaskRows ? objects.filter((o) => matches(o, filter)) : objects;
+  const chips = filters && hasTaskRows;
+  // Without the chips a filter left from another listing must not apply.
+  const shown = chips ? objects.filter((o) => matches(o, filter)) : objects;
   return (
     <>
-      {hasTaskRows && (
+      {chips && (
         <Chips
           chips={FILTERS.map((f) => ({
             label: `${f} ${counts[f]}`,
@@ -68,15 +79,10 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
         <thead>
           <tr>
             <th>Name</th>
-            {hasTaskRows ? (
+            {hasTaskRows && (
               <>
                 <th>Kind</th>
                 <th className="col-value">Value / Target</th>
-              </>
-            ) : (
-              <>
-                <th>Scope</th>
-                <th>Job</th>
               </>
             )}
             <th>Rows</th>
@@ -101,20 +107,13 @@ export function ObjectsTable({ objects, onPrompt }: { objects: ObjectView[]; onP
                   </div>
                 )}
               </td>
-              {hasTaskRows ? (
+              {hasTaskRows && (
                 <>
                   <td>
                     <span className={`badge kind-${o.kind}`}>{o.kind}</span>
                   </td>
                   <td className="mono col-value">
                     <TargetCell o={o} onPrompt={onPrompt} />
-                  </td>
-                </>
-              ) : (
-                <>
-                  <td>{o.job_id != null ? "job" : "persistent"}</td>
-                  <td className="mono" title={o.job_id != null ? `#${o.job_id}` : undefined}>
-                    {o.job_id != null ? (o.job_name ?? `#${o.job_id}`) : "—"}
                   </td>
                 </>
               )}

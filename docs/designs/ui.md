@@ -27,16 +27,38 @@ Clicks update the prompt, and the prompt drives the view:
 ```
 (empty prompt)  ──────▶  Help / command reference
 @jobs           ──────▶  Jobs list
-@job <name>     ──────▶  Job detail (tasks table)
-@data …         ──────▶  Objects of a scope and their rows
+@job <id>       ──────▶  Job detail (tasks, graph, timings, data)
+@data …         ──────▶  Persistent objects and their rows
 @dashboard …    ──────▶  Saved dashboard in a sandbox
 ```
 
 ```
-@jobs  ──click job row──▶  @job <name>  ──click task row──▶  @task <id>
+@jobs  ──click job row──▶  @job <id>  ──click task row──▶  @task <id>
 ```
 
 Home lists no `@task` command — tasks are reached through a job, or by typing `@task <id>`.
+
+## Ids and Names
+
+**Decision**: a link the UI makes always carries an id; a name is only ever
+typed, and then means "the latest".
+
+| Typed                           | Opens                                   |
+|---------------------------------|-----------------------------------------|
+| `@job <name>`, `cancel <name>`  | the latest run of that name             |
+| `@job <ref> task <name>`        | that run's latest task of that name     |
+| `@job <ref> data <object>`      | that run's object                       |
+
+- **Why ids in links**: a job name is shared by every rerun, so a name link
+  silently moves to a newer run. Table rows, tabs, chips, Cancel and the
+  post-Run redirect therefore use ids, and a page reached by name switches to
+  its id on the first click.
+- **Why names when typed**: nobody types a snowflake. A name is the short
+  way to "what did the last run do".
+- **Dropdown**: job and task rows read `name (short id)` — the id's last 6
+  digits — and insert the full id, so same-named runs can be told apart.
+- **Name-only things**: registered jobs, objects and dashboards have no id;
+  their name is their identity (`run nightly_etl`, `@data orders`).
 
 ## Prompt dropdown
 
@@ -52,14 +74,15 @@ The input edits a draft; the view follows only the committed prompt.
 | Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
 |-------------------------------------------------|----------------------|---------------|---------------------|
 | `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
-| `@job`, `cancel`, `@data job`                   | jobs, newest first   | name contains | `<cmd> <id>`        |
+| `@job`, `cancel`                                | jobs, newest first   | name contains | `<cmd> <id>`        |
 | `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
-| `@data` (+ `persistent`, `job <ref>`)           | objects of the scope | name prefix   | `<cmd> … <name>`    |
+| `@data` (+ `persistent`), `@job <id> data`      | objects of the scope | name prefix   | `<cmd> … <name>`    |
 | `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
 | `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
-- Jobs insert their id: a name opens the latest run.
+- `@job <ref> task ` lists that job's tasks.
+- Jobs and tasks narrow through the lists' `search` filter, which also matches a whole id, so a pasted id finds its row.
 - `enable` / `disable` open a confirm view, like `cancel`, then return to `@registered`.
 
 # Modes
@@ -91,18 +114,11 @@ Jobs, newest `created_at` first.
 Status badges, shared by jobs and tasks: `PENDING` gray, `RUNNING` blue,
 `COMPLETED` green, `FAILED` red, `CANCELLED` yellow.
 
-## Job Detail (`@job <name>`)
+## Job Detail (`@job <id>`)
 
 **Implementation**: `src/views/JobDetail.tsx`
 
 **Job header**: name, status badge, created/started/completed times, error (if any).
-
-**Objects menu** (job and task pages; hidden when the job has none): a popup of
-links to `@data job <id> <object>`.
-
-- A name filter appears above 5 objects.
-- A "new tab" toggle, remembered per browser, picks where a click opens.
-- Ctrl/middle-click and long-press always offer a new tab.
 
 **Tasks table**:
 
@@ -115,9 +131,14 @@ links to `@data job <id> <object>`.
 | Started    | `started_at` | Relative time                           |
 | Duration   | computed     | `started_at` to `completed_at` or now   |
 
-A Table / Graph / Timings / Duration toggle switches the body. The prompt
-carries the mode — `@job <name> graph`, `timings`, `duration` — so the view
-stays shareable as a URL.
+A Table / Graph / Timings / Duration / Data toggle switches the body. The
+prompt carries the mode — `@job <id> graph`, `timings`, `duration`, `data` —
+so the view stays shareable as a URL.
+
+**Data** (`@job <id> data [<item>]`) is the job's task inputs, results and
+objects — see "Data" below for the listing. A row opens `@job <id> data
+<item>`: the object view, or a task value by its address, under the same job
+header.
 
 **Graph**: one edge per dependency, so a `Group` dependency is a single edge
 on the group's container — every member waits, as the scheduler enforces.
@@ -153,27 +174,26 @@ tick every second while the job is active, so running bars grow.
 
 **Top section**: status bar with task metadata — name, status badge, entrypoint, job name, worker ID, attempt info, timestamps, error (if any).
 
+A Log / Data toggle switches the main section; `@task <id> data` lists the
+task's own inputs and result, each row opening in the job's Data tab.
+
 **Main section**: scrolling log viewer filling the rest of the screen. Lines come from ClickHouse `task_logs` for one run of the task, so they resolve whichever host ran it. A retried task gets an Airflow-style "Task tries" row: one button per run, colored by how it ended; the latest is selected and polled. A failed run's log ends with its traceback on stderr (shell: `error: exit N`); the header shows only the latest error and clears on success. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by keyword (`src/lib/logTone.ts`), stderr lines carry a marker bar, and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
-## Data (`@data [persistent | job <ref>] [<object>]`)
+## Data (`@data [<object>]`)
 
-**Implementation**: `src/views/Data.tsx`
+**Implementation**: `src/components/ScopeData.tsx`
 
-**Prompt**: `@data` (all scopes), `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>` (no `job`: persistent), `@data job <ref> <address>` (a task value)
+**Prompt**: `@data` (or `@data persistent`) lists the persistent objects —
+name, rows, size, created; `@data <object>` opens one.
 
-Left: a scope tree — All, Persistent, then the jobs (newest first, name
-filter). Right: the objects of the selected scope (name, scope —
-`persistent` or `job`, job name, rows, size, created), or, with an object
-named, the object view. A job object's back chip returns to `@job <id>`; an
-`@data` chip lists the scope.
-
-A job scope also lists its tasks' inputs and results, before its objects
+The job and task Data tabs share this body: a scope's listing, or one item
+of it. A job scope lists its tasks' inputs and results before its objects
 (`viewer.md` — "Task Values"):
 
-- **Columns**: Kind (`object` / `value` / `ref`) and Value / Target replace
-  Scope and Job. Value / Target is a value's JSON preview, or a ref's type
-  tag and what it points at — a link when it can be opened. On a phone the
-  column is hidden and the value sits under the name.
+- **Columns**: Kind (`object` / `value` / `ref`) and Value / Target. Value /
+  Target is a value's JSON preview, or a ref's type tag and what it points
+  at — a link when it can be opened. On a phone the column is hidden and the
+  value sits under the name.
 - **Chips** filter the rows: job (its own kwargs and result), tasks,
   objects, all.
 - **A cut page** says "Showing N of M rows".

@@ -1,6 +1,7 @@
 export { Home } from "./Home";
 export { Jobs } from "./Jobs";
 export { JobDetail } from "./JobDetail";
+export { JobTask } from "./JobTask";
 export { TaskDetail } from "./TaskDetail";
 export { Registered } from "./Registered";
 export { RunConfirm } from "./RunConfirm";

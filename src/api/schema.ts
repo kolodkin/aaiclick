@@ -3114,6 +3114,7 @@ export interface operations {
             query?: {
                 status?: ("PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED") | null;
                 name?: string | null;
+                search?: string | null;
                 since?: string | null;
                 limit?: number;
                 offset?: number;
@@ -3972,6 +3973,7 @@ export interface operations {
         parameters: {
             query?: {
                 name?: string | null;
+                search?: string | null;
                 job?: number | string | null;
                 status?: ("PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED") | null;
                 limit?: number;

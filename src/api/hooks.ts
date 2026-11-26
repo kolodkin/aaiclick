@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryKey 
 import type { QueryRows } from "@qv/core";
 import { deleteJSON, fetchJSON, postJSON, putJSON } from "./client";
 import { isTaskStarted, isTerminalTask } from "../lib/status";
-import { ALL, jobOfScope } from "../lib/viewer";
+import { jobOfScope } from "../lib/viewer";
 import type {
   ApiTokenCreated,
   ApiTokenView,
@@ -50,19 +50,24 @@ function useInvalidating<V, R>(queryKey: QueryKey, run: (value: V) => Promise<R>
   });
 }
 
-// `poll: false` for callers that only need names (the viewer's scope tree).
-export function useJobs({ poll = true }: { poll?: boolean } = {}) {
+export function useJobs() {
   return useQuery({
     queryKey: ["jobs"],
     queryFn: () => fetchJSON<Page<JobView>>("/jobs"),
-    refetchInterval: poll ? undefined : false,
   });
 }
 
 export function useJob(ref: string) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ["job", ref],
-    queryFn: () => fetchJSON<JobDetail>(`/jobs/${encodeURIComponent(ref)}`),
+    queryFn: async () => {
+      const job = await fetchJSON<JobDetail>(`/jobs/${encodeURIComponent(ref)}`);
+      // A name resolves to the latest run, and its page links by id: seed the id's entry so those links show
+      // the page at once. Only when empty, so a slow by-name answer never replaces newer by-id data.
+      if (job.id !== ref && !qc.getQueryData(["job", job.id])) qc.setQueryData(["job", job.id], job);
+      return job;
+    },
     enabled: ref.length > 0,
   });
 }
@@ -221,17 +226,16 @@ export function useUnregisterJob() {
 const TASK_VALUES_LIMIT = 1000;
 
 function jobParam(scope: string): string {
-  if (scope === ALL) return "?scope=all";
   const job = jobOfScope(scope);
   return job ? `?job=${encodeURIComponent(job)}` : "";
 }
 
-// `taskValues` adds a job's task inputs and results before its objects (job scopes only).
+// A job scope lists its task inputs and results before its objects.
 // shortcut: one page of TASK_VALUES_LIMIT rows, no paging; add a cursor when jobs outgrow it.
-export function useObjects(scope: string, taskValues = false) {
-  const withValues = taskValues && jobOfScope(scope) !== null;
+export function useObjects(scope: string) {
+  const withValues = jobOfScope(scope) !== null;
   return useQuery({
-    queryKey: ["objects", scope, withValues],
+    queryKey: ["objects", scope],
     queryFn: () =>
       fetchJSON<Page<ObjectView>>(
         `/objects${jobParam(scope)}${withValues ? `&kind=all&limit=${TASK_VALUES_LIMIT}` : ""}`,

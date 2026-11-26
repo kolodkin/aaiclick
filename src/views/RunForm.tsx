@@ -24,7 +24,7 @@ export function RunForm({ name, onPrompt }: { name: string; onPrompt: (v: string
       {
         onSuccess: (job) => {
           toast(`Started ${name} — job #${job.id}`);
-          onPrompt(`@job ${name}`);
+          onPrompt(`@job ${job.id}`);
         },
         onError: (e) => toast(`Run failed: ${e.message}`),
       },

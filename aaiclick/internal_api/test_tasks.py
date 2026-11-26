@@ -115,3 +115,35 @@ async def test_list_tasks_paging(orch_ctx):
 async def test_list_tasks_unknown_job_raises(orch_ctx):
     with pytest.raises(errors.NotFound):
         await tasks.list_tasks(TaskListFilter(job="no_such_job"))
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        pytest.param("imple_ta", id="name-contains"),
+        pytest.param("{id}", id="whole-id"),
+    ],
+)
+async def test_list_tasks_search_finds_by_name_or_id(orch_ctx, search):
+    _, simple_id = await _two_jobs()
+
+    page = await tasks.list_tasks(TaskListFilter(search=search.format(id=simple_id)))
+
+    assert [t.id for t in page.items] == [simple_id]
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        pytest.param("simple%task", id="percent-is-literal"),
+        # As a wildcard each `_` would match one character of "simple_task".
+        pytest.param("simpl__task", id="underscore-is-literal"),
+        pytest.param("9" * 5000, id="number-no-id-can-hold"),
+    ],
+)
+async def test_list_tasks_search_is_plain_text(orch_ctx, search):
+    await _two_jobs()
+
+    page = await tasks.list_tasks(TaskListFilter(search=search))
+
+    assert page.items == []

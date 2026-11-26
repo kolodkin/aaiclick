@@ -2,11 +2,10 @@
 import type { Field, OrderCol } from "@qv/core";
 import type { ColumnInfo, ObjectView, OrderByPair } from "../api/types";
 
-export const ALL = "all";
 export const PERSISTENT = "persistent";
 export const AAI_ID = "aai_id";
 
-// A scope key: "all", "persistent" or "job:<id|name>".
+// A scope key: "persistent" or "job:<id|name>".
 export function scopeKey(job: string | null): string {
   return job ? `job:${job}` : PERSISTENT;
 }
@@ -16,21 +15,16 @@ export function jobOfScope(scope: string): string | null {
   return scope.startsWith("job:") ? scope.slice(4) : null;
 }
 
-export function scopeLabel(scope: string): string {
-  if (scope === ALL) return "All scopes";
-  const job = jobOfScope(scope);
-  return job ? `Job ${job}` : "Persistent";
-}
-
-// Last 6 digits of a job snowflake — enough to tell reruns apart.
-export function shortJobId(id: string): string {
+// Last 6 digits of a job or task snowflake — enough to tell reruns apart.
+export function shortId(id: string): string {
   return id.slice(-6);
 }
 
-// "<job name> #<short id>" when the scope is a job and its name is known, else `scopeLabel`.
+// "<job name> #<short id>" for a job scope whose name is known, else "Job <ref>" or "Persistent".
 export function jobScopeLabel(scope: string, jobName: string | null | undefined): string {
   const id = jobOfScope(scope);
-  return id && jobName ? `${jobName} #${shortJobId(id)}` : scopeLabel(scope);
+  if (!id) return "Persistent";
+  return jobName ? `${jobName} #${shortId(id)}` : `Job ${id}`;
 }
 
 // The scope an object lives in, keyed by job id so reruns stay distinct.
@@ -38,12 +32,11 @@ export function objectScope(o: ObjectView): string {
   return o.job_id != null ? scopeKey(String(o.job_id)) : PERSISTENT;
 }
 
-// `@data [persistent | job <ref>] [<object>]` — the prompt for a scope; bare
-// `@data` is all scopes.
+// The prompt for a scope's data, or one item of it: `@job <ref> data [<item>]`
+// for a job, `@data [<object>]` for the persistent scope.
 export function dataPrompt(scope: string, object?: string): string {
   const job = jobOfScope(scope);
-  const prefix = job ? `job ${job}` : scope === PERSISTENT ? PERSISTENT : "";
-  return ["@data", prefix, object ?? ""].filter(Boolean).join(" ");
+  return [job ? `@job ${job} data` : "@data", object ?? ""].filter(Boolean).join(" ");
 }
 
 // The backend serialises OrderBy as a [name, dir] pair; the kernel wants objects.

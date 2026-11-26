@@ -245,9 +245,8 @@ Shipped design: `viewer.md`.
   widget's page and order-by. Until then a tag stays unrendered.
 - **Dashboard params outside the browser**: `run_dashboard` (MCP, CLI) runs
   panels as stored, so a `where` holding a `{param}` placeholder fails there.
-- **Task values beyond `@data`**: `@task <id>` shows no Inputs / Result
-  panels linking to the task's value rows, and `data list` has no `--kind`
-  flag or columns for them.
+- **Task values in the CLI**: `data list` has no `--kind` flag or columns
+  for them.
 - **Task values as their own resource**: task rows ride in `ObjectView` and
   `list_objects`, and `query_object` short-circuits for an address. A
   `TaskValueView` model with its own listing and value routes would give

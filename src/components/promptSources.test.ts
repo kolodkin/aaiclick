@@ -9,6 +9,7 @@ describe("matchSource", () => {
   test.each([
     ["@task ", "tasks", ""],
     ["@task load", "tasks", "load"],
+    ["@task load data", "tasks", "load"],
     ["@job etl", "jobs:@job", "etl"],
     ["cancel ", "jobs:cancel", ""],
     ["run nightly", "registered:run", "nightly"],
@@ -19,9 +20,12 @@ describe("matchSource", () => {
     ["@data persistent fo", "objects:@data persistent", "fo"],
     ["@job etl graph", "jobs:@job", "etl"],
     ["@job etl timings", "jobs:@job", "etl"],
-    ["@data job ", "jobs:@data job", ""],
-    ["@data job etl ", "objects:@data job etl", ""],
-    ["@data job etl ord", "objects:@data job etl", "ord"],
+    ["@job etl data", "jobs:@job", "etl"],
+    ["@job etl data ", "objects:@job etl data", ""],
+    ["@job etl data ord", "objects:@job etl data", "ord"],
+    ["@job etl task", "jobs:@job", "etl"],
+    ["@job etl task ", "tasks:etl", ""],
+    ["@job etl task lo", "tasks:etl", "lo"],
     ["@dashboard sa", "dashboards", ""],
     ["@sandbox ", "sandbox", ""],
     ["@sandbox report", "sandbox", ""],
@@ -48,10 +52,9 @@ test("commands sharing an endpoint never share cached rows", () => {
     "unregister ",
     "@job ",
     "cancel ",
-    "@data job ",
     "@data ",
     "@data persistent ",
-    "@data job etl ",
+    "@job etl data ",
   ].map((d) => matchSource(d, { sandbox: false })!.key);
   expect(new Set(keys).size).toBe(keys.length);
 });
@@ -62,7 +65,14 @@ describe("fetchPage", () => {
   test("tasks narrow by name and page by offset", async () => {
     fetchMock.mockResolvedValue({ items: [] });
     await matchSource("@task load", { sandbox: false })!.fetchPage(PAGE);
-    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&name=%25load%25`);
+    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&search=load`);
+  });
+
+  test("tasks of a job narrow to that job and insert the task id", async () => {
+    fetchMock.mockResolvedValue({ items: [{ id: "7", name: "load", job_id: "1", status: "PENDING" }] });
+    const page = await matchSource("@job etl task lo", { sandbox: false })!.fetchPage(0);
+    expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=0&search=lo&job=etl`);
+    expect(page.items[0].insert).toBe("@task 7");
   });
 
   test("a full page has more, a short one does not", async () => {
@@ -87,11 +97,19 @@ describe("fetchPage", () => {
   test.each([
     ["cancel ", "cancel 9"],
     ["@job ", "@job 9"],
-    ["@data job ", "@data job 9"],
   ])("%s inserts the picked run's id", async (draft, insert) => {
     const job = { id: "9", name: "etl", status: "RUNNING", created_at: "2026-01-01T00:00:00Z" };
     fetchMock.mockResolvedValue({ items: [job] });
     expect((await matchSource(draft, { sandbox: false })!.fetchPage(0)).items[0].insert).toBe(insert);
+  });
+
+  // A row always names its id, so same-named runs and tasks can be told apart.
+  test.each([
+    ["@job ", { id: "7523769567175368706", name: "etl" }, "etl (368706)"],
+    ["@task ", { id: "7523769567175368707", name: "load", job_id: "1" }, "load (368707)"],
+  ])("%s rows read name (short id)", async (draft, row, label) => {
+    fetchMock.mockResolvedValue({ items: [{ status: "RUNNING", created_at: "2026-01-01T00:00:00Z", ...row }] });
+    expect((await matchSource(draft, { sandbox: false })!.fetchPage(0)).items[0].label).toBe(label);
   });
 
   test("@data persistent narrows by the object prefix and keeps the keyword", async () => {
@@ -112,8 +130,8 @@ describe("fetchPage", () => {
 
   test("objects of a job keep the job scope", async () => {
     fetchMock.mockResolvedValue({ items: [{ name: "orders" }] });
-    const page = await matchSource("@data job etl or", { sandbox: false })!.fetchPage(0);
+    const page = await matchSource("@job etl data or", { sandbox: false })!.fetchPage(0);
     expect(fetchMock).toHaveBeenCalledWith("/objects?limit=1000&prefix=or&job=etl");
-    expect(page.items[0].insert).toBe("@data job etl orders");
+    expect(page.items[0].insert).toBe("@job etl data orders");
   });
 });

@@ -67,7 +67,7 @@ from aaiclick.snowflake import get_snowflake_id
 from aaiclick.viewer.view_models import DashboardIn, DashboardParam, ObjectQuery
 
 #: The job ``seed_viewer_objects`` gives job-scoped objects, for the job page's
-#: Objects dropdown.
+#: Data tab.
 OBJECTS_JOB = "viewer_objects_job"
 
 ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
@@ -235,7 +235,7 @@ async def seed_viewer_objects() -> None:
             )
         )
         # A fresh job per run: its name resolves to the latest, so earlier
-        # runs' objects never leak into the dropdown.
+        # runs' objects never leak into its Data tab.
         job_id = await _build(OBJECTS_JOB, DEFAULT_STATES, JOB_COMPLETED)
         # Task inputs and a result, for the Data view's value and ref rows.
         async with get_sql_session() as session:
@@ -252,7 +252,6 @@ async def seed_viewer_objects() -> None:
         entry.result = native_ref({"loaded": 2})
         await commit_tasks([entry], job_id=job_id)
     async with orch_context(), task_scope(task_id=seed_id, job_id=job_id, run_id=seed_id):
-        # Six: enough that the menu shows its filter box.
         for name in ("daily_totals", "raw_sales", "customers", "orders_clean", "returns", "weekly_totals"):
             await create_object_from_value({"id": [1, 2], "amount": [5, 7]}, name=name, scope="job")
 

@@ -159,10 +159,14 @@ class RegisterJobRequest(ApiModel):
 
 
 class JobListFilter(ApiModel):
-    """Filter parameters for ``internal_api.list_jobs``."""
+    """Filter parameters for ``internal_api.list_jobs``.
+
+    ``search`` is plain text: a job matches when its name contains it, or its id equals it.
+    """
 
     status: JobStatus | None = None
     name: str | None = None
+    search: str | None = None
     since: UtcDateTime | None = None
     limit: PageLimit = 50
     offset: PageOffset = 0
@@ -170,9 +174,14 @@ class JobListFilter(ApiModel):
 
 
 class TaskListFilter(ApiModel):
-    """Filter parameters for ``internal_api.list_tasks``; ``name`` is a ``LIKE`` pattern where only ``%`` is a wildcard."""
+    """Filter parameters for ``internal_api.list_tasks``.
+
+    ``name`` is a ``LIKE`` pattern where only ``%`` is a wildcard. ``search`` is plain text:
+    a task matches when its name contains it, or its id equals it.
+    """
 
     name: str | None = None
+    search: str | None = None
     job: RefId | None = None
     status: TaskStatus | None = None
     limit: PageLimit = 50

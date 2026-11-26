@@ -201,3 +201,19 @@ def decode_snowflake_id(id_val: int) -> tuple[int, int, int]:
     machine_id = (id_val >> MACHINE_ID_SHIFT) & ((1 << MACHINE_ID_BITS) - 1)
     sequence = id_val & MAX_SEQUENCE
     return timestamp, machine_id, sequence
+
+
+_MAX_ID = 2**63 - 1
+
+
+def parse_snowflake_id(text: str) -> int | None:
+    """The id ``text`` spells, or None when it is not one — a name, or a number no id can hold.
+
+    Every place that takes "an id or a name" as text decides it here, so they
+    all send the database the same ids.
+    """
+    # The length check comes first: int() refuses a number of thousands of digits.
+    if not text.isascii() or not text.isdigit() or len(text) > len(str(_MAX_ID)):
+        return None
+    value = int(text)
+    return value if value <= _MAX_ID else None

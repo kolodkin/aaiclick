@@ -1,19 +1,24 @@
 // See docs/designs/ui.md.
-import { ALL, PERSISTENT, scopeKey } from "./lib/viewer";
+import { PERSISTENT } from "./lib/viewer";
 
 // Named JobViewMode, not JobView — `src/api/types.ts` already exports JobView
 // as the server model.
-export type JobViewMode = "table" | "graph" | "timings" | "duration";
-// A trailing view word after `@job <name>`; shared with the prompt dropdown.
-export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration)$/;
+export type JobViewMode = "table" | "graph" | "timings" | "duration" | "data";
+export type TaskViewMode = "log" | "data";
+// `<ref> [graph | timings | duration | data [<item>] | task <name>]` after
+// `@job`. The UI links by id; a typed name stands for the latest run, and
+// `task <name>` for its latest task of that name. Words past the last
+// argument are ignored, as after `@data <object>`.
+const JOB_PROMPT = /^(\S+)(?:\s+(graph|timings|duration|data|task)(?:\s+(\S+))?)?(?:\s|$)/;
 
 export type Route =
   | { kind: "home" }
   | { kind: "jobs" }
   | { kind: "registered" }
   | { kind: "register"; name: string }
-  | { kind: "job"; name: string; view: JobViewMode }
-  | { kind: "task"; id: string }
+  | { kind: "job"; ref: string; view: JobViewMode; item: string | null }
+  | { kind: "job-task"; job: string; task: string }
+  | { kind: "task"; id: string; view: TaskViewMode }
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
   | { kind: "cancel-confirm"; ref: string }
@@ -25,20 +30,17 @@ export type Route =
   | { kind: "invite" }
   | { kind: "audit" }
   | { kind: "reset"; token: string }
-  | { kind: "data"; scope: string; object: string | null }
+  | { kind: "data"; object: string | null }
   | { kind: "dashboard"; name: string | null }
   | { kind: "sandbox" }
   | { kind: "sandbox-file"; id: string }
   | { kind: "unknown"; raw: string };
 
-// `[persistent | job <ref>] [<object>]` after `@data`. Nothing
-// means all scopes; a bare object is a persistent one.
-function parseScoped(rest: string): { scope: string; object: string | null } {
+// `[persistent] [<object>]` after `@data`: the object, if one is named.
+function parseObject(rest: string): string | null {
   const words = rest.split(/\s+/).filter(Boolean);
-  if (words[0] === "job" && words[1]) return { scope: scopeKey(words[1]), object: words[2] ?? null };
   if (words[0] === PERSISTENT) words.shift();
-  else if (words.length === 0) return { scope: ALL, object: null };
-  return { scope: PERSISTENT, object: words[0] ?? null };
+  return words[0] ?? null;
 }
 
 export function parsePrompt(raw: string): Route {
@@ -56,18 +58,22 @@ export function parsePrompt(raw: string): Route {
   if (p.startsWith("reset ")) return { kind: "reset", token: p.slice(6).trim() };
   if (p === "register") return { kind: "register", name: "" };
   if (p.startsWith("register ")) return { kind: "register", name: p.slice(9).trim() };
-  if (p === "@data" || p.startsWith("@data ")) return { kind: "data", ...parseScoped(p.slice(5)) };
+  if (p === "@data" || p.startsWith("@data ")) return { kind: "data", object: parseObject(p.slice(5)) };
   if (p === "@dashboard") return { kind: "dashboard", name: null };
   if (p.startsWith("@dashboard ")) return { kind: "dashboard", name: p.slice(11).trim() || null };
   if (p.startsWith("@job ")) {
-    const rest = p.slice(5).trim();
-    const m = JOB_VIEW_SUFFIX.exec(rest);
-    if (m && m.index > 0) return { kind: "job", name: rest.slice(0, m.index), view: m[1] as JobViewMode };
-    return { kind: "job", name: rest, view: "table" };
+    const m = JOB_PROMPT.exec(p.slice(5).trim());
+    if (!m) return { kind: "unknown", raw: p };
+    const [, ref, view = "table", arg] = m;
+    if (view === "task") return arg ? { kind: "job-task", job: ref, task: arg } : { kind: "unknown", raw: p };
+    return { kind: "job", ref, view: view as JobViewMode, item: view === "data" ? (arg ?? null) : null };
   }
   // Ids are 64-bit snowflakes — keep them as opaque strings (parseInt would
   // round past Number.MAX_SAFE_INTEGER and break the lookup).
-  if (p.startsWith("@task ")) return { kind: "task", id: p.slice(6).trim() };
+  if (p.startsWith("@task ")) {
+    const [id, view] = p.slice(6).trim().split(/\s+/);
+    return { kind: "task", id, view: view === "data" ? "data" : "log" };
+  }
   if (p.startsWith("run ")) {
     const rest = p.slice(4).trim();
     if (rest.endsWith("?")) return { kind: "run-form", name: rest.slice(0, -1).trim() };

@@ -57,8 +57,8 @@ A job scope resolves like `get_job`: an id names one run, a name the latest
 run with that name. Dashboards store the key as given, so
 `job:nightly_etl` follows each new run while `job:123` stays pinned. Temp and
 oplog tables never appear. `all` is a listing scope only
-(`GET /objects?scope=all`); each item carries its own `job_id` / `job_name`,
-and opening one switches to that item's scope.
+(`GET /objects?scope=all`); each item carries its own `job_id` / `job_name`.
+The SPA does not use it.
 
 Every surface identifies an object as `(scope, name)`, which maps to
 `p_<name>` or `j_<job_id>_<name>`.
@@ -196,7 +196,7 @@ panel whose selector is unchosen is held back. `save_dashboard` rejects
 
 # Frontend
 
-`@data`'s object view and `@dashboard` are described in `ui.md`.
+The object view (`@data`, a job's Data tab) and `@dashboard` are described in `ui.md`.
 
 Local mode (`python -m aaiclick local start`) runs the API and workers in one
 process, so the viewer's ClickHouse access nests into the runtime context and

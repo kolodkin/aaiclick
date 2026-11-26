@@ -49,6 +49,7 @@ from aaiclick.data.view_models import (
 )
 from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.snowflake import parse_snowflake_id
 
 from .errors import NotFound
 
@@ -64,7 +65,6 @@ REF_TYPE_FUNCTION = "function"
 _RESULT = "result"
 # 19 digits hold any int64; a longer run is not a task id.
 _ADDRESS_RE = re.compile(r"^(\d{1,19})(?:\.([A-Za-z_][A-Za-z0-9_]*))?$")
-_MAX_TASK_ID = 2**63 - 1
 
 
 def is_address(name: str) -> bool:
@@ -202,8 +202,8 @@ async def read_task_value(job_id: int, address: str) -> JsonValue:
     match = _ADDRESS_RE.match(address)
     if match is None:
         raise NotFound(f"Object not found: {address}")
-    task_id, key = int(match.group(1)), match.group(2)
-    if task_id > _MAX_TASK_ID:
+    task_id, key = parse_snowflake_id(match.group(1)), match.group(2)
+    if task_id is None:
         raise NotFound(f"Object not found: {address}")
     # The address says which column holds the value: no kwarg part means the result.
     column = col(Task.result) if key is None else col(Task.kwargs)

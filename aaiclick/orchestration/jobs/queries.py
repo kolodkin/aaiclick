@@ -110,38 +110,6 @@ async def get_tasks_for_job(job_id: int) -> list[Task]:
         return list(result.scalars().all())
 
 
-async def get_latest_job_by_name(name: str) -> Job | None:
-    """Get the most recent job with the given name.
-
-    Args:
-        name: Exact job name
-
-    Returns:
-        Most recent Job with that name, or None
-    """
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Job).where(Job.name == name).order_by(col(Job.created_at).desc()).limit(1)
-        )
-        return result.scalar_one_or_none()
-
-
-async def resolve_job(ref: str) -> Job | None:
-    """Resolve a job reference to a Job instance.
-
-    Tries numeric ID first, then falls back to name lookup (latest).
-
-    Args:
-        ref: Job ID (numeric string) or job name
-
-    Returns:
-        Job if found, None otherwise
-    """
-    if ref.isdigit():
-        return await get_job(int(ref))
-    return await get_latest_job_by_name(ref)
-
-
 async def get_job_result(job: Job) -> Any:
     """Get the result produced by a completed job.
 

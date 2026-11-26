@@ -12,9 +12,10 @@ from collections.abc import Sequence
 from typing import Generic, NamedTuple, TypeVar
 
 from sqlalchemy.sql.elements import ColumnElement
-from sqlmodel import col, func, select
+from sqlmodel import col, func, or_, select
 
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.snowflake import parse_snowflake_id
 
 T = TypeVar("T")
 
@@ -25,6 +26,17 @@ def name_like(column: str, pattern: str) -> ColumnElement[bool]:
     """``column LIKE pattern`` where only ``%`` is a wildcard; ``_`` matches itself."""
     escaped = pattern.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("_", _LIKE_ESCAPE + "_")
     return col(column).like(escaped, escape=_LIKE_ESCAPE)
+
+
+def search_name_or_id(name_column: str, id_column: int, text: str) -> ColumnElement[bool]:
+    """Rows whose name contains ``text``, or whose id is ``text`` when that is one whole number.
+
+    ``text`` is plain: no character in it is a wildcard. The id match is exact,
+    so it stays on the primary key.
+    """
+    by_name = col(name_column).contains(text, autoescape=True)
+    id_ = parse_snowflake_id(text)
+    return by_name if id_ is None else or_(by_name, col(id_column) == id_)
 
 
 class PageRows(NamedTuple, Generic[T]):

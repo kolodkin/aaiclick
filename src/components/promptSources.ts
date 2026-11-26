@@ -2,7 +2,7 @@
 // Maps a prompt draft to the values its command takes: which endpoint lists
 // them, how the typed text narrows them, and what a picked row inserts.
 import { fetchJSON } from "../api/client";
-import { JOB_VIEW_SUFFIX } from "../prompt";
+import { shortId } from "../lib/viewer";
 import type {
   DashboardSummary,
   JobStatus,
@@ -61,14 +61,15 @@ function paged<T>(path: string, params: Record<string, string | undefined>, toIt
 
 const like = (text: string) => (text ? `%${text}%` : undefined);
 
-function tasks(text: string): SourceMatch {
+// `job` (an id or a name) narrows to that job's tasks; it is in the key so the two lists never share a cache.
+function tasks(text: string, job?: string): SourceMatch {
   return {
-    key: "tasks",
+    key: job ? `tasks:${job}` : "tasks",
     text,
-    fetchPage: paged<TaskView>("/tasks", { name: like(text) }, (t) => ({
+    fetchPage: paged<TaskView>("/tasks", { search: text, job }, (t) => ({
       id: t.id,
-      label: t.name,
-      detail: `job ${t.job_id}`,
+      label: `${t.name} (${shortId(t.id)})`,
+      detail: `job ${shortId(t.job_id)}`,
       status: t.status,
       at: t.created_at,
       insert: `@task ${t.id}`,
@@ -81,10 +82,9 @@ function jobs(cmd: string, text: string): SourceMatch {
   return {
     key: `jobs:${cmd}`,
     text,
-    fetchPage: paged<JobView>("/jobs", { name: like(text) }, (j) => ({
+    fetchPage: paged<JobView>("/jobs", { search: text }, (j) => ({
       id: j.id,
-      label: j.name,
-      detail: j.id,
+      label: `${j.name} (${shortId(j.id)})`,
       status: j.status,
       at: j.created_at,
       insert: `${cmd} ${j.id}`,
@@ -105,7 +105,7 @@ function registered(cmd: string, text: string): SourceMatch {
   };
 }
 
-// `scope` is the prompt up to the object (`@data`, `@data persistent`, `@data job etl`).
+// `scope` is the prompt up to the object (`@data`, `@data persistent`, `@job etl data`).
 function objects(scope: string, job: string | null, text: string): SourceMatch {
   return {
     key: `objects:${scope}`,
@@ -154,10 +154,10 @@ function sandboxFiles(): SourceMatch {
 // The command's argument source for `draft`, or null when the draft is not yet
 // `<command> ` (the dropdown then lists commands instead).
 export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMatch | null {
-  let m = /^(@data) job (\S+) (.*)$/.exec(draft);
-  if (m) return objects(`${m[1]} job ${m[2]}`, m[2], m[3]);
-  m = /^(@data) job (\S*)$/.exec(draft);
-  if (m) return jobs(`${m[1]} job`, m[2]);
+  let m = /^@job (\S+) data (.*)$/.exec(draft);
+  if (m) return objects(`@job ${m[1]} data`, m[1], m[2]);
+  m = /^@job (\S+) task (.*)$/.exec(draft);
+  if (m) return tasks(m[2], m[1]);
   m = /^(@data) persistent (.*)$/.exec(draft);
   if (m) return objects(`${m[1]} persistent`, null, m[2]);
   m = /^(\S+) (.*)$/.exec(draft);
@@ -165,10 +165,9 @@ export function matchSource(draft: string, opts: { sandbox: boolean }): SourceMa
   const [, cmd, text] = m;
   switch (cmd) {
     case "@task":
-      return tasks(text);
     case "@job":
-      // A trailing view (`@job etl graph`) is not part of the name.
-      return jobs(cmd, text.replace(JOB_VIEW_SUFFIX, ""));
+      // The ref is the first word: a view after it (`@job etl graph`, `@task load data`) is not part of the name.
+      return cmd === "@task" ? tasks(text.split(/\s+/)[0]) : jobs(cmd, text.split(/\s+/)[0]);
     case "cancel":
       return jobs(cmd, text);
     case "run":

@@ -33,10 +33,11 @@ from aaiclick.orchestration.view_models import (
     job_to_detail,
     job_to_view,
 )
+from aaiclick.snowflake import parse_snowflake_id
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, Invalid, NotFound
-from .pagination import name_like, paginate
+from .pagination import name_like, paginate, search_name_or_id
 
 
 @asynccontextmanager
@@ -52,13 +53,15 @@ async def _sql_session(session: AsyncSession | None) -> AsyncIterator[AsyncSessi
 async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job | None:
     """Look up a job by numeric ID or the most recent job with a matching name."""
     async with _sql_session(session) as s:
-        if isinstance(ref, int):
-            return (await s.execute(select(Job).where(Job.id == ref))).scalar_one_or_none()
-
-        if ref.isdigit():
-            found = (await s.execute(select(Job).where(Job.id == int(ref)))).scalar_one_or_none()
+        # An int goes through the same parser, so a number no id can hold never reaches the database.
+        id_ = parse_snowflake_id(str(ref))
+        if id_ is not None:
+            found = (await s.execute(select(Job).where(Job.id == id_))).scalar_one_or_none()
             if found is not None:
                 return found
+        if isinstance(ref, int):
+            return None
+        # Still tried for an all-digit ref: job names older than the naming rule may be numbers.
 
         return (
             await s.execute(select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1))
@@ -91,6 +94,8 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
         predicates.append(Job.status == filter.status)
     if filter.name is not None:
         predicates.append(name_like(Job.name, filter.name))
+    if filter.search is not None:
+        predicates.append(search_name_or_id(Job.name, Job.id, filter.search))
     if filter.since is not None:
         predicates.append(Job.created_at >= filter.since)
 

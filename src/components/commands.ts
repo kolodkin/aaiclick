@@ -22,10 +22,15 @@ const NAVIGATE: Cmd[] = [
     cmd: "@registered",
     complete: "@registered",
   },
-  { code: "@job <name>", desc: "Job detail — header + tasks table.", cmd: "@jobs", complete: "@job " },
   {
-    code: "@data [persistent | job <ref>] [<object>]",
-    desc: "Objects of every scope, persistent, or one job — and their rows.",
+    code: "@job <id|name> [data | task <name>]",
+    desc: "Job detail — tasks, or its inputs, results and objects.",
+    cmd: "@jobs",
+    complete: "@job ",
+  },
+  {
+    code: "@data [<object>]",
+    desc: "Persistent objects and their rows. A job's data is on its page.",
     cmd: "@data",
     complete: "@data",
   },
@@ -51,7 +56,7 @@ const ACTIONS: Cmd[] = [
     cmd: "@registered",
     complete: "run ",
   },
-  { code: "cancel <name|id>", desc: "Cancel a pending/running job.", cmd: "@jobs", complete: "cancel " },
+  { code: "cancel <id|name>", desc: "Cancel a pending/running job.", cmd: "@jobs", complete: "cancel " },
   {
     code: "register",
     desc: "Register a new job (entrypoint, schedule, kwargs).",

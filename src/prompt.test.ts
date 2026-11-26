@@ -3,12 +3,28 @@ import { parsePrompt, suggestCommands } from "./prompt";
 
 describe("viewer routes", () => {
   test.each([
-    ["@data", { kind: "data", scope: "all", object: null }],
-    ["@data persistent", { kind: "data", scope: "persistent", object: null }],
-    ["@data persistent orders", { kind: "data", scope: "persistent", object: "orders" }],
-    ["@data job nightly_etl", { kind: "data", scope: "job:nightly_etl", object: null }],
-    ["@data job 123 orders", { kind: "data", scope: "job:123", object: "orders" }],
-    ["@data orders", { kind: "data", scope: "persistent", object: "orders" }],
+    ["@data", { kind: "data", object: null }],
+    ["@data persistent", { kind: "data", object: null }],
+    ["@data persistent orders", { kind: "data", object: "orders" }],
+    ["@data orders", { kind: "data", object: "orders" }],
+    ["@job 123", { kind: "job", ref: "123", view: "table", item: null }],
+    ["@job 123 graph", { kind: "job", ref: "123", view: "graph", item: null }],
+    ["@job 123 timings", { kind: "job", ref: "123", view: "timings", item: null }],
+    ["@job 123 duration", { kind: "job", ref: "123", view: "duration", item: null }],
+    ["@job 123 data", { kind: "job", ref: "123", view: "data", item: null }],
+    ["@job 123 data sales", { kind: "job", ref: "123", view: "data", item: "sales" }],
+    ["@job 123 data graph", { kind: "job", ref: "123", view: "data", item: "graph" }],
+    ["@job 123 data sales extra", { kind: "job", ref: "123", view: "data", item: "sales" }],
+    // A typed name stands for the latest: the latest run, and its latest task of that name.
+    ["@job etl", { kind: "job", ref: "etl", view: "table", item: null }],
+    ["@job etl data sales", { kind: "job", ref: "etl", view: "data", item: "sales" }],
+    ["@job etl task load", { kind: "job-task", job: "etl", task: "load" }],
+    ["@job 123 task data", { kind: "job-task", job: "123", task: "data" }],
+    ["@job etl task", { kind: "unknown", raw: "@job etl task" }],
+    ["cancel 123", { kind: "cancel-confirm", ref: "123" }],
+    ["cancel etl", { kind: "cancel-confirm", ref: "etl" }],
+    ["@task 7", { kind: "task", id: "7", view: "log" }],
+    ["@task 7 data", { kind: "task", id: "7", view: "data" }],
     ["@dashboard", { kind: "dashboard", name: null }],
     ["@dashboard sales", { kind: "dashboard", name: "sales" }],
   ])("%s", (prompt, route) => {
@@ -32,9 +48,6 @@ describe("viewer routes", () => {
 
   test("existing routes still parse", () => {
     expect(parsePrompt("@jobs")).toEqual({ kind: "jobs" });
-    expect(parsePrompt("@job x graph")).toEqual({ kind: "job", name: "x", view: "graph" });
-    expect(parsePrompt("@job x timings")).toEqual({ kind: "job", name: "x", view: "timings" });
-    expect(parsePrompt("@job x duration")).toEqual({ kind: "job", name: "x", view: "duration" });
   });
 });
 

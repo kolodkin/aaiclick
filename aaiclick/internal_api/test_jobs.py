@@ -62,6 +62,17 @@ async def test_list_jobs_name_underscore_is_literal(orch_ctx):
     assert [j.name for j in page.items] == ["etl_v2"]
 
 
+async def test_list_jobs_search_finds_by_name_or_id(orch_ctx):
+    created = await create_job("search_target", _SAMPLE_TASK)
+    await create_job("other", _SAMPLE_TASK)
+
+    by_name = await jobs.list_jobs(JobListFilter(search="rch_tar"))
+    by_id = await jobs.list_jobs(JobListFilter(search=str(created.id)))
+
+    assert [j.id for j in by_name.items] == [created.id]
+    assert [j.id for j in by_id.items] == [created.id]
+
+
 async def test_get_job_by_int_id(orch_ctx):
     created = await create_job("by_int", _SAMPLE_TASK)
 
@@ -91,9 +102,18 @@ async def test_get_job_by_name_returns_latest(orch_ctx):
     assert detail.id != older.id
 
 
-async def test_get_job_not_found_raises(orch_ctx):
+@pytest.mark.parametrize(
+    "ref",
+    [
+        pytest.param(999_999_999, id="unknown-id"),
+        pytest.param("²", id="digit-that-is-not-a-number"),
+        pytest.param("9" * 20, id="number-no-id-can-hold"),
+        pytest.param(10**20, id="int-no-id-can-hold"),
+    ],
+)
+async def test_get_job_not_found_raises(orch_ctx, ref):
     with pytest.raises(errors.NotFound):
-        await jobs.get_job(999_999_999)
+        await jobs.get_job(ref)
 
 
 async def test_job_stats_structure(orch_ctx):
