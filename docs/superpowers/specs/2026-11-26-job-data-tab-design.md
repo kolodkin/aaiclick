@@ -13,7 +13,6 @@ data, and leave `@data` for objects that belong to no job.
 - A job's inputs, results and objects are one tap from `@job`.
 - A task's own inputs and result are one tap from `@task`.
 - `@data` lists persistent objects only.
-- Links to `@data job …` keep working.
 
 Non-goals: backend or API changes, paging task values past the current
 1000-row page, input/result columns in the tasks table.
@@ -39,10 +38,9 @@ Picked by the user: the job is the entry point, so the data sits on it.
 | `@task <id> data`              | That task's inputs and result                                |
 | `@data`, `@data persistent`    | Persistent objects                                           |
 | `@data [persistent] <object>`  | One persistent object                                        |
-| `@data job <ref> [<name>]`     | Routed to `@job <ref> data [<name>]`                         |
 
-The parser maps the old form to the job route; the prompt text is left as
-typed.
+`@data job …` is removed with no redirect: the UI was the only thing that
+produced it.
 
 # Job Page
 
@@ -83,7 +81,7 @@ typed.
 
 - Update `prompt.test.ts`, `viewer.test.ts`, `promptSources.test.ts`.
 - `test_e2e/web/test_viewer.py`: job-scope cases open `@job <id> data`; add
-  one case for the task Data tab and one for an old `@data job` link.
+  one case for the task Data tab.
 - `docs/designs/ui.md`: rewrite Job Detail, Task Detail and Data;
   `docs/designs/viewer.md` where it names the `@data job` prompt.
 
