@@ -82,7 +82,7 @@ Jobs, newest `created_at` first.
 
 | Column   | Source field | Notes                                    |
 |----------|--------------|------------------------------------------|
-| Name     | `name`       | Clickable — sets prompt to `@job <name>` |
+| Name     | `name`       | Clickable — sets prompt to `@job <id>`   |
 | Status   | `status`     | Colored badge                            |
 | Progress | computed     | `completed_tasks / total_tasks`          |
 | Created  | `created_at` | Relative time (e.g., "2m ago")           |
