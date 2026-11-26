@@ -14,6 +14,7 @@ describe("viewer routes", () => {
     ["@job etl data", { kind: "job", name: "etl", view: "data", item: null }],
     ["@job 123 data sales", { kind: "job", name: "123", view: "data", item: "sales" }],
     ["@job etl data graph", { kind: "job", name: "etl", view: "data", item: "graph" }],
+    ["@job etl data sales extra", { kind: "job", name: "etl", view: "data", item: "sales" }],
     ["@task 7", { kind: "task", id: "7", view: "log" }],
     ["@task 7 data", { kind: "task", id: "7", view: "data" }],
     ["@dashboard", { kind: "dashboard", name: null }],

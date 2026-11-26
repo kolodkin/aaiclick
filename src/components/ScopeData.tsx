@@ -55,16 +55,6 @@ function ScopeBody({ scope, object, taskId, refreshKey, onPrompt }: ScopeDataPro
   if (objects.isLoading) return <p className="sub">loading…</p>;
   if (objects.isError || !objects.data) return <p className="err">failed to load objects</p>;
   const { items, total } = objects.data;
-  if (taskId !== undefined)
-    return (
-      <ObjectsTable
-        // shortcut: filters the job's one page; past TASK_VALUES_LIMIT rows the server drops task rows first, so add a task filter to GET /objects then.
-        objects={items.filter((o) => o.task_id === taskId)}
-        filters={false}
-        emptyText="No inputs or result"
-        onPrompt={onPrompt}
-      />
-    );
   return (
     <>
       {total != null && total > items.length && (
@@ -72,7 +62,17 @@ function ScopeBody({ scope, object, taskId, refreshKey, onPrompt }: ScopeDataPro
           Showing {items.length} of {total} rows
         </p>
       )}
-      <ObjectsTable objects={items} onPrompt={onPrompt} />
+      {taskId === undefined ? (
+        <ObjectsTable objects={items} onPrompt={onPrompt} />
+      ) : (
+        <ObjectsTable
+          // shortcut: filters the job's one page; past TASK_VALUES_LIMIT rows the server drops task rows first (the notice above says so), so add a task filter to GET /objects then.
+          objects={items.filter((o) => o.task_id === taskId)}
+          filters={false}
+          emptyText="No inputs or result"
+          onPrompt={onPrompt}
+        />
+      )}
     </>
   );
 }

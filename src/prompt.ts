@@ -8,8 +8,9 @@ export type TaskViewMode = "log" | "data";
 // A trailing view word after `@job <name>`; shared with the prompt dropdown.
 export const JOB_VIEW_SUFFIX = /\s+(graph|timings|duration|data)$/;
 // `@job <ref> data <item>`: one of the job's objects or task values. Tried
-// first, so an item named like a view (`data graph`) stays an item.
-const JOB_DATA_ITEM = /^(\S+)\s+data\s+(\S+)$/;
+// first, so an item named like a view (`data graph`) stays an item; words
+// after the item are ignored, as after `@data <object>`.
+const JOB_DATA_ITEM = /^(\S+)\s+data\s+(\S+)/;
 
 export type Route =
   | { kind: "home" }

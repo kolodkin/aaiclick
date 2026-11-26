@@ -98,6 +98,10 @@ def test_job_data_tab_opens_object(page, base_url: str, shot) -> None:
     page.locator(".chip", has_text="←").last.click()
     page.wait_for_url(lambda url: unquote_plus(url).endswith(" data"))
     playwright_api.expect(table.locator("tr", has_text="raw_sales")).to_have_count(1)
+    # Leaving the tab stays on this run: a name would resolve to the latest one.
+    job_id = unquote_plus(page.url).split("@job ")[1].split(" ")[0]
+    page.locator(".chip", has_text="Table").click()
+    page.wait_for_url(lambda url: unquote_plus(url).endswith(f"@job {job_id}"), timeout=5000)
 
 
 @_spa_built

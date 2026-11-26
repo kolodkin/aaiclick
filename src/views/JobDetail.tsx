@@ -43,7 +43,8 @@ export function JobDetail({
   const tableView = view === "table";
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
   const onCancel = () => onPrompt(`cancel ${job.name}`);
-  // By id, not name: a name resolves to the latest rerun, and data must stay this run's.
+  // Every tab links by id, not name: a name resolves to the latest rerun, and
+  // switching tabs must stay on this run.
   const scope = scopeKey(job.id);
 
   return (
@@ -80,17 +81,17 @@ export function JobDetail({
       </div>
       <Chips
         chips={[
-          { label: "Table", cmd: `@job ${job.name}`, active: view === "table" },
-          { label: "Graph", cmd: `@job ${job.name} graph`, active: view === "graph" },
-          { label: "Timings", cmd: `@job ${job.name} timings`, active: view === "timings" },
-          { label: "Duration", cmd: `@job ${job.name} duration`, active: view === "duration" },
+          { label: "Table", cmd: `@job ${job.id}`, active: view === "table" },
+          { label: "Graph", cmd: `@job ${job.id} graph`, active: view === "graph" },
+          { label: "Timings", cmd: `@job ${job.id} timings`, active: view === "timings" },
+          { label: "Duration", cmd: `@job ${job.id} duration`, active: view === "duration" },
           { label: "Data", cmd: dataPrompt(scope), active: view === "data", testId: "job-data-tab" },
         ]}
         onPrompt={onPrompt}
       />
-      {view === "graph" && <JobGraph refId={job.name} onPrompt={onPrompt} />}
-      {view === "timings" && <JobTimings refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
-      {view === "duration" && <JobDuration refId={job.name} jobStatus={job.status} onPrompt={onPrompt} />}
+      {view === "graph" && <JobGraph refId={job.id} onPrompt={onPrompt} />}
+      {view === "timings" && <JobTimings refId={job.id} jobStatus={job.status} onPrompt={onPrompt} />}
+      {view === "duration" && <JobDuration refId={job.id} jobStatus={job.status} onPrompt={onPrompt} />}
       {view === "data" && (
         <ScopeData scope={scope} object={item} refreshKey={job.completed_tasks} onPrompt={onPrompt} />
       )}
