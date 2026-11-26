@@ -7,7 +7,6 @@ from typing import Any
 from sqlmodel import col, func, select
 
 from aaiclick.data.object.refs import JOB_ID, OBJECT, VIEW, ref_kind
-from aaiclick.snowflake import parse_snowflake_id
 
 from ..execution.runner import _deserialize_value
 from ..models import Job, JobStatus, Task
@@ -109,39 +108,6 @@ async def get_tasks_for_job(job_id: int) -> list[Task]:
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job_id).order_by(col(Task.created_at)))
         return list(result.scalars().all())
-
-
-async def get_latest_job_by_name(name: str) -> Job | None:
-    """Get the most recent job with the given name.
-
-    Args:
-        name: Exact job name
-
-    Returns:
-        Most recent Job with that name, or None
-    """
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Job).where(Job.name == name).order_by(col(Job.created_at).desc()).limit(1)
-        )
-        return result.scalar_one_or_none()
-
-
-async def resolve_job(ref: str) -> Job | None:
-    """Resolve a job reference to a Job instance.
-
-    Tries numeric ID first, then falls back to name lookup (latest).
-
-    Args:
-        ref: Job ID (numeric string) or job name
-
-    Returns:
-        Job if found, None otherwise
-    """
-    id_ = parse_snowflake_id(ref)
-    if id_ is not None:
-        return await get_job(id_)
-    return await get_latest_job_by_name(ref)
 
 
 async def get_job_result(job: Job) -> Any:
