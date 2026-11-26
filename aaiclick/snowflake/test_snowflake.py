@@ -13,6 +13,7 @@ from aaiclick.snowflake import (
     decode_snowflake_id,
     get_snowflake_id,
     get_snowflake_ids,
+    parse_snowflake_id,
 )
 
 
@@ -213,3 +214,22 @@ def test_chdb_mode_does_not_touch_shared_session(monkeypatch):
     assert len(set(ids)) == 10
     assert ids == sorted(ids)
     assert "aaiclick.data.object_context.chdb_client" not in sys.modules
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("7528523481552793602", 7528523481552793602, id="snowflake"),
+        pytest.param("0", 0, id="zero"),
+        pytest.param(str(2**63 - 1), 2**63 - 1, id="largest-id"),
+        pytest.param(str(2**63), None, id="past-64-bits"),
+        pytest.param("9" * 5000, None, id="too-long-for-int"),
+        pytest.param("²", None, id="non-ascii-digit"),
+        pytest.param("-5", None, id="signed"),
+        pytest.param("12a", None, id="not-a-number"),
+        pytest.param("", None, id="empty"),
+    ],
+)
+def test_parse_snowflake_id(text, expected):
+    """Pure function: the returned id, or None for a name, is the contract."""
+    assert parse_snowflake_id(text) == expected

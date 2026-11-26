@@ -33,6 +33,7 @@ from aaiclick.orchestration.view_models import (
     job_to_detail,
     job_to_view,
 )
+from aaiclick.snowflake import parse_snowflake_id
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, Invalid, NotFound
@@ -55,8 +56,9 @@ async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job |
         if isinstance(ref, int):
             return (await s.execute(select(Job).where(Job.id == ref))).scalar_one_or_none()
 
-        if ref.isdigit():
-            found = (await s.execute(select(Job).where(Job.id == int(ref)))).scalar_one_or_none()
+        id_ = parse_snowflake_id(ref)
+        if id_ is not None:
+            found = (await s.execute(select(Job).where(Job.id == id_))).scalar_one_or_none()
             if found is not None:
                 return found
 

@@ -7,6 +7,7 @@ from typing import Any
 from sqlmodel import col, func, select
 
 from aaiclick.data.object.refs import JOB_ID, OBJECT, VIEW, ref_kind
+from aaiclick.snowflake import parse_snowflake_id
 
 from ..execution.runner import _deserialize_value
 from ..models import Job, JobStatus, Task
@@ -137,8 +138,9 @@ async def resolve_job(ref: str) -> Job | None:
     Returns:
         Job if found, None otherwise
     """
-    if ref.isdigit():
-        return await get_job(int(ref))
+    id_ = parse_snowflake_id(ref)
+    if id_ is not None:
+        return await get_job(id_)
     return await get_latest_job_by_name(ref)
 
 

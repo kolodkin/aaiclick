@@ -102,9 +102,17 @@ async def test_get_job_by_name_returns_latest(orch_ctx):
     assert detail.id != older.id
 
 
-async def test_get_job_not_found_raises(orch_ctx):
+@pytest.mark.parametrize(
+    "ref",
+    [
+        pytest.param(999_999_999, id="unknown-id"),
+        pytest.param("²", id="digit-that-is-not-a-number"),
+        pytest.param("9" * 20, id="number-no-id-can-hold"),
+    ],
+)
+async def test_get_job_not_found_raises(orch_ctx, ref):
     with pytest.raises(errors.NotFound):
-        await jobs.get_job(999_999_999)
+        await jobs.get_job(ref)
 
 
 async def test_job_stats_structure(orch_ctx):

@@ -6,6 +6,7 @@ run by ``conftest.py`` before the server starts.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from urllib.parse import unquote_plus
 
@@ -102,6 +103,23 @@ def test_job_data_tab_opens_object(page, base_url: str, shot) -> None:
     job_id = unquote_plus(page.url).split("@job ")[1].split(" ")[0]
     page.locator(".chip", has_text="Table").click()
     page.wait_for_url(lambda url: unquote_plus(url).endswith(f"@job {job_id}"), timeout=5000)
+
+
+@_spa_built
+@_local_only
+def test_job_opened_by_name_keeps_its_header_on_a_tab_click(page, base_url: str) -> None:
+    """Tabs link by id; the run a name resolved to is already loaded, so the page must not blank."""
+    open_page(page, f"{base_url}/?p=@job {OBJECTS_JOB}")
+    header = page.locator("h2", has_text=OBJECTS_JOB)
+    header.wait_for(timeout=15000)
+
+    # Hold the by-id job fetch (not the listing behind the Data tab) until the header is checked.
+    held = []
+    page.route(re.compile(r"/api/v0/jobs/\d+$"), lambda route: held.append(route))
+    page.get_by_test_id("job-data-tab").click()
+    page.wait_for_url(lambda url: unquote_plus(url).endswith(" data"))
+    playwright_api.expect(header).to_be_visible(timeout=1500)
+    page.unroute_all(behavior="ignoreErrors")
 
 
 @_spa_built

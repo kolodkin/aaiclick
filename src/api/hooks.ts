@@ -58,9 +58,15 @@ export function useJobs() {
 }
 
 export function useJob(ref: string) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ["job", ref],
-    queryFn: () => fetchJSON<JobDetail>(`/jobs/${encodeURIComponent(ref)}`),
+    queryFn: async () => {
+      const job = await fetchJSON<JobDetail>(`/jobs/${encodeURIComponent(ref)}`);
+      // A name resolves to the latest run, and its page links by id: seed the id's entry so those links don't reload it.
+      if (job.id !== ref) qc.setQueryData(["job", job.id], job);
+      return job;
+    },
     enabled: ref.length > 0,
   });
 }

@@ -15,11 +15,11 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, func, or_, select
 
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.snowflake import parse_snowflake_id
 
 T = TypeVar("T")
 
 _LIKE_ESCAPE = "\\"
-_MAX_ID = 2**63 - 1
 
 
 def name_like(column: str, pattern: str) -> ColumnElement[bool]:
@@ -35,10 +35,8 @@ def search_name_or_id(name_column: str, id_column: int, text: str) -> ColumnElem
     so it stays on the primary key.
     """
     by_name = col(name_column).contains(text, autoescape=True)
-    # The length check comes first: int() refuses a number of thousands of digits.
-    if not text.isascii() or not text.isdigit() or len(text) > len(str(_MAX_ID)) or int(text) > _MAX_ID:
-        return by_name
-    return or_(by_name, col(id_column) == int(text))
+    id_ = parse_snowflake_id(text)
+    return by_name if id_ is None else or_(by_name, col(id_column) == id_)
 
 
 class PageRows(NamedTuple, Generic[T]):
