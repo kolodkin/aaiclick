@@ -61,6 +61,7 @@ async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job |
                 return found
         if isinstance(ref, int):
             return None
+        # Still tried for an all-digit ref: job names older than the naming rule may be numbers.
 
         return (
             await s.execute(select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1))
