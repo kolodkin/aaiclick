@@ -1,5 +1,6 @@
 // The data of one scope — a job's task values and objects, or the persistent
-// objects — and the view of one item of it. See docs/designs/ui.md — "Data".
+// objects — and the view of one item of it. See
+// docs/designs/ui.md — "Data (`@data [<object>]`)".
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { columnNames, columnTypes, FieldPickers, ResultsTable, shownColumnIndices, type OrderCol } from "@qv/core";

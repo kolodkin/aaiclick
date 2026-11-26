@@ -27,8 +27,8 @@ Clicks update the prompt, and the prompt drives the view:
 ```
 (empty prompt)  ──────▶  Help / command reference
 @jobs           ──────▶  Jobs list
-@job <name>     ──────▶  Job detail (tasks table)
-@data …         ──────▶  Objects of a scope and their rows
+@job <name>     ──────▶  Job detail (tasks, graph, timings, data)
+@data …         ──────▶  Persistent objects and their rows
 @dashboard …    ──────▶  Saved dashboard in a sandbox
 ```
 
@@ -52,9 +52,9 @@ The input edits a draft; the view follows only the committed prompt.
 | Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
 |-------------------------------------------------|----------------------|---------------|---------------------|
 | `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
-| `@job`, `cancel`, `@data job`                   | jobs, newest first   | name contains | `<cmd> <id>`        |
+| `@job`, `cancel`                                | jobs, newest first   | name contains | `<cmd> <id>`        |
 | `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
-| `@data` (+ `persistent`, `job <ref>`)           | objects of the scope | name prefix   | `<cmd> … <name>`    |
+| `@data` (+ `persistent`), `@job <ref> data`     | objects of the scope | name prefix   | `<cmd> … <name>`    |
 | `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
 | `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
@@ -97,13 +97,6 @@ Status badges, shared by jobs and tasks: `PENDING` gray, `RUNNING` blue,
 
 **Job header**: name, status badge, created/started/completed times, error (if any).
 
-**Objects menu** (job and task pages; hidden when the job has none): a popup of
-links to `@data job <id> <object>`.
-
-- A name filter appears above 5 objects.
-- A "new tab" toggle, remembered per browser, picks where a click opens.
-- Ctrl/middle-click and long-press always offer a new tab.
-
 **Tasks table**:
 
 | Column     | Source field | Notes                                   |
@@ -115,9 +108,14 @@ links to `@data job <id> <object>`.
 | Started    | `started_at` | Relative time                           |
 | Duration   | computed     | `started_at` to `completed_at` or now   |
 
-A Table / Graph / Timings / Duration toggle switches the body. The prompt
-carries the mode — `@job <name> graph`, `timings`, `duration` — so the view
-stays shareable as a URL.
+A Table / Graph / Timings / Duration / Data toggle switches the body. The
+prompt carries the mode — `@job <name> graph`, `timings`, `duration`, `data` —
+so the view stays shareable as a URL.
+
+**Data** (`@job <ref> data [<item>]`) is the job's task inputs, results and
+objects — see "Data" below for the listing. A row opens `@job <id> data
+<item>`: the object view, or a task value by its address, under the same job
+header. The tab links by job id, so a rerun's page keeps its own data.
 
 **Graph**: one edge per dependency, so a `Group` dependency is a single edge
 on the group's container — every member waits, as the scheduler enforces.
@@ -153,27 +151,27 @@ tick every second while the job is active, so running bars grow.
 
 **Top section**: status bar with task metadata — name, status badge, entrypoint, job name, worker ID, attempt info, timestamps, error (if any).
 
+A Log / Data toggle switches the main section; `@task <id> data` lists the
+task's own inputs and result, each row opening in the job's Data tab.
+
 **Main section**: scrolling log viewer filling the rest of the screen. Lines come from ClickHouse `task_logs` for one run of the task, so they resolve whichever host ran it. A retried task gets an Airflow-style "Task tries" row: one button per run, colored by how it ended; the latest is selected and polled. A failed run's log ends with its traceback on stderr (shell: `error: exit N`); the header shows only the latest error and clears on success. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by keyword (`src/lib/logTone.ts`), stderr lines carry a marker bar, and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
-## Data (`@data [persistent | job <ref>] [<object>]`)
+## Data (`@data [<object>]`)
 
-**Implementation**: `src/views/Data.tsx`
+**Implementation**: `src/views/Data.tsx`, `src/components/ScopeData.tsx`
 
-**Prompt**: `@data` (all scopes), `@data persistent`, `@data job <ref>`, `@data [job <ref>] <object>` (no `job`: persistent), `@data job <ref> <address>` (a task value)
+**Prompt**: `@data` (or `@data persistent`) lists the persistent objects —
+name, rows, size, created; `@data <object>` opens one. A job's data is on its
+own page (`@job <ref> data`).
 
-Left: a scope tree — All, Persistent, then the jobs (newest first, name
-filter). Right: the objects of the selected scope (name, scope —
-`persistent` or `job`, job name, rows, size, created), or, with an object
-named, the object view. A job object's back chip returns to `@job <id>`; an
-`@data` chip lists the scope.
+`ScopeData` is the body shared with the job and task Data tabs: a scope's
+listing, or one item of it. A job scope lists its tasks' inputs and results
+before its objects (`viewer.md` — "Task Values"):
 
-A job scope also lists its tasks' inputs and results, before its objects
-(`viewer.md` — "Task Values"):
-
-- **Columns**: Kind (`object` / `value` / `ref`) and Value / Target replace
-  Scope and Job. Value / Target is a value's JSON preview, or a ref's type
-  tag and what it points at — a link when it can be opened. On a phone the
-  column is hidden and the value sits under the name.
+- **Columns**: Kind (`object` / `value` / `ref`) and Value / Target. Value /
+  Target is a value's JSON preview, or a ref's type tag and what it points
+  at — a link when it can be opened. On a phone the column is hidden and the
+  value sits under the name.
 - **Chips** filter the rows: job (its own kwargs and result), tasks,
   objects, all.
 - **A cut page** says "Showing N of M rows".

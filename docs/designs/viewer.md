@@ -196,7 +196,7 @@ panel whose selector is unchosen is held back. `save_dashboard` rejects
 
 # Frontend
 
-`@data`'s object view and `@dashboard` are described in `ui.md`.
+The object view (`@data`, a job's Data tab) and `@dashboard` are described in `ui.md`.
 
 Local mode (`python -m aaiclick local start`) runs the API and workers in one
 process, so the viewer's ClickHouse access nests into the runtime context and
