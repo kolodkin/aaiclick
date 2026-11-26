@@ -108,6 +108,7 @@ async def test_get_job_by_name_returns_latest(orch_ctx):
         pytest.param(999_999_999, id="unknown-id"),
         pytest.param("²", id="digit-that-is-not-a-number"),
         pytest.param("9" * 20, id="number-no-id-can-hold"),
+        pytest.param(10**20, id="int-no-id-can-hold"),
     ],
 )
 async def test_get_job_not_found_raises(orch_ctx, ref):

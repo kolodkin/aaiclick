@@ -136,7 +136,8 @@ async def test_list_tasks_search_finds_by_name_or_id(orch_ctx, search):
     "search",
     [
         pytest.param("simple%task", id="percent-is-literal"),
-        pytest.param("simple-task", id="underscore-is-literal"),
+        # As a wildcard each `_` would match one character of "simple_task".
+        pytest.param("simpl__task", id="underscore-is-literal"),
         pytest.param("9" * 5000, id="number-no-id-can-hold"),
     ],
 )

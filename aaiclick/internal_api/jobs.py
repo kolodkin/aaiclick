@@ -53,14 +53,14 @@ async def _sql_session(session: AsyncSession | None) -> AsyncIterator[AsyncSessi
 async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job | None:
     """Look up a job by numeric ID or the most recent job with a matching name."""
     async with _sql_session(session) as s:
-        if isinstance(ref, int):
-            return (await s.execute(select(Job).where(Job.id == ref))).scalar_one_or_none()
-
-        id_ = parse_snowflake_id(ref)
+        # An int goes through the same parser, so a number no id can hold never reaches the database.
+        id_ = parse_snowflake_id(str(ref))
         if id_ is not None:
             found = (await s.execute(select(Job).where(Job.id == id_))).scalar_one_or_none()
             if found is not None:
                 return found
+        if isinstance(ref, int):
+            return None
 
         return (
             await s.execute(select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1))

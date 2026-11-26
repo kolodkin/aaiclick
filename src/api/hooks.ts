@@ -63,8 +63,9 @@ export function useJob(ref: string) {
     queryKey: ["job", ref],
     queryFn: async () => {
       const job = await fetchJSON<JobDetail>(`/jobs/${encodeURIComponent(ref)}`);
-      // A name resolves to the latest run, and its page links by id: seed the id's entry so those links don't reload it.
-      if (job.id !== ref) qc.setQueryData(["job", job.id], job);
+      // A name resolves to the latest run, and its page links by id: seed the id's entry so those links don't
+      // reload it. Only when empty, so a slow by-name answer never replaces newer by-id data.
+      if (job.id !== ref && !qc.getQueryData(["job", job.id])) qc.setQueryData(["job", job.id], job);
       return job;
     },
     enabled: ref.length > 0,
