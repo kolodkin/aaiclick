@@ -181,15 +181,14 @@ task's own inputs and result, each row opening in the job's Data tab.
 
 ## Data (`@data [<object>]`)
 
-**Implementation**: `src/views/Data.tsx`, `src/components/ScopeData.tsx`
+**Implementation**: `src/components/ScopeData.tsx`
 
 **Prompt**: `@data` (or `@data persistent`) lists the persistent objects —
-name, rows, size, created; `@data <object>` opens one. A job's data is on its
-own page (`@job <id> data`).
+name, rows, size, created; `@data <object>` opens one.
 
-`ScopeData` is the body shared with the job and task Data tabs: a scope's
-listing, or one item of it. A job scope lists its tasks' inputs and results
-before its objects (`viewer.md` — "Task Values"):
+The job and task Data tabs share this body: a scope's listing, or one item
+of it. A job scope lists its tasks' inputs and results before its objects
+(`viewer.md` — "Task Values"):
 
 - **Columns**: Kind (`object` / `value` / `ref`) and Value / Target. Value /
   Target is a value's JSON preview, or a ref's type tag and what it points
