@@ -8,16 +8,16 @@ everything but sign-in itself.
 # Configuration
 
 <!-- req: auth-config -->
-| Variable                      | Purpose                                                                 | Default          |
-|-------------------------------|-------------------------------------------------------------------------|------------------|
-| `AAICLICK_JWT_SECRET`         | Session signing secret. **Required** in distributed mode.               | unset            |
-| `AAICLICK_JWT_ACCESS_TTL`     | Session access lifetime, seconds.                                       | `1800` (30 min)  |
-| `AAICLICK_JWT_REFRESH_TTL`    | How long a sign-in lasts without re-entering the password, seconds.     | `1209600` (14 d) |
-| `AAICLICK_ADMIN_USERNAME`     | First admin's username, created on startup when no users exist.         | `admin`          |
-| `AAICLICK_ADMIN_PASSWORD`     | First admin's password; no seed admin without it.                       | unset            |
-| `AAICLICK_PUBLIC_URL`         | Browser-facing origin, used in password-reset links.                    | unset            |
-| `AAICLICK_PASSWORD_RESET_TTL` | Reset-link lifetime, seconds.                                           | `3600` (1 h)     |
-| `AAICLICK_AUDIT_LOG`          | What the audit log records: `writes`, `all` or `off`.                   | `writes`         |
+| Variable                      | Purpose                                                             | Default          |
+|-------------------------------|---------------------------------------------------------------------|------------------|
+| `AAICLICK_JWT_SECRET`         | Session signing secret. **Required** in distributed mode.           | unset            |
+| `AAICLICK_JWT_ACCESS_TTL`     | Session access lifetime, seconds.                                   | `1800` (30 min)  |
+| `AAICLICK_JWT_REFRESH_TTL`    | How long a sign-in lasts without re-entering the password, seconds. | `1209600` (14 d) |
+| `AAICLICK_ADMIN_USERNAME`     | First admin's username, created on startup when no users exist.     | `admin`          |
+| `AAICLICK_ADMIN_PASSWORD`     | First admin's password; no seed admin without it.                   | unset            |
+| `AAICLICK_PUBLIC_URL`         | Browser-facing origin, used in password-reset links.                | unset            |
+| `AAICLICK_PASSWORD_RESET_TTL` | Reset-link lifetime, seconds.                                       | `3600` (1 h)     |
+| `AAICLICK_AUDIT_LOG`          | What the audit log records: `writes`, `all` or `off`.               | `writes`         |
 
 !!! warning "Distributed without a secret is a hard error"
     With `AAICLICK_JWT_SECRET` unset, or still the template's `change-me-...`
@@ -35,10 +35,10 @@ their own password from `@account`; doing so needs the current one.
 # Roles
 
 <!-- req: roles -->
-| Role     | May                                                                     |
-|----------|-------------------------------------------------------------------------|
-| `viewer` | Every read: jobs, tasks, logs, objects, dashboards                      |
-| `member` | Reads, plus saving and deleting dashboards                              |
+| Role     | May                                                                       |
+|----------|---------------------------------------------------------------------------|
+| `viewer` | Every read: jobs, tasks, logs, objects, dashboards                        |
+| `member` | Reads, plus saving and deleting dashboards                                |
 | `admin`  | Everything: run, cancel and register jobs, objects, users, workers, audit |
 
 A user created without a role is a `viewer`. Every role may submit to the
@@ -110,11 +110,11 @@ python -m aaiclick user list | set-role | disable | enable | passwd | set-email 
 
 # Account pages
 
-| Prompt          | View                                                                        | Who       |
-|-----------------|-----------------------------------------------------------------------------|-----------|
-| `@account`      | Change password, set up or turn off multi-factor auth                       | any user  |
-| `@tokens`       | List, create, revoke your API tokens                                        | any user  |
-| `@users`        | Create users, set role, disable / enable, set password or email, reset MFA, mint a reset link | admin     |
-| `@invite`       | Invite a user                                                               | admin     |
-| `@audit`        | Audit log with user and path filters                                        | admin     |
-| `reset <token>` | Set a new password from a reset link                                        | anyone    |
+| Prompt          | View                                                                                          | Who      |
+|-----------------|-----------------------------------------------------------------------------------------------|----------|
+| `@account`      | Change password, set up or turn off multi-factor auth                                         | any user |
+| `@tokens`       | List, create, revoke your API tokens                                                          | any user |
+| `@users`        | Create users, set role, disable / enable, set password or email, reset MFA, mint a reset link | admin    |
+| `@invite`       | Invite a user                                                                                 | admin    |
+| `@audit`        | Audit log with user and path filters                                                          | admin    |
+| `reset <token>` | Set a new password from a reset link                                                          | anyone   |

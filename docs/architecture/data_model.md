@@ -116,12 +116,12 @@ registry row — only `copy()` does.
 Every ClickHouse table an Object owns carries its scope in its name, so Python
 and SQL cleanup tell scopes apart by prefix alone (`aaiclick/data/scope.py`):
 
-| Scope        | Table name                | Lifetime                         |
-|--------------|---------------------------|----------------------------------|
-| `temp`       | `t_<snowflake_id>`        | the owning context or task       |
-| `temp_named` | `t_<name>_<snowflake_id>` | the owning context or task       |
-| `job`        | `j_<job_id>_<name>`       | the owning job's TTL             |
-| `global`     | `p_<name>`                | until deleted                    |
+| Scope        | Table name                | Lifetime                   |
+|--------------|---------------------------|----------------------------|
+| `temp`       | `t_<snowflake_id>`        | the owning context or task |
+| `temp_named` | `t_<name>_<snowflake_id>` | the owning context or task |
+| `job`        | `j_<job_id>_<name>`       | the owning job's TTL       |
+| `global`     | `p_<name>`                | until deleted              |
 
 `p_*` and `j_*` tables are persistent: refcount cleanup never drops them; job
 TTL cleanup drops `j_*` with its job.

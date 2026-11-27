@@ -41,14 +41,14 @@ The input edits a draft; the view follows only the committed prompt.
 - **Esc** drops the draft back to the committed prompt.
 - **Before a command** the dropdown lists matching commands; **after `<command> `** it lists that command's values, narrowed by the rest of the draft. Lists load more rows as you scroll.
 
-| Prefix                                     | Lists                | Picked row inserts  |
-|--------------------------------------------|----------------------|---------------------|
-| `@task`                                    | tasks, newest first  | `@task <id>`        |
-| `@job`, `cancel`                           | jobs, newest first   | `<cmd> <id>`        |
-| `run`, `enable`, `disable`, `unregister`   | registered jobs      | `<cmd> <name>`      |
-| `@data`, `@job <id> data`                  | objects of the scope | `<cmd> … <name>`    |
-| `@dashboard`                               | dashboards           | `@dashboard <name>` |
-| `@sandbox`                                 | sandbox files        | `@sandbox <id>`     |
+| Prefix                                   | Lists                | Picked row inserts  |
+|------------------------------------------|----------------------|---------------------|
+| `@task`                                  | tasks, newest first  | `@task <id>`        |
+| `@job`, `cancel`                         | jobs, newest first   | `<cmd> <id>`        |
+| `run`, `enable`, `disable`, `unregister` | registered jobs      | `<cmd> <name>`      |
+| `@data`, `@job <id> data`                | objects of the scope | `<cmd> … <name>`    |
+| `@dashboard`                             | dashboards           | `@dashboard <name>` |
+| `@sandbox`                               | sandbox files        | `@sandbox <id>`     |
 
 <!-- req: ids-in-links-names-when-typed -->
 A link the UI makes always carries an id; a typed name means "the latest". So
