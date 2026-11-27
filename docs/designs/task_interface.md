@@ -62,7 +62,7 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 What each runner launches for `module` / `shell` / `jvm`:
 [orchestration.md, Execution layers](../architecture/topology.md#execution-layers).
 
-# Decisions
+# Why
 
 - **Files, not stdout**: stdout is the log channel; a result parsed from it
   breaks on a late library warning or buffered logger.

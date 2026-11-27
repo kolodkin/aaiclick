@@ -184,7 +184,7 @@ What the table says:
 - **Versioning**: Dagster is lockstep; Airflow and Superset version the chart
   independently.
 
-# Trade-offs and decisions
+# Why
 
 - **rc-promote over post-publish rebuild**: published images were never
   tested when they were rebuilt from PyPI after publishing. Promotion

@@ -66,6 +66,8 @@ untagged.
 
 - Docs: the `markdown-style` skill. Unbuilt behavior goes in
   `docs/designs/future.md`, not on a layer page.
+- A decision goes in a `# Why` section (top-level in this repo's heading
+  style), not `# Decisions` or `# Trade-offs`.
 - One fact, one layer: state it at the highest layer it belongs to (what a
   user can observe goes in `user_guide/`), and have lower layers link up and
   add only their own detail — the rule behind it in `architecture/`, the

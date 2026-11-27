@@ -138,15 +138,10 @@ raises `SandboxError` with a `kind` (`not_select`, `out_of_scope`,
 failing `DESCRIBE`, maps to `NotFound`. MCP surfaces both as a tool error
 carrying the message.
 
-# Why Not Sampling
+# Why
 
-An earlier iteration shipped a `SamplingStrategy` type and a
-`PreservationMode.STRATEGY` mode that kept strategy-matched rows through
-cleanup: an agent would emit a strategy from the question, and replay would
-tag those rows across every operation for a row-level trace. It was
-deleted.
-
-The premise was wrong. A debugger does not want "these 10 rows that match
+Lineage does not sample: it keeps no strategy-matched rows through cleanup
+and tags no rows across operations for a row-level trace. A debugger does not want "these 10 rows that match
 my WHERE clause" — they want the shape of the data, ad-hoc questions of
 intermediate tables, threads to follow as they form. Sampling compresses
 exactly that. It also sets correctness traps: any operation whose output
