@@ -26,7 +26,7 @@ from . import sql_context
 from .factories import create_job
 from .fixtures.sample_tasks import simple_task
 from .jobs.queries import get_tasks_for_job
-from .models import RUN_SCHEDULED, TASK_PENDING, Job, RegisteredJob
+from .models import RUN_SCHEDULED, TASK_COMPLETED, Job, RegisteredJob
 from .orch_context import get_sql_session, orch_context
 from .registered_jobs import register_job
 
@@ -111,12 +111,11 @@ async def test_local_runtime_opens_one_sql_engine(monkeypatch):
     assert spy.call_count == 1
 
 
+# req: designs/orchestration/stop-between-iterations
 async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatch):
-    """Race window: the block ends while the worker's claim has written but
-    not committed, so the cancel lands inside one of its driver calls and
-    SQLAlchemy discards the connection. Its open transaction must not keep
-    SQLite's write lock: the worker's own STOPPED write would then fail with
-    "database is locked"."""
+    """The block ends while the worker's claim has written but not committed.
+    The worker finishes that claim and runs the task before it stops, and its
+    own STOPPED write still succeeds (no "database is locked")."""
     if not is_local():
         pytest.skip("the local runtime runs only on chdb + SQLite")
     async with reset_test_state(orch_context(), reset_sql=True):
@@ -141,7 +140,43 @@ async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatc
 
     async with orch_context():
         (task,) = await get_tasks_for_job(job.id)
-    assert task.status == TASK_PENDING and task.execution_worker_id is None
+    assert task.status == TASK_COMPLETED
+
+
+# req: designs/orchestration/stop-between-iterations
+async def test_local_runtime_shutdown_never_cancels_a_driver_call(monkeypatch):
+    """The block ends while the worker is inside a SQLite call. The worker is
+    stopped between iterations, not cancelled mid-call: a cancelled call makes
+    SQLAlchemy discard its connection unclosed, and garbage collection later
+    raises aiosqlite's ResourceWarning in whichever test is running."""
+    if not is_local():
+        pytest.skip("the local runtime runs only on chdb + SQLite")
+    async with reset_test_state(orch_context(), reset_sql=True):
+        await create_job("in_driver_at_shutdown", simple_task)
+    in_driver = asyncio.Event()
+    cancelled_in_driver: list[str] = []
+    execute = aiosqlite.core.Connection._execute
+
+    async def pause_in_driver(self, fn, *args, **kwargs):
+        if (
+            args
+            and str(args[0]).lstrip().startswith("UPDATE tasks SET status = ?, execution_worker_id")
+            and not in_driver.is_set()
+        ):
+            in_driver.set()
+            try:
+                await asyncio.sleep(0.2)
+            except asyncio.CancelledError:
+                cancelled_in_driver.append(str(args[0])[:40])
+                raise
+        return await execute(self, fn, *args, **kwargs)
+
+    monkeypatch.setattr(aiosqlite.core.Connection, "_execute", pause_in_driver)
+
+    async with lr.local_runtime():
+        await asyncio.wait_for(in_driver.wait(), 10)
+
+    assert cancelled_in_driver == []
 
 
 async def _scheduled_runs(registered_job_id: int) -> int:

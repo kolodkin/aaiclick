@@ -31,6 +31,9 @@ from .background import BackgroundWorker
 from .execution import execution_worker_main_loop
 from .orch_context import orch_context
 
+# Seconds a stopping worker may take to finish its iteration before it is cancelled.
+STOP_GRACE_S = 5.0
+
 
 @asynccontextmanager
 async def local_runtime() -> AsyncIterator[None]:
@@ -62,11 +65,18 @@ async def local_runtime() -> AsyncIterator[None]:
         await background.start()
         try:
             # uvicorn (or the outer process) owns SIGTERM/SIGINT — the worker must not steal them.
-            worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False))
+            stop = asyncio.Event()
+            worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False, stop=stop))
             try:
                 yield
             finally:
-                worker_task.cancel()
+                # Stop between iterations: a cancel landing inside a SQLite call makes
+                # SQLAlchemy discard that connection unclosed. Cancel only a worker
+                # still busy (a running task) after the grace period.
+                stop.set()
+                done, _ = await asyncio.wait({worker_task}, timeout=STOP_GRACE_S)
+                if not done:
+                    worker_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await worker_task
         finally:

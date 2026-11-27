@@ -110,6 +110,14 @@ After the cache check, a `build` preflights the builder (`docker buildx inspect 
 <!-- req: worker-main-loop -->
 Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown and per-task lifecycle creation.
 
+<!-- req: stop-between-iterations -->
+`local_runtime` stops its worker with a `stop` event, not a cancel: the worker
+ends between iterations, so a claim in progress and the task it claimed
+finish first. Only a worker still busy after `STOP_GRACE_S` (5 s) is
+cancelled. A cancel landing inside a SQLite call would make SQLAlchemy discard
+that connection unclosed, and garbage collection would later raise aiosqlite's
+`ResourceWarning` in whatever test or request is running.
+
 ## Worker Liveness
 
 Constants live in `models.py`.
