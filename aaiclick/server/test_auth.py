@@ -29,12 +29,14 @@ OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
 # --- resolve_principal ---------------------------------------------------
 
 
+# req: user_guide/deployment/deployment-modes
 async def test_local_mode_returns_synthetic_admin(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     principal = await auth.resolve_principal(authorization=None)
     assert principal.role == "admin" and principal.kind == "none"
 
 
+# req: user_guide/deployment/allowed-hosts, user_guide/dns_rebinding/host-guard, user_guide/dns_rebinding/allowed-hosts
 @pytest.mark.parametrize(
     "host, status",
     [
@@ -55,6 +57,7 @@ async def test_local_mode_answers_only_allowed_hosts(monkeypatch, anon_client, h
     assert response.status_code == status
 
 
+# req: user_guide/dns_rebinding/distributed-requires-token
 async def test_enabled_ignores_host_header(enabled, anon_client):
     response = await anon_client.get("/health", headers={"host": "aaiclick.example.com"})
     assert response.status_code == 200

@@ -23,6 +23,7 @@ def run_init(stack: Path, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["sh", str(stack / "env.init.sh")], cwd=cwd, capture_output=True, text=True)
 
 
+# req: user_guide/deployment/env-init, user_guide/deployment/generated-credentials
 def test_env_init_fills_every_token(stack, tmp_path):
     result = run_init(stack, cwd=tmp_path)
 
@@ -37,6 +38,7 @@ def test_env_init_fills_every_token(stack, tmp_path):
     assert f"Admin login: admin / {values['AAICLICK_ADMIN_PASSWORD']}" in result.stdout
 
 
+# req: user_guide/deployment/env-init
 def test_env_init_refuses_existing_env(stack, tmp_path):
     (stack / ".env").write_text("keep\n")
 

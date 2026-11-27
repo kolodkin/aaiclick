@@ -7,6 +7,7 @@ import pytest
 from .ghcr import image_tag
 
 
+# req: user_guide/container_images/base-image-tag
 @pytest.mark.parametrize(
     "version, expected",
     [

@@ -8,6 +8,7 @@ other two start the full stack — ClickHouse, PostgreSQL,
 the API server, an execution worker, the background worker and a `buildkitd`
 for `--build` jobs — from the published images:
 
+<!-- req: deployment-modes -->
 | Aspect             | Local (default)                 | Docker Compose                                    | Kubernetes                                         |
 |--------------------|---------------------------------|---------------------------------------------------|----------------------------------------------------|
 | **Data backend**   | chdb (embedded ClickHouse)      | ClickHouse container                              | ClickHouse (in-chart dev instance or managed)      |
@@ -21,17 +22,20 @@ Compose and Kubernetes are the distributed modes:
 - Every component reads `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` for shared
   servers; the worker's `AAICLICK_RUNNER` (`docker` or `kubernetes`) decides
   where a task runs — see [Orchestration — Runner modes](orchestration.md#runner-modes).
+<!-- req: internal-database -->
 - Internal tables (task logs, oplog, migrations) live in `<db>_internal`
   beside the `AAICLICK_CH_URL` database. The user running
   `aaiclick migrate upgrade` needs `CREATE DATABASE`; every component's user
   needs read/write on `<db>_internal.*`.
 - For private buckets, give the ClickHouse server its S3 identity and a
   `users.xml` profile line — see [Object — Blob Storage](object.md#credentials).
+<!-- req: generated-credentials -->
 - Credentials are random unless you set them: compose's `env.init.sh` fills
   `.env`, and the chart generates a Secret. `.env.template` spells them
   `change-me-...`, and the server refuses to start while any is still one.
 - Each secret is set in one place — compose's `.env`, the chart's Secret —
   and the connection URLs are built from it.
+<!-- req: seed-admin -->
 - The seed admin (`admin`, or `AAICLICK_ADMIN_USERNAME`) is inserted only on
   first startup while the users table is empty; change its password later in
   the UI, not the env var.
@@ -44,6 +48,7 @@ Compose and Kubernetes are the distributed modes:
 
 ## Local mode
 
+<!-- req: local-start -->
 Single process, no infrastructure. `local start` runs the REST + MCP server
 with the background and execution workers built in, running setup if needed:
 
@@ -55,6 +60,7 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 `--host` defaults to `127.0.0.1`.
 
 !!! warning "`--host 0.0.0.0` opens the server with no auth"
+    <!-- req: allowed-hosts -->
     Local mode has auth off: anyone who can reach the port is admin. Use
     a distributed mode for per-user logins. To block DNS rebinding the server
     answers only loopback `Host` headers, so list the names browsers use in
@@ -67,10 +73,11 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 
 **Configure** (environment of the one process):
 
+<!-- req: local-config -->
 | Variable                 | Default                               | Description                                                                |
 |--------------------------|---------------------------------------|----------------------------------------------------------------------------|
 | `AAICLICK_LOCAL_ROOT`    | `~/.aaiclick`                         | Base directory for all local-mode state                                    |
-| `AAICLICK_CH_URL`        | `chdb:///{root}/chdb_data`            | Embedded ClickHouse data directory                                         |
+| `AAICLICK_CH_URL`        | `chdb://{root}/chdb_data`             | Embedded ClickHouse data directory                                         |
 | `AAICLICK_SQL_URL`       | `sqlite+aiosqlite:///{root}/local.db` | Orchestration database file                                                |
 | `AAICLICK_ALLOWED_HOSTS` | loopback names                        | Extra `Host` values the server answers — [DNS Rebinding](dns_rebinding.md) |
 
@@ -87,6 +94,7 @@ done
 sh env.init.sh && docker compose up
 ```
 
+<!-- req: env-init -->
 `env.init.sh` writes `.env` from `.env.template` with every credential as a
 random value, then prints the admin login once. It never overwrites an
 existing `.env`. The compose file only references `.env`, so it can be
@@ -99,6 +107,7 @@ Wrote .env (keep it out of git)
 Admin login: admin / <generated>
 ```
 
+<!-- req: compose-stack -->
 `up` brings up the whole stack — there are no profiles. A one-shot `migrate`
 service applies the schema before the server starts. The UI is at
 <http://127.0.0.1:5255>; the worker image carries the Docker CLI and runs
@@ -177,6 +186,7 @@ worker, `buildkitd`, and dev PostgreSQL + ClickHouse under `devDependencies`,
 off by default and switched on above for evaluation. They keep no volumes: for anything real,
 leave them off and point `env.sqlUrl` / `env.chUrl` at managed databases.
 
+<!-- req: worker-drives-many-pods -->
 One worker replica drives many Pods at once, bounded by what the cluster
 schedules: it stops claiming while a job has `AAICLICK_K8S_MAX_PENDING` (10)
 unscheduled Pods, or `AAICLICK_K8S_MAX_PENDING_TOTAL` (4× that) in all, and

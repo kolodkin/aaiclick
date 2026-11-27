@@ -48,6 +48,7 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
     await run_smoke_flow("docker_e2e_smoke", docker_e2e_user_repo)
 
 
+# req: user_guide/container_images/default-dockerfile, user_guide/container_images/manifest-install
 @pytest.mark.docker_e2e
 async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
     """A user repo with no Dockerfile builds on the default layer over
@@ -62,6 +63,7 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
     )
 
 
+# req: user_guide/container_images/index-urls-as-secrets
 @pytest.mark.docker_e2e
 async def test_docker_runner_build_sees_no_worker_secrets(orch_ctx, docker_e2e_leak_repo):
     """A Dockerfile step — even one declaring ``ARG PIP_INDEX_URL`` — sees no

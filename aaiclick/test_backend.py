@@ -1,6 +1,6 @@
 import pytest
 
-from aaiclick.backend import internal_db, internal_table, parse_ch_url, redact_url
+from aaiclick.backend import get_ch_url, get_sql_url, internal_db, internal_table, parse_ch_url, redact_url
 
 
 def test_parse_ch_url_percent_decodes_userinfo(monkeypatch):
@@ -40,6 +40,16 @@ def test_redact_url(url, expected):
     assert redact_url(url) == expected
 
 
+# req: user_guide/deployment/local-config
+def test_local_urls_derive_from_local_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
+    monkeypatch.delenv("AAICLICK_SQL_URL", raising=False)
+    monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
+    assert get_sql_url() == f"sqlite+aiosqlite:///{tmp_path}/local.db"
+    assert get_ch_url() == f"chdb://{tmp_path}/chdb_data"
+
+
+# req: user_guide/deployment/internal-database
 @pytest.mark.parametrize(
     ("url", "expected"),
     [

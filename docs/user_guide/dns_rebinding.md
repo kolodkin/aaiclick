@@ -35,6 +35,7 @@ site", and the script is talking to `evil.com`. The browser never notices that
 
 # The guard
 
+<!-- req: host-guard -->
 The browser always writes the site's real name into `Host`; a script cannot
 fake it. The server drops any local-mode request whose `Host` is not on its
 list.
@@ -45,6 +46,7 @@ flowchart TD
     B -- no --> C[Server answers 400.<br>Nothing happens.]
 ```
 
+<!-- req: allowed-hosts -->
 The list:
 
 ```
@@ -57,6 +59,7 @@ Each name you add is trusted, so list only names whose DNS you control.
 
 # Why distributed mode needs no guard
 
+<!-- req: distributed-requires-token -->
 Distributed mode requires an `Authorization: Bearer` token on every request.
 The frontend sets that header itself; a script on `evil.com` cannot read your
 aaiclick tab's memory, and the browser does not add the header on its own.

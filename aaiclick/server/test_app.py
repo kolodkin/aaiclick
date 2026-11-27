@@ -17,8 +17,9 @@ from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.testing import reset_test_state, until
 from aaiclick.view_models import Problem
 
-from .app import API_PREFIX, _lifespan, app
+from .app import API_PREFIX, _lifespan, _seed_admin, app
 from .auth import SAFE_METHODS, require_admin, require_session, require_write
+from .conftest import login
 from .credential_guard import PLACEHOLDER_MARKER
 
 # Mint or redeem the credential itself, so no principal exists yet.
@@ -143,6 +144,7 @@ async def no_leftover_work():
         pass
 
 
+# req: user_guide/deployment/local-start
 async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
     """In local mode, the lifespan registers an execution ExecutionWorker row.
 
@@ -208,6 +210,7 @@ async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
             pass
 
 
+# req: user_guide/deployment/generated-credentials
 async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     """A template credential is public: starting with one is an error, not a warning."""
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", f"{PLACEHOLDER_MARKER}-admin-password")
@@ -215,3 +218,17 @@ async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     with pytest.raises(RuntimeError, match=r"AAICLICK_ADMIN_PASSWORD.*env\.init\.sh"):
         async with _lifespan(app):
             pass
+
+
+# req: user_guide/deployment/seed-admin
+async def test_seed_admin_inserted_only_while_users_table_is_empty(orch_ctx, enabled, anon_client, monkeypatch):
+    """A later startup with a changed ``AAICLICK_ADMIN_PASSWORD`` keeps the first password."""
+    monkeypatch.delenv("AAICLICK_ADMIN_USERNAME", raising=False)
+    monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", "first-pw")
+    await _seed_admin()
+    monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", "second-pw")
+    await _seed_admin()
+
+    await login(anon_client, "admin", "first-pw")
+    res = await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "admin", "password": "second-pw"})
+    assert res.status_code == 401

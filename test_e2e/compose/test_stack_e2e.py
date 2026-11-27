@@ -45,6 +45,7 @@ def _job_by_name(compose_dir: Path, name: str) -> dict | None:
     return matches[0] if matches else None
 
 
+# req: user_guide/deployment/compose-stack, user_guide/container_images/api-server-image
 def test_server_healthy(server_url):
     # stdlib on purpose: the CI venv installs only the test+distributed
     # extras, which do not ship an HTTP client library.
@@ -52,12 +53,14 @@ def test_server_healthy(server_url):
         assert response.status == 200
 
 
+# req: user_guide/deployment/compose-stack
 def test_worker_registered(compose_dir):
     out = _compose_exec(compose_dir, "server", "python", "-m", "aaiclick", "execution-worker", "list", "--json")
     items = json.loads(out)["items"]
     assert items, "no execution worker registered — worker service did not come up"
 
 
+# req: user_guide/deployment/compose-stack
 def test_shell_job_round_trip(compose_dir):
     _compose_exec(
         compose_dir,

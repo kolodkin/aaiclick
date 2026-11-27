@@ -67,6 +67,7 @@ async def test_change_own_password_wrong_current_401(orch_ctx, app_client, enabl
     assert res.json()["code"] == "unauthorized"
 
 
+# req: user_guide/dns_rebinding/distributed-requires-token
 async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client, enabled):
     res = await anon_client.get(f"{API_PREFIX}/execution-workers")
     assert res.status_code == 401

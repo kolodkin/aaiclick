@@ -3,6 +3,7 @@ import pytest
 from aaiclick.auth import config
 
 
+# req: user_guide/deployment/deployment-modes
 @pytest.mark.parametrize(
     "is_local, expected",
     [
@@ -34,6 +35,7 @@ def test_admin_seed_none_when_unset(monkeypatch):
     assert config.admin_seed() is None
 
 
+# req: user_guide/deployment/seed-admin
 def test_admin_seed_username_defaults_to_admin(monkeypatch):
     monkeypatch.delenv("AAICLICK_ADMIN_USERNAME", raising=False)
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", "pw")
@@ -41,6 +43,7 @@ def test_admin_seed_username_defaults_to_admin(monkeypatch):
     assert seed is not None and seed.username == "admin" and seed.password == "pw"
 
 
+# req: user_guide/deployment/seed-admin
 def test_admin_seed_env_username_wins(monkeypatch):
     monkeypatch.setenv("AAICLICK_ADMIN_USERNAME", "ops")
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", "pw")

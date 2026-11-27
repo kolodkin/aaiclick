@@ -16,6 +16,7 @@ dispatching workers need the CLIs; the API server and task leaves never shell ou
 
 # API server
 
+<!-- req: api-server-image -->
 The base image serves the SPA + REST API by default:
 
 ```bash
@@ -35,6 +36,7 @@ COPY . /src
 RUN pip install --no-cache-dir /src
 ```
 
+<!-- req: default-dockerfile -->
 A git build (`--build`) whose repo has no `Dockerfile` gets this layer by
 default, pinned to the worker's aaiclick version:
 
@@ -42,6 +44,7 @@ default, pinned to the worker's aaiclick version:
   resolve from the copied tree: `jobs/my_job.py` is `jobs.my_job.entry`, and
   every directory on the path must be an importable package name (`abc-123` or
   `2026-10-09` cannot be imported).
+<!-- req: base-image-tag -->
 - `AAICLICK_BASE_IMAGE` on the worker picks another base: an rc tag, or a
   locally built image when the worker runs from a git checkout (a developer's
   machine, or CI running the e2e from source). Such a version,
@@ -50,6 +53,7 @@ default, pinned to the worker's aaiclick version:
 - To customize, check in a `Dockerfile` (`python -m aaiclick docker init`
   scaffolds one). An explicit `dockerfile=` path that is missing still fails.
 
+<!-- req: manifest-install -->
 The default honours a dependency manifest at the repo root:
 
 | Found at repo root                                   | Template | Install step                                                        |
@@ -84,6 +88,7 @@ never `pip install .`-ed. Limits:
 Beyond these, check in a `Dockerfile`.
 
 !!! warning "Private index URLs are secrets, not build-args"
+    <!-- req: index-urls-as-secrets -->
     `AAICLICK_PIP_INDEX_URL` / `AAICLICK_PIP_EXTRA_INDEX_URL` may embed a
     token, so a Dockerfile that declares `ARG PIP_INDEX_URL` no longer receives
     them. Mount them into the step that installs:
@@ -169,6 +174,7 @@ or using a private image, need the Role widened to that namespace and
 `AAICLICK_K8S_IMAGE_PULL_SECRET` set.
 
 !!! warning "`build` sources need buildkitd and a registry"
+    <!-- req: k8s-build-on-buildkitd -->
     A host-pinned `build-image` task runs `docker buildx build --push` on the
     worker against `AAICLICK_BUILDKIT_ADDR` (the chart's `buildkitd`, enabled by
     default) — no Docker daemon. Set `env.registry` to a registry both
