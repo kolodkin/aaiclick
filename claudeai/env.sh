@@ -8,3 +8,5 @@ export AAICLICK_JWT_SECRET="local-dev-jwt-secret-key-at-least-32-bytes-long"
 # has the same pair in its own environment; chdb reads it from this one.
 export AWS_ACCESS_KEY_ID=minioadmin
 export AWS_SECRET_ACCESS_KEY=minioadmin
+# Azurite on :10000: test_blob.py shares it instead of starting its own via npx.
+export AAICLICK_TEST_AZURITE_ENDPOINT=http://127.0.0.1:10000

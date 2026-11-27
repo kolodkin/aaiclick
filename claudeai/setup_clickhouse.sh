@@ -48,6 +48,12 @@ fi
 # image: users.xml plus users.d/, which gets the same S3 profile file the CI
 # blob job mounts (docker/clickhouse/users.d/s3.xml).
 cp "$here/../docker/clickhouse/users.d/s3.xml" "$dir/users.d/s3.xml"
+# The CI blob job's test collections (s3_test, azurite_test), with Azurite on
+# localhost instead of the Docker host.
+mkdir -p "$dir/config.d"
+cp "$here/../docker/clickhouse/test/users.d/named-collections.xml" "$dir/users.d/named-collections.xml"
+sed 's/host\.docker\.internal/127.0.0.1/' "$here/../docker/clickhouse/test/config.d/named-collections.xml" \
+  >"$dir/config.d/named-collections.xml"
 cat >"$dir/config.xml" <<XML
 <clickhouse>
   <logger><level>warning</level><console>1</console></logger>
