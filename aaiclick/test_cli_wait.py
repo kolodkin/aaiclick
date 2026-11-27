@@ -185,6 +185,7 @@ class _LocalLikeTransport(_SilentTransport):
     cross_process = False
 
 
+# req: designs/frontend/live-updates
 @pytest.mark.parametrize(
     "cross_process, state, expected",
     [
@@ -212,6 +213,7 @@ async def test_signal_advances_loop_without_waiting_slow_poll():
     assert result.job_status == "COMPLETED"
 
 
+# req: designs/frontend/live-updates
 async def test_signal_published_during_fetch_is_not_lost():
     """The subscription opens before the first fetch, so a commit landing
     mid-fetch is queued in the depth-1 mailbox rather than dropped."""
@@ -254,6 +256,7 @@ async def test_feed_is_torn_down_when_the_wait_times_out():
     assert transport.feed_finished is True
 
 
+# req: designs/frontend/live-updates
 async def test_no_feed_started_when_transport_is_not_cross_process():
     transport = _LocalLikeTransport()
     with _patch_stats(make_job_stats("COMPLETED", _tasks("COMPLETED"))):

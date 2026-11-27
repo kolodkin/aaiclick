@@ -197,6 +197,7 @@ def test_signal_transport_override_swaps_and_restores():
     assert isinstance(get_transport(), default)
 
 
+# req: designs/frontend/live-updates
 async def test_hooks_call_transport_on_either_side_of_commit(orch_ctx):
     """One flagged commit reaches the transport exactly once before and once after."""
     job = await create_job("events_fake_transport", SAMPLE_TASK)
@@ -304,6 +305,7 @@ async def test_unrelated_write_publishes_nothing(orch_ctx, live_bus):
     assert signals == []
 
 
+# req: designs/frontend/live-updates
 async def test_write_matching_no_row_publishes_nothing(orch_ctx, live_bus):
     """An idle worker's claim poll commits a watched write that changes nothing; it must not signal."""
     async with recording(live_bus) as signals:
@@ -313,6 +315,7 @@ async def test_write_matching_no_row_publishes_nothing(orch_ctx, live_bus):
     assert signals == []
 
 
+# req: designs/frontend/live-updates
 async def test_rolled_back_write_publishes_nothing(orch_ctx, live_bus):
     job = await _quiet_job("events_rollback")
     async with recording(live_bus) as signals:
@@ -325,6 +328,7 @@ async def test_rolled_back_write_publishes_nothing(orch_ctx, live_bus):
     assert signals == []
 
 
+# req: designs/frontend/live-updates
 def test_local_transport_is_not_cross_process():
     """chdb's file lock confines local-mode writers to one process, so a
     waiter in another process can never receive their signals."""

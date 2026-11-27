@@ -89,6 +89,7 @@ objects: `future.md`.
 
 **Implementation**: `aaiclick/internal_api/task_values.py`
 
+<!-- req: task-value-listing -->
 A job's Python inputs and results are JSON in `tasks.kwargs` /
 `tasks.result` (`task_interface.md`), never tables. A job listing with
 `kind="all"` adds one row per top-level kwarg and per non-null result of

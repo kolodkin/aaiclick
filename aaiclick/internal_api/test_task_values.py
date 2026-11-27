@@ -48,6 +48,7 @@ async def _pipeline() -> tuple[Job, Task, Task]:
     return job, load, clean
 
 
+# req: designs/viewer/task-value-listing
 async def test_list_task_values_kinds_refs_and_targets():
     job, load, clean = await _pipeline()
     rows = await task_values.list_task_values(job)
@@ -96,6 +97,7 @@ async def test_read_task_value_oversized_id_not_found(address):
         await task_values.read_task_value(job.id, address)
 
 
+# req: designs/viewer/task-value-listing
 async def test_list_task_values_preview_is_cut():
     job = await create_job("tv_job", create_task(_SAMPLE_TASK, {"big": "x" * 500}, name="t"))
     (row,) = await task_values.list_task_values(job)
@@ -135,6 +137,7 @@ async def test_read_task_value_scoped_to_job_and_needs_a_result():
         await task_values.read_task_value(job.id, "orders")
 
 
+# req: designs/viewer/task-value-query
 async def test_read_task_value_over_cap_is_truncated():
     job = await create_job(
         "tv_job", create_task(_SAMPLE_TASK, {"big": "x" * (task_values.MAX_VALUE_BYTES + 1)}, name="t")

@@ -198,6 +198,7 @@ def test_task_to_stats_view_queue_and_exec_ms():
     assert sv.exec_time_ms == 5_000
 
 
+# req: designs/ui/graph-layout-edges
 def test_build_job_graph_view_draws_group_dependency_as_one_edge():
     """``G >> c`` is drawn as one edge from the container, and laid out through
     every member so the layout engine, which cannot anchor a container, places c."""
@@ -221,6 +222,7 @@ def test_build_job_graph_view_draws_group_dependency_as_one_edge():
     assert view.dropped_cycle_edges == 0
 
 
+# req: designs/ui/graph-layout-edges
 def test_build_job_graph_view_skips_edges_to_swept_tasks_and_missing_groups():
     """React Flow throws on an edge whose endpoint is not a node."""
     job = Job(id=1, name="graph_job")
@@ -240,6 +242,7 @@ def test_build_job_graph_view_skips_edges_to_swept_tasks_and_missing_groups():
     assert {(e.source_id, e.target_id) for e in view.layout_edges} == {(101, 102)}
 
 
+# req: designs/ui/graph-groups
 def test_build_job_graph_view_emits_group_container_with_rolled_up_status():
     """A group becomes a ``"group"`` node whose status and timing summarise its
     members, and member tasks point at it via ``parent_group_id``."""
@@ -281,6 +284,7 @@ def test_build_job_graph_view_emits_group_container_with_rolled_up_status():
     assert by_id[103].parent_group_id is None
 
 
+# req: designs/ui/graph-groups
 def test_build_job_graph_view_nested_group_rolls_up_descendants():
     """A parent group's status covers tasks in nested child groups, and the
     child group carries ``parent_group_id`` so the client can nest containers."""
@@ -299,6 +303,7 @@ def test_build_job_graph_view_nested_group_rolls_up_descendants():
     assert by_id[201].parent_group_id == 200
 
 
+# req: designs/ui/graph-groups
 def test_build_job_graph_view_completed_group_ends_at_latest_member():
     job = Job(id=1, name="graph_job")
     tasks = [
@@ -332,6 +337,7 @@ def test_build_job_graph_view_completed_group_ends_at_latest_member():
     assert group.completed_at == datetime(2025, 1, 1, 12, 0, 9)
 
 
+# req: designs/ui/graph-groups
 def test_build_job_graph_view_omits_empty_groups():
     """A group with no tasks anywhere beneath it has nothing to contain."""
     job = Job(id=1, name="graph_job")

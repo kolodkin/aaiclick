@@ -317,6 +317,7 @@ async def test_lineage_schema_returns_columns(orch_ctx, mcp_client, revenue_line
     assert {"id", "val"} <= {c.name for c in parsed.columns}
 
 
+# req: designs/viewer/surfaces
 async def test_query_object_tool_round_trips(orch_ctx, mcp_client):
     await create_object_from_value({"id": [1, 2]}, name="mcp_orders", scope="global")
     result = await mcp_client.call_tool(

@@ -25,6 +25,7 @@ def test_get_transport_is_postgres():
     assert isinstance(get_transport(), PostgresTransport)
 
 
+# req: designs/frontend/live-updates
 async def test_feed_resyncs_after_reconnect(orch_ctx, monkeypatch):
     """Notifications sent while the LISTEN connection is down are lost, so a
     reconnect must publish one signal for open streams to catch up on."""

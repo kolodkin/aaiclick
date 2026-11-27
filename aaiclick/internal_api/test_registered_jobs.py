@@ -167,7 +167,7 @@ async def test_disable_job_missing_raises_not_found(orch_ctx):
         await registered_jobs.disable_job("ghost_job")
 
 
-# req: user_guide/orchestration/running_jobs/manage-registrations
+# req: user_guide/orchestration/running_jobs/manage-registrations, designs/orchestration/registered-job-catalog
 async def test_unregister_job_keeps_past_runs_unlinked(orch_ctx):
     await _register_job_impl(name="to_unregister", entrypoint="myapp.to_unregister")
     run = await _run_job_impl("to_unregister", "myapp.to_unregister")

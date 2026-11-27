@@ -59,6 +59,7 @@ async def test_timings_never_run_task(orch_ctx):
     assert _by_id(await jobs.get_job_timings(job.id))[task.id].attempts == []
 
 
+# req: designs/ui/timings-spans
 async def test_timings_ready_at(orch_ctx):
     job = await create_job("timings_ready", _SAMPLE_TASK)
     raw = create_task(_SAMPLE_TASK)
@@ -96,6 +97,7 @@ async def test_timings_ready_at_none_after_upstream_failed(orch_ctx):
     assert _by_id(await jobs.get_job_timings(job.id))[report.id].ready_at is None
 
 
+# req: designs/ui/timings-spans
 async def test_timings_ready_at_through_group(orch_ctx):
     job = await create_job("timings_group", _SAMPLE_TASK)
     stage = Group(id=get_snowflake_id(), name="stage")

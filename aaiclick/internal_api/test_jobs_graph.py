@@ -37,6 +37,7 @@ async def test_get_job_graph_returns_nodes_and_edges(orch_ctx):
     assert all(n.kind == GRAPH_NODE_TASK for n in graph.nodes)
 
 
+# req: designs/ui/graph-groups
 async def test_get_job_graph_emits_group_containers(orch_ctx):
     """A committed group comes back as a container node listed before its
     members, which reference it by ``parent_group_id``."""

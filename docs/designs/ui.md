@@ -116,6 +116,7 @@ objects — see "Data" below for the listing. A row opens `@job <id> data
 <item>`: the object view, or a task value by its address, under the same job
 header.
 
+<!-- req: graph-layout-edges -->
 **Graph**: one edge per dependency, so a `Group` dependency is a single edge
 on the group's container — every member waits, as the scheduler enforces.
 dagre cannot anchor an edge on a container, so the response's `layout_edges`
@@ -123,6 +124,7 @@ carry each group edge expanded onto its direct members, for positioning
 only. Node colour follows task status; image-build tasks and
 their edges are styled distinctly.
 
+<!-- req: graph-groups -->
 Groups render as nested containers around their members: `"group"` nodes with
 a status rolled up server-side from every task beneath them (activity outranks
 outcome) and timing spanning the earliest member start

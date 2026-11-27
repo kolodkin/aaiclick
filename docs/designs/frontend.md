@@ -143,6 +143,7 @@ The server returns every datetime as naive UTC: ISO with no `Z` or offset.
 
 **Implementation**: `aaiclick/orchestration/events/`
 
+<!-- req: live-updates -->
 One SSE connection per UI session carries a single event kind, `changed`, with
 no payload. The client invalidates its React Query cache on each frame and REST
 supplies authoritative state — events are signals, not data.
