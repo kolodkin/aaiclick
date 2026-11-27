@@ -120,9 +120,11 @@ jobs:
             test-paths: "aaiclick/server/"
             extras: "--extra server"
           - group: Misc local
-            # Backend-independent tests with no package directory of their
-            # own: the compose env.init.sh, the argparse CLI, and view/log models.
-            test-paths: "test_e2e/compose/test_env_init.py aaiclick/test_cli.py aaiclick/test_view_models.py aaiclick/test_log_models.py"
+            # Backend-independent tests with no group of their own: the compose
+            # env.init.sh, root modules, the sandbox and the viewer. The glob
+            # expands in the run-pytest shell; aaiclick/test_ci_paths.py fails
+            # when a test file falls outside every group.
+            test-paths: "test_e2e/compose/test_env_init.py aaiclick/test_*.py aaiclick/sandbox/ aaiclick/viewer/"
             extras: ""
 
     steps:
