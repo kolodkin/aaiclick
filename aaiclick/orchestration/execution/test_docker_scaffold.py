@@ -76,6 +76,7 @@ def test_e2e_fixture_dockerfile_matches_template():
 _PROJECT = "[project]\nname = 'x'\n"
 
 
+# req: user_guide/container_images/manifest-install
 @pytest.mark.parametrize(
     "files, expected",
     [
@@ -128,6 +129,7 @@ def test_detect_manifest_requirements_directory_is_not_a_manifest(tmp_path):
     assert detect_manifest(tmp_path) == MANIFEST_NONE
 
 
+# req: user_guide/container_images/manifest-install
 def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path):
     (tmp_path / "pom.xml").write_text("<project/>")
     (tmp_path / "requirements.txt").write_text("")
@@ -135,12 +137,14 @@ def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path):
         detect_manifest(tmp_path)
 
 
+# req: user_guide/container_images/default-dockerfile
 def test_render_default_dockerfile_none_is_the_thin_layer():
     text = render_default_dockerfile(MANIFEST_NONE)
     assert "\nRUN " not in text and "\nUSER " not in text
     assert text.endswith("FROM ${BASE_IMAGE}\nCOPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n")
 
 
+# req: user_guide/container_images/manifest-install
 @pytest.mark.parametrize(
     "kind, requirements",
     [
@@ -173,6 +177,7 @@ def test_render_default_dockerfile_python_install_block(kind, requirements):
     )
 
 
+# req: user_guide/container_images/manifest-install
 def test_render_default_dockerfile_jvm():
     text = render_default_dockerfile(MANIFEST_POM)
     assert text.index("FROM maven:") < text.index("COPY . /build") < text.index("FROM eclipse-temurin:")
@@ -185,6 +190,7 @@ _SECRET_MOUNTS = (
 )
 
 
+# req: user_guide/container_images/index-urls-as-secrets
 @pytest.mark.parametrize(
     "text",
     [

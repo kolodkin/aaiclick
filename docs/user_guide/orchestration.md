@@ -45,6 +45,7 @@ Wraps an async function into a task.
 | `name`        | function name | Task display name                                      |
 | `max_retries` | `0`           | Failed runs are retried this many times before failing |
 
+<!-- req: task-return-values -->
 A task may return a plain value or an `Object`/`View`; data results are
 serialized and handed to downstream tasks.
 
@@ -72,6 +73,7 @@ finalize task that runs after the partition tasks and hands their result on.
 Any other `data` is readable as soon as the parent completes.
 
 !!! warning "A list carries tasks only, unnested"
+    <!-- req: dynamic-list-only -->
     `return [obj, group]` raises `TypeError` — use
     `task_result(data=obj, tasks=[group])` to return data alongside tasks. So
     does `return [[a, b], [c, d]]`: nesting means nothing to the graph, so use a
@@ -96,6 +98,7 @@ member, and a returned Group registers its members with it. Dependencies work
 on the whole group: `a >> group` runs every member after `a`, and
 `group >> b` runs `b` once every member has completed.
 
+<!-- req: group-kwarg -->
 Passing a Group as a kwarg does both at once — it wires `group >> consumer`
 and hands the consumer the members' results as a list, in task order:
 
@@ -111,6 +114,7 @@ See [Examples: Orchestration Groups](../examples/orchestration_groups.md).
 
 ## Testing jobs
 
+<!-- req: testing-jobs -->
 `job_test(j)` (sync) and `await ajob_test(j)` (async) execute every task of a
 job in dependency order in the current process, for debugging before handing it
 to workers. Both also accept the `@job` function plus its kwargs and create the
@@ -379,8 +383,8 @@ prefix in the worker's `AAICLICK_CHILD_BUILD_REMOTES`.
 
 Defaults resolve at submission, so the stored task always names a concrete
 commit. The working tree is read only when no remote is given or registered.
-Image fields require a docker or kubernetes job, and kubernetes settings a
-kubernetes job; setting either on another runner is an error, not a no-op.
+A task with an image fails, naming `AAICLICK_RUNNER`, where no container
+runner is set: a worker without `AAICLICK_RUNNER`, local mode, or `job_test`.
 
 <!-- req: build-image-task -->
 Each distinct image gets one `build-image` task that every task on that image
@@ -401,6 +405,7 @@ Setting both, or neither, fails the build task with an error naming the two
 variables. Kubernetes `build` sources need registry mode: the cluster cannot
 pull from a worker's daemon.
 
+<!-- req: github-app-clone -->
 **Private GitHub repos.** Give the worker a
 [GitHub App](https://docs.github.com/en/apps/creating-github-apps) key and its
 clone authenticates on its own:
@@ -483,6 +488,7 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 ```
 
 !!! warning "Shell tasks in containers see only `command_env`"
+    <!-- req: shell-container-env -->
     In an isolated environment (container/Pod) a shell task receives **only**
     `command_env` on top of the image's env — not the aaiclick runner env — so
     no DB credentials leak into an arbitrary image. With the subprocess runner
@@ -575,7 +581,7 @@ yields.
     from aaiclick.orchestration import cancel_job, orch_context
 
     async with orch_context():
-        cancelled = await cancel_job(job_id)  # False if not found or already terminal
+        job = await cancel_job(job_id)  # raises JobNotFound / JobAlreadyTerminal
     ```
 
 === "CLI"

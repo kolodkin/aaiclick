@@ -23,7 +23,7 @@ async def test_default_mode_is_none_when_env_unset(monkeypatch):
     assert get_default_preservation_mode() == PRESERVATION_NONE
 
 
-# req: user_guide/orchestration/preservation-mode-precedence
+# req: user_guide/orchestration/preservation-mode-precedence, user_guide/object_context/preservation-modes
 @pytest.mark.parametrize(
     "env_value",
     [
@@ -55,6 +55,7 @@ async def test_create_job_persists_preservation_mode(orch_ctx):
     assert db_job.preservation_mode == PRESERVATION_FULL
 
 
+# req: user_guide/object_context/preservation-modes
 async def test_create_job_env_default_applied(orch_ctx, monkeypatch):
     monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "FULL")
     job = await create_job(

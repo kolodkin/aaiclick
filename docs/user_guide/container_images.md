@@ -198,6 +198,7 @@ docker run \
   python -m aaiclick execution-worker start
 ```
 
+<!-- req: dispatching-worker-refuses-chdb -->
 A dispatching worker needs a ClickHouse server; with chdb it refuses to start.
 
 The image runs as non-root `aaiclick`: add the container to the socket's group

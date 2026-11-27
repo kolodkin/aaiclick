@@ -57,6 +57,7 @@ async def _start_run(task_id: int) -> None:
     await register_run(task_id)
 
 
+# req: user_guide/orchestration/cancel-job
 async def test_cancel_pending_job(orch_ctx):
     """Cancelling a PENDING job closes the job at once; its unclaimed tasks go
     to PENDING_CANCELLED_CLEANUP, not yet terminal."""
@@ -163,6 +164,7 @@ async def test_claim_skips_cancelled_job_tasks(orch_ctx):
     assert task is None
 
 
+# req: user_guide/orchestration/cancel-job
 async def test_cancel_preserves_completed_tasks(orch_ctx):
     """Test that completed tasks are preserved when a job is cancelled."""
     worker = await register_execution_worker()

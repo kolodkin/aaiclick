@@ -410,6 +410,7 @@ def test_setup_does_not_prompt_when_not_a_tty(monkeypatch):
     assert calls == [False]
 
 
+# req: user_guide/lineage/distributed-bearer-token
 def test_token_parser_flags():
     parser = build_parser()
     args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", "write", "--expires-days", "30"])
@@ -446,6 +447,7 @@ def test_audit_parser_flags():
     )
 
 
+# req: user_guide/lineage/distributed-bearer-token
 def test_token_parser_accepts_every_scope():
     parser = build_parser()
     for level in ("read", "write", "admin"):

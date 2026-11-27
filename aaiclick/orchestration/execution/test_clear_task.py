@@ -80,6 +80,7 @@ async def test_clear_resets_target_only(orch_ctx):
     assert reset.run_epoch == 1
 
 
+# req: user_guide/orchestration/clear-task
 async def test_clear_resets_transitive_chain(orch_ctx):
     """Clearing the head of A→B→C resets all three; an unrelated task is untouched."""
     job = await create_job("clear_chain", EP)
@@ -102,6 +103,7 @@ async def test_clear_resets_transitive_chain(orch_ctx):
     assert await _status(unrelated.id) == TASK_COMPLETED
 
 
+# req: user_guide/orchestration/clear-task
 async def test_clear_leaves_upstream_untouched(orch_ctx):
     """Clearing the middle of A→B→C resets B and C but leaves A completed."""
     job = await create_job("clear_middle", EP)
@@ -167,6 +169,7 @@ async def test_clear_task_to_group_resets_group_members(orch_ctx):
         assert await _status(tid) == TASK_PENDING
 
 
+# req: user_guide/orchestration/clear-task
 async def test_clear_revives_terminal_job(orch_ctx):
     """Clearing a task in a FAILED job reactivates the job to RUNNING."""
     job = await create_job("clear_revive", EP)

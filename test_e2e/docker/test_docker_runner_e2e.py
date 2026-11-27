@@ -94,6 +94,7 @@ async def test_docker_runner_jvm_fanout(orch_ctx, docker_e2e_user_repo, jvm_task
     await run_jvm_fanout_flow("docker_e2e_jvm_fanout", docker_e2e_user_repo, jvm_task_image)
 
 
+# req: user_guide/orchestration/shell-container-env
 @pytest.mark.docker_e2e
 async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
     """A shell command in a prebuilt image: no build task, and the
@@ -121,6 +122,7 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
     assert completed.status == JOB_FAILED, completed.status
 
 
+# req: user_guide/sandbox/submission-lifecycle
 @pytest.mark.docker_e2e
 async def test_docker_runner_sandbox_submission(orch_ctx, sandbox_remote, tmp_path):
     """A sandbox submission is committed into an empty remote and every ``@job``

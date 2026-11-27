@@ -35,6 +35,7 @@ async def test_shell_in_child_fails_on_nonzero(orch_ctx_no_ch):
     assert "exit" in (error or "")
 
 
+# req: user_guide/orchestration/shell-container-env
 async def test_shell_in_child_command_env_overlaid(orch_ctx_no_ch):
     cmd = ["python", "-c", "import os,sys; sys.exit(0 if os.environ.get('K')=='v' else 3)"]
     task = await _persisted_shell_task(cmd, {"K": "v"})

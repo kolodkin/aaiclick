@@ -121,7 +121,7 @@ async def test_clean_task_run_then_cleanup_drops_table(bg_db):
     assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
 
 
-# req: user_guide/object_context/preservation-modes
+# req: user_guide/object_context/preservation-modes, user_guide/lineage/dropped-tables
 async def test_cleanup_full_mode_skips_drop(bg_db):
     """Tables belonging to a FULL-mode job are preserved by cleanup."""
     await insert_job(bg_db, 777, preservation_mode="FULL")
@@ -288,7 +288,7 @@ async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
     return {row[0] for row in result.result_rows}
 
 
-# req: user_guide/orchestration/task-logs
+# req: user_guide/orchestration/task-logs, user_guide/lineage/operation-log
 async def test_delete_job_data_purges_ch_log_tables(orch_ctx, bg_db):
     """``_delete_job_data`` synchronously deletes the job's operation_log and task_logs rows, and no other job's."""
     job_id, other_job_id = 556, 557

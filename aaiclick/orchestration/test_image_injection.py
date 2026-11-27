@@ -74,6 +74,7 @@ def test_validate_plain_data_plane_accepts(kwargs):
     validate_plain_data_plane_tasks([_jvm_task(kwargs)])
 
 
+# req: user_guide/task_interface/plain-kwargs-only, user_guide/task_interface/reserved-type-key
 @pytest.mark.parametrize(
     "kwargs, image_source, match",
     [
@@ -95,6 +96,7 @@ def test_validate_plain_data_plane_rejects(kwargs, image_source, match):
         validate_plain_data_plane_tasks([_jvm_task(kwargs, image_source)])
 
 
+# req: user_guide/task_interface/plain-kwargs-only
 def test_validate_plain_data_plane_rejects_shell_object_ref():
     """Shell tasks share the jvm data plane: no Object refs, no image needed."""
     t = create_task(None, {"data": OBJECT_REF}, entry_type="shell", command=["true"])

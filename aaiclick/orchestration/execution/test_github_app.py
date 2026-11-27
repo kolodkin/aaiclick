@@ -88,6 +88,7 @@ async def test_unset_settings_return_none(monkeypatch, api):
     assert api.calls == []
 
 
+# req: user_guide/orchestration/github-app-clone
 @pytest.mark.parametrize(
     "present, missing",
     [
@@ -103,6 +104,7 @@ async def test_half_configured_raises_whatever_the_remote(monkeypatch, api, pres
         await git_auth_env("https://gitlab.com/o/r.git")
 
 
+# req: user_guide/orchestration/github-app-clone
 @pytest.mark.parametrize(
     "remote, repo_path",
     [
@@ -120,6 +122,7 @@ async def test_github_remotes_are_recognised(app_env, api, remote, repo_path):
     assert api.calls[0][:2] == ("GET", f"/repos/{repo_path}/installation")
 
 
+# req: user_guide/orchestration/github-app-clone
 @pytest.mark.parametrize(
     "remote",
     [
@@ -143,6 +146,7 @@ async def test_other_remotes_get_no_token(app_env, api, remote):
     assert api.calls == []
 
 
+# req: user_guide/orchestration/github-app-clone
 async def test_token_request_is_scoped_to_the_repo_read_only(app_env, api, private_key):
     await git_auth_env("https://github.com/o/r.git")
 
@@ -167,6 +171,7 @@ async def test_overlay_for_https_remote(app_env, api):
     assert helper.startswith("!") and "AAICLICK_GIT_TOKEN" in helper and TOKEN not in helper
 
 
+# req: user_guide/orchestration/github-app-clone
 async def test_overlay_rewrites_a_non_canonical_remote_to_https(app_env, api):
     remote = "git@github.com:o/r.git"
 
@@ -230,6 +235,7 @@ def _http_error(code: int, body: bytes) -> urllib.error.HTTPError:
     return urllib.error.HTTPError("https://api.github.com/x", code, "x", Message(), io.BytesIO(body))
 
 
+# req: user_guide/orchestration/github-app-clone
 @pytest.mark.parametrize(
     "make_replies, warning",
     [

@@ -33,12 +33,14 @@ def test_resolve_pod_config_reads_env(monkeypatch):
     assert cfg == KubernetesConfig(namespace="env-ns", service_account="env-sa", image_pull_secret="env-pull")
 
 
+# req: user_guide/deployment/worker-drives-many-pods
 def test_k8s_limits_defaults(monkeypatch):
     for var in (ENV_MAX_PENDING, ENV_MAX_PENDING_TOTAL, ENV_MAX_PODS, ENV_PENDING_TIMEOUT):
         monkeypatch.delenv(var, raising=False)
     assert resolve_k8s_limits() == K8sLimits(max_pending=10, max_pending_total=40, max_pods=None, pending_timeout=900.0)
 
 
+# req: user_guide/deployment/worker-drives-many-pods
 def test_k8s_limits_total_follows_per_job(monkeypatch):
     monkeypatch.delenv(ENV_MAX_PENDING_TOTAL, raising=False)
     monkeypatch.setenv(ENV_MAX_PENDING, "3")

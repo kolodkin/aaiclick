@@ -35,6 +35,7 @@ async def _reload(row_id: int) -> SandboxFile:
     return row
 
 
+# req: user_guide/sandbox/submission-lifecycle
 async def test_pending_row_runs_every_job(orch_ctx):
     row = await _insert_row(["first", "second"])
     calls = []
@@ -53,6 +54,7 @@ async def test_pending_row_runs_every_job(orch_ctx):
     assert calls[1][0] == "sb_1_demo.second"
 
 
+# req: user_guide/sandbox/submission-lifecycle
 async def test_failure_on_second_job_keeps_first_id(orch_ctx):
     row = await _insert_row(["first", "second", "third"])
 
@@ -87,6 +89,7 @@ async def test_concurrent_steps_submit_each_job_once(orch_ctx):
     assert reloaded.status == SANDBOX_SUBMITTED and reloaded.job_ids == [1, 2]
 
 
+# req: user_guide/sandbox/submission-lifecycle
 async def test_row_is_running_while_its_jobs_are_created(orch_ctx):
     """Readers must never see the final status before the jobs exist."""
     row = await _insert_row(["first"])
