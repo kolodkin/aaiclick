@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, SCOPE_ADMIN, SCOPE_WRITE, Role, ScopeLevel
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, SCOPE_ADMIN, SCOPE_READ, SCOPE_WRITE, Role, ScopeLevel
 from aaiclick.internal_api.errors import Forbidden
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
@@ -52,6 +52,7 @@ def test_authorize_tool_forbids(enabled, principal, tags):
         authorize_tool(principal, tags)
 
 
+# req: user_guide/lineage/local-mode-no-credential
 def test_authorize_tool_local_mode_is_admin():
     """Local mode's synthetic principal (kind "none") acts as admin."""
     synthetic = Principal(user_id=None, role=ROLE_ADMIN, kind="none")
@@ -66,6 +67,7 @@ async def test_every_tool_has_exactly_one_rbac_tag():
 # --- through the HTTP mount ---------------------------------------------
 
 
+# req: user_guide/sandbox/non-admin-sandbox-only
 async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
     member = await api_token_headers(SCOPE_WRITE, role=ROLE_MEMBER)
     admin = await api_token_headers(SCOPE_ADMIN)
@@ -94,8 +96,30 @@ async def test_member_can_read_but_not_admin(orch_ctx, enabled):
         assert "'admin' scope required" in result["content"][0]["text"]
 
 
+# req: user_guide/lineage/distributed-bearer-token
 async def test_anonymous_gets_401_problem(orch_ctx, enabled):
     async with mcp_http() as client:
         res = await mcp_rpc(client, "tools/list")
     assert res.status_code == 401 and res.json()["code"] == "unauthorized"
     assert res.headers["www-authenticate"] == "Bearer"
+
+
+# req: user_guide/lineage/dropped-tables
+async def test_read_token_cannot_run_job(orch_ctx, enabled):
+    """``run_job`` is an admin tool: a read-scoped token is refused even when its owner is an admin."""
+    reader = await api_token_headers(SCOPE_READ)
+    request = {"name": "mcp_rbac_rerun", "preservation_mode": "FULL"}
+    async with mcp_http() as client:
+        res = await mcp_rpc(client, "tools/call", {"name": "run_job", "arguments": {"request": request}}, reader)
+    assert res.status_code == 200, res.text
+    result = res.json()["result"]
+    assert result["isError"] is True
+    assert "'admin' scope required" in result["content"][0]["text"]
+
+
+# req: user_guide/lineage/local-mode-no-credential
+async def test_local_mode_needs_no_credential(orch_ctx, monkeypatch):
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
+    async with mcp_http() as client:
+        names = await mcp_tool_names(client)
+    assert "run_job" in names

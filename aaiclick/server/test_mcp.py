@@ -15,6 +15,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from aaiclick.data.object_context import create_object_from_value
+from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.oplog.lineage import GraphNode, OplogGraph
 from aaiclick.oplog.query_sandbox import QueryResult, TableSchema
@@ -207,6 +208,7 @@ async def test_get_object_returns_detail(orch_ctx, mcp_client):
     assert detail.name == "mcp_obj_detail"
 
 
+# req: user_guide/lineage/lineage-tools
 async def test_lineage_graph_returns_graph(orch_ctx, mcp_client):
     async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2])
@@ -222,6 +224,7 @@ async def test_lineage_graph_returns_graph(orch_ctx, mcp_client):
     assert {n.table for n in parsed.nodes} == {a.table, b.table, concat.table}
 
 
+# req: user_guide/lineage/lineage-tools
 async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool("lineage_nodes", {"target_table": "p_mcp_revenue"})
 
@@ -230,6 +233,39 @@ async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, rev
     assert all(n.live for n in nodes)
 
 
+# req: user_guide/lineage/dropped-tables
+async def test_lineage_nodes_report_a_dropped_table_as_not_live(orch_ctx, mcp_client):
+    async with task_scope(task_id=1, job_id=1, run_id=100):
+        a = await create_object_from_value([1, 2])
+        b = await create_object_from_value([3])
+        concat = await a.concat(b)
+    await get_ch_client().command(f"DROP TABLE {a.table}")
+
+    result = await mcp_client.call_tool("lineage_nodes", {"target_table": concat.table})
+
+    live = {n["table"]: n["live"] for n in result.structured_content["result"]}
+    assert live[a.table] is False and live[b.table] is True
+
+
+# req: user_guide/lineage/direction-depth-and-skill
+async def test_lineage_tools_follow_direction_and_max_depth(orch_ctx, mcp_client):
+    async with task_scope(task_id=1, job_id=1, run_id=100):
+        a = await create_object_from_value([1])
+        b = await create_object_from_value([2])
+        c = await create_object_from_value([3])
+        ab = await a.concat(b)
+        abc = await ab.concat(c)
+
+    async def tables(target: str, **params: object) -> set[str]:
+        result = await mcp_client.call_tool("lineage_graph", {"target_table": target, **params})
+        return {n.table for n in OplogGraph.model_validate(result.structured_content).nodes}
+
+    assert await tables(a.table, direction="forward") == {a.table, ab.table, abc.table}
+    assert await tables(a.table, direction="forward", max_depth=1) == {a.table, ab.table}
+    assert await tables(abc.table, max_depth=1) == {abc.table, ab.table, c.table}
+
+
+# req: user_guide/lineage/direction-depth-and-skill
 async def test_instructions_point_to_the_skill(mcp_client):
     """The instructions stay minimal and name the skill, which covers every tool and
     lists the lineage tools in the order the agent should use them."""
@@ -242,6 +278,7 @@ async def test_instructions_point_to_the_skill(mcp_client):
     assert positions == sorted(positions)
 
 
+# req: user_guide/lineage/lineage-tools
 async def test_lineage_query_returns_query_result(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
         "lineage_query",
@@ -253,6 +290,7 @@ async def test_lineage_query_returns_query_result(orch_ctx, mcp_client, revenue_
     assert parsed.rows == [[1, 10.0], [2, 20.0]]
 
 
+# req: user_guide/lineage/lineage-query-scope
 async def test_lineage_query_rejects_out_of_scope(orch_ctx, mcp_client, revenue_lineage):
     """Invalid from internal_api surfaces as an MCP ToolError.
 
@@ -267,6 +305,7 @@ async def test_lineage_query_rejects_out_of_scope(orch_ctx, mcp_client, revenue_
         )
 
 
+# req: user_guide/lineage/lineage-tools
 async def test_lineage_schema_returns_columns(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
         "lineage_schema",

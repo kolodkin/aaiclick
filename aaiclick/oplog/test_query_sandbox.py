@@ -68,6 +68,7 @@ OUT_OF_SCOPE_TABLES: dict[str, str] = {
 }
 
 
+# req: user_guide/lineage/lineage-query-scope
 @pytest.mark.parametrize("table", OUT_OF_SCOPE_TABLES.values(), ids=list(OUT_OF_SCOPE_TABLES))
 async def test_sandboxed_select_rejects_out_of_scope_table(orch_ctx, table):
     """Every scoped-table shape aaiclick creates is rejected when out of graph.
@@ -81,6 +82,7 @@ async def test_sandboxed_select_rejects_out_of_scope_table(orch_ctx, table):
     assert table in str(exc_info.value)
 
 
+# req: user_guide/lineage/lineage-query-scope
 @pytest.mark.parametrize(
     "sql, function",
     [
@@ -114,6 +116,7 @@ async def test_sandboxed_select_rejects_table_functions(orch_ctx, sql, function)
     assert function in str(exc_info.value)
 
 
+# req: user_guide/lineage/lineage-query-scope
 @pytest.mark.parametrize(
     "sql, expected",
     [
@@ -163,6 +166,7 @@ async def test_sandboxed_select_reports_unparseable_sql(orch_ctx):
     assert exc_info.value.kind == "invalid_argument"
 
 
+# req: user_guide/lineage/lineage-tools
 async def test_sandboxed_select_happy_path_caps_rows(orch_ctx):
     mock_client = _ch_client_with_real_parser([(1, "a"), (2, "b")], ["id", "name"])
 
@@ -214,6 +218,7 @@ async def test_sandboxed_select_pins_execution_settings(orch_ctx):
     assert "limit" in settings
 
 
+# req: user_guide/lineage/lineage-query-scope
 @pytest.mark.parametrize(
     "sql",
     [
@@ -240,6 +245,7 @@ async def test_sandboxed_select_rejects_in_with_out_of_scope_table(orch_ctx, sql
     assert exc_info.value.kind == "out_of_scope"
 
 
+# req: user_guide/lineage/lineage-query-scope
 @pytest.mark.parametrize(
     "sql",
     [
@@ -376,6 +382,7 @@ async def test_sandboxed_select_accepts_valid_select(orch_ctx, sql, rows, column
     assert isinstance(result, QueryResult)
 
 
+# req: user_guide/lineage/lineage-tools
 @pytest.mark.parametrize(
     "sql",
     [

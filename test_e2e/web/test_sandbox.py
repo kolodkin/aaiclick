@@ -24,6 +24,7 @@ pytest.importorskip("playwright.sync_api")
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 
 
+# req: user_guide/sandbox/sandbox-command
 @_spa_built
 def test_sandbox_command_hidden_when_disabled(page, base_url: str) -> None:
     page.route(
@@ -37,12 +38,14 @@ def test_sandbox_command_hidden_when_disabled(page, base_url: str) -> None:
     assert page.locator(".cmd code", has_text="@sandbox").count() == 0
 
 
+# req: user_guide/sandbox/sandbox-command
 @_spa_built
 def test_sandbox_command_shown_when_enabled(page, base_url: str) -> None:
     open_page(page, base_url)
     page.locator(".cmd code", has_text="@sandbox").wait_for()
 
 
+# req: user_guide/sandbox/any-user-submits, user_guide/sandbox/submission-lifecycle
 @_spa_built
 def test_submit_shows_row_with_sha(page, base_url: str, shot) -> None:
     open_page(page, f"{base_url}/?p=%40sandbox")

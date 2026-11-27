@@ -15,6 +15,7 @@ from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.sql_context import get_sql_session
 
 
+# req: user_guide/lineage/operation-log
 async def test_oplog_writes_on_operation(orch_ctx):
     """Operations are written to operation_log with correct metadata."""
     async with task_scope(task_id=42, job_id=99, run_id=420):
@@ -80,6 +81,7 @@ def test_oplog_record_rejects_non_string_kwarg():
         oplog_record_sample("t_x", "op", kwargs={"limit": 100})  # type: ignore[dict-item]
 
 
+# req: user_guide/lineage/operation-log
 async def test_concat_records_kwargs(orch_ctx):
     """Concat records source tables as kwargs (source_0, source_1)."""
     async with task_scope(task_id=1, job_id=1, run_id=100):
