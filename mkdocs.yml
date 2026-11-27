@@ -37,6 +37,9 @@ extra_css:
 plugins:
   - search
 
+validation:
+  anchors: warn
+
 exclude_docs: |
   designs/
   drafts/

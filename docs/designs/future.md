@@ -21,6 +21,14 @@ with the v1.0.0 release.
 
 Items deferred until preconditions are met.
 
+## Sharded Joins
+
+Deferred until a sharded backend exists.
+
+The default chdb backend is single-shard, so a plain `JOIN` suffices. A future sharded backend would use `GLOBAL JOIN` and `join_algorithm` hints (`parallel_hash`, `partial_merge`, `grace_hash`); the API leaves room for a later `strategy=` kwarg.
+
+Semi / anti / asof joins are not supported yet — each needs its own semantics (left-only output schema, required `order_by`, tolerance).
+
 ## Blob Storage Support
 
 Deferred until it can be tested against real buckets — emulators (moto,

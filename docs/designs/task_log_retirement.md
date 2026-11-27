@@ -35,8 +35,8 @@ reads (latest `task_runs` row by default) work for them unchanged.
 | Kubernetes shell  | host follows `kubectl logs -f -c task`, same streaming pipe |
 | Kubernetes module | pod streams to CH itself                                    |
 
-Captured lines are tagged with their source stream (stdout → `INFO`, stderr →
-`WARNING`; the docker/kubectl wrappers preserve the split for non-TTY runs)
+Captured lines are tagged with their source stream in the `stream` column
+(`stdout` / `stderr`; the docker/kubectl wrappers keep the split for non-TTY runs)
 and written under a running `seq` offset.
 
 ## Flushing from the worker parent

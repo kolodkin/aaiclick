@@ -125,7 +125,7 @@ Reduce an array to a scalar Object.
 
 ## String/Regex Operators
 
-Pattern matching on String columns. Each method takes a `str` pattern and returns a [`LazyOperator`](#lazy-operator-results-a--b-and-asum-are-plans-not-tables) — chainable, and nameable with `.as_(name, scope=...)`.
+Pattern matching on String columns. Each method takes a `str` pattern and returns a [`LazyOperator`](#lazy-operator-results-a-b-and-asum-are-plans-not-tables) — chainable, and nameable with `.as_(name, scope=...)`.
 
 | Method           | ClickHouse Function           | Result Type | Description                   |
 |------------------|-------------------------------|-------------|-------------------------------|
@@ -737,7 +737,7 @@ await sorted_copy.data()  # returns rows sorted by amount DESC
 
 The result carries the `INSERT … SELECT` [stats()](#stats).
 
-`Schema` = "what a table is" and `ViewSchema` = "how to read it"; the registry never sees the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](object_context.md#schema-storage).
+`Schema` = "what a table is" and `ViewSchema` = "how to read it"; the registry never sees the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/object_context.md#schema-storage).
 
 !!! warning "`copy()` is not serialized across workers"
     Unlike `insert()` and `concat()`, `copy()` does not take a per-table

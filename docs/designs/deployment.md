@@ -28,8 +28,8 @@ A user-facing chart, distinct from the CI-only dependency chart in
 
 Templates: server Deployment + Service, worker Deployment (`aaiclick-kubectl`
 image), background cleanup Deployment, ServiceAccount + Role/RoleBinding
-scoped to pod create/get/list/watch/delete (what the kubernetes runner
-needs), the credentials Secret, and optional in-cluster ClickHouse + Postgres
+scoped to what the kubernetes runner needs: `pods` create/get/list/watch/delete,
+`pods/log` get, `pods/exec` create/get and `secrets` create/delete, the credentials Secret, and optional in-cluster ClickHouse + Postgres
 gated by `devDependencies.enabled` for evaluation.
 
 Migrations run as an initContainer on the server, not a helm hook:

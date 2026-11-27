@@ -247,9 +247,3 @@ colors = await create_object_from_value({"c": ["red", "blue"]})
 sizes  = await create_object_from_value({"s": ["S", "M"]})
 skus   = await colors.join(sizes, how="cross")  # 4 rows
 ```
-
-## Distributed considerations
-
-The default chdb backend is single-shard, so a plain `JOIN` suffices. A future sharded backend would use `GLOBAL JOIN` and `join_algorithm` hints (`parallel_hash`, `partial_merge`, `grace_hash`); the API leaves room for a later `strategy=` kwarg.
-
-Semi / anti / asof joins are not supported yet — each needs its own semantics (left-only output schema, required `order_by`, tolerance).

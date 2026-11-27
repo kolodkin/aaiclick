@@ -239,6 +239,10 @@ scope ladder by `ROLE_SCOPES`. Delegation is capped at what the delegator holds
 — an admin mints any scope and invites any role; a member mints up to `write`
 and cannot invite. A user created without an explicit role is a `viewer`.
 
+Every role may submit to the sandbox from a signed-in session
+(`require_session` in `aaiclick/server/routers/sandbox.py`); see
+`docs/user_guide/sandbox.md`.
+
 Local mode has no credential, so a synthetic admin stands in: `role="admin"`
 with `user_id=None`. That is why account routes needing a real user row answer
 `422` there. The first admin comes from the startup seed or the CLI — see

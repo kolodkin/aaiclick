@@ -967,7 +967,7 @@ class Object:
         ``concat`` is a union, not an orderer — the ClickHouse model: an
         insert never imposes row order; order comes from the table's key and
         a read's ``ORDER BY``. Row order is therefore undefined, as
-        everywhere (see "Row Order" in docs/user_guide/object.md). A source's
+        everywhere (see "Row Order" in docs/user_guide/ingest.md). A source's
         ``aai_id`` is copied like any other column — no regeneration, no
         insert-time sort, and the result's ``aai_id`` key gives reads the
         rows' original (creation-time) order; concatenating an object with

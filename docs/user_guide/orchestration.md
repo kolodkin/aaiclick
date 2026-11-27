@@ -115,7 +115,7 @@ Every action is available from three surfaces: Python (inside
 `async with orch_context():`), the CLI, and the REST API served by
 `local start` — default `http://127.0.0.1:5255`, interactive docs at
 `/api/v0/docs`. The MCP server exposes the same operations. In distributed
-mode the mutating REST endpoints require an admin JWT.
+mode the mutating REST endpoints require admin scope, from a session or an API token.
 
 ## Run a job
 
