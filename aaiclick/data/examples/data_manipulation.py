@@ -43,7 +43,7 @@ async def example():
 
     # Concat creates a new object
     result = await obj_a.concat(obj_b)
-    print(f"After concat: {sorted(await result.data())}")  # → [1, 2, 3, 4, 5, 6] (row order is undefined)
+    print(f"After concat: {sorted(await result.data())}")  # → [1, 2, 3, 4, 5, 6]
     print(f"Original A unchanged: {await obj_a.data()}")  # → [1, 2, 3]
     print(f"Original B unchanged: {await obj_b.data()}")  # → [4, 5, 6]
     print(f"Result is new object: {result.table != obj_a.table}")

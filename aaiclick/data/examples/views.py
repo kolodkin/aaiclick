@@ -98,13 +98,13 @@ async def example():
     view_dict_where = obj_dict_scalar.view(where="age >= 25")
     print(
         f"WHERE age >= 25: {await view_dict_where.data()}"
-    )  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
+    )  # → {'age': 30, 'id': 101, 'name': 'Alice', 'score': 95.5}
 
     # Filter by score
     view_dict_score = obj_dict_scalar.view(where="score > 90.0")
     print(
         f"WHERE score > 90.0: {await view_dict_score.data()}"
-    )  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
+    )  # → {'age': 30, 'id': 101, 'name': 'Alice', 'score': 95.5}
 
     section("Example 6: WHERE clause with dict of arrays")
 

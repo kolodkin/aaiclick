@@ -53,7 +53,7 @@ async def example():
     # Dict of scalars (single row)
     obj_dict = await create_object_from_value({"id": 1, "name": "Alice", "age": 30, "score": 95.5})
     print(f"Created from dict of scalars: {obj_dict}")
-    print(f"Values: {await obj_dict.data()}\n")  # → {'id': 1, 'name': 'Alice', 'age': 30, 'score': 95.5}
+    print(f"Values: {await obj_dict.data()}\n")  # → {'age': 30, 'id': 1, 'name': 'Alice', 'score': 95.5}
 
     # Dict of arrays (multiple rows)
     obj_dict_arrays = await create_object_from_value(
