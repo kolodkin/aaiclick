@@ -89,6 +89,7 @@ async def test_chdb_stats_fill_scan_fields_only(ctx):
     """chdb fills ``read_rows`` / ``read_bytes`` / ``elapsed_s`` and leaves the result and write counts ``None``."""
     obj = await create_object_from_value(list(range(40)))
     stats = await (await obj.copy()).stats()
+    assert stats is not None
     _assert_scanned(stats, 40)
     assert (stats.result_rows, stats.written_rows, stats.written_bytes) == (None, None, None)
 
