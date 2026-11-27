@@ -1,6 +1,6 @@
 """SQLModel tables for users, sessions, API tokens, and password resets.
 
-See docs/architecture/security.md — "Roles", "API Tokens".
+See docs/architecture/security.md — "Roles"; docs/designs/auth.md — "API Tokens".
 """
 
 from __future__ import annotations

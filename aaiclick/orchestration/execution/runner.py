@@ -1,6 +1,6 @@
 """Task execution utilities for orchestration backend.
 
-See docs/architecture/contracts.md — "Vocabulary", "Returned tasks and handles", "Where it runs".
+See docs/architecture/contracts.md — "Vocabulary", "Returned tasks and handles"; docs/designs/task_interface.md — "Where it runs".
 """
 
 from __future__ import annotations

@@ -172,7 +172,7 @@ Today `create_object_from_url`, `insert_from_url` and `export` take
 Not a credential mechanism: ClickHouse checks
 `s3_allow_server_credentials_in_user_queries` on every read, and a per-Object
 value would let any caller lend themselves the server's identity
-(`docs/designs/blob_storage.md` — "Credentials").
+(`docs/architecture/security.md` — "Credentials").
 
 **When to revisit**: when a workload needs per-query tuning (memory limits,
 format or inference settings) that a connection default cannot express.

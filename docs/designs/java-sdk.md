@@ -13,7 +13,7 @@ writes its return value to `out.json`. No database, no runner env.
 # Architecture
 
 `jvm` is the third row of the entry-type/layers table in
-`docs/designs/orchestration.md` ("Execution layers"): the layer-2 runner
+`docs/architecture/topology.md` ("Execution layers"): the layer-2 runner
 invocation is the image's own `ENTRYPOINT` (the SDK shim) plus the class
 name as its one argument, and layer-3 is the shim reflecting and invoking
 the `@AaiTask` method.

@@ -5,8 +5,7 @@ silently never runs.
 """
 
 import re
-from fnmatch import fnmatch
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -27,7 +26,9 @@ def all_test_files() -> list[str]:
 
 def covers(entry: str, path: str) -> bool:
     if any(ch in entry for ch in "*?["):
-        return fnmatch(path, entry)
+        # like the shell glob CI uses: `*` never crosses a `/`
+        p, e = PurePosixPath(path), PurePosixPath(entry)
+        return len(p.parts) == len(e.parts) and p.match(entry)
     if entry.endswith("/"):
         return path.startswith(entry)
     return path == entry
@@ -37,3 +38,16 @@ def test_every_test_file_is_in_a_ci_group():
     entries = ci_test_paths()
     uncovered = [p for p in all_test_files() if not any(covers(entry, p) for entry in entries)]
     assert uncovered == []
+
+
+@pytest.mark.parametrize(
+    ("entry", "path", "expected"),
+    [
+        pytest.param("aaiclick/test_*.py", "aaiclick/test_cli.py", True, id="glob-root-file"),
+        pytest.param("aaiclick/test_*.py", "aaiclick/test_utils/test_x.py", False, id="glob-does-not-cross-dirs"),
+        pytest.param("aaiclick/sandbox/", "aaiclick/sandbox/test_parse.py", True, id="directory"),
+        pytest.param("aaiclick/test_cli.py", "aaiclick/test_cli.py", True, id="exact-file"),
+    ],
+)
+def test_covers_matches_like_the_ci_shell(entry, path, expected):
+    assert covers(entry, path) is expected

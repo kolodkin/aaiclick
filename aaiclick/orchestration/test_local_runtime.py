@@ -9,6 +9,7 @@ helper's only production caller.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock
 
@@ -23,6 +24,7 @@ from aaiclick.testing import reset_test_state, until
 
 from . import local_runtime as lr
 from . import sql_context
+from .execution import execution_worker as ew
 from .factories import create_job
 from .fixtures.sample_tasks import simple_task
 from .jobs.queries import get_tasks_for_job
@@ -177,6 +179,38 @@ async def test_local_runtime_shutdown_never_cancels_a_driver_call(monkeypatch):
         await asyncio.wait_for(in_driver.wait(), 10)
 
     assert cancelled_in_driver == []
+
+
+# req: designs/orchestration/stop-between-iterations
+async def test_local_runtime_cancelled_while_stopping_still_cancels_its_worker(monkeypatch):
+    """A lifespan cancelled during the stop grace period (server cancel, Ctrl-C)
+    must still cancel and await its worker, not leave it running against a
+    disposed engine."""
+    if not is_local():
+        pytest.skip("the local runtime runs only on chdb + SQLite")
+    async with reset_test_state(orch_context(), reset_sql=True):
+        pass
+    busy = asyncio.Event()
+
+    async def slow_claim(execution_worker_id):
+        busy.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(ew, "claim_next_task", slow_claim)
+
+    async def run() -> None:
+        async with lr.local_runtime():
+            await busy.wait()
+
+    outer = asyncio.create_task(run())
+    await asyncio.wait_for(busy.wait(), 10)
+    await asyncio.sleep(0.1)  # the block has exited and waits on the busy worker
+    outer.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await outer
+
+    pending = [t for t in asyncio.all_tasks() if t.get_coro().__name__ == "execution_worker_main_loop"]
+    assert pending == []
 
 
 async def _scheduled_runs(registered_job_id: int) -> int:

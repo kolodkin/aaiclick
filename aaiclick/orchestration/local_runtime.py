@@ -78,10 +78,13 @@ async def local_runtime() -> AsyncIterator[None]:
                 # running (the intermittent "Server local" CI failure). Cancel only a
                 # worker still busy with a task after STOP_GRACE_S.
                 stop.set()
-                done, _ = await asyncio.wait({worker_task}, timeout=STOP_GRACE_S)
-                if not done:
-                    worker_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await worker_task
+                try:
+                    await asyncio.wait({worker_task}, timeout=STOP_GRACE_S)
+                finally:
+                    # Also reached when this block is itself cancelled mid-wait.
+                    if not worker_task.done():
+                        worker_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await worker_task
         finally:
             await background.stop()
