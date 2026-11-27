@@ -10,6 +10,7 @@ Design: [task_interface.md](https://github.com/kolodkin/aaiclick/blob/main/docs/
 
 # The contract
 
+<!-- req: io-contract -->
 | What                       | Where                                                   |
 |----------------------------|---------------------------------------------------------|
 | Your inputs                | `$AAICLICK_IO_DIR/in.json` — a JSON object of kwargs    |
@@ -17,6 +18,7 @@ Design: [task_interface.md](https://github.com/kolodkin/aaiclick/blob/main/docs/
 | Your logs                  | stdout / stderr, as usual                               |
 | Success                    | exit code 0 (`out.json` is ignored on any other exit)   |
 
+<!-- req: in-json-plain -->
 `in.json` is plain JSON: upstream results have already been resolved into
 their values. No `out.json` means no result.
 
@@ -33,6 +35,7 @@ fs.writeFileSync(`${dir}/out.json`, JSON.stringify(n * 2));
 jq '.n * 2' "$AAICLICK_IO_DIR/in.json" > "$AAICLICK_IO_DIR/out.json"
 ```
 
+<!-- req: same-files-every-runner -->
 Submit it as a shell task — on the host, in a Docker image, or in a
 Kubernetes Pod, the files work the same way:
 
@@ -40,6 +43,7 @@ Kubernetes Pod, the files work the same way:
 run_job("double", entry_type="shell", command=["node", "worker.js"], kwargs={"n": 21}, image="node:22")
 ```
 
+<!-- req: downstream-plain-value -->
 A downstream Python task receives the result as a plain value:
 
 ```python
@@ -53,6 +57,7 @@ async def report(value: int):   # 42
 Kwargs and results are JSON. Plain values are data; a dict carrying the
 reserved key `_aaiclick_type` is one of these shapes:
 
+<!-- req: vocabulary -->
 | `_aaiclick_type` | Fields                                                | Meaning                                         |
 |------------------|-------------------------------------------------------|-------------------------------------------------|
 | `upstream`       | `task_id` (int = database id; string = sibling `id`)  | Another task's result                           |
@@ -66,14 +71,17 @@ reserved key `_aaiclick_type` is one of these shapes:
 | `view`           | `table`, `view_schema`                                | A filtered `object` — Python tasks only         |
 | `pydantic`       | `type` (dotted class path), `data`                    | A Pydantic model — Python tasks only            |
 
+<!-- req: returned-refs-sibling-id -->
 Refs inside returned tasks must name a sibling `id`; a database id there fails the parent.
 
 !!! warning "`_aaiclick_type` is reserved"
+    <!-- req: reserved-type-key -->
     A dict with that key is interpreted, never passed through as data, and an
     unknown value fails the task.
 
 # Spawning tasks
 
+<!-- req: spawn-task-result -->
 Write a `task_result` to `out.json`: `data` is your result, `tasks` the
 children. Children reference each other by `id`, which the framework
 replaces with a database id.
@@ -94,6 +102,7 @@ Here `fin` runs after both workers and reads `{"values": [2, 4]}` from its
 `in.json`; `data` names `fin`, so whoever consumes this task's result waits
 for `fin` and gets its value (`6`).
 
+<!-- req: spawn-group -->
 A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
 groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
 "group_id": "g"}`) in a Python task's kwarg delivers the list of their results. Returning
@@ -101,6 +110,7 @@ a single `task`, or a list of them, works too when there is no data.
 
 # Task fields
 
+<!-- req: task-fields -->
 | Field                                   | Meaning                                                     |
 |-----------------------------------------|-------------------------------------------------------------|
 | `id`                                    | Name siblings refer to (optional)                           |
@@ -113,15 +123,18 @@ a single `task`, or a list of them, works too when there is no data.
 
 # What a task can and cannot receive
 
+<!-- req: plain-kwargs-only -->
 Only plain values and upstream results. An `Object` or Python callable in a
 shell or jvm task's kwargs is rejected at commit, or at launch when an
 upstream returned one.
 
+<!-- req: container-env-isolation -->
 Inside a container the process sees only `command_env` and
 `AAICLICK_IO_DIR` — never aaiclick's own database credentials.
 
 # Kubernetes requirements
 
+<!-- req: k8s-io-helpers -->
 Shell and jvm Pods move `in.json` / `out.json` through two small helper
 containers (`busybox:1.36`; set `AAICLICK_K8S_IO_IMAGE` on an air-gapped
 cluster), which is why the worker's Role needs `pods/exec` — see

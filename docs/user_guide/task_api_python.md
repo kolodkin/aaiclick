@@ -6,6 +6,7 @@ The `aaiclick.orchestration` package, layered on the
 
 # Types
 
+<!-- req: types -->
 | `_aaiclick_type` | Python                                   |
 |------------------|------------------------------------------|
 | `task_result`    | `TaskResult(data=…, tasks=[…])`          |
@@ -34,6 +35,7 @@ async def fan_out() -> TaskResult:
 
 # Inputs and results
 
+<!-- req: inputs-and-results -->
 Kwargs arrive deserialized: upstream results as values, `Object` / `View` /
 `BaseModel` as themselves. The return value is serialized: `None` →
 `null`, `Object` / `View` → a table ref, `BaseModel` → `pydantic`, anything

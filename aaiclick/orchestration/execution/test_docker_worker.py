@@ -33,6 +33,7 @@ def _cmdtask(**kw):
     )
 
 
+# req: user_guide/task_interface/container-env-isolation
 def test_build_docker_create_cmd_sets_io_dir_and_env_file():
     cmd = build_docker_create_cmd(
         "aaiclick-task-7-2", "img:tag", ["echo", "hi"], {"cpus": "0.5", "memory": "256m"}, "/tmp/x.env"
@@ -249,6 +250,7 @@ esac
 """
 
 
+# req: user_guide/task_interface/same-files-every-runner
 async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_path):
     """The host writes the resolved kwargs into the container, reads back what
     the command wrote to ``out.json`` and stores it as the task result; the

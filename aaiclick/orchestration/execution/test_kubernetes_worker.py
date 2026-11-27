@@ -143,6 +143,7 @@ async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
     assert pod["spec"]["containers"][0]["envFrom"] == [{"secretRef": {"name": secret["metadata"]["name"]}}]
 
 
+# req: user_guide/task_interface/container-env-isolation, user_guide/task_interface/k8s-io-helpers
 def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
     monkeypatch.setenv("AAICLICK_K8S_IO_IMAGE", "registry.local/busybox:1")
     m = build_shell_pod_manifest(
@@ -421,6 +422,7 @@ def _cp_targets(calls: list[list[str]]) -> list[str]:
     return [c[3].rsplit(":", 1)[1] for c in calls if c[1] == "cp"]
 
 
+# req: user_guide/task_interface/same-files-every-runner
 async def test_run_shell_pod_full_lifecycle(shell_pod):
     run = shell_pod.start()
     await asyncio.sleep(0)
@@ -543,6 +545,7 @@ async def test_run_shell_pod_out_json_read_failures(shell_pod, mode, expected):
     assert await shell_pod.start(image_tag=None, run_id=555) == expected
 
 
+# req: user_guide/task_interface/k8s-io-helpers
 async def test_run_shell_pod_copy_in_failure_fails_the_task(shell_pod, monkeypatch):
     """``kubectl cp`` needs ``pods/exec``; a cluster without it fails the task
     with kubectl's reason rather than parking the Pod in Init forever."""

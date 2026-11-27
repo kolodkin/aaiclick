@@ -13,7 +13,7 @@ from sqlmodel import col
 from aaiclick import create_object_from_value
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, ViewSchema
 from aaiclick.data.object import Object, View
-from aaiclick.data.object.refs import ViewRef, group_results_ref, native_ref, upstream_ref
+from aaiclick.data.object.refs import ViewRef, callable_ref, group_results_ref, native_ref, upstream_ref
 from aaiclick.data.object_context import object_context
 from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.log_models import STDOUT_STREAM
@@ -215,6 +215,13 @@ def explode_after_handoff_job():
     return task_result(data=genres, tasks=[obj, genres])
 
 
+@job("shell_to_python_job")
+def shell_to_python_job():
+    doubled = create_task(None, {"n": 21}, name="double", entry_type="shell", command=IO_DOUBLE_COMMAND)
+    echoed = echo(value=doubled)
+    return task_result(data=echoed, tasks=[doubled, echoed])
+
+
 @job("explicit_dependency_job")
 def explicit_dependency_job():
     first = first_step()
@@ -379,6 +386,7 @@ async def _completed_task(result: dict | None, group: Group | None = None) -> Ta
     return src
 
 
+# req: user_guide/task_interface/in-json-plain, user_guide/task_interface/vocabulary
 async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
     src = await _completed_task(native_ref({"a": 1}))
     resolved = await resolve_plain_kwargs(
@@ -387,6 +395,7 @@ async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
     assert resolved == {"x": {"a": 1}, "y": 2, "z": [3, {"w": 4}]}
 
 
+# req: user_guide/task_interface/plain-kwargs-only
 async def test_resolve_plain_kwargs_rejects_object_result(orch_ctx):
     """A producer that stored an Object cannot feed a shell task; this is only
     knowable at launch, after the producer ran."""
@@ -402,6 +411,7 @@ async def test_resolve_plain_kwargs_rejects_other_jobs_task(orch_ctx):
         await resolve_plain_kwargs({"x": upstream_ref(src.id)}, src.job_id + 1)
 
 
+# req: user_guide/task_interface/vocabulary
 async def test_group_results_resolve_only_within_job(orch_ctx):
     group = Group(id=get_snowflake_id(), name="g")
     src = await _completed_task(native_ref(1), group)
@@ -410,6 +420,7 @@ async def test_group_results_resolve_only_within_job(orch_ctx):
     assert await deserialize_task_params(kwargs, src.job_id + 1) == {"x": []}
 
 
+# req: user_guide/task_interface/reserved-type-key
 async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
     """``_aaiclick_type`` is reserved: an unknown value is an error, not plain data."""
     kwargs = {"x": {"_aaiclick_type": "banana", "value": 5}}
@@ -418,6 +429,7 @@ async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
         await deserialize_task_params(kwargs, job_id=0)
 
 
+# req: user_guide/task_api_python/inputs-and-results
 async def test_deserialize_task_params_object(orch_ctx):
     """Test deserializing an Object parameter."""
     await seed_registry_row("t123")
@@ -429,6 +441,7 @@ async def test_deserialize_task_params_object(orch_ctx):
     assert result["data"].table == "t123"
 
 
+# req: user_guide/task_api_python/inputs-and-results
 async def test_deserialize_task_params_view(orch_ctx):
     """Test deserializing a View parameter with constraints."""
     await seed_registry_row("t456")
@@ -452,11 +465,13 @@ async def test_deserialize_task_params_view(orch_ctx):
     assert result["data"].order_by == "value ASC"
 
 
+# req: user_guide/task_api_python/inputs-and-results
 async def test_serialize_task_result_none(orch_ctx):
     """Test serializing None result."""
     assert serialize_task_result(None, job_id=2) is None
 
 
+# req: user_guide/task_api_python/inputs-and-results
 async def test_task_object_result_round_trips(orch_ctx):
     """An Object returned by a task is stored as a reference and read back as data."""
     job = await object_result_job()
@@ -468,6 +483,7 @@ async def test_task_object_result_round_trips(orch_ctx):
         assert await result.data() == [10, 20, 30]
 
 
+# req: user_guide/task_api_python/inputs-and-results
 @pytest.mark.parametrize(
     "modifier, expected",
     [
@@ -513,6 +529,7 @@ async def test_task_lazy_result_is_materialized(orch_ctx, pipeline):
         assert await result.data() == [11, 22, 33]
 
 
+# req: user_guide/task_api_python/inputs-and-results
 @pytest.mark.parametrize(
     "value",
     [
@@ -530,6 +547,7 @@ async def test_task_native_result_round_trips(orch_ctx, value):
         assert await get_job_result(job) == value
 
 
+# req: user_guide/task_api_python/inputs-and-results
 async def test_task_pydantic_result_passes_between_tasks(orch_ctx):
     """A pydantic model result reaches a downstream task and the job result as the model."""
     job = await pydantic_handoff_job()
@@ -609,6 +627,7 @@ async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
     )
 
 
+# req: user_guide/task_interface/io-contract
 async def test_run_job_tasks_shell_task(orch_ctx):
     """A shell entry task runs in-process and flushes its output inline to CH."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo shell line"])
@@ -623,6 +642,7 @@ async def test_run_job_tasks_shell_task(orch_ctx):
     assert [line.text for line in logs.lines] == ["shell line"]
 
 
+# req: user_guide/task_interface/io-contract
 async def test_run_job_tasks_failing_shell_task(orch_ctx):
     """A shell task's nonzero exit fails the job; output is still flushed."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo boom; exit 3"])
@@ -664,6 +684,7 @@ def _shell_job_coro(name: str, command: list[str], kwargs: dict | None = None):
     return create_job(name, create_task(None, kwargs, name=name, entry_type="shell", command=command))
 
 
+# req: user_guide/task_interface/io-contract, user_guide/task_interface/same-files-every-runner
 async def test_shell_task_reads_in_json_and_writes_out_json(orch_ctx):
     job = await _shell_job_coro("shell_io", WRITE_DOUBLE, {"n": 21})
     await run_job_tasks(job)
@@ -672,6 +693,7 @@ async def test_shell_task_reads_in_json_and_writes_out_json(orch_ctx):
         assert await get_job_result(job) == 42
 
 
+# req: user_guide/task_interface/in-json-plain
 async def test_shell_task_without_out_json_has_no_result(orch_ctx):
     job = await _shell_job_coro("shell_no_out", ["true"])
     await run_job_tasks(job)
@@ -679,6 +701,7 @@ async def test_shell_task_without_out_json_has_no_result(orch_ctx):
     assert (await get_tasks_for_job(job.id))[0].result is None
 
 
+# req: user_guide/task_interface/spawn-task-result
 async def test_shell_task_out_json_spawns_children(orch_ctx):
     """A shell entry task returns a task_result dict: two shell workers and a
     finalize summing them; the entry's result is the finalize's (2 + 4 = 6)."""
@@ -715,6 +738,16 @@ async def test_shell_task_out_json_spawns_children(orch_ctx):
         assert await get_job_result(job) == 6
 
 
+# req: user_guide/task_interface/downstream-plain-value
+async def test_shell_result_reaches_python_task_as_plain_value(orch_ctx):
+    job = await shell_to_python_job()
+    await ajob_test(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with object_context():
+        assert await get_job_result(job) == 42
+
+
+# req: user_guide/task_interface/io-contract
 async def test_shell_task_nonzero_exit_ignores_out_json(orch_ctx):
     spawn = {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"]}
     cmd = [
@@ -739,6 +772,7 @@ async def test_shell_task_invalid_out_json_fails_task(orch_ctx):
 # Dict-returned DAGs (the JSON form of task_result / task / group)
 
 
+# req: user_guide/task_interface/spawn-group
 async def test_run_job_tasks_dict_return_group_results(orch_ctx):
     job = await create_job("dict_return_group", create_task(spawn_group, {"n": 1}, name="dict_return_group"))
     await run_job_tasks(job)
@@ -777,6 +811,7 @@ async def test_finish_shell_result_restores_task_context(orch_ctx):
         get_current_task_info()
 
 
+# req: user_guide/task_interface/spawn-group
 async def test_finish_shell_result_children_of_claimed_task(orch_ctx):
     """The container worker builds the claimed task with ``Task(**row)``, which
     puts it in the loop's task registry; committing its returned children must
@@ -790,6 +825,7 @@ async def test_finish_shell_result_children_of_claimed_task(orch_ctx):
 _MODULE_CHILD = {"_aaiclick_type": "task", "entry_type": "module", "entrypoint": "os.getcwd"}
 
 
+# req: user_guide/task_interface/task-fields
 @pytest.mark.parametrize(
     "child",
     [
@@ -809,6 +845,7 @@ async def test_finish_shell_result_rejects_module_child(orch_ctx, child):
 _PARENT_REMOTE = "https://git/parent.git"
 
 
+# req: user_guide/task_interface/task-fields
 @pytest.mark.parametrize(
     "remote, allow, ok",
     [
@@ -855,6 +892,7 @@ async def test_finish_shell_result_child_build_allowlist(orch_ctx, monkeypatch, 
     assert any(t.is_image_build for t in tasks)
 
 
+# req: user_guide/task_interface/vocabulary
 async def test_returned_native_kwarg_stays_literal(orch_ctx):
     """A ``native`` value is never interpreted, so an upstream-shaped dict inside it is plain data."""
     job = await _shell_job_coro("shell_native_literal", ["true"])
@@ -879,6 +917,7 @@ async def test_run_job_tasks_dict_return_native_data(orch_ctx):
         assert await get_job_result(job) == 5
 
 
+# req: user_guide/task_interface/returned-refs-sibling-id
 @pytest.mark.parametrize(
     "entry, match",
     [
@@ -1014,6 +1053,23 @@ async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):
         assert {tuple(r) for r in rows} == {("t_source", child.id), ("t_view", child.id)}
 
 
+# req: user_guide/task_api_python/types
+def test_task_call_serializes_kwargs_to_vocabulary(orch_ctx):
+    """A Task, a Group and a @task function passed as kwargs become upstream, group_results and callable refs."""
+    src = echo(value=1)
+    group = Group(name="g")
+    consumer = echo(value={"t": src, "g": group, "fn": echo, "n": 3})
+    assert consumer.kwargs == {
+        "value": {
+            "t": upstream_ref(src.id),
+            "g": group_results_ref(group.id),
+            "fn": callable_ref(echo.entrypoint),
+            "n": 3,
+        }
+    }
+
+
+# req: user_guide/task_api_python/types
 async def test_register_returned_tasks_task_result_with_data(orch_ctx):
     """TaskResult with data and tasks registers tasks and returns data."""
     job = await create_job("reg_data_test", "mod.func")

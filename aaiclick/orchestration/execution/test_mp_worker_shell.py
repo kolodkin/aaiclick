@@ -56,6 +56,7 @@ async def test_shell_in_child_streams_logs_to_clickhouse(orch_ctx_no_ch):
     assert read_logs_via_child(task.id, run.run_id) == ["first line", "second line"]
 
 
+# req: user_guide/task_interface/io-contract
 async def test_mp_shell_task_result_reaches_result_ref(orch_ctx_no_ch):
     """The child reads in.json, writes out.json, and the result rides back as
     a serialized native ref."""
