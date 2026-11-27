@@ -17,6 +17,11 @@ runs:
     - name: Install k3s
       shell: bash
       run: |
+        # ubuntu-26.04 stacks unconfined onto containerd's AppArmor profile, which then
+        # denies signals between a pod's own processes (Postgres hangs on start).
+        if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined ]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+        fi
         curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik ${{ inputs.k3s-args }}" K3S_KUBECONFIG_MODE=644 sh -
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         echo "KUBECONFIG=$KUBECONFIG" >> "$GITHUB_ENV"
