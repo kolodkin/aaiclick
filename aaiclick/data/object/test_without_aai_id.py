@@ -27,6 +27,7 @@ async def test_no_implicit_order_by_without_aai_id(ctx):
     assert obj.order_by is None
 
 
+# req: user_guide/ingest/cross-table-order-by
 async def test_cross_table_op_without_aai_id_raises(ctx):
     """Array+array between two tables with neither side carrying aai_id and
     no explicit ``order_by`` is rejected — pair stability would be
@@ -37,6 +38,7 @@ async def test_cross_table_op_without_aai_id_raises(ctx):
         _ = a + b
 
 
+# req: user_guide/ingest/cross-table-order-by
 async def test_cross_table_op_without_aai_id_works_with_explicit_order_by(ctx):
     """Wrapping both sides in ``view(order_by="value")`` satisfies the
     cross-table contract without aai_id."""
@@ -46,6 +48,7 @@ async def test_cross_table_op_without_aai_id_works_with_explicit_order_by(ctx):
     assert sorted(await result.data(order_by="value")) == [11, 22, 33]
 
 
+# req: user_guide/ingest/cross-table-order-by
 async def test_partial_aai_id_one_sided_still_requires_order_by(ctx):
     """Only one side has aai_id — the other still needs an explicit
     ``order_by`` so we never silently mis-pair rows."""
@@ -58,12 +61,14 @@ async def test_partial_aai_id_one_sided_still_requires_order_by(ctx):
     assert "aai_id" in result.schema.columns
 
 
+# req: user_guide/ingest/row-order
 async def test_view_order_by_value_recovers_value_order(ctx):
     """Without aai_id, callers can still recover sorted-by-value order."""
     obj = await create_object_from_value([3, 1, 2])
     assert await obj.view(order_by="value").data() == [1, 2, 3]
 
 
+# req: user_guide/ingest/row-order
 async def test_data_without_constraints_is_unordered(ctx):
     """Without aai_id and without an explicit order_by, ``data()`` makes no
     ordering guarantee — but the multiset of values is preserved."""
@@ -71,6 +76,7 @@ async def test_data_without_constraints_is_unordered(ctx):
     assert sorted(await obj.data()) == [1, 2, 3]
 
 
+# req: user_guide/ingest/aligned-ops-skip-order
 async def test_aggregation_works_without_aai_id(ctx):
     """Aggregations don't need pair-stability — they reduce to a scalar."""
     obj = await create_object_from_value([10, 20, 30])

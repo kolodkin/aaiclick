@@ -17,6 +17,7 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
+# req: user_guide/ingest/concat-sources
 @pytest.mark.parametrize(
     "array_a,array_b,expected_result",
     [
@@ -41,6 +42,7 @@ async def test_array_concat(ctx, array_a, array_b, expected_result):
 # =============================================================================
 
 
+# req: user_guide/ingest/concat-sources
 @pytest.mark.parametrize(
     "array,scalar_value,expected_result",
     [
@@ -64,6 +66,7 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
 # =============================================================================
 
 
+# req: user_guide/ingest/concat-sources
 @pytest.mark.parametrize(
     "array,list_value,expected_result",
     [
@@ -89,6 +92,7 @@ async def test_array_concat_with_list_value(ctx, array, list_value, expected_res
 # =============================================================================
 
 
+# req: user_guide/ingest/concat-sources
 @pytest.mark.parametrize(
     "scalar_value,array_value",
     [
@@ -112,6 +116,7 @@ async def test_scalar_concat_fails(ctx, scalar_value, array_value):
 # =============================================================================
 
 
+# req: user_guide/ingest/concat-sources
 async def test_array_concat_mixed_types(ctx):
     """Test concatenating with mixed argument types (objects, scalars, lists)."""
     obj = await create_object_from_value([1, 2])
@@ -122,6 +127,7 @@ async def test_array_concat_mixed_types(ctx):
     assert sorted(data) == [1, 2, 3, 4, 5, 6]
 
 
+# req: user_guide/ingest/concat-sources
 async def test_array_concat_many_arguments(ctx):
     """Test concatenating many objects (4+) to verify variadic support."""
     obj_a = await create_object_from_value([1, 2])
@@ -301,6 +307,7 @@ async def test_concat_nested_dot_column(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/concat-compatible-types
 @pytest.mark.parametrize(
     "arr_a,arr_b",
     [
@@ -335,6 +342,7 @@ async def test_multiple_concat_keeps_all_rows(ctx):
     assert sorted(data) == [1, 2, 3, 4, 5, 6]
 
 
+# req: user_guide/ingest/concat-union
 async def test_concat_multi_arg_row_set(ctx):
     """Multi-arg concat keeps every row; order is undefined (concat is a union)."""
     obj1 = await create_object_from_value([1, 2])
@@ -346,6 +354,7 @@ async def test_concat_multi_arg_row_set(ctx):
     assert sorted(data) == [1, 2, 3, 4, 5, 6]
 
 
+# req: user_guide/ingest/concat-union
 async def test_concat_same_source_twice_preserves_all_rows(ctx):
     """Concatenating the same source twice produces the full row set."""
     obj = await create_object_from_value([1, 2])
@@ -355,6 +364,7 @@ async def test_concat_same_source_twice_preserves_all_rows(ctx):
     assert sorted(data) == [1, 1, 2, 2]
 
 
+# req: user_guide/ingest/concat-union
 async def test_concat_copies_aai_id_reads_in_creation_order(ctx):
     """concat copies source aai_id values, so reads follow id (creation) order,
     not argument order — concat is a union, not an orderer."""

@@ -7,27 +7,37 @@ cross-table operators depend on. Operators, views and aggregations are in
 
 # concat()
 
+<!-- req: concat-sources -->
 Unions any number of sources (`obj.concat(a, b, c)`, or standalone `concat(a, b, ...)`) into a new Object with one `UNION ALL` INSERT. Self must be array; args can be Objects, scalars, or lists.
 
+<!-- req: concat-union -->
 - **Union**: row order is undefined (see [Row Order](#row-order)); source `aai_id` values are copied, so reads of an `aai_id` result follow creation order, not argument order, and `concat(obj, obj)` duplicates ids
 - **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
+<!-- req: concat-compatible-types -->
 - **Compatible types**: all sources must have matching column names and compatible ClickHouse types
 
 # insert()
 
+<!-- req: insert-sources -->
 Inserts any number of sources (`obj.insert(a, b, c)`) into an existing Object, one `INSERT INTO ... SELECT CAST(...)` per source. Target must be array; sources can be Objects, scalars, or lists.
 
+<!-- req: insert-union -->
 - **Union**: same row-order and `aai_id` rules as `concat()`
+<!-- req: insert-subset-columns -->
 - **Subset columns**: sources don't need all target columns; missing ones get ClickHouse defaults
+<!-- req: insert-view-sources -->
 - **View support**: sources can be Views with `where()`, `with_columns()`, field selection, etc.
+<!-- req: insert-type-casting -->
 - **Type casting**: source column types are `CAST` to target column types
 
 # insert_from_url()
 
+<!-- req: insert-from-url -->
 Insert data from a URL into an existing Object. For `create_object_from_url()`, see [ObjectContext](object_context.md).
 
 ## Supported URL input formats
 
+<!-- req: url-formats -->
 Both functions accept any format ClickHouse's `url()` table function reads.
 Pass it explicitly with `format=...`; the file extension is not consulted.
 Headerless formats expose columns as `c1`, `c2`, …. The common ones:
@@ -74,6 +84,7 @@ await create_object_from_url(
 
 ## JSON-blob mode
 
+<!-- req: json-blob-mode -->
 For JSON APIs that wrap rows in an envelope (e.g.
 `{"vulnerabilities": [...]}`), pass `RawBLOB` or `JSONAsString` plus
 `json_path` and `json_columns`. ClickHouse loads the document as one string
@@ -104,6 +115,7 @@ where ClickHouse may fail to infer numeric types from zero rows.
 
 # Row Order
 
+<!-- req: row-order -->
 Array Objects have no implicit row order: reads return ClickHouse's natural source order, stable within a process but not across runs. For deterministic order, name the sort column:
 
 ```python
@@ -115,6 +127,7 @@ await obj.view(order_by="value").data()  # equivalent
 ```
 
 !!! warning "Cross-table array ops need `order_by`"
+    <!-- req: cross-table-order-by -->
     `a + b` between two array Objects from **different tables** raises `TypeError` unless both sides are wrapped with `.view(order_by=...)` — the join uses it as the row-pairing key.
 
 ```python
@@ -126,10 +139,12 @@ result = await (a.view(order_by="value") + b.view(order_by="value"))
 print(await result.data(order_by="value"))  # → [11, 22, 33]
 ```
 
+<!-- req: aligned-ops-skip-order -->
 Ops over the same rows (`a + a`, `v['x'] + v['y']`), scalar broadcast (`a + 10`), and aggregations align naturally and skip the contract. Fields of two different Views of one table (e.g. a `with_columns()` View and its source) still need it.
 
 # Nested Data Flattening
 
+<!-- req: nested-flattening -->
 Nested dicts and lists-of-dicts flatten to standalone columns — better
 compression, skipping indexes, and `LowCardinality` than ClickHouse
 `Map`/`Tuple`/`JSON`. pyarrow infers the schema from all records in C++
@@ -141,6 +156,7 @@ by name-parsing the column names.
 | `.`      | dict value (nested object) | 1:1         | none — extends name only   |
 | `.*.`    | list-of-dicts value        | 1:N         | adds one `Array()` wrapper |
 
+<!-- req: star-stacking -->
 Stars stack: each extra list level around a dict adds another `*` segment
 and another `Array()` wrapper.
 
@@ -156,6 +172,7 @@ obj = await create_object_from_value({"a": [[{"x": 1}], [{"x": 2}]]})
 # → column a.*.*.x (Array(Array(Int64)))
 ```
 
+<!-- req: nested-ingest-strictness -->
 Ingest raises `ValueError` for anything that cannot round-trip: mismatched
 keys across records or items, non-dict items in a list of dicts, type
 conflicts, dotted keys, and empty dicts. Columns marked `FieldSpec(nullable=True)` are
@@ -191,10 +208,12 @@ async def join(
 | `how`      | Join type. Default `"inner"`.                                                    |
 | `suffixes` | Suffixes for non-key column collisions — see [Column semantics](#column-semantics). |
 
+<!-- req: join-key-arguments -->
 Exactly one of `{on}` or `{left_on, right_on}` must be set, except `how="cross"` which forbids all three.
 
 ## Join types
 
+<!-- req: join-types -->
 | `how`    | ClickHouse keyword | Left cols nullable? | Right cols nullable? |
 |----------|--------------------|---------------------|----------------------|
 | `inner`  | `INNER JOIN`       | no                  | no                   |
@@ -207,9 +226,13 @@ Outer-join SQL is emitted with `SETTINGS join_use_nulls = 1` so misses materiali
 
 ## Column semantics
 
+<!-- req: join-key-dedup -->
 - **Key dedup**: under `on=` the key appears once under its original name; under `left_on`/`right_on` both key columns survive. `FULL` joins with `on=` coalesce the merged key across sides.
+<!-- req: join-collisions -->
 - **Collisions**: non-key columns on both sides raise `ValueError` when `suffixes` is `None` / `False` (default). `suffixes=True` means `("_l", "_r")`; a tuple like `("_x", "_y")` picks custom ones. Both sides get a suffix — empty suffixes are rejected.
+<!-- req: join-key-types -->
 - **Key types**: compared via the same type-compatibility rule as `concat` (`String` ↔ `FixedString` OK, `String` ↔ `Int64` not).
+<!-- req: join-low-cardinality -->
 - **LowCardinality / Array**: preserved; `LowCardinality(String)` on the outer side becomes `LowCardinality(Nullable(String))`. Join keys themselves must be scalar.
 - **Order**: none intrinsic — pass `data(order_by=...)` or `.view(order_by=...)`.
 

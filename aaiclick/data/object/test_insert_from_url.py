@@ -90,6 +90,7 @@ async def test_url_input_validation_raises(ctx, url, kwargs, match):
 # Headerless formats (``CSV``, ``TSV``, ``JSONCompactEachRow``) expose columns
 # as ``c1`` / ``c2`` / ``c3`` because ClickHouse has no header row to bind
 # names to — that's the natural way to consume them.
+# req: user_guide/ingest/url-formats
 @pytest.mark.parametrize(
     "filename,fmt,columns",
     [
@@ -254,6 +255,7 @@ async def test_insert_from_url_validation_raises(ctx, fileserver, url, kwargs, m
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-from-url
 async def test_insert_from_url_appends_data(ctx, fileserver):
     """insert_from_url appends data to existing Object."""
     obj = await create_object_from_url(
@@ -275,6 +277,7 @@ async def test_insert_from_url_appends_data(ctx, fileserver):
     assert final_count == 15
 
 
+# req: user_guide/ingest/insert-from-url
 async def test_insert_from_url_auto_columns(ctx, fileserver):
     """insert_from_url uses object's columns when not specified."""
     obj = await create_object_from_url(
@@ -294,6 +297,7 @@ async def test_insert_from_url_auto_columns(ctx, fileserver):
     assert len(data["price"]) == 10
 
 
+# req: user_guide/ingest/insert-from-url
 async def test_insert_from_url_with_where(ctx, fileserver):
     """insert_from_url applies WHERE filter."""
     obj = await create_object_from_url(
@@ -481,6 +485,7 @@ def json_server():
     server.server_close()
 
 
+# req: user_guide/ingest/json-blob-mode
 async def test_json_load_all_columns_and_schema(ctx, json_server):
     """Load all columns, verify data and schema."""
     obj = await create_object_from_url(
@@ -588,6 +593,7 @@ async def test_json_load_array_field(ctx, json_server):
     assert tags_by_id["A-003"] == []
 
 
+# req: user_guide/ingest/json-blob-mode
 async def test_json_load_json_as_string_format(ctx, json_server):
     """JSONAsString format also works for JSON mode."""
     obj = await create_object_from_url(
@@ -601,6 +607,7 @@ async def test_json_load_json_as_string_format(ctx, json_server):
     assert len(data) == 3
 
 
+# req: user_guide/ingest/json-blob-mode
 async def test_json_nested_path_extracts_array(ctx, json_server):
     """A dotted json_path walks the envelope to reach a nested array."""
     obj = await create_object_from_url(
@@ -614,6 +621,7 @@ async def test_json_nested_path_extracts_array(ctx, json_server):
     assert sorted(data) == ["analyzed", "modified"]
 
 
+# req: user_guide/ingest/json-blob-mode
 async def test_json_dotted_columns_walk_nested_fields(ctx, json_server):
     """Dotted json_columns keys extract nested item fields; data() re-nests them."""
     obj = await create_object_from_url(

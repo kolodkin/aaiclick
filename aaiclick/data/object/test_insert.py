@@ -90,6 +90,7 @@ def test_are_types_castable(left, right, expected):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-sources, user_guide/ingest/insert-union
 @pytest.mark.parametrize(
     "array_a,array_b,expected_result",
     [
@@ -116,6 +117,7 @@ async def test_array_insert(ctx, array_a, array_b, expected_result):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-sources
 @pytest.mark.parametrize(
     "array,scalar_value,expected_result",
     [
@@ -139,6 +141,7 @@ async def test_array_insert_with_scalar_value(ctx, array, scalar_value, expected
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-sources
 @pytest.mark.parametrize(
     "array,list_value,expected_result",
     [
@@ -164,6 +167,7 @@ async def test_array_insert_with_list_value(ctx, array, list_value, expected_res
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-sources
 async def test_insert_modifies_in_place(ctx):
     """Test that insert modifies the original object in place."""
     obj = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -181,6 +185,7 @@ async def test_insert_modifies_in_place(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-sources
 async def test_multiple_inserts(ctx):
     """Test multiple consecutive inserts."""
     obj = await create_object_from_value([1, 2], aai_id=True)
@@ -198,6 +203,7 @@ async def test_multiple_inserts(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-sources
 @pytest.mark.parametrize(
     "scalar_value,array_value",
     [
@@ -221,6 +227,7 @@ async def test_scalar_insert_fails(ctx, scalar_value, array_value):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-sources
 async def test_array_insert_multiple_objects(ctx):
     """Test inserting multiple objects with *args."""
     obj_a = await create_object_from_value([1, 2], aai_id=True)
@@ -233,6 +240,7 @@ async def test_array_insert_multiple_objects(ctx):
     assert data == [1, 2, 3, 4, 5, 6]
 
 
+# req: user_guide/ingest/insert-sources
 async def test_array_insert_mixed_types(ctx):
     """Test inserting with mixed argument types (objects, scalars, lists)."""
     obj = await create_object_from_value([1, 2], aai_id=True)
@@ -243,6 +251,7 @@ async def test_array_insert_mixed_types(ctx):
     assert data == [1, 2, 3, 4, 5, 6]
 
 
+# req: user_guide/ingest/insert-sources
 async def test_array_insert_many_arguments(ctx):
     """Test inserting many objects (4+) to verify variadic support."""
     obj_a = await create_object_from_value([1, 2], aai_id=True)
@@ -259,6 +268,7 @@ async def test_array_insert_many_arguments(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-view-sources
 async def test_insert_view_with_where(ctx):
     """Insert a WHERE-filtered view into a target object."""
     src = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
@@ -270,6 +280,7 @@ async def test_insert_view_with_where(ctx):
     assert sorted(data) == [1, 2, 30, 40, 50]
 
 
+# req: user_guide/ingest/insert-view-sources
 async def test_insert_view_with_limit(ctx):
     """Insert a LIMIT-constrained view."""
     src = await create_object_from_value([10, 20, 30], aai_id=True)
@@ -282,6 +293,7 @@ async def test_insert_view_with_limit(ctx):
     assert 1 in data
 
 
+# req: user_guide/ingest/insert-view-sources
 async def test_insert_view_field_selection(ctx):
     """Insert a single-field view from a dict Object."""
     src = await create_object_from_value(
@@ -299,6 +311,7 @@ async def test_insert_view_field_selection(ctx):
     assert sorted(data) == [1, 2, 10, 20, 30]
 
 
+# req: user_guide/ingest/insert-view-sources
 async def test_insert_view_with_computed_columns(ctx):
     """Insert a view with computed columns into a wider target."""
     src = await create_object_from_value(
@@ -324,6 +337,7 @@ async def test_insert_view_with_computed_columns(ctx):
     assert data["active"] == [1, 1]
 
 
+# req: user_guide/ingest/insert-subset-columns
 async def test_insert_subset_columns_nullable_fill(ctx):
     """Insert source with fewer columns; missing nullable columns fill NULL."""
     src = await create_object_from_value(
@@ -351,6 +365,7 @@ async def test_insert_subset_columns_nullable_fill(ctx):
     assert data["val2"] == [None, None]
 
 
+# req: user_guide/ingest/insert-subset-columns
 async def test_insert_subset_non_nullable_gets_default(ctx):
     """Insert with missing non-nullable column uses ClickHouse default."""
     src = await create_object_from_value(
@@ -397,6 +412,7 @@ async def test_insert_skips_extra_source_columns(ctx):
     assert data["id"] == ["A"]
 
 
+# req: user_guide/ingest/insert-view-sources
 async def test_insert_view_with_offset(ctx):
     """Insert a view with OFFSET."""
     src = await create_object_from_value([10, 20, 30], aai_id=True)
@@ -408,6 +424,7 @@ async def test_insert_view_with_offset(ctx):
     assert sorted(data) == [1, 2, 20, 30]
 
 
+# req: user_guide/ingest/insert-view-sources
 async def test_insert_view_with_order_by(ctx):
     """Insert a view with ORDER BY + LIMIT picks specific rows."""
     src = await create_object_from_value([30, 10, 20], aai_id=True)
@@ -419,6 +436,7 @@ async def test_insert_view_with_order_by(ctx):
     assert sorted(data) == [10, 20, 100]
 
 
+# req: user_guide/ingest/insert-view-sources
 async def test_insert_view_chained_where(ctx):
     """Insert a view with chained WHERE conditions."""
     src = await create_object_from_value([5, 10, 15, 20, 25], aai_id=True)
@@ -491,6 +509,7 @@ async def test_insert_skips_extra_source_columns_of_schema_created_source(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-type-casting
 @pytest.mark.parametrize(
     "target, source, expected",
     [
@@ -520,6 +539,7 @@ async def test_mixed_int_string_insert_fails(ctx):
         await a.insert(b)
 
 
+# req: user_guide/ingest/insert-type-casting
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -542,6 +562,7 @@ async def test_mixed_insert_float_into_int_succeeds(ctx, value, expected):
 # =============================================================================
 
 
+# req: user_guide/ingest/insert-union
 async def test_insert_same_source_twice_preserves_all_rows(ctx):
     """Inserting the same source twice produces the full row set."""
     obj_a = await create_object_from_value([1, 2])
