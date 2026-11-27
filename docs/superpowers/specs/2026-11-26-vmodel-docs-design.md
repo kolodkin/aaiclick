@@ -37,7 +37,7 @@ Anti-goals:
 
 - `mkdocs.yml` publishes `user_guide/`, Tutorial and Examples only; `designs/`, `drafts/` and the new `architecture/` and `contributor/` stay excluded.
 - CI runs `uv run mkdocs build --strict`; broken links and anchors fail it.
-- About 50 module docstrings cite design pages by quoted section title (`markdown-style`); every move updates them in the same PR.
+- About 110 code files cite design pages by quoted section title (`markdown-style`); every move updates them in the same PR.
 - No new docs dependency.
 
 # Approaches
