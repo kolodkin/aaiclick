@@ -12,7 +12,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-LAYER_PAGES = ("user_guide", "architecture", "designs")
 LAYER_TEST_ROOTS: dict[str, tuple[str, ...]] = {
     "user_guide": ("aaiclick/", "test_e2e/"),
     "architecture": ("aaiclick/", "test_e2e/"),
@@ -20,7 +19,6 @@ LAYER_TEST_ROOTS: dict[str, tuple[str, ...]] = {
 }
 TEST_GLOBS = (
     "aaiclick/**/test_*.py",
-    "aaiclick/**/examples/*.py",
     "test_e2e/**/*.py",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
@@ -31,22 +29,18 @@ TAG_RE = re.compile(r"^\s*(?:#|//)\s*req:\s*(.+)$")
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
-class Marker(NamedTuple):
+class Ref(NamedTuple):
+    """A marker on a layer page, or a tag in a test file."""
+
     id: str
     path: Path
     line: int
 
 
-class Tag(NamedTuple):
-    id: str
-    path: Path
-    line: int
-
-
-def find_markers(docs_root: Path) -> tuple[list[Marker], list[str]]:
-    markers: list[Marker] = []
+def find_markers(docs_root: Path) -> tuple[list[Ref], list[str]]:
+    markers: list[Ref] = []
     problems: list[str] = []
-    for layer in LAYER_PAGES:
+    for layer in LAYER_TEST_ROOTS:
         for page in sorted((docs_root / layer).rglob("*.md")):
             prefix = page.relative_to(docs_root).with_suffix("").as_posix()
             for n, text in enumerate(page.read_text().splitlines(), 1):
@@ -57,14 +51,14 @@ def find_markers(docs_root: Path) -> tuple[list[Marker], list[str]]:
                     continue
                 slug = match.group(1)
                 if SLUG_RE.match(slug):
-                    markers.append(Marker(f"{prefix}/{slug}", page, n))
+                    markers.append(Ref(f"{prefix}/{slug}", page, n))
                 else:
                     problems.append(f"bad slug {slug!r} at {page}:{n}")
     return markers, problems
 
 
-def find_tags(repo_root: Path) -> list[Tag]:
-    tags: list[Tag] = []
+def find_tags(repo_root: Path) -> list[Ref]:
+    tags: list[Ref] = []
     files = {p for pattern in TEST_GLOBS for p in repo_root.glob(pattern)}
     for path in sorted(files):
         if "node_modules" in path.parts:
@@ -72,7 +66,7 @@ def find_tags(repo_root: Path) -> list[Tag]:
         for n, text in enumerate(path.read_text().splitlines(), 1):
             match = TAG_RE.match(text)
             if match:
-                tags.extend(Tag(i.strip(), path, n) for i in match.group(1).split(",") if i.strip())
+                tags.extend(Ref(i.strip(), path, n) for i in match.group(1).split(",") if i.strip())
     return tags
 
 

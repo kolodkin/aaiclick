@@ -82,8 +82,7 @@ async def local_runtime() -> AsyncIterator[None]:
                     await asyncio.wait({worker_task}, timeout=STOP_GRACE_S)
                 finally:
                     # Also reached when this block is itself cancelled mid-wait.
-                    if not worker_task.done():
-                        worker_task.cancel()
+                    worker_task.cancel()  # no-op once the worker has stopped
                     with suppress(asyncio.CancelledError):
                         await worker_task
         finally:

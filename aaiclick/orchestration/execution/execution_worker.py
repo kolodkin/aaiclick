@@ -652,11 +652,10 @@ async def _execution_worker_loop(
     Returns:
         Number of tasks successfully executed.
     """
-    shutdown_requested = False
+    stop = stop or asyncio.Event()
 
     def signal_handler(signum, frame):
-        nonlocal shutdown_requested
-        shutdown_requested = True
+        stop.set()
 
     if install_signal_handlers:
         signal.signal(signal.SIGTERM, signal_handler)
@@ -680,9 +679,8 @@ async def _execution_worker_loop(
     empty_polls = 0
 
     try:
-        # ``stop`` is checked only here, between iterations, so a stopping worker
-        # never leaves a claim or a DB call half done (see local_runtime).
-        while not shutdown_requested and not (stop is not None and stop.is_set()):
+        # Checked only between iterations: a stop never interrupts a claim or DB call (see local_runtime).
+        while not stop.is_set():
             if max_tasks is not None and tasks_executed >= max_tasks:
                 break
 
@@ -700,7 +698,7 @@ async def _execution_worker_loop(
                     status = None
                 if status == EXECUTION_WORKER_STOPPING:
                     logger.info("ExecutionWorker %s received stop request", execution_worker_id)
-                    shutdown_requested = True
+                    stop.set()
                     continue
                 if status == EXECUTION_WORKER_STOPPED:
                     logger.warning("ExecutionWorker %s marked STOPPED; exiting", execution_worker_id)
@@ -710,10 +708,7 @@ async def _execution_worker_loop(
 
             if task is None:
                 empty_polls += 1
-                if stop is not None:
-                    await wait_or_timeout(stop, POLL_INTERVAL)
-                else:
-                    await asyncio.sleep(POLL_INTERVAL)
+                await wait_or_timeout(stop, POLL_INTERVAL)
                 continue
 
             empty_polls = 0

@@ -29,6 +29,7 @@ from aaiclick.data.examples import (
     nested_arrays,
     nullable,
     order_by,
+    run_all,
     statistics_ops,
     transforms,
     views,
@@ -39,9 +40,10 @@ ARROW = "# →"
 
 def expected_outputs(path: Path) -> dict[int, str]:
     """Map each commented ``print(`` call's first line to its expected text."""
-    lines = path.read_text().splitlines()
+    source = path.read_text()
+    lines = source.splitlines()
     out: dict[int, str] = {}
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
             for line in lines[node.lineno - 1 : node.end_lineno]:
                 if ARROW in line:
@@ -54,7 +56,7 @@ async def run_and_capture(module: ModuleType) -> dict[int, str]:
     printed: dict[int, str] = {}
     source = module.__file__
 
-    def record(*args: object, sep: str = " ", end: str = "\n", **_: object) -> None:
+    def record(*args: object, sep: str = " ", **_: object) -> None:
         frame = sys._getframe(1)
         if frame.f_code.co_filename == source:
             printed[frame.f_lineno] = sep.join(str(a) for a in args)
@@ -183,3 +185,13 @@ async def test_isin_example(ctx):
 # req: user_guide/ingest/row-order
 async def test_order_by_example(ctx):
     assert await check_example(order_by) == []
+
+
+def test_every_run_all_example_is_checked():
+    tested = {
+        name.removeprefix("test_").removesuffix("_example")
+        for name in globals()
+        if name.startswith("test_") and name.endswith("_example")
+    }
+    listed = {func.__module__.rsplit(".", 1)[1] for _, func in run_all.EXAMPLES}
+    assert listed == tested

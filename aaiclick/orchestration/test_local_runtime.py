@@ -37,13 +37,17 @@ class _StopEarly(Exception):
     """Ends the helper once the setup decision under test has been made."""
 
 
+local_only = pytest.mark.skipif(not is_local(), reason="the local runtime runs only on chdb + SQLite")
+_CLAIM_SQL = "UPDATE tasks SET status = ?, execution_worker_id"
+
+
 class _RaisingWorker:
     async def start(self) -> None:
         raise _StopEarly
 
 
-async def _idle_forever(**_kwargs) -> None:
-    await asyncio.Event().wait()
+async def _idle_forever(*, stop: asyncio.Event, **_kwargs) -> None:
+    await stop.wait()
 
 
 def _set_up_local_db(monkeypatch) -> None:
@@ -114,25 +118,30 @@ async def test_local_runtime_opens_one_sql_engine(monkeypatch):
 
 
 # req: designs/orchestration/stop-between-iterations
-async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatch):
+@local_only
+async def test_local_runtime_stops_its_worker_between_iterations(monkeypatch):
     """The block ends while the worker's claim has written but not committed.
-    The worker finishes that claim and runs the task before it stops, and its
-    own STOPPED write still succeeds (no "database is locked")."""
-    if not is_local():
-        pytest.skip("the local runtime runs only on chdb + SQLite")
+    The worker is stopped, not cancelled inside that SQLite call (a cancelled
+    call makes SQLAlchemy discard its connection unclosed): it finishes the
+    claim, runs the task, and its own STOPPED write succeeds."""
     async with reset_test_state(orch_context(), reset_sql=True):
         job = await create_job("claimed_at_shutdown", simple_task)
     mid_claim = asyncio.Event()
     claim_connections = []
+    cancelled_in_driver: list[str] = []
     execute = aiosqlite.core.Connection._execute
 
     async def pause_mid_claim(self, fn, *args, **kwargs):
-        if args and str(args[0]).lstrip().startswith("UPDATE tasks SET status = ?, execution_worker_id"):
+        if args and str(args[0]).lstrip().startswith(_CLAIM_SQL):
             claim_connections.append(self)
         elif self in claim_connections and fn.__name__ == "fetchall" and not mid_claim.is_set():
             # The claim has written and is reading the task back; the commit is still to come.
             mid_claim.set()
-            await asyncio.sleep(0.2)
+            try:
+                await asyncio.sleep(0.2)
+            except asyncio.CancelledError:
+                cancelled_in_driver.append(fn.__name__)
+                raise
         return await execute(self, fn, *args, **kwargs)
 
     monkeypatch.setattr(aiosqlite.core.Connection, "_execute", pause_mid_claim)
@@ -140,54 +149,18 @@ async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatc
     async with lr.local_runtime():
         await asyncio.wait_for(mid_claim.wait(), 10)
 
+    assert cancelled_in_driver == []
     async with orch_context():
         (task,) = await get_tasks_for_job(job.id)
     assert task.status == TASK_COMPLETED
 
 
 # req: designs/orchestration/stop-between-iterations
-async def test_local_runtime_shutdown_never_cancels_a_driver_call(monkeypatch):
-    """The block ends while the worker is inside a SQLite call. The worker is
-    stopped between iterations, not cancelled mid-call: a cancelled call makes
-    SQLAlchemy discard its connection unclosed, and garbage collection later
-    raises aiosqlite's ResourceWarning in whichever test is running."""
-    if not is_local():
-        pytest.skip("the local runtime runs only on chdb + SQLite")
-    async with reset_test_state(orch_context(), reset_sql=True):
-        await create_job("in_driver_at_shutdown", simple_task)
-    in_driver = asyncio.Event()
-    cancelled_in_driver: list[str] = []
-    execute = aiosqlite.core.Connection._execute
-
-    async def pause_in_driver(self, fn, *args, **kwargs):
-        if (
-            args
-            and str(args[0]).lstrip().startswith("UPDATE tasks SET status = ?, execution_worker_id")
-            and not in_driver.is_set()
-        ):
-            in_driver.set()
-            try:
-                await asyncio.sleep(0.2)
-            except asyncio.CancelledError:
-                cancelled_in_driver.append(str(args[0])[:40])
-                raise
-        return await execute(self, fn, *args, **kwargs)
-
-    monkeypatch.setattr(aiosqlite.core.Connection, "_execute", pause_in_driver)
-
-    async with lr.local_runtime():
-        await asyncio.wait_for(in_driver.wait(), 10)
-
-    assert cancelled_in_driver == []
-
-
-# req: designs/orchestration/stop-between-iterations
+@local_only
 async def test_local_runtime_cancelled_while_stopping_still_cancels_its_worker(monkeypatch):
     """A lifespan cancelled during the stop grace period (server cancel, Ctrl-C)
     must still cancel and await its worker, not leave it running against a
     disposed engine."""
-    if not is_local():
-        pytest.skip("the local runtime runs only on chdb + SQLite")
     async with reset_test_state(orch_context(), reset_sql=True):
         pass
     busy = asyncio.Event()
@@ -209,7 +182,9 @@ async def test_local_runtime_cancelled_while_stopping_still_cancels_its_worker(m
     with contextlib.suppress(asyncio.CancelledError):
         await outer
 
-    pending = [t for t in asyncio.all_tasks() if t.get_coro().__name__ == "execution_worker_main_loop"]
+    pending = [
+        t for t in asyncio.all_tasks() if getattr(t.get_coro(), "__name__", None) == "execution_worker_main_loop"
+    ]
     assert pending == []
 
 
