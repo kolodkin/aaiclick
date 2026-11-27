@@ -14,6 +14,7 @@ from aaiclick import create_object_from_value
 from aaiclick.data.object_context import object_context
 
 
+# req: user_guide/object_context/name-defaults-to-temp-named
 async def test_named_object_in_bare_object_context_is_temp_named():
     async with object_context():
         obj = await create_object_from_value([1, 2, 3], name="staging")
@@ -30,6 +31,7 @@ async def test_scope_temp_named_in_bare_object_context():
         assert obj.table.startswith("t_explicit_")
 
 
+# req: user_guide/object_context/name-defaults-to-temp-named
 async def test_temp_named_collisions_allowed_in_same_context():
     """Same ``name`` twice in one context yields two distinct tables."""
     async with object_context():
@@ -40,6 +42,7 @@ async def test_temp_named_collisions_allowed_in_same_context():
         assert b.table.startswith("t_dup_")
 
 
+# req: user_guide/object_context/persistent-scopes-need-orch
 @pytest.mark.parametrize("scope", [pytest.param("global", id="global"), pytest.param("job", id="job")])
 async def test_persistent_scope_in_bare_object_context_raises(scope):
     async with object_context():

@@ -12,6 +12,7 @@ from aaiclick.data.object_context import delete_object, get_ch_client
 # DDL and registry persistence
 
 
+# req: user_guide/object_context/no-implicit-order-column
 async def test_create_object_emits_no_aai_id_column(ctx):
     obj = await create_object_from_value([1.0, 2.0, 3.0])
     ch_client = get_ch_client()
@@ -62,6 +63,7 @@ async def test_context_object_stale_flag(ctx):
 # Stale-object guards
 
 
+# req: user_guide/object_context/stale-object-raises
 async def test_stale_object_prevents_data_access(ctx):
     """Test that stale objects prevent database access."""
     obj = await create_object_from_value([1, 2, 3])
@@ -74,6 +76,7 @@ async def test_stale_object_prevents_data_access(ctx):
         await obj.data()
 
 
+# req: user_guide/object_context/stale-object-raises
 async def test_stale_object_prevents_operators(ctx):
     """Test that stale objects prevent operator usage."""
     obj1 = await create_object_from_value([1, 2, 3])
@@ -87,6 +90,7 @@ async def test_stale_object_prevents_operators(ctx):
         await (obj1 + obj2)
 
 
+# req: user_guide/object_context/stale-object-raises
 async def test_stale_object_prevents_aggregates(ctx):
     """Test that stale objects prevent aggregate methods."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
@@ -111,6 +115,7 @@ async def test_stale_object_prevents_aggregates(ctx):
         await obj.std()
 
 
+# req: user_guide/object_context/stale-object-raises
 @pytest.mark.parametrize(
     "method, args",
     [

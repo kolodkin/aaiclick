@@ -34,6 +34,7 @@ both. URLs and setup: [Deployment — Deployment Modes](deployment.md#deployment
 Objects become **stale** when the context exits; every async method checks first.
 
 !!! warning "Create and consume Objects within the same `object_context()` block"
+    <!-- req: stale-object-raises -->
     Using a stale Object raises `RuntimeError`. Persistent objects
     (created with `name=`) survive — reopen via `open_object()`.
 
@@ -41,6 +42,7 @@ Objects become **stale** when the context exits; every async method checks first
 
 Every Object belongs to one of four scopes, identified by the table-name prefix:
 
+<!-- req: scope-prefixes -->
 | Scope        | Prefix                  | Lifetime                                          | Created by                                                  |
 |--------------|-------------------------|---------------------------------------------------|-------------------------------------------------------------|
 | `temp`       | `t_<id>`                | Dropped at `object_context()` / `task_scope` exit | Unnamed objects                                             |
@@ -48,11 +50,13 @@ Every Object belongs to one of four scopes, identified by the table-name prefix:
 | `job`        | `j_<job_id>_<name>`     | Dropped when the owning job's TTL expires         | `create_object_from_value(..., name="x", scope="job")`      |
 | `global`     | `p_<name>`              | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`   |
 
+<!-- req: name-defaults-to-temp-named -->
 With `name` and no `scope=`, the scope is `"temp_named"` everywhere: the table
 dies with the context, but `name` shows in `system.tables` for debugging. Two
 callers passing `name="staging"` get two distinct tables — the snowflake
 disambiguates.
 
+<!-- req: persistent-scopes-need-orch -->
 Persistent scopes (`"job"`, `"global"`) require an active `orch_context()`:
 they write a `table_registry` row that only the orch lifecycle maintains.
 
@@ -80,18 +84,21 @@ async with task_scope(task_id=1, job_id=42, run_id=100):
     assert shared.table == "p_cross_job_catalog"
 ```
 
+<!-- req: persistent-tables-outlive-refcount -->
 `p_*` tables are **exempt** from job-TTL cleanup, even for expired jobs.
 `j_<id>_*` tables drop only when the job expires (`AAICLICK_JOB_TTL_DAYS`), not
 by per-task refcount cleanup.
 
 # Table Schema and Structure
 
+<!-- req: no-implicit-order-column -->
 An Object's table holds only the user-declared columns — no implicit ordering
 column. Row order is opt-in: pass `data(order_by=...)` or wrap in
 `View(order_by=...)`.
 
 ## Schema Patterns
 
+<!-- req: schema-patterns -->
 | Data Type                    | Columns                | Rows     |
 |------------------------------|------------------------|----------|
 | Scalar                       | `value {type}`         | 1        |
@@ -100,6 +107,7 @@ column. Row order is opt-in: pass `data(order_by=...)` or wrap in
 | Dict of Arrays (all lists)   | `col1`, `col2`, ...    | N        |
 | Dict Mixing Scalars + Lists  | `col1`, `col2`, ...    | 1        |
 
+<!-- req: mixed-dict-is-one-record -->
 A dict routes to parallel arrays (one row per element) only when **all** values
 are lists; a mixed dict is a single record whose lists become `Array(T)`
 columns (`{"id": 1, "tags": ["a"]}` → `id` Int64, `tags` Array(String)).
@@ -116,6 +124,7 @@ return as timezone-aware `datetime(tzinfo=utc)`.
 
 # Field Specifications
 
+<!-- req: field-specs -->
 `fields=` on `create_object_from_value()` maps column names to `FieldSpec`s,
 overriding inferred properties without a full `Schema`:
 
@@ -159,10 +168,12 @@ await obj.data()  # {"a": [1, 2], "score": [0.5, None]}
 | `low_cardinality` | `False` | Wrap column type in `LowCardinality()`                         |
 | `type`            | `None`  | Override the inferred base type (`'Float32'` vs. `'Float64'`)  |
 
+<!-- req: unknown-field-raises -->
 An unknown column name in `fields` raises `ValueError`.
 
 # Table Lifecycle Tracking
 
+<!-- req: refcounted-tables -->
 Tables are reference-counted. On context exit, live Objects are decreffed and
 marked stale. Locally a table drops at refcount 0; in distributed mode the
 background worker does the cleanup. Full design:

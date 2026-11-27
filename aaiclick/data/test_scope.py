@@ -14,6 +14,7 @@ from aaiclick.data.scope import (
 )
 
 
+# req: user_guide/object_context/scope-prefixes
 @pytest.mark.parametrize(
     "table, expected",
     [
@@ -63,6 +64,7 @@ def test_temp_named_regex():
     assert not TEMP_NAMED_RE.match("t_1foo_42")
 
 
+# req: user_guide/object_context/scope-prefixes
 @pytest.mark.parametrize(
     "scope, ids, expected",
     [

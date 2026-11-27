@@ -22,6 +22,7 @@ def test_worker_decref_noop_before_start():
     worker.decref("table_456")
 
 
+# req: user_guide/object_context/refcounted-tables
 async def test_worker_refcount_drops_only_at_zero(ctx):
     """Table is dropped only when refcount reaches zero, not before."""
     ch = get_ch_client()
@@ -44,6 +45,7 @@ async def test_worker_refcount_drops_only_at_zero(ctx):
     await worker.stop()
 
 
+# req: user_guide/object_context/refcounted-tables
 async def test_worker_stop_drops_tracked_tables(ctx):
     """stop() drops every table still holding a reference."""
     ch = get_ch_client()
@@ -79,6 +81,7 @@ async def test_worker_survives_failed_drop():
     await worker.stop()
 
 
+# req: user_guide/object_context/persistent-tables-outlive-refcount
 async def test_worker_never_drops_persistent_tables(ctx):
     """``p_*`` and ``j_<id>_*`` tables survive both refcount zero and shutdown."""
     ch = get_ch_client()

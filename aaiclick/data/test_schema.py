@@ -41,6 +41,7 @@ async def test_schema_array(ctx):
     assert schema.columns["value"].type == "Int64"
 
 
+# req: user_guide/object_context/schema-patterns
 async def test_schema_dict(ctx):
     """Test schema for dict object."""
     obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]})
@@ -171,6 +172,7 @@ async def test_copied_view_schema(ctx):
 # =============================================================================
 
 
+# req: user_guide/object_context/schema-patterns
 @pytest.mark.parametrize(
     "value,expected_fieldtype,expected_type",
     [

@@ -8,6 +8,7 @@ from aaiclick.data.object_context import get_ch_client
 # --- Dict of arrays ---
 
 
+# req: user_guide/object_context/field-specs
 async def test_field_spec_nullable_dict_arrays(ctx):
     """FieldSpec(nullable=True) creates a Nullable column from dict of arrays."""
     obj = await create_object_from_value(
@@ -19,6 +20,7 @@ async def test_field_spec_nullable_dict_arrays(ctx):
     assert schema.columns["name"].nullable is False
 
 
+# req: user_guide/object_context/field-specs
 async def test_field_spec_low_cardinality_dict_arrays(ctx):
     """FieldSpec(low_cardinality=True) creates a LowCardinality column."""
     obj = await create_object_from_value(
@@ -45,6 +47,7 @@ async def test_field_spec_combined_nullable_low_cardinality(ctx):
     assert col.ch_type() == "LowCardinality(Nullable(String))"
 
 
+# req: user_guide/object_context/field-specs
 async def test_field_spec_type_override(ctx):
     """FieldSpec(type=...) overrides the inferred base type."""
     obj = await create_object_from_value(
@@ -58,6 +61,7 @@ async def test_field_spec_type_override(ctx):
 # --- Dict of scalars ---
 
 
+# req: user_guide/object_context/field-specs
 async def test_field_spec_dict_scalars(ctx):
     """FieldSpec works with dict-of-scalars input."""
     obj = await create_object_from_value(
@@ -71,6 +75,7 @@ async def test_field_spec_dict_scalars(ctx):
 # --- List of dicts (records) ---
 
 
+# req: user_guide/object_context/field-specs
 async def test_field_spec_records(ctx):
     """FieldSpec works with records (list of dicts) input."""
     obj = await create_object_from_value(
@@ -87,6 +92,7 @@ async def test_field_spec_records(ctx):
 # --- List of scalars / scalar ---
 
 
+# req: user_guide/object_context/field-specs
 @pytest.mark.parametrize(
     "value",
     [
@@ -103,6 +109,7 @@ async def test_field_spec_value_column(ctx, value):
 # --- Validation ---
 
 
+# req: user_guide/object_context/unknown-field-raises
 async def test_field_spec_unknown_column_raises(ctx):
     """FieldSpec referencing unknown column raises ValueError."""
     with pytest.raises(ValueError, match="unknown columns"):
@@ -115,6 +122,7 @@ async def test_field_spec_unknown_column_raises(ctx):
 # --- Multiple fields ---
 
 
+# req: user_guide/object_context/field-specs
 async def test_field_spec_multiple_columns(ctx):
     """Multiple FieldSpec entries apply to different columns."""
     obj = await create_object_from_value(
@@ -181,6 +189,7 @@ async def test_field_spec_nullable_arithmetic(ctx):
 # =============================================================================
 
 
+# req: user_guide/object_context/field-specs
 async def test_field_spec_nullable_admits_none_in_records(ctx):
     """A None value in a records column marked nullable ingests as NULL."""
     obj = await create_object_from_value(
@@ -193,6 +202,7 @@ async def test_field_spec_nullable_admits_none_in_records(ctx):
     assert data == {"a": [1, 2], "score": [0.5, None]}
 
 
+# req: user_guide/object_context/field-specs
 @pytest.mark.parametrize(
     "value, fields, expected",
     [
