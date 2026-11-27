@@ -111,6 +111,7 @@ def test_runner_flag_is_gone(command):
         build_parser().parse_args([command, "m.f", "--runner", "docker"])
 
 
+# req: user_guide/deployment/cli-error-line
 async def test_cli_reports_an_unexpected_error_without_a_traceback(capsys):
     with pytest.raises(SystemExit) as exc_info:
         await run_cli("run-job", "j", "--command-env", "bad")
@@ -120,6 +121,7 @@ async def test_cli_reports_an_unexpected_error_without_a_traceback(capsys):
     assert err == "error: ValueError: --command-env expects KEY=VALUE, got 'bad'\n"
 
 
+# req: user_guide/deployment/cli-error-line
 async def test_cli_debug_env_reraises_for_the_traceback(monkeypatch):
     monkeypatch.setenv("AAICLICK_DEBUG", "1")
 
@@ -464,6 +466,7 @@ def test_user_invite_parser():
     assert parser.parse_args(["user", "invite", "bob"]).role == "viewer"
 
 
+# req: user_guide/orchestration/managing_jobs/worker-commands
 async def test_execution_worker_start_rejects_bad_runner(monkeypatch, capsys):
     monkeypatch.setenv("AAICLICK_RUNNER", "podman")
     with pytest.raises(SystemExit):
@@ -471,6 +474,7 @@ async def test_execution_worker_start_rejects_bad_runner(monkeypatch, capsys):
     assert "AAICLICK_RUNNER" in capsys.readouterr().err
 
 
+# req: user_guide/orchestration/managing_jobs/worker-commands
 async def test_background_start_does_not_validate_worker_runner(monkeypatch, capsys):
     """The background worker never dispatches tasks, so AAICLICK_RUNNER is not its concern."""
     monkeypatch.setenv("AAICLICK_RUNNER", "podman")

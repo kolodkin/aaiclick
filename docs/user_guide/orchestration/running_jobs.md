@@ -199,8 +199,29 @@ override them per run.
 
 ## Preservation modes
 
-`preservation_mode` controls whether a job's intermediate tables are kept
-after the run ([ObjectContext — Preservation Modes](../object_context.md#preservation-modes)).
+<!-- req: preservation-modes -->
+A `Job`'s `preservation_mode` controls which tables survive cleanup after it
+completes; task execution is identical in both modes.
+
+| Mode         | What survives after job              | Use case                       |
+|--------------|--------------------------------------|--------------------------------|
+| `NONE`       | Persistent tables only (default)     | Production runs                |
+| `FULL`       | All tables until the job TTL expires | Development / debugging        |
+
+Set the default with `AAICLICK_DEFAULT_PRESERVATION_MODE` (`NONE` or `FULL`);
+override it per submission:
+
+```python
+from aaiclick.orchestration import PRESERVATION_FULL
+from aaiclick.orchestration.registered_jobs import run_job
+
+await run_job(
+    "debug_run",
+    "myapp.pipelines.crawl",
+    preservation_mode=PRESERVATION_FULL,
+)
+```
+
 The effective mode resolves by precedence:
 
 <!-- req: preservation-mode-precedence -->

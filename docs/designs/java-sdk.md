@@ -101,31 +101,7 @@ public class Pipeline {
 }
 ```
 
-Image contract — the `ENTRYPOINT` *is* the shim:
-
-```dockerfile
-FROM eclipse-temurin:21-jre
-COPY target/app.jar /app/app.jar
-COPY target/libs /app/libs
-ENTRYPOINT ["java", "-cp", "/app/app.jar:/app/libs/*", \
-            "io.github.kolodkin.aaiclick.task.AaiTaskShim"]
-```
-
-Submission:
-
-```python
-await internal_api.run_job(RunJobRequest(
-    name="aggregate", entry_type="jvm",
-    kwargs={"date": "2026-08-20", "window": 7},
-    image="ghcr.io/example/pipeline:1.0",
-))
-```
-
-!!! warning "Compile task classes with `-parameters`"
-    Kwargs bind by Java parameter name. Without
-    `<parameters>true</parameters>` (maven-compiler-plugin) the names compile
-    away to `arg0…` and the shim fails with an explicit message instead of
-    guessing positionally.
+Image contract, submission and the `-parameters` requirement: [Task API: Java](../user_guide/task_api_java.md#packaging-and-submission).
 
 # Testing
 

@@ -97,10 +97,3 @@ does:
 
 Jobs completed more than `AAICLICK_JOB_TTL_DAYS` ago lose all their data: CH
 tables, oplog entries, SQL metadata.
-
-# Environment Variables
-
-| Variable                             | Default | Description                                                     |
-|--------------------------------------|---------|-----------------------------------------------------------------|
-| `AAICLICK_JOB_TTL_DAYS`              | `90`    | Days after job completion before all job data is deleted.       |
-| `AAICLICK_DEFAULT_PRESERVATION_MODE` | `NONE`  | Mode for jobs that don't pass one explicitly: `NONE` or `FULL`. |

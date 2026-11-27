@@ -233,3 +233,10 @@ generation, so the databases keep their passwords:
 ```bash
 helm upgrade aaiclick oci://ghcr.io/kolodkin/charts/aaiclick --version 1.4.2 -f aaiclick-chart/values.yaml
 ```
+
+# Troubleshooting
+
+<!-- req: cli-error-line -->
+The CLI turns an unexpected exception into one `error: <Type>: <message>` line
+on stderr and exit code 1. Set `AAICLICK_DEBUG=1` to get the full traceback
+instead — include it in bug reports.

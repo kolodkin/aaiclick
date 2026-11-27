@@ -258,35 +258,13 @@ pip install aaiclick
 uvicorn aaiclick.server.app:app
 ```
 
-In **local mode** (chdb + SQLite) the lifespan starts the `BackgroundWorker` and the execution worker, so a job submitted over REST or MCP runs in the same process; there is no worker process to launch. Both workers and every request share the lifespan's `orch_context` (see `aaiclick/server/deps.py`), so a request nests into it instead of opening its own engine on `local.db`. The CLI wraps this:
-
-```bash
-python -m aaiclick local start            # workers + REST + MCP on 127.0.0.1:5255
-python -m aaiclick local start --port 9000
-python -m aaiclick local start --reload   # auto-restart on code change (dev)
-```
-
-In **distributed mode** (PostgreSQL + ClickHouse) the lifespan starts no workers; they run separately:
-
-```bash
-uvicorn aaiclick.server.app:app                   # serves REST + MCP
-python -m aaiclick execution-worker start         # one or more worker processes
-python -m aaiclick background start               # one cleanup process
-```
+In **local mode** (chdb + SQLite) the lifespan starts the `BackgroundWorker` and the execution worker, so a job submitted over REST or MCP runs in the same process; there is no worker process to launch. Both workers and every request share the lifespan's `orch_context` (see `aaiclick/server/deps.py`), so a request nests into it instead of opening its own engine on `local.db`. In **distributed mode** (PostgreSQL + ClickHouse) the lifespan starts no workers; they run as separate processes. The commands for both modes are in the user guide: [Deployment](../user_guide/deployment.md) and [Managing Jobs — Workers](../user_guide/orchestration/managing_jobs.md#workers).
 
 Host, port, workers, reload, TLS etc. are uvicorn's own flags and env vars (`UVICORN_HOST`, `UVICORN_PORT`, …); aaiclick adds no parallel `AAICLICK_SERVER_*` namespace.
 
 # Configuration
 
-The server reuses the CLI's env vars plus the auth knobs in `docs/designs/auth.md` — Configuration:
-
-| Variable              | Purpose                                             | Source                            |
-|-----------------------|-----------------------------------------------------|-----------------------------------|
-| `AAICLICK_CH_URL`     | ClickHouse connection URL                           | `aaiclick/backend.py`             |
-| `AAICLICK_SQL_URL`    | Orchestration SQL backend URL                       | `aaiclick/backend.py`             |
-| `AAICLICK_JWT_SECRET` | HS256 signing secret (required in distributed mode) | [Authentication](#authentication) |
-| `UVICORN_HOST`        | Bind host                                           | uvicorn                           |
-| `UVICORN_PORT`        | Bind port                                           | uvicorn                           |
+The server reads the CLI's env vars ([Deployment](../user_guide/deployment.md)) plus the auth knobs in `docs/designs/auth.md` — Configuration. Host, port and TLS are uvicorn's own.
 
 # Authentication
 

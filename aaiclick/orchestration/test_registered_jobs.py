@@ -331,7 +331,7 @@ async def test_run_job_inherits_registered_preservation_mode(orch_ctx, monkeypat
     assert job.preservation_mode == PRESERVATION_FULL
 
 
-# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, user_guide/object_context/preservation-modes
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, user_guide/orchestration/running_jobs/preservation-modes
 async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     await register_job(

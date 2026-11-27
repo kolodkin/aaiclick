@@ -46,6 +46,7 @@ from .execution_worker import (
 from .runner import OUTPUT_FOLLOWER_DRAIN_TIMEOUT, execute_task
 
 
+# req: user_guide/orchestration/managing_jobs/task-logs-destination
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -59,6 +60,7 @@ def test_task_logs_destination(monkeypatch, value, expected):
     assert task_logs_destination() == expected
 
 
+# req: user_guide/orchestration/managing_jobs/task-logs-destination
 def test_task_logs_destination_rejects_unknown_value(monkeypatch):
     monkeypatch.setenv("AAICLICK_TASK_LOGS", "stdout")
     with pytest.raises(ValueError, match="AAICLICK_TASK_LOGS must be one of"):

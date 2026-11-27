@@ -304,26 +304,7 @@ Links to the `RegisteredJob` matching `name` if one exists (merging `kwargs` ove
 
 **Implementation**: `aaiclick/orchestration/cli.py`
 
-**Local mode** (chdb + SQLite) — one process, no infrastructure. `local start` runs the combined REST + MCP server with the background and execution workers in the FastAPI lifespan, running setup first if needed:
-
-```bash
-python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
-# Stop with Ctrl+C / SIGTERM — the lifespan tears down workers cleanly.
-```
-
-**Distributed mode** (ClickHouse + PostgreSQL) — independent processes; tasks run in child processes for isolation:
-
-```bash
-python -m aaiclick execution-worker start [--max-tasks N]
-python -m aaiclick execution-worker stop <execution_worker_id>
-python -m aaiclick execution-worker list
-python -m aaiclick background start
-```
-
-!!! warning "`execution-worker start`/`background start` require distributed backends"
-    In local mode, use `local start` instead.
-
-Job and registry commands: [user guide](../user_guide/orchestration/index.md).
+Worker and server commands are user-facing: [Managing Jobs — Workers](../user_guide/orchestration/managing_jobs.md#workers) and [Deployment — Local mode](../user_guide/deployment.md#local-mode).
 
 # Orchestration Operators
 
@@ -497,15 +478,7 @@ Every entry type writes through one sink, so log reads hit one host-independent 
 
 Host-side following is the default for every container entry type except `module`, so a new language SDK needs no logging code. A `module` container that exits without registering a run (bootstrap failed before `execute_task`: bad DB URL, broken image) has its output copied in by the host.
 
-`AAICLICK_TASK_LOGS` picks where task output goes:
-
-| Value            | ClickHouse `task_logs` (UI log panel) | Console |
-|------------------|---------------------------------------|---------|
-| `both` (default) | yes                                   | yes     |
-| `clickhouse`     | yes                                   | no      |
-| `console`        | no                                    | yes     |
-
-Console output is printed line by line. Container output carries a `[task N]` prefix — live for followed containers, at exit for `module` containers. aaiclick's own framework logs always go to the console.
+`AAICLICK_TASK_LOGS` (where output goes) is in the [user guide](../user_guide/orchestration/managing_jobs.md#task-logs).
 
 # Configuration
 

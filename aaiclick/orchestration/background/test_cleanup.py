@@ -121,7 +121,7 @@ async def test_clean_task_run_then_cleanup_drops_table(bg_db):
     assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
 
 
-# req: user_guide/object_context/preservation-modes, user_guide/lineage/dropped-tables
+# req: user_guide/orchestration/running_jobs/preservation-modes, user_guide/lineage/dropped-tables
 async def test_cleanup_full_mode_skips_drop(bg_db):
     """Tables belonging to a FULL-mode job are preserved by cleanup."""
     await insert_job(bg_db, 777, preservation_mode="FULL")
@@ -138,7 +138,7 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     mock_ch().command.assert_not_called()
 
 
-# req: user_guide/object_context/preservation-modes
+# req: user_guide/orchestration/running_jobs/preservation-modes
 async def test_cleanup_none_mode_drops(bg_db):
     """Tables belonging to a NONE-mode job are dropped as normal."""
     await insert_job(bg_db, 888, preservation_mode="NONE")

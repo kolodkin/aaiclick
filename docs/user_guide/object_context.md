@@ -187,25 +187,4 @@ background worker does the cleanup. Full design:
 
 # Preservation Modes
 
-<!-- req: preservation-modes -->
-A `Job`'s `preservation_mode` controls which tables survive cleanup after it
-completes; task execution is identical in both modes.
-
-| Mode         | What survives after job              | Use case                       |
-|--------------|--------------------------------------|--------------------------------|
-| `NONE`       | Persistent tables only (default)     | Production runs                |
-| `FULL`       | All tables until the job TTL expires | Development / debugging        |
-
-Set the default with `AAICLICK_DEFAULT_PRESERVATION_MODE` (`NONE` or `FULL`);
-override it per submission:
-
-```python
-from aaiclick.orchestration import PRESERVATION_FULL
-from aaiclick.orchestration.registered_jobs import run_job
-
-await run_job(
-    "debug_run",
-    "myapp.pipelines.crawl",
-    preservation_mode=PRESERVATION_FULL,
-)
-```
+Which tables survive a job is set per job: [Running Jobs — Preservation modes](orchestration/running_jobs.md#preservation-modes).

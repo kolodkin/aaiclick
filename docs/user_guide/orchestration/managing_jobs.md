@@ -85,6 +85,23 @@ untouched, and a finished job is reactivated.
     curl -X POST http://127.0.0.1:5255/api/v0/tasks/<task_id>/clear
     ```
 
+# Workers
+
+<!-- req: worker-commands -->
+In distributed mode (ClickHouse + PostgreSQL) workers are independent
+processes; tasks run in child processes for isolation:
+
+```bash
+python -m aaiclick execution-worker start [--max-tasks N]
+python -m aaiclick execution-worker stop <execution_worker_id>
+python -m aaiclick execution-worker list
+python -m aaiclick background start
+```
+
+!!! warning "`execution-worker start` / `background start` require distributed backends"
+    In local mode, `local start` runs both workers inside the server — see
+    [Deployment](../deployment.md#local-mode).
+
 # Task Logs
 
 <!-- req: task-logs -->
@@ -96,6 +113,19 @@ inside the task). The UI colors lines by keyword — `error` / `exception` /
 `traceback` red, `warn` yellow, `debug` dim. Logs share
 the job's retention lifecycle. Fetch them via
 `GET /api/v0/tasks/<task_id>/logs?tail=100`.
+
+<!-- req: task-logs-destination -->
+`AAICLICK_TASK_LOGS` picks where task output goes:
+
+| Value            | ClickHouse `task_logs` (UI log panel) | Console |
+|------------------|---------------------------------------|---------|
+| `both` (default) | yes                                   | yes     |
+| `clickhouse`     | yes                                   | no      |
+| `console`        | no                                    | yes     |
+
+Console output is printed line by line. Container output carries a `[task N]`
+prefix — live for followed containers, at exit for `module` containers.
+aaiclick's own framework logs always go to the console.
 
 ## Worker logs
 

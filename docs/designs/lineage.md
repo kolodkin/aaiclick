@@ -79,17 +79,7 @@ evidence for the price of one run.
 
 # Preservation Mode
 
-| Mode   | What survives after job  | Use case                                     |
-|--------|--------------------------|----------------------------------------------|
-| `NONE` | Persistent tables only   | Production runs, Tier 1 debugging            |
-| `FULL` | All tables until job TTL | Development, Tier 2 debugging, replay target |
-
-Precedence, highest first:
-
-1. Explicit `run_job(..., preservation_mode=...)` argument
-2. `RegisteredJob.preservation_mode`
-3. `AAICLICK_DEFAULT_PRESERVATION_MODE` env var
-4. `"NONE"`
+Tier 2 replay needs a `FULL` run: `NONE` keeps only persistent tables. Modes and precedence: [Running Jobs — Preservation modes](../user_guide/orchestration/running_jobs.md#preservation-modes).
 
 # Agent Tools
 
