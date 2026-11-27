@@ -45,9 +45,7 @@ async def example():
         ]
     )
 
-    print(
-        f"\nBefore explode — scores type: {obj.schema.columns['scores'].ch_type()}"
-    )  # → Array(Int64)
+    print(f"\nBefore explode — scores type: {obj.schema.columns['scores'].ch_type()}")  # → Array(Int64)
 
     exploded = obj.explode("scores")
     print(f"After  explode — scores type: {exploded._effective_columns['scores'].ch_type()}")  # → Int64

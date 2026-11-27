@@ -58,11 +58,11 @@ async def run_and_capture(module: ModuleType) -> dict[int, str]:
         if frame.f_code.co_filename == source:
             printed[frame.f_lineno] = sep.join(str(a) for a in args)
 
-    module.print = record  # module globals shadow the builtin
+    vars(module)["print"] = record  # module globals shadow the builtin
     try:
         await module.amain()
     finally:
-        del module.print
+        del vars(module)["print"]
     return printed
 
 
@@ -86,6 +86,7 @@ async def check_example(module: ModuleType) -> list[str]:
 
 def _load(path: Path):
     spec = importlib.util.spec_from_file_location(path.stem, path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
