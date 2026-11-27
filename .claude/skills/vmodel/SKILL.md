@@ -45,4 +45,4 @@ Leave the rest untagged.
 - Docs: the `markdown-style` skill. Unbuilt behavior goes in
   `docs/designs/future.md`, not on a layer page.
 - Tests: the `python-testing-style` skill; fixtures and the chdb session
-  constraint are in `docs/designs/testing.md`.
+  constraint are in `docs/contributor/testing.md`.

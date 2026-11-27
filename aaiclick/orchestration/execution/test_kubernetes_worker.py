@@ -2,7 +2,7 @@
 
 The container-side entrypoint tests live in ``test_remote_result.py`` (its
 own module) because they boot a chdb ``orch_context()``; see the chdb
-single-session constraint in ``docs/designs/testing.md``."""
+single-session constraint in ``docs/contributor/testing.md``."""
 
 from __future__ import annotations
 

@@ -146,7 +146,7 @@ ignore = [
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "typing.TYPE_CHECKING".msg = "Restructure, or use `from __future__ import annotations` with a module import (see CLAUDE.md)."
-"sqlalchemy.ext.asyncio.create_async_engine".msg = "Use aaiclick.orchestration.sql_context.create_sql_engine (see docs/designs/testing.md)."
+"sqlalchemy.ext.asyncio.create_async_engine".msg = "Use aaiclick.orchestration.sql_context.create_sql_engine (see docs/contributor/testing.md)."
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # re-exports (CLAUDE.md forbids __all__ in __init__.py)
@@ -173,11 +173,11 @@ addopts = "-v --strict-markers"
 asyncio_mode = "auto"
 # Use one event loop per test module: matches the module-scoped orch_context
 # fixtures in aaiclick/conftest.py that keep chdb alive across tests in a
-# module (see docs/designs/testing.md).
+# module (see docs/contributor/testing.md).
 asyncio_default_fixture_loop_scope = "module"
 asyncio_default_test_loop_scope = "module"
 filterwarnings = [
     "error",
-    # clickhouse-connect 'u' type code DeprecationWarning — see docs/designs/technical_debt.md
+    # clickhouse-connect 'u' type code DeprecationWarning — see docs/contributor/technical_debt.md
     "ignore:The 'u' type code is deprecated:DeprecationWarning",
 ]

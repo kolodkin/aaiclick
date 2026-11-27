@@ -4,7 +4,7 @@ Entrypoint tests live in their own module because they exercise the same
 code path the container/Pod would run — including ``orch_context()``
 booting chdb; ``orch_ctx`` (not ``orch_ctx_no_ch``) matches a real
 container. See the chdb single-session constraint in
-``docs/designs/testing.md``.
+``docs/contributor/testing.md``.
 """
 
 from __future__ import annotations

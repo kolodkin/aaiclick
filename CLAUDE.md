@@ -12,7 +12,7 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 - Tests also run in GitHub Actions with both local and distributed backends
 - For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
 
-**Architecture**: `docs/designs/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
+**Architecture**: `docs/contributor/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
 
 # Testing
 
