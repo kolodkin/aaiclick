@@ -161,7 +161,7 @@ await sorted_copy.data()  # returns rows sorted by amount DESC
 The result carries the `INSERT … SELECT` [stats()](data_retrieval.md#stats).
 
 <!-- req: create-object-rejects-view-schema -->
-`Schema` = "what a table is" and `ViewSchema` = "how to read it"; the registry never sees the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/object_context.md#schema-storage).
+`Schema` = "what a table is" and `ViewSchema` = "how to read it"; the registry never sees the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](https://github.com/kolodkin/aaiclick/blob/main/docs/architecture/data_model.md#schema-storage).
 
 !!! warning "`copy()` is not serialized across workers"
     Unlike `insert()` and `concat()`, `copy()` does not take a per-table

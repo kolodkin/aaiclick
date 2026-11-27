@@ -1,6 +1,6 @@
 """Multiprocessing worker — runs each task in a dedicated child process.
 
-See docs/designs/orchestration.md — "Execution layers".
+See docs/architecture/topology.md — "Execution layers".
 See docs/designs/task_interface.md — "Where it runs".
 
 Architecture:

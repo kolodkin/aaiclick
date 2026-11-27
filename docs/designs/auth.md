@@ -1,28 +1,12 @@
 Authentication, Users & RBAC
 ---
 
+Scope, data model, principal resolution and roles: `docs/architecture/security.md`.
+
 aaiclick authenticates its HTTP surfaces (REST + MCP) with username/password
 users and role-based access control. The browser SPA and programmatic HTTP /
 MCP clients share one login flow; the CLI runs `internal_api` in-process and
 never crosses the HTTP auth layer.
-
-# Scope
-
-- **Users**: username + password in the orchestration SQL database, one role
-  each.
-- **Roles**: `viewer`, `member` or `admin`, held on `users.role`. No
-  per-resource ACLs or custom roles. Every gate compares **scopes**, never
-  roles — `ROLE_SCOPES` is the bridge.
-- **Sessions**: password login → short-lived access JWT + rotating refresh
-  token. One credential header everywhere: `Authorization: Bearer <access-jwt>`.
-- **API tokens**: user-minted, named, optionally expiring bearer tokens on an
-  ordered `read` < `write` < `admin` ladder, for unattended CLI / SDK / MCP
-  clients — see [API Tokens](#api-tokens).
-- **Mode-derived enforcement**: a hardcoded convention, not a flag —
-  **disabled in local mode** (single-process chdb + SQLite; open, zero-config)
-  and **enforced in distributed mode**.
-- **Optional hardening**, each configuration-driven: TOTP multi-factor auth, a
-  password-reset flow, a per-request audit log.
 
 # Configuration
 
@@ -38,69 +22,6 @@ The variables and their defaults are user-facing: [Access — Configuration](../
     `WARNING`. `local start` binds `127.0.0.1` by default, and the server answers
     only allowed `Host` headers — see [DNS Rebinding](../user_guide/dns_rebinding.md).
     `--host 0.0.0.0` opens the server to the network with no auth.
-
-# Data Model
-
-**Implementation**: `aaiclick/auth/models.py`
-
-IDs are snowflake `BigInteger` PKs. `role` (the one `Role` literal) and `scope`
-are plain `String` columns typed with `Literal`s and validated in code (no DB
-CHECK — see CLAUDE.md, "Prefer Literal"), so widening a set is a one-line code
-change, not a constraint migration. `audit_log` lives in `aaiclick/audit/` — see
-[Audit Log](#audit-log).
-
-## `users`
-
-| Column           | Type                        | Notes                                                       |
-|------------------|-----------------------------|-------------------------------------------------------------|
-| `id`             | `BigInteger` PK (snowflake) |                                                             |
-| `username`       | `String`, unique, indexed   | Login identifier                                            |
-| `password_hash`  | `String \| None`            | bcrypt; `None` → password login impossible until a reset    |
-| `role`           | `String`, default `viewer`  | `Role` literal; `admin` runs the installation               |
-| `disabled`       | `Boolean`, default `false`  | Disabled → cannot log in                                    |
-| `email`          | `String \| None`            | Contact address                                             |
-| `totp_secret`    | `String \| None`            | Base32 TOTP seed; set by MFA setup, live once `mfa_enabled` |
-| `mfa_enabled`    | `Boolean`, default `false`  | Login demands a TOTP code                                   |
-| `totp_last_step` | `BigInteger \| None`        | Time step of the last accepted code; refuses replays        |
-| `failed_logins`  | `Integer`, default `0`      | Consecutive failed passwords or codes; reset on success     |
-| `locked_until`   | `datetime \| None`          | Login refused until then                                    |
-| `created_at`     | `datetime` (`utc_now`)      |                                                             |
-
-## `refresh_tokens`
-
-| Column       | Type                                  | Notes                                |
-|--------------|---------------------------------------|--------------------------------------|
-| `id`         | `BigInteger` PK (snowflake)           |                                      |
-| `user_id`    | `BigInteger` FK → `users.id`, indexed |                                      |
-| `token_hash` | `String`, unique, indexed             | `sha256(secret)`                     |
-| `expires_at` | `datetime`                            |                                      |
-| `rotated_at` | `datetime \| None`                    | Set when consumed by `/auth/refresh` |
-| `revoked_at` | `datetime \| None`                    | Set on logout                        |
-
-## `api_tokens`
-
-| Column         | Type                                  | Notes                                                            |
-|----------------|---------------------------------------|------------------------------------------------------------------|
-| `id`           | `BigInteger` PK (snowflake)           |                                                                  |
-| `user_id`      | `BigInteger` FK → `users.id`, indexed |                                                                  |
-| `name`         | `String`                              | Free-text label (`"ci-deploy"`)                                  |
-| `prefix`       | `String`                              | First 12 chars of the secret, for display                        |
-| `token_hash`   | `String`, unique, indexed             | `sha256(secret)`                                                 |
-| `scope`        | `String`                              | `ScopeLevel` literal — see [The scope ladder](#the-scope-ladder) |
-| `expires_at`   | `datetime \| None`                    | `None` → never expires                                           |
-| `last_used_at` | `datetime \| None`                    | Refreshed at most once a minute                                  |
-| `revoked_at`   | `datetime \| None`                    |                                                                  |
-| `created_at`   | `datetime` (`utc_now`)                |                                                                  |
-
-## `password_reset_tokens`
-
-| Column        | Type                                  | Notes                                      |
-|---------------|---------------------------------------|--------------------------------------------|
-| `id`          | `BigInteger` PK (snowflake)           |                                            |
-| `user_id`     | `BigInteger` FK → `users.id`, indexed |                                            |
-| `token_hash`  | `String`, unique, indexed             | `sha256(secret)`                           |
-| `expires_at`  | `datetime`                            | `AAICLICK_PASSWORD_RESET_TTL`, default 1 h |
-| `consumed_at` | `datetime \| None`                    | Single use                                 |
 
 # Module Layout
 
@@ -166,7 +87,7 @@ returns `MeView {id, username, role, mfa_enabled}` for the current principal.
 to **any** role — `/users` is admin-only, so otherwise a viewer could never
 rotate their own credential. `current_password` is required so a stolen access
 token alone cannot seize the account; a mismatch is `401`. Local mode has no
-real user (see [Roles](#roles)), so the route answers `422` there.
+real user (see [Roles](../architecture/security.md#roles)), so the route answers `422` there.
 
 ## Session revocation
 
@@ -183,61 +104,6 @@ token dead.
     token in flight. Immediate cutoff would mean a per-request DB lookup or a
     denylist, trading away that statelessness on every read. Tighten
     `AAICLICK_JWT_ACCESS_TTL` if the window matters more than refresh chatter.
-
-# Principal Resolution & RBAC
-
-**Implementation**: `aaiclick/server/auth.py`
-
-`require_principal` reads the credential with `HTTPBearer(auto_error=False)` —
-registering the `/docs` **Authorize** box, while a missing credential still
-yields the `Problem` envelope rather than FastAPI's bare `HTTPException` — and
-resolves a `Principal {user_id, role, scope, kind}`:
-
-- **Auth disabled** → the synthetic admin; all routes open.
-- **API token** (bearer starting `aaic_`) → looked up by hash; must be
-  unrevoked, unexpired, and owned by an enabled user. The owner's *current*
-  `role` is read on every request, so revocation and demotion bind instantly
-  for tokens. `kind == "token"`, `scope` is the token's.
-- **Valid access JWT** (`type="access"`, valid signature + `exp`) → `sub` and
-  `role` are trusted for the token's lifetime, so disable / demote takes full
-  effect only within one access-TTL (see
-  [Session revocation](#session-revocation)). `kind == "session"`, `scope is
-  None` — a session is unscoped, so its ceiling is its role.
-- **Otherwise** → `401` with `WWW-Authenticate: Bearer`.
-
-The resolved principal is stored on `request.state` so the audit middleware can
-attribute the request afterwards. `require_principal` only authenticates: the
-HTTP method says nothing about scope — `POST /viewer/query` and a dashboard run
-are reads, open to a `read` token.
-
-The guard a route declares is the one scope gate: `require_write` for a
-member's own mutations, `require_admin` for everything else that mutates or
-administers — jobs, objects, tasks, users, workers, audit. A test in
-`aaiclick/server/test_app.py` fails any non-safe route without a guard.
-
-# Roles
-
-**Implementation**: `aaiclick/auth/models.py`
-
-| Role     | Scope   | Holds                                                          |
-|----------|---------|----------------------------------------------------------------|
-| `viewer` | `read`  | Every read                                                     |
-| `member` | `write` | Reads, plus their own dashboards                               |
-| `admin`  | `admin` | The installation — jobs, objects, users, workers, setup, audit |
-
-Authority is a property of the user: one `users.role` column, bridged to the
-scope ladder by `ROLE_SCOPES`. Delegation is capped at what the delegator holds
-— an admin mints any scope and invites any role; a member mints up to `write`
-and cannot invite. A user created without an explicit role is a `viewer`.
-
-Every role may submit to the sandbox from a signed-in session
-(`require_session` in `aaiclick/server/routers/sandbox.py`); see
-`docs/user_guide/sandbox.md`.
-
-Local mode has no credential, so a synthetic admin stands in: `role="admin"`
-with `user_id=None`. That is why account routes needing a real user row answer
-`422` there. The first admin comes from the startup seed or the CLI — see
-[CLI & Admin Bootstrap](#cli--admin-bootstrap).
 
 # API Tokens
 

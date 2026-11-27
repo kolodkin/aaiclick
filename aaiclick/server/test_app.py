@@ -43,6 +43,7 @@ def _dependency_calls(dependant):
         yield from _dependency_calls(sub)
 
 
+# req: architecture/contracts/rest-surface
 def test_all_resource_routes_are_prefixed():
     excluded = {"/health", "/docs/oauth2-redirect"}
     for r in app.routes:
@@ -51,6 +52,7 @@ def test_all_resource_routes_are_prefixed():
         assert r.path.startswith(API_PREFIX), f"route {r.path!r} is not under {API_PREFIX}"
 
 
+# req: architecture/contracts/rest-surface
 def test_every_mutating_route_names_its_scope_guard():
     """``require_principal`` only authenticates; the guard a route declares is
     the one scope gate. So every non-safe route must carry one, or be a listed
@@ -64,6 +66,7 @@ def test_every_mutating_route_names_its_scope_guard():
         assert guards, f"{sorted(r.methods)} {r.path} declares no scope guard"
 
 
+# req: architecture/topology/server-layers
 def test_expected_routes_are_registered():
     paths = {r.path for r in app.routes if isinstance(r, Route)}
     for expected in [
@@ -91,6 +94,7 @@ async def test_health(app_client):
     assert response.json() == {"status": "ok"}
 
 
+# req: architecture/contracts/rest-surface
 async def test_openapi_schema_served_under_prefix(app_client):
     response = await app_client.get(f"{API_PREFIX}/openapi.json")
     assert response.status_code == 200
@@ -109,6 +113,7 @@ async def test_openapi_schema_served_under_prefix(app_client):
         assert model_name in schemas, f"{model_name} not in OpenAPI components.schemas"
 
 
+# req: architecture/contracts/rest-surface
 async def test_openapi_advertises_problem_responses_for_declared_routes(app_client):
     """Any route that declares a ``Problem`` response via ``problem_responses()`` must
     appear in the OpenAPI spec with the matching ``Problem`` ``$ref`` — guards against
@@ -144,7 +149,7 @@ async def no_leftover_work():
         pass
 
 
-# req: user_guide/deployment/local-start
+# req: user_guide/deployment/local-start, architecture/topology/process-topology
 async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
     """In local mode, the lifespan registers an execution ExecutionWorker row.
 
@@ -158,6 +163,7 @@ async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
         await until(lambda: list_execution_workers(status=EXECUTION_WORKER_ACTIVE), what="ACTIVE worker")
 
 
+# req: architecture/topology/server-layers
 async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, monkeypatch):
     """A request nests into the lifespan's ``orch_context`` instead of opening
     its own engine on local.db, whose fresh connections raced the shared pool."""
@@ -183,6 +189,7 @@ async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, mo
     assert spy.call_count == 1
 
 
+# req: architecture/topology/process-topology
 async def test_lifespan_distributed_mode_is_a_no_op(no_leftover_work):
     """In distributed mode, the lifespan must enter and exit cleanly without
     starting workers — workers run as separate processes there.

@@ -331,7 +331,7 @@ async def test_run_job_inherits_registered_preservation_mode(orch_ctx, monkeypat
     assert job.preservation_mode == PRESERVATION_FULL
 
 
-# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, user_guide/orchestration/running_jobs/preservation-modes
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, user_guide/orchestration/running_jobs/preservation-modes, architecture/data_model/job-driven-cleanup
 async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     await register_job(
@@ -417,7 +417,7 @@ async def test_run_job_resources_fall_back_to_registration(orch_ctx, monkeypatch
     assert job.resources == {"cpus": "2"}
 
 
-# req: user_guide/orchestration/runners/container-runners-need-distributed
+# req: user_guide/orchestration/runners/container-runners-need-distributed, architecture/topology/worker-runner, architecture/backends/backend-capabilities
 async def test_run_job_rejects_container_source_in_local_mode(orch_ctx, monkeypatch):
     monkeypatch.setattr(registered_jobs_module, "is_local", lambda: True)
     with pytest.raises(ValueError, match="distributed mode"):

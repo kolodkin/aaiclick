@@ -227,7 +227,7 @@ async def test_export_ch_settings_cannot_stop_replacing(ctx, tmp_path):
     assert Path(path).read_text().split() == ["7"]
 
 
-# req: user_guide/object/export/export-compression
+# req: user_guide/object/export/export-compression, architecture/backends/backend-capabilities
 async def test_export_bz2_is_rejected_on_chdb(ctx, tmp_path):
     obj = await create_object_from_value([1])
     with pytest.raises(ValueError, match="bz2"):

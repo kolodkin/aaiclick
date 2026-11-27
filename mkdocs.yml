@@ -43,6 +43,7 @@ validation:
 exclude_docs: |
   designs/
   contributor/
+  architecture/
   drafts/
 
 markdown_extensions:

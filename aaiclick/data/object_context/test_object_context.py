@@ -12,7 +12,7 @@ from aaiclick.data.object_context import delete_object, get_ch_client
 # DDL and registry persistence
 
 
-# req: user_guide/object_context/no-implicit-order-column
+# req: user_guide/object_context/no-implicit-order-column, architecture/data_model/no-implicit-order
 async def test_create_object_emits_no_aai_id_column(ctx):
     obj = await create_object_from_value([1.0, 2.0, 3.0])
     ch_client = get_ch_client()
@@ -40,7 +40,7 @@ async def test_create_object_allows_user_column_named_aai_id(ctx):
     assert "label" in names
 
 
-# req: user_guide/object/views/create-object-rejects-view-schema
+# req: user_guide/object/views/create-object-rejects-view-schema, architecture/data_model/schema-in-sql
 async def test_create_object_rejects_view_schema(ctx):
     """A ``ViewSchema`` says how to read a table, not what table to create."""
     obj = await create_object_from_value({"a": [1, 2]})

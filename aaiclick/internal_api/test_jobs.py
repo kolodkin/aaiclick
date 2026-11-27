@@ -117,7 +117,7 @@ async def test_get_job_not_found_raises(orch_ctx, ref):
         await jobs.get_job(ref)
 
 
-# req: user_guide/orchestration/managing_jobs/inspect-jobs
+# req: user_guide/orchestration/managing_jobs/inspect-jobs, architecture/data_model/db-models
 async def test_job_stats_structure(orch_ctx):
     created = await create_job("stats_job", _SAMPLE_TASK)
 
@@ -175,7 +175,7 @@ async def test_run_job_creates_job_with_kwargs(orch_ctx):
     assert task.kwargs == {"x": 1}
 
 
-# req: user_guide/orchestration/running_jobs/run-job-rest-name, user_guide/orchestration/running_jobs/wait-dotted-run-by-name
+# req: user_guide/orchestration/running_jobs/run-job-rest-name, user_guide/orchestration/running_jobs/wait-dotted-run-by-name, architecture/contracts/internal-api-contract
 async def test_run_job_dotted_name_splits_entrypoint(orch_ctx):
     request = RunJobRequest(name="myapp.pipelines.daily_etl")
 
@@ -186,7 +186,7 @@ async def test_run_job_dotted_name_splits_entrypoint(orch_ctx):
     assert detail.tasks[0].entrypoint == "myapp.pipelines.daily_etl"
 
 
-# req: user_guide/orchestration/running_jobs/run-job-rest-name
+# req: user_guide/orchestration/running_jobs/run-job-rest-name, architecture/contracts/internal-api-contract
 async def test_run_job_bare_name_resolves_registered_entrypoint(orch_ctx):
     """A bare name must look up the registered job's entrypoint, not reuse the name."""
     await register_job(name="my_pipeline", entrypoint=_SAMPLE_TASK)

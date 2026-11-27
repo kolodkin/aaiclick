@@ -166,7 +166,7 @@ async def test_sandboxed_select_reports_unparseable_sql(orch_ctx):
     assert exc_info.value.kind == "invalid_argument"
 
 
-# req: user_guide/lineage/lineage-tools
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
 async def test_sandboxed_select_happy_path_caps_rows(orch_ctx):
     mock_client = _ch_client_with_real_parser([(1, "a"), (2, "b")], ["id", "name"])
 
@@ -382,7 +382,7 @@ async def test_sandboxed_select_accepts_valid_select(orch_ctx, sql, rows, column
     assert isinstance(result, QueryResult)
 
 
-# req: user_guide/lineage/lineage-tools
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
 @pytest.mark.parametrize(
     "sql",
     [

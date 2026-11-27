@@ -250,7 +250,7 @@ esac
 """
 
 
-# req: user_guide/task_interface/same-files-every-runner
+# req: user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers
 async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_path):
     """The host writes the resolved kwargs into the container, reads back what
     the command wrote to ``out.json`` and stores it as the task result; the

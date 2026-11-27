@@ -49,7 +49,7 @@ def test_local_urls_derive_from_local_root(monkeypatch, tmp_path):
     assert get_ch_url() == f"chdb://{tmp_path}/chdb_data"
 
 
-# req: user_guide/deployment/internal-database
+# req: user_guide/deployment/internal-database, architecture/topology/deployment-modes
 @pytest.mark.parametrize(
     ("url", "expected"),
     [

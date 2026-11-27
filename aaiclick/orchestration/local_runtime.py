@@ -1,6 +1,6 @@
 """Local-mode worker startup/shutdown helper.
 
-See docs/designs/orchestration.md — "Topology".
+See docs/architecture/topology.md — "Topology".
 
 Used by the FastAPI lifespan in ``aaiclick.server.app`` to start the
 ``BackgroundWorker`` and the execution ``execution_worker_main_loop`` for the

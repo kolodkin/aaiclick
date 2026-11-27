@@ -1,7 +1,7 @@
 """
 aaiclick.data.object.refs - Task kwarg/result reference schema.
 
-See docs/designs/task_interface.md — "Vocabulary".
+See docs/architecture/contracts.md — "Vocabulary".
 
 Single source of truth for the tagged-dict vocabulary used to serialize
 ``Task`` kwargs and results. ``Object._serialize_ref()`` produces these

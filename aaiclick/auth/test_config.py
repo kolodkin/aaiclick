@@ -3,7 +3,7 @@ import pytest
 from aaiclick.auth import config
 
 
-# req: user_guide/deployment/deployment-modes
+# req: user_guide/deployment/deployment-modes, architecture/topology/deployment-modes, architecture/security/auth-scope
 @pytest.mark.parametrize(
     "is_local, expected",
     [

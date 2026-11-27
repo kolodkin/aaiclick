@@ -23,6 +23,7 @@ def test_import_order_independent_of_orchestration():
     assert proc.returncode == 0, proc.stderr
 
 
+# req: architecture/contracts/view-models
 @pytest.mark.parametrize(
     "model",
     [
@@ -42,6 +43,7 @@ def test_every_list_filter_bounds_its_limit(model):
         model(limit=10_000)
 
 
+# req: architecture/contracts/view-models
 @pytest.mark.parametrize(
     "model",
     [

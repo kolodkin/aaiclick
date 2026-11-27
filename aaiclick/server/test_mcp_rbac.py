@@ -52,13 +52,14 @@ def test_authorize_tool_forbids(enabled, principal, tags):
         authorize_tool(principal, tags)
 
 
-# req: user_guide/lineage/local-mode-no-credential
+# req: user_guide/lineage/local-mode-no-credential, architecture/security/auth-scope, architecture/backends/backend-capabilities
 def test_authorize_tool_local_mode_is_admin():
     """Local mode's synthetic principal (kind "none") acts as admin."""
     synthetic = Principal(user_id=None, role=ROLE_ADMIN, kind="none")
     authorize_tool(synthetic, {TAG_ADMIN})
 
 
+# req: architecture/contracts/mcp-surface
 async def test_every_tool_has_exactly_one_rbac_tag():
     tools = await mcp.list_tools(run_middleware=False)
     assert tools and all(len(t.tags & {TAG_READ, TAG_WRITE, TAG_ADMIN}) == 1 for t in tools)
@@ -67,7 +68,7 @@ async def test_every_tool_has_exactly_one_rbac_tag():
 # --- through the HTTP mount ---------------------------------------------
 
 
-# req: user_guide/sandbox/non-admin-sandbox-only
+# req: user_guide/sandbox/non-admin-sandbox-only, architecture/contracts/mcp-surface
 async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
     member = await api_token_headers(SCOPE_WRITE, role=ROLE_MEMBER)
     admin = await api_token_headers(SCOPE_ADMIN)
@@ -117,7 +118,7 @@ async def test_read_token_cannot_run_job(orch_ctx, enabled):
     assert "'admin' scope required" in result["content"][0]["text"]
 
 
-# req: user_guide/lineage/local-mode-no-credential
+# req: user_guide/lineage/local-mode-no-credential, architecture/security/auth-scope, architecture/backends/backend-capabilities
 async def test_local_mode_needs_no_credential(orch_ctx, monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     async with mcp_http() as client:

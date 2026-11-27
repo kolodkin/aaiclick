@@ -386,7 +386,7 @@ async def _completed_task(result: dict | None, group: Group | None = None) -> Ta
     return src
 
 
-# req: user_guide/task_interface/in-json-plain, user_guide/task_interface/vocabulary
+# req: user_guide/task_interface/in-json-plain, user_guide/task_interface/vocabulary, architecture/contracts/task-vocabulary
 async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
     src = await _completed_task(native_ref({"a": 1}))
     resolved = await resolve_plain_kwargs(
@@ -411,7 +411,7 @@ async def test_resolve_plain_kwargs_rejects_other_jobs_task(orch_ctx):
         await resolve_plain_kwargs({"x": upstream_ref(src.id)}, src.job_id + 1)
 
 
-# req: user_guide/task_interface/vocabulary, user_guide/orchestration/tasks_and_jobs/group-kwarg
+# req: user_guide/task_interface/vocabulary, user_guide/orchestration/tasks_and_jobs/group-kwarg, architecture/contracts/task-vocabulary
 async def test_group_results_resolve_only_within_job(orch_ctx):
     group = Group(id=get_snowflake_id(), name="g")
     src = await _completed_task(native_ref(1), group)
@@ -684,7 +684,7 @@ def _shell_job_coro(name: str, command: list[str], kwargs: dict | None = None):
     return create_job(name, create_task(None, kwargs, name=name, entry_type="shell", command=command))
 
 
-# req: user_guide/task_interface/io-contract, user_guide/task_interface/same-files-every-runner
+# req: user_guide/task_interface/io-contract, user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers
 async def test_shell_task_reads_in_json_and_writes_out_json(orch_ctx):
     job = await _shell_job_coro("shell_io", WRITE_DOUBLE, {"n": 21})
     await run_job_tasks(job)
@@ -892,7 +892,7 @@ async def test_finish_shell_result_child_build_allowlist(orch_ctx, monkeypatch, 
     assert any(t.is_image_build for t in tasks)
 
 
-# req: user_guide/task_interface/vocabulary
+# req: user_guide/task_interface/vocabulary, architecture/contracts/task-vocabulary
 async def test_returned_native_kwarg_stays_literal(orch_ctx):
     """A ``native`` value is never interpreted, so an upstream-shaped dict inside it is plain data."""
     job = await _shell_job_coro("shell_native_literal", ["true"])
@@ -917,7 +917,7 @@ async def test_run_job_tasks_dict_return_native_data(orch_ctx):
         assert await get_job_result(job) == 5
 
 
-# req: user_guide/task_interface/returned-refs-sibling-id
+# req: user_guide/task_interface/returned-refs-sibling-id, architecture/contracts/task-vocabulary
 @pytest.mark.parametrize(
     "entry, match",
     [

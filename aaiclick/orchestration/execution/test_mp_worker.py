@@ -83,7 +83,7 @@ async def test_mp_worker_main_loop_rejects_bad_runner(monkeypatch):
         await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
 
-# req: user_guide/container_images/dispatching-worker-refuses-chdb
+# req: user_guide/container_images/dispatching-worker-refuses-chdb, architecture/topology/worker-runner
 async def test_mp_worker_main_loop_rejects_chdb_with_runner(monkeypatch, tmp_path):
     """Container task logs are written from the parent, where a chdb session
     would lock every later task's child out of the database."""

@@ -1,6 +1,8 @@
 Blob Storage
 ---
 
+Credentials (secrets never in SQL): `docs/architecture/security.md`.
+
 An `Object` can point at a file in S3-compatible object storage or Azure Blob
 Storage instead of
 owning a ClickHouse table, and any Object or View can be exported to a bucket.
@@ -45,44 +47,6 @@ disk, so it raises. `s3_truncate_on_insert` follows
 
 The format comes from the extension, mapped as ClickHouse maps it (`.csv` is
 headerless `CSV`), or from `format=`, which takes any output format.
-
-# Credentials
-
-aaiclick never handles object-store secrets: no SQL it renders carries them
-(a URL with userinfo or query parameters is rejected), so the operation log
-and ClickHouse's query log stay clean. ClickHouse uses
-its own identity — `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in its
-process environment, or an IAM role.
-
-| Backend           | Behavior                                                                  |
-|-------------------|---------------------------------------------------------------------------|
-| chdb              | Reads the aaiclick process environment; no setting needed                 |
-| ClickHouse server | Refuses its ambient identity for user queries unless the profile opts in  |
-
-The server check runs on every statement that touches an S3 table (`CREATE`,
-`DESCRIBE`, `SELECT`), so the opt-in is a profile setting, not SQL:
-`s3_allow_server_credentials_in_user_queries=1` in the user's profile,
-shipped as `docker/clickhouse/users.d/s3.xml`. aaiclick has no setting of its
-own — lending the server's identity is the operator's decision, and a client
-that could switch it on per connection would make the guard moot.
-
-The compose stack and Helm chart ship the file too, mounted but with the profile
-commented out: they have no bucket credentials, so there is nothing to
-lend until the operator supplies them.
-
-`s3://bucket/key` resolves to AWS; S3-compatible servers (MinIO) take
-bucket-style `http(s)://host/bucket/key`.
-
-**Implementation**: `aaiclick/data/blob_sql.py`
-
-`connection="lake"` names a ClickHouse named collection holding the keys
-instead: `s3(lake, url = '...', format = '...')`, and `S3(...)` likewise for
-the pointer engine. Each bucket can use its own keys, and the opt-in above does
-not apply. The collection holds only `access_key_id` / `secret_access_key` —
-aaiclick sends `url` and `format`. On chdb `connection` is ignored for S3: no
-server config can hold a collection, and the process env already serves. The
-name is still stored in `Schema.connection`, so job code runs unchanged on both
-backends.
 
 # Azure
 

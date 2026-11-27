@@ -301,7 +301,7 @@ async def sample_url(ctx, store) -> str:
     return await obj.export(store.url("open/sample.parquet"), overwrite=True, connection=store.connection)
 
 
-# req: user_guide/object/blob_storage/open-object-from-url, user_guide/object/blob_storage/s3-named-collection, user_guide/object/blob_storage/azure-blob-storage
+# req: user_guide/object/blob_storage/open-object-from-url, user_guide/object/blob_storage/s3-named-collection, user_guide/object/blob_storage/azure-blob-storage, architecture/security/secrets-never-in-sql, architecture/backends/backend-capabilities
 @pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl", ".orc", ".avro"])
 async def test_export_open_round_trip(ctx, store, extension):
     obj = await create_object_from_value(SAMPLE_TABLE)
@@ -494,7 +494,7 @@ def test_parse_az_url(url, expected):
     assert parse_az_url(url) == expected
 
 
-# req: user_guide/object/blob_storage/azure-credentials
+# req: user_guide/object/blob_storage/azure-credentials, architecture/security/secrets-never-in-sql
 async def test_chdb_missing_env_var(ctx, monkeypatch):
     monkeypatch.setattr(ch_client, "is_chdb", lambda: True)
     monkeypatch.delenv(AZURE_CONNECTION_ENV, raising=False)
@@ -547,7 +547,7 @@ async def test_chdb_defines_collection_once_per_client(ctx, monkeypatch):
     assert len(statements) == 4
 
 
-# req: user_guide/object/blob_storage/azure-credentials
+# req: user_guide/object/blob_storage/azure-credentials, architecture/security/secrets-never-in-sql
 async def test_server_needs_connection(ctx, monkeypatch):
     monkeypatch.setattr(ch_client, "is_chdb", lambda: False)
     with pytest.raises(ValueError, match="needs connection"):

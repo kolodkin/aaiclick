@@ -24,7 +24,7 @@ async def test_admin_can_create_user(orch_ctx, app_client, enabled):
     assert res.status_code == 201 and res.json()["username"] == "newbie"
 
 
-# req: user_guide/access/roles
+# req: user_guide/access/roles, architecture/security/role-ceiling
 async def test_viewer_forbidden(orch_ctx, app_client, enabled):
     res = await app_client.post(
         f"{API_PREFIX}/users",
@@ -56,7 +56,7 @@ async def test_get_enable_and_email_routes(orch_ctx, app_client, enabled):
     assert (await app_client.get(f"{API_PREFIX}/users/0", headers=admin())).status_code == 404
 
 
-# req: user_guide/access/roles
+# req: user_guide/access/roles, architecture/security/role-ceiling
 async def test_admin_sets_a_role(orch_ctx, app_client, enabled):
     created = await users.create_user(CreateUserRequest(username="dan", password="pw"))
     res = await app_client.put(f"{API_PREFIX}/users/{created.id}/role", json={"role": "admin"}, headers=admin())

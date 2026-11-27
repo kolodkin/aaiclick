@@ -83,7 +83,7 @@ async def test_copy_stats_populated(ctx):
     assert cs.written_rows is None or cs.written_rows == 40
 
 
-# req: user_guide/object/data_retrieval/query-stats-fields
+# req: user_guide/object/data_retrieval/query-stats-fields, architecture/backends/backend-capabilities
 @pytest.mark.skipif(not is_chdb(), reason="the chdb column of the field table")
 async def test_chdb_stats_fill_scan_fields_only(ctx):
     """chdb fills ``read_rows`` / ``read_bytes`` / ``elapsed_s`` and leaves the result and write counts ``None``."""

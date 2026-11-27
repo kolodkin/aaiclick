@@ -1,7 +1,7 @@
 """
 aaiclick.data.blob_sql - ClickHouse sources over bucket URLs.
 
-See docs/designs/blob_storage.md — "Credentials".
+See docs/architecture/security.md — "Credentials".
 
 A ``connection`` names a ClickHouse named collection holding the credentials,
 so no secret enters the SQL aaiclick sends: ``azureBlobStorage(<collection>,

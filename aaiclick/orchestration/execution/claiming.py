@@ -1,6 +1,6 @@
 """Atomic task claiming and cancellation for distributed workers.
 
-See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
+See docs/architecture/data_model.md — "Status Enums", "Task Claiming".
 """
 
 from collections.abc import Collection

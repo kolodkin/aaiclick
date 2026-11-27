@@ -1,7 +1,7 @@
 """
 aaiclick.orchestration.models - Data models for orchestration backend.
 
-See docs/designs/orchestration.md — "DB Models", "Registered Jobs".
+See docs/architecture/data_model.md — "DB Models", "Registered Jobs".
 
 This module defines SQLModel models for jobs, tasks, execution workers, groups, and dependencies.
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.

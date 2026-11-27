@@ -57,18 +57,7 @@ You can add:    AAICLICK_ALLOWED_HOSTS=203.0.113.7,aaiclick.lan
 Add names only when you run `--host 0.0.0.0` and open the UI by those names.
 Each name you add is trusted, so list only names whose DNS you control.
 
-# Why distributed mode needs no guard
-
-<!-- req: distributed-requires-token -->
-Distributed mode requires an `Authorization: Bearer` token on every request.
-The frontend sets that header itself; a script on `evil.com` cannot read your
-aaiclick tab's memory, and the browser does not add the header on its own.
-
-```mermaid
-flowchart TD
-    A[Script sends request<br>no Authorization header] --> B{Server: token present?}
-    B -- no --> C[Server answers 401.<br>Nothing happens.]
-```
+Distributed mode needs no guard: every request must carry a session or API token, which a rebinding page cannot send.
 
 # Real-world examples
 

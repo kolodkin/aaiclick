@@ -15,6 +15,7 @@ def _refs(node: object) -> set[str]:
     return set()
 
 
+# req: architecture/contracts/view-models
 def test_response_schemas_require_defaulted_fields():
     """Every response model must extend ApiModel: defaulted fields are always sent."""
     spec = app.openapi()

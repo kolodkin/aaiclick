@@ -487,7 +487,7 @@ async def test_background_start_does_not_validate_worker_runner(monkeypatch, cap
     assert "distributed backends" in err
 
 
-# req: user_guide/orchestration/managing_jobs/inspect-jobs
+# req: user_guide/orchestration/managing_jobs/inspect-jobs, architecture/data_model/db-models
 async def test_task_list_prints_the_jobs_task(orch_ctx, capsys):
     job = await run_job("cli_task_list", _VALID_ENTRYPOINT)
 

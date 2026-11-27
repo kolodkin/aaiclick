@@ -208,7 +208,7 @@ async def test_get_object_returns_detail(orch_ctx, mcp_client):
     assert detail.name == "mcp_obj_detail"
 
 
-# req: user_guide/lineage/lineage-tools
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
 async def test_lineage_graph_returns_graph(orch_ctx, mcp_client):
     async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2])
@@ -224,7 +224,7 @@ async def test_lineage_graph_returns_graph(orch_ctx, mcp_client):
     assert {n.table for n in parsed.nodes} == {a.table, b.table, concat.table}
 
 
-# req: user_guide/lineage/lineage-tools
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
 async def test_lineage_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool("lineage_nodes", {"target_table": "p_mcp_revenue"})
 
@@ -278,7 +278,7 @@ async def test_instructions_point_to_the_skill(mcp_client):
     assert positions == sorted(positions)
 
 
-# req: user_guide/lineage/lineage-tools
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
 async def test_lineage_query_returns_query_result(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
         "lineage_query",
@@ -305,7 +305,7 @@ async def test_lineage_query_rejects_out_of_scope(orch_ctx, mcp_client, revenue_
         )
 
 
-# req: user_guide/lineage/lineage-tools
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
 async def test_lineage_schema_returns_columns(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
         "lineage_schema",

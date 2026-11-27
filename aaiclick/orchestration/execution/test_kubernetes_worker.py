@@ -422,7 +422,7 @@ def _cp_targets(calls: list[list[str]]) -> list[str]:
     return [c[3].rsplit(":", 1)[1] for c in calls if c[1] == "cp"]
 
 
-# req: user_guide/task_interface/same-files-every-runner
+# req: user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers
 async def test_run_shell_pod_full_lifecycle(shell_pod):
     run = shell_pod.start()
     await asyncio.sleep(0)

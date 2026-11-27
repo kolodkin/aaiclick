@@ -29,7 +29,7 @@ OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
 # --- resolve_principal ---------------------------------------------------
 
 
-# req: user_guide/deployment/deployment-modes
+# req: user_guide/deployment/deployment-modes, architecture/topology/deployment-modes, architecture/security/auth-scope
 async def test_local_mode_returns_synthetic_admin(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     principal = await auth.resolve_principal(authorization=None)
@@ -57,12 +57,13 @@ async def test_local_mode_answers_only_allowed_hosts(monkeypatch, anon_client, h
     assert response.status_code == status
 
 
-# req: user_guide/dns_rebinding/distributed-requires-token
+# req: architecture/security/distributed-requires-token
 async def test_enabled_ignores_host_header(enabled, anon_client):
     response = await anon_client.get("/health", headers={"host": "aaiclick.example.com"})
     assert response.status_code == 200
 
 
+# req: architecture/security/auth-scope
 async def test_enabled_missing_token_unauthorized(enabled):
     with pytest.raises(Unauthorized):
         await auth.resolve_principal(authorization=None)
@@ -75,7 +76,7 @@ async def test_enabled_bad_signature_unauthorized(orch_ctx, enabled, anon_client
     assert Problem.model_validate(res.json()).code is ProblemCode.UNAUTHORIZED
 
 
-# req: user_guide/access/token-never-outranks-owner
+# req: user_guide/access/token-never-outranks-owner, architecture/security/role-ceiling
 async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
     """An ``aaic_`` credential is looked up in the DB and carries the owner's
     current role and the token's scope."""
@@ -91,7 +92,7 @@ async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
         await auth.resolve_principal(authorization=f"Bearer {created.token}")
 
 
-# req: user_guide/access/token-never-outranks-owner
+# req: user_guide/access/token-never-outranks-owner, architecture/security/role-ceiling
 async def test_demoted_owner_cannot_regain_admin_with_an_old_token(enabled, orch_ctx, anon_client):
     """An admin token minted before a demotion must not let its owner promote themselves back."""
     user = await users.create_user(CreateUserRequest(username="demoted", password="pw", role="admin"))
@@ -111,6 +112,7 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
         await auth.resolve_principal(authorization="Bearer aaic_not-a-real-token")
 
 
+# req: architecture/security/principal-resolution
 @pytest.mark.parametrize(
     "held, required",
     [
@@ -124,6 +126,7 @@ def test_check_scope_admits_down_the_ladder(held, required):
     auth.check_scope(principal, required)
 
 
+# req: architecture/security/principal-resolution
 @pytest.mark.parametrize(
     "held, required",
     [
@@ -137,6 +140,7 @@ def test_check_scope_forbids_up_the_ladder(held, required):
         auth.check_scope(principal, required)
 
 
+# req: architecture/security/principal-resolution
 def test_unscoped_principal_is_bounded_by_role_alone():
     """A session carries no scope; its role sets the ceiling."""
     auth.check_scope(auth.Principal(user_id=1, role="admin", kind="session"), "admin")
@@ -145,6 +149,7 @@ def test_unscoped_principal_is_bounded_by_role_alone():
 # --- principal_to_scope --------------------------------------------------
 
 
+# req: architecture/security/principal-resolution
 @pytest.mark.parametrize(
     ("principal", "expected"),
     [

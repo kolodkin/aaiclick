@@ -27,6 +27,7 @@ _SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 pytestmark = pytest.mark.usefixtures("orch_ctx")
 
 
+# req: architecture/contracts/internal-api-contract
 async def test_list_objects_returns_page():
     await create_object_from_value([1, 2, 3], name="list_a", scope="global")
     await create_object_from_value([4, 5], name="list_b", scope="global")
