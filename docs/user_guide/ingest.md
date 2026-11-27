@@ -3,7 +3,7 @@ Ingest
 
 Loading data into Objects, combining them, and the row-order rule that
 cross-table operators depend on. Operators, views and aggregations are in
-[Object API](object.md).
+[Object API](object/index.md).
 
 # concat()
 

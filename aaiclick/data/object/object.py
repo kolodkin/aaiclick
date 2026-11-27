@@ -135,7 +135,7 @@ class Object:
     All operators work element-wise on both scalar and array data types.
 
     For detailed operator documentation, examples, and Python-to-ClickHouse
-    operator mapping, see docs/user_guide/object.md.
+    operator mapping, see docs/user_guide/object/operators.md.
     """
 
     def __init__(
@@ -3058,7 +3058,7 @@ class LazyOperator(Object):
     LazyOperator is awaited. The result table name and lifetime can be
     controlled via ``.as_(name, scope=...)``.
 
-    See ``docs/user_guide/object.md`` — "Lazy Operator Results".
+    See ``docs/user_guide/object/lazy_results.md`` — "Lazy Operator Results".
 
     Fields:
         lhs: Left operand — Object, LazyOperator, or Python scalar.

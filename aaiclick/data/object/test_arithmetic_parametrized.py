@@ -19,7 +19,7 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-# req: user_guide/object/arithmetic-operators
+# req: user_guide/object/operators/arithmetic-operators
 @pytest.mark.parametrize(
     "data_a,data_b,op,expected_result",
     [

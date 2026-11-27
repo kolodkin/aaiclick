@@ -20,7 +20,7 @@ from aaiclick.data.models import ORIENT_DICT, ORIENT_RECORDS
 # =============================================================================
 
 
-# req: user_guide/object/data-shapes
+# req: user_guide/object/data_retrieval/data-shapes
 @pytest.mark.parametrize(
     "value",
     [
@@ -36,7 +36,7 @@ async def test_scalar_returns_value(ctx, value):
     assert await obj.data() == value
 
 
-# req: user_guide/object/data-shapes
+# req: user_guide/object/data_retrieval/data-shapes
 @pytest.mark.parametrize(
     "values",
     [
@@ -59,7 +59,7 @@ async def test_array_returns_list(ctx, values):
 # =============================================================================
 
 
-# req: user_guide/object/data-orient
+# req: user_guide/object/data_retrieval/data-orient
 @pytest.mark.parametrize(
     "value, select, kwargs, expected",
     [
@@ -104,7 +104,7 @@ async def test_dict_data_orient(ctx, value, select, kwargs, expected):
     assert await select(obj).data(**kwargs) == expected
 
 
-# req: user_guide/object/data-orient
+# req: user_guide/object/data_retrieval/data-orient
 @pytest.mark.parametrize(
     "rows",
     [

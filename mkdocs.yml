@@ -79,7 +79,14 @@ nav:
     - Orchestration: tutorial/orchestration.md
   - User Guide:
     - Data:
-      - Object API: user_guide/object.md
+      - Object API:
+        - Overview: user_guide/object/index.md
+        - Operators: user_guide/object/operators.md
+        - Lazy Results: user_guide/object/lazy_results.md
+        - Data Retrieval: user_guide/object/data_retrieval.md
+        - Export: user_guide/object/export.md
+        - Blob Storage: user_guide/object/blob_storage.md
+        - Views and copy(): user_guide/object/views.md
       - Ingest: user_guide/ingest.md
       - ObjectContext: user_guide/object_context.md
     - Orchestration:

@@ -13,7 +13,7 @@ from aaiclick import ORIENT_RECORDS, create_object_from_value
 # =============================================================================
 
 
-# req: user_guide/object/isin
+# req: user_guide/object/operators/isin
 @pytest.mark.parametrize(
     "value, allowed, expected",
     [
@@ -33,7 +33,7 @@ async def test_isin(ctx, value, allowed, expected):
     assert await result.data() == expected
 
 
-# req: user_guide/object/isin
+# req: user_guide/object/operators/isin
 @pytest.mark.parametrize(
     "value, allowed, expected",
     [
@@ -48,7 +48,7 @@ async def test_isin_with_python_list(ctx, value, allowed, expected):
     assert await result.data() == expected
 
 
-# req: user_guide/object/isin
+# req: user_guide/object/operators/isin
 async def test_isin_dict_column(ctx):
     """isin() on a selected column from a dict Object."""
     obj = await create_object_from_value(
@@ -62,7 +62,7 @@ async def test_isin_dict_column(ctx):
     assert await result.data() == [1, 0, 1, 0]
 
 
-# req: user_guide/object/isin
+# req: user_guide/object/operators/isin
 async def test_isin_result_chainable(ctx):
     """isin() result can be chained with sum() to count matches."""
     obj = await create_object_from_value(["a", "b", "c", "a", "b"])
@@ -107,7 +107,7 @@ async def test_isin_with_view_allowed(ctx):
 # =============================================================================
 
 
-# req: user_guide/object/domain-helpers
+# req: user_guide/object/views/domain-helpers
 async def test_with_isin_basic(ctx):
     """with_isin() adds a boolean column indicating membership."""
     obj = await create_object_from_value(
@@ -124,7 +124,7 @@ async def test_with_isin_basic(ctx):
     assert result["value"] == [1, 2, 3, 4]
 
 
-# req: user_guide/object/domain-helpers
+# req: user_guide/object/views/domain-helpers
 async def test_with_isin_custom_alias(ctx):
     """with_isin() respects alias parameter."""
     obj = await create_object_from_value(

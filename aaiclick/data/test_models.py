@@ -47,7 +47,7 @@ def test_column_info_with_fieldtype_returns_copy():
     assert info.fieldtype == FIELDTYPE_SCALAR  # frozen — original untouched
 
 
-# req: user_guide/object/query-stats-fields
+# req: user_guide/object/data_retrieval/query-stats-fields
 def test_query_stats_from_http_summary():
     """Pure function: the clickhouse-connect summary mapping is the HTTP column of the field table."""
     summary = {

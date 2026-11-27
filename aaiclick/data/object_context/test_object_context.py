@@ -40,7 +40,7 @@ async def test_create_object_allows_user_column_named_aai_id(ctx):
     assert "label" in names
 
 
-# req: user_guide/object/create-object-rejects-view-schema
+# req: user_guide/object/views/create-object-rejects-view-schema
 async def test_create_object_rejects_view_schema(ctx):
     """A ``ViewSchema`` says how to read a table, not what table to create."""
     obj = await create_object_from_value({"a": [1, 2]})

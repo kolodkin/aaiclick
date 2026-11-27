@@ -1,6 +1,6 @@
 """Tests for the LazyOperator class and named operator results.
 
-See ``docs/user_guide/object.md`` — "Lazy Operator Results".
+See ``docs/user_guide/object/lazy_results.md`` — "Lazy Operator Results".
 """
 
 import asyncio
@@ -71,7 +71,7 @@ async def test_preview_matches_materialized_schema_array_scalar(ctx, op):
 # -----------------------------------------------------------------------------
 
 
-# req: user_guide/object/lazy-invariants
+# req: user_guide/object/lazy_results/lazy-invariants
 async def test_lazy_operator_table_raises_before_materialize(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -81,7 +81,7 @@ async def test_lazy_operator_table_raises_before_materialize(ctx):
         _ = lazy.table
 
 
-# req: user_guide/object/lazy-invariants
+# req: user_guide/object/lazy_results/lazy-invariants
 async def test_lazy_operator_materialized_schema_before_materialize(ctx):
     """The schema is known up front, so pre-allocating a table for the result needs no await."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -93,7 +93,7 @@ async def test_lazy_operator_materialized_schema_before_materialize(ctx):
     assert schema.columns == (await lazy).schema.columns
 
 
-# req: user_guide/object/lazy-invariants
+# req: user_guide/object/lazy_results/lazy-invariants
 async def test_as_returns_new_lazy_with_name(ctx):
     """as_() returns a new named LazyOperator and leaves the receiver unnamed."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -111,7 +111,7 @@ async def test_as_returns_new_lazy_with_name(ctx):
     assert unnamed_result.scope == "temp"
 
 
-# req: user_guide/object/as-name-scope
+# req: user_guide/object/lazy_results/as-name-scope
 async def test_await_unnamed_lazy_materializes_to_temp(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -122,7 +122,7 @@ async def test_await_unnamed_lazy_materializes_to_temp(ctx):
     assert await result.data() == [5, 7, 9]
 
 
-# req: user_guide/object/as-name-scope
+# req: user_guide/object/lazy_results/as-name-scope
 async def test_await_with_scope_job(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -134,7 +134,7 @@ async def test_await_with_scope_job(ctx):
     assert await result.data() == [5, 7, 9]
 
 
-# req: user_guide/object/lazy-invariants
+# req: user_guide/object/lazy_results/lazy-invariants
 async def test_re_await_is_idempotent(ctx):
     """Awaiting the same LazyOperator twice returns the same Object — no second table."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -146,7 +146,7 @@ async def test_re_await_is_idempotent(ctx):
     assert first is second
 
 
-# req: user_guide/object/lazy-invariants
+# req: user_guide/object/lazy_results/lazy-invariants
 async def test_lazy_never_awaited_creates_no_table(ctx):
     """Building a LazyOperator without awaiting writes nothing to ClickHouse.
 
@@ -169,7 +169,7 @@ async def test_lazy_never_awaited_creates_no_table(ctx):
         _ = lazy.table
 
 
-# req: user_guide/object/lazy-invariants, user_guide/object/await-only-for-object
+# req: user_guide/object/lazy_results/lazy-invariants, user_guide/object/lazy_results/await-only-for-object
 async def test_data_auto_materializes(ctx):
     """Calling .data() on an unawaited lazy materializes and returns rows."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -185,7 +185,7 @@ async def test_data_auto_materializes(ctx):
     assert lazy.table == cached_table
 
 
-# req: user_guide/object/lazy-invariants, user_guide/object/await-only-for-object
+# req: user_guide/object/lazy_results/lazy-invariants, user_guide/object/lazy_results/await-only-for-object
 async def test_result_auto_materializes(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -201,7 +201,7 @@ async def test_result_auto_materializes(ctx):
 # -----------------------------------------------------------------------------
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_add_returns_lazy_operator(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -210,7 +210,7 @@ async def test_add_returns_lazy_operator(ctx):
     assert await lazy.data() == [5, 7, 9]
 
 
-# req: user_guide/object/as-name-scope
+# req: user_guide/object/lazy_results/as-name-scope
 async def test_public_as_named_temp(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -219,7 +219,7 @@ async def test_public_as_named_temp(ctx):
     assert await result.data() == [5, 7, 9]
 
 
-# req: user_guide/object/as-name-scope
+# req: user_guide/object/lazy_results/as-name-scope
 async def test_public_as_scope_global(ctx):
     # Pre-clean: a previous failed run could have left p_yearly_avg behind.
     await delete_persistent_object("yearly_avg", scope="global")
@@ -242,7 +242,7 @@ async def test_reverse_op_with_naming(ctx):
     assert await result.data() == [3, 4, 5]
 
 
-# req: user_guide/object/chained-lazy-operators
+# req: user_guide/object/lazy_results/chained-lazy-operators
 async def test_chain_via_public_operator(ctx):
     """(a + b) + c via public syntax → 2 tables, outer named."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -259,7 +259,7 @@ async def test_chain_via_public_operator(ctx):
     assert await result.data() == [111, 222, 333]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_comparison_returns_lazy(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([2, 2, 2], aai_id=True)
@@ -268,7 +268,7 @@ async def test_comparison_returns_lazy(ctx):
     assert await lazy.data() == [True, False, False]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_bitwise_returns_lazy(ctx):
     obj_a = await create_object_from_value([5, 6, 7], aai_id=True)
     obj_b = await create_object_from_value([3, 3, 3], aai_id=True)
@@ -309,7 +309,7 @@ UNARY_STRING_METHODS = [
 ]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 @pytest.mark.parametrize("method", SIMPLE_AGG_METHODS)
 async def test_aggregation_returns_lazy_operator(ctx, method):
     """Calling an aggregation method on an Object returns a LazyOperator
@@ -340,7 +340,7 @@ async def test_aggregation_as_scope_job(ctx):
     assert await result.data() == 25.0
 
 
-# req: user_guide/object/await-only-for-object
+# req: user_guide/object/lazy_results/await-only-for-object
 async def test_aggregation_data_auto_materializes(ctx):
     """The user's request: ``await obj.sum().data()`` works directly — no
     double-await needed (LazyOperator.data() materializes then reads)."""
@@ -357,7 +357,7 @@ async def test_double_await_pattern_still_works(ctx):
     assert await materialized.data() == 15
 
 
-# req: user_guide/object/chained-lazy-operators
+# req: user_guide/object/lazy_results/chained-lazy-operators
 async def test_aggregation_on_lazy_chain(ctx):
     """(a + b).sum() — the fluent pattern. LazyOperator+LazyOperator =
     chained plan; awaiting materializes both."""
@@ -371,7 +371,7 @@ async def test_aggregation_on_lazy_chain(ctx):
     assert await chain.data() == 66
 
 
-# req: user_guide/object/chained-lazy-operators
+# req: user_guide/object/lazy_results/chained-lazy-operators
 async def test_aggregation_on_lazy_chain_named(ctx):
     """(a + b).sum().as_('total', scope='job') materializes both — the inner
     + into an unnamed temp, the outer sum into j_<job_id>_total."""
@@ -383,7 +383,7 @@ async def test_aggregation_on_lazy_chain_named(ctx):
     assert await result.data() == 66
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 @pytest.mark.parametrize("method", UNARY_NUMERIC_METHODS)
 async def test_unary_numeric_returns_lazy_operator(ctx, method):
     obj = await create_object_from_value([1.0, 4.0, 9.0])
@@ -393,7 +393,7 @@ async def test_unary_numeric_returns_lazy_operator(ctx, method):
     assert lazy.rhs is None
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 @pytest.mark.parametrize("method", UNARY_STRING_METHODS)
 async def test_unary_string_returns_lazy_operator(ctx, method):
     obj = await create_object_from_value(["  hello  ", "World", "foo"])
@@ -416,7 +416,7 @@ async def test_unary_transform_data_auto_materializes(ctx):
     assert await obj.upper().data() == ["HELLO", "WORLD"]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_count_if_str_returns_lazy(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5])
     lazy = obj.count_if("value > 3")
@@ -426,7 +426,7 @@ async def test_count_if_str_returns_lazy(ctx):
     assert await lazy.data() == 2
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_count_if_dict_returns_lazy_dict(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5])
     lazy = obj.count_if({"small": "value <= 2", "large": "value >= 4"})
@@ -444,7 +444,7 @@ async def test_count_if_as_named(ctx):
     assert await result.data() == 2
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_quantile_returns_lazy(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     lazy = obj.quantile(0.5)
@@ -460,7 +460,7 @@ async def test_quantile_as_named(ctx):
     assert result.table.startswith("t_q1_")
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_unique_returns_lazy(ctx):
     obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
     lazy = obj.unique()
@@ -477,7 +477,7 @@ async def test_unique_as_named(ctx):
     assert sorted(await result.data()) == [1, 2, 3, 4]
 
 
-# req: user_guide/object/unique, user_guide/object/lazy-operator-results
+# req: user_guide/object/operators/unique, user_guide/object/lazy_results/lazy-operator-results
 async def test_nunique_returns_lazy(ctx):
     obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
     lazy = obj.nunique()
@@ -494,7 +494,7 @@ async def test_nunique_as_named(ctx):
     assert await result.data() == 4
 
 
-# req: user_guide/object/chained-lazy-operators
+# req: user_guide/object/lazy_results/chained-lazy-operators
 async def test_chained_unary_then_aggregation(ctx):
     """obj.abs().sum() builds two stacked LazyOperators."""
     obj = await create_object_from_value([-1.0, -2.0, 3.0, -4.0])
@@ -548,7 +548,7 @@ STRING_OP_CALLS = [
 ]
 
 
-# req: user_guide/object/string-regex-lazy, user_guide/object/lazy-operator-results
+# req: user_guide/object/operators/string-regex-lazy, user_guide/object/lazy_results/lazy-operator-results
 @pytest.mark.parametrize("method, args", STRING_OP_CALLS)
 async def test_string_op_returns_lazy_operator(ctx, method, args):
     """String/regex methods plan synchronously — no await, no DB round-trip."""
@@ -565,7 +565,7 @@ async def test_string_op_preview_matches_materialized(ctx, method, args):
     await assert_preview_matches_materialized(method(obj, *args))
 
 
-# req: user_guide/object/string-regex-lazy
+# req: user_guide/object/operators/string-regex-lazy
 async def test_string_op_as_named(ctx):
     """obj.match(p).as_('flags') names the result table."""
     obj = await create_object_from_value(["apple", "banana", "avocado"])
@@ -590,7 +590,7 @@ async def test_chained_unary_then_string_op(ctx):
     assert await chain.data() == [1, 0]
 
 
-# req: user_guide/object/string-regex-lazy
+# req: user_guide/object/operators/string-regex-lazy
 async def test_chained_string_ops(ctx):
     """extract() then match() — each stage stays lazy until the outer await."""
     obj = await create_object_from_value(["id:123", "id:abc"])
@@ -601,7 +601,7 @@ async def test_chained_string_ops(ctx):
     assert await chain.data() == [1, 0]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 @pytest.mark.parametrize(
     "method",
     [
@@ -624,7 +624,7 @@ async def test_null_check_as_named(ctx):
     assert await result.data() == [1, 1, 1]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_isin_returns_lazy_operator(ctx):
     obj = await create_object_from_value(["a", "b", "c"])
     allowed = await create_object_from_value(["a", "c"])
@@ -634,7 +634,7 @@ async def test_isin_returns_lazy_operator(ctx):
     assert lazy.rhs is allowed
 
 
-# req: user_guide/object/isin-list-literals
+# req: user_guide/object/operators/isin-list-literals
 async def test_isin_python_list_inlined_at_materialize(ctx):
     """A Python list rides along as the rhs and is inlined as SQL literals on await."""
     obj = await create_object_from_value(["a", "b", "c"])
@@ -650,7 +650,7 @@ async def test_isin_as_named(ctx):
     assert await result.data() == [1, 0, 1]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_coalesce_returns_lazy_operator(ctx):
     obj = await create_object_from_value([1, 2, 3])
     lazy = obj.coalesce(0)
@@ -666,7 +666,7 @@ async def test_coalesce_as_named(ctx):
     assert await result.data() == [1, 2, 3]
 
 
-# req: user_guide/object/lazy-operator-results
+# req: user_guide/object/lazy_results/lazy-operator-results
 async def test_array_map_returns_lazy_operator(ctx):
     a = await create_object_from_value([1, 2, 3], aai_id=True)
     b = await create_object_from_value([10, 20, 30], aai_id=True)
@@ -684,7 +684,7 @@ async def test_array_map_as_named(ctx):
     assert sorted(await result.data()) == [10, 20, 30]
 
 
-# req: user_guide/object/await-only-for-object
+# req: user_guide/object/lazy_results/await-only-for-object
 async def test_markdown_and_chains_need_no_intermediate_await(ctx):
     """Reading a lazy as markdown, or chaining off it, needs no ``await`` of the intermediate."""
     a = await create_object_from_value([-1, 2, -3], aai_id=True)
@@ -693,7 +693,7 @@ async def test_markdown_and_chains_need_no_intermediate_await(ctx):
     assert await ((a + a) + a).data() == [-3, 6, -9]
 
 
-# req: user_guide/object/lazy-forwards-name-scope
+# req: user_guide/object/lazy_results/lazy-forwards-name-scope
 async def test_lazy_copy_forwards_name_and_scope(ctx):
     """``(a + b).copy(name=..., scope=...)`` reaches the materialized delegate."""
     a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -711,7 +711,7 @@ async def test_lazy_copy_forwards_name_and_scope(ctx):
         await delete_persistent_object("lazy_copy_global", scope="global")
 
 
-# req: user_guide/object/lazy-forwards-name-scope
+# req: user_guide/object/lazy_results/lazy-forwards-name-scope
 async def test_lazy_join_forwards_name(ctx):
     """``(a + b).join(other, name=...)`` names the join result."""
     a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -722,7 +722,7 @@ async def test_lazy_join_forwards_name(ctx):
     assert joined.table.startswith("t_lazy_join_")
 
 
-# req: user_guide/object/concurrent-await-race
+# req: user_guide/object/lazy_results/concurrent-await-race
 async def test_concurrent_await_of_one_lazy_materializes_twice(ctx):
     """Two tasks awaiting one unmaterialized lazy both materialize it: two tables."""
 

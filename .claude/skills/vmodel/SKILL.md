@@ -24,9 +24,9 @@ User and Architecture share tests: a public-API test that already walks an
 architecture statement (a result on both backends, a table name) names both
 IDs. No other pair shares.
 
-The docs root is `docs/`: `user_guide/object/chained-where` is defined in
-`docs/user_guide/object.md` as `<!-- req: chained-where -->`, and named by a
-test as `# req: user_guide/object/chained-where` (`//` in TypeScript),
+The docs root is `docs/`: `user_guide/object/views/chained-where` is defined in
+`docs/user_guide/object/views.md` as `<!-- req: chained-where -->`, and named by a
+test as `# req: user_guide/object/views/chained-where` (`//` in TypeScript),
 directly above the test function.
 
 ## Steps

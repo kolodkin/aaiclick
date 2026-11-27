@@ -62,6 +62,6 @@ and bitwise operators.
 
 # See Also
 
-- [Object API](../user_guide/object.md) — the full surface of `Object`
+- [Object API](../user_guide/object/index.md) — the full surface of `Object`
 - [ObjectContext](../user_guide/object_context.md) — lifecycle, scopes, and staleness
 - [Examples: Basic Operators](../examples/basic_operators.md) — the complete runnable script

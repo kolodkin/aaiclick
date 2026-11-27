@@ -356,7 +356,7 @@ class QueryStats:
 
     Every field is best-effort: a backend fills what it can surface and leaves
     the rest ``None`` (see the per-backend availability matrix in
-    ``docs/user_guide/object.md``). Produced by :meth:`Object.execute` and surfaced by
+    ``docs/user_guide/object/data_retrieval.md``). Produced by :meth:`Object.execute` and surfaced by
     :meth:`Object.stats` for objects born from a server-side query.
     """
 

@@ -19,7 +19,7 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-# req: user_guide/object/scalar-operands
+# req: user_guide/object/operators/scalar-operands
 @pytest.mark.parametrize(
     "obj_val,scalar,op,expected",
     [
@@ -53,7 +53,7 @@ async def test_obj_op_scalar(ctx, obj_val, scalar, op, expected):
 # =============================================================================
 
 
-# req: user_guide/object/scalar-operands
+# req: user_guide/object/operators/scalar-operands
 @pytest.mark.parametrize(
     "scalar,obj_val,op,expected",
     [

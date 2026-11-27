@@ -28,7 +28,7 @@ Compose and Kubernetes are the distributed modes:
   `aaiclick migrate upgrade` needs `CREATE DATABASE`; every component's user
   needs read/write on `<db>_internal.*`.
 - For private buckets, give the ClickHouse server its S3 identity and a
-  `users.xml` profile line — see [Object — Blob Storage](object.md#credentials).
+  `users.xml` profile line — see [Object — Blob Storage](object/blob_storage.md#credentials).
 <!-- req: generated-credentials -->
 - Credentials are random unless you set them: compose's `env.init.sh` fills
   `.env`, and the chart generates a Secret. `.env.template` spells them

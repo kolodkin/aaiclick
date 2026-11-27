@@ -6,7 +6,7 @@ Storage instead of
 owning a ClickHouse table, and any Object or View can be exported to a bucket.
 Files are the contract: a job exports its result, the URL travels to the next
 job as a plain string, and that job opens it read-only on any cluster. User
-guide: `docs/user_guide/object.md` — "Blob Storage". Deferred pieces:
+guide: `docs/user_guide/object/blob_storage.md` — "Blob Storage". Deferred pieces:
 `docs/designs/future.md` — "Blob Storage Support".
 
 # Located Objects

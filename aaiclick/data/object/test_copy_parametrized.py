@@ -16,7 +16,7 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-# req: user_guide/object/copy
+# req: user_guide/object/views/copy
 @pytest.mark.parametrize(
     "input_value,expected_output",
     [
@@ -58,7 +58,7 @@ async def test_scalar_copy(ctx, input_value, expected_output):
 # =============================================================================
 
 
-# req: user_guide/object/copy
+# req: user_guide/object/views/copy
 @pytest.mark.parametrize(
     "input_value,expected_output",
     [
@@ -140,7 +140,7 @@ async def test_multiple_copies_create_different_tables(ctx, input_value):
 # =============================================================================
 
 
-# req: user_guide/object/materializing-ops-name-scope
+# req: user_guide/object/lazy_results/materializing-ops-name-scope
 async def test_copy_with_name_global_scope(ctx):
     """copy(name=..., scope='global') routes through the named-table path."""
     obj = await create_object_from_value([1, 2, 3])
@@ -153,7 +153,7 @@ async def test_copy_with_name_global_scope(ctx):
         await delete_persistent_object("copy_named_global", scope="global")
 
 
-# req: user_guide/object/materializing-ops-name-scope
+# req: user_guide/object/lazy_results/materializing-ops-name-scope
 async def test_copy_with_name_temp_scope(ctx):
     """copy(name=...) defaults to temp_named scope (t_<name>_<id>)."""
     obj = await create_object_from_value([10, 20])
@@ -169,7 +169,7 @@ async def test_copy_with_name_temp_scope(ctx):
 # =============================================================================
 
 
-# req: user_guide/object/copy
+# req: user_guide/object/views/copy
 @pytest.mark.parametrize(
     "offset,expected",
     [
@@ -204,7 +204,7 @@ async def test_copy_selected_fields_applies_order_by_before_limit(ctx):
 # =============================================================================
 
 
-# req: user_guide/object/copy
+# req: user_guide/object/views/copy
 async def test_dict_selector_copy(ctx):
     """copy() materializes a view as a new array Object."""
     obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
@@ -234,7 +234,7 @@ async def test_dict_selector_copy_field(ctx, value, field, expected):
     assert await arr.data() == expected
 
 
-# req: user_guide/object/copy
+# req: user_guide/object/views/copy
 async def test_multi_field_selector_copy(ctx):
     """Copying a multi-field view creates a dict Object."""
     obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
