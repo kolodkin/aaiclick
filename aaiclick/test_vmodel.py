@@ -25,7 +25,8 @@ TEST_GLOBS = (
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
 )
-MARKER_RE = re.compile(r"^<!--\s*req:\s*(.+?)\s*-->\s*$")
+MARKER_RE = re.compile(r"^\s*<!--\s*req:\s*(.+?)\s*-->\s*$")
+LOOSE_MARKER_RE = re.compile(r"<!--\s*req\b", re.IGNORECASE)
 TAG_RE = re.compile(r"^\s*(?:#|//)\s*req:\s*(.+)$")
 SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
@@ -51,6 +52,8 @@ def find_markers(docs_root: Path) -> tuple[list[Marker], list[str]]:
             for n, text in enumerate(page.read_text().splitlines(), 1):
                 match = MARKER_RE.match(text)
                 if not match:
+                    if LOOSE_MARKER_RE.search(text):
+                        problems.append(f"malformed marker at {page}:{n}")
                     continue
                 slug = match.group(1)
                 if SLUG_RE.match(slug):
@@ -117,6 +120,12 @@ CASES = {
     ),
     "non-layer-page": ({"docs/superpowers/plans/x.md": "<!-- req: a -->\n"}, []),
     "node-modules": ({"src/node_modules/m/x.test.ts": "// req: user_guide/p/a\n"}, []),
+    "indented-marker": (
+        {"docs/user_guide/p.md": "!!! note\n    <!-- req: a -->\n", "aaiclick/test_x.py": "# req: user_guide/p/a\n"},
+        [],
+    ),
+    "inline-marker": ({"docs/user_guide/p.md": "text <!-- req: a -->\n"}, ["malformed marker"]),
+    "uppercase-marker": ({"docs/user_guide/p.md": "<!-- REQ: a -->\n"}, ["malformed marker"]),
     "same-slug-two-pages": (
         {
             "docs/user_guide/p.md": "<!-- req: a -->\n",

@@ -53,7 +53,7 @@ Anti-goals:
 | Layer          | Doc of record                       | Test layer  | Proved in                                                                                           |
 |----------------|-------------------------------------|-------------|-----------------------------------------------------------------------------------------------------|
 | User           | `docs/user_guide/` (published)      | Acceptance  | `aaiclick/**/examples/` (checked output), `test_e2e/`, tests through `from aaiclick import ...` only |
-| Architecture   | `docs/architecture/`                | System      | `aaiclick/server/**` (HTTP, MCP), `aaiclick/test_cli.py`, `aaiclick/internal_api/**`; runs on both backends in `test-local` and `test-dist` |
+| Architecture   | `docs/architecture/`                | System      | `aaiclick/server/**` (HTTP, MCP), `aaiclick/test_cli.py`, `aaiclick/internal_api/**`; `server/` and `internal_api/` run on both backends (`test-local`, `test-dist`), root tests on local only |
 | Design         | `docs/designs/`                     | Integration | `aaiclick/**/test_*.py`, `src/**/*.test.ts(x)`                                                      |
 | Implementation | module docstring / leading comment  | Unit        | the test file beside the module, no ID                                                              |
 

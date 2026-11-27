@@ -172,7 +172,7 @@ sites: the default insert list in `aaiclick/data/object/emit.py`, the copy
 path in `ingest.py` and the URL ingest in `url.py`. Fix it once at the shared
 column-list builders rather than per operation, then audit the remaining
 SELECT projections. Dotted names, the same gap:
-`technical_debt.md` — "Unquoted Identifier Interpolation in Remaining SQL Builders".
+`docs/contributor/technical_debt.md` — "Unquoted Identifier Interpolation in Remaining SQL Builders".
 
 **When to revisit**: before accepting user-supplied column names from
 external sources (CSV headers, parquet) as a supported path.

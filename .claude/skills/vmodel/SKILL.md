@@ -13,7 +13,7 @@ work into tasks, each task follows both.
 | Layer          | Doc of record                                                   | Test layer  | Proved in                                                                                                                  |
 |----------------|-----------------------------------------------------------------|-------------|----------------------------------------------------------------------------------------------------------------------------|
 | User           | `docs/user_guide/` (published)                                  | Acceptance  | `aaiclick/**/examples/` (checked output), `test_e2e/`, tests that use only `from aaiclick import ...`                       |
-| Architecture   | `docs/architecture/`                                            | System      | `aaiclick/server/**`, `aaiclick/internal_api/**`, `aaiclick/test_cli.py`; both backends via `test-local` and `test-dist` |
+| Architecture   | `docs/architecture/`                                            | System      | `aaiclick/server/**`, `aaiclick/internal_api/**`, `aaiclick/test_cli.py`; `server/` and `internal_api/` run on both backends (`test-local`, `test-dist`), root tests on local only |
 | Design         | `docs/designs/`                                                 | Integration | `aaiclick/**/test_*.py`, `src/**/*.test.ts(x)`                                                                             |
 | Implementation | the module's docstring (Python) or leading comment (TypeScript) | Unit        | the test file beside the module, no ID                                                                                     |
 
@@ -51,8 +51,12 @@ tags, and fails when:
 
 - a tag names an ID with no marker;
 - a marker has no tag;
-- a page defines the same slug twice, or a slug is not kebab-case;
-- a tag sits outside its layer's "Proved in" location.
+- a page defines the same slug twice, a slug is not kebab-case, or a
+  `<!-- req` comment is malformed (inline, wrong case);
+- a tag sits outside its layer's test roots: `aaiclick/` or `test_e2e/` for
+  user and architecture, `aaiclick/` or `src/` for design. The roots are
+  wider than "Proved in" (the user and architecture layers share tests);
+  placing a test inside its "Proved in" location is the author's job.
 
 A page with no markers is ignored. Tagging grows with changes: tag the
 statement a change edits and the test that proves it; leave the rest
