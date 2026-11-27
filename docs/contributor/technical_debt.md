@@ -1,6 +1,13 @@
 Technical Debt
 ---
 
+# Intermittent aiosqlite ResourceWarning in Server Local CI
+
+- **Site**: the `Server local` CI group (`aaiclick/server/`, chdb + SQLite, `-n auto`, Python 3.11)
+  - **Issue**: An `aiosqlite` connection is garbage-collected without being closed. `filterwarnings = ["error"]` turns its `ResourceWarning` into a `PytestUnraisableExceptionWarning`, which fails whichever test is running when the collector frees the connection, not necessarily the test that leaked it. Seen on `main` (2026-11-16, 2026-11-19) and on PR #574 (`test_mcp.py::test_list_objects_returns_page`, `test_auth.py::test_api_token_resolves_live_owner_state`). Distributed groups (Postgres) never hit it.
+  - **Workaround**: Re-run the failed job.
+  - **Debt**: No local repro on Python 3.11 or 3.13, serial or 4 workers. Suspect a connection still checked out when `orch_context` disposes its engine (`aaiclick/orchestration/orch_context.py`), for example a long-lived request such as `GET /api/v0/events`: `engine.dispose()` detaches it and it is collected later. Next step: run the server suite under `PYTHONTRACEMALLOC` with a `sys.unraisablehook` that records the allocating traceback, then close the connection in the owning fixture or route.
+
 # chdb Mishandles Path-Relative Redirects
 
 - **Site**: the EPSS loader, `example_projects/cyber_threat_feeds/cyber_threat_feeds/epss.py`
