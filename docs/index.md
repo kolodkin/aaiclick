@@ -4,9 +4,9 @@ aaiclick
 aaiclick is an agent-first data framework: orchestration and a ClickHouse data warehouse in one, driven by your coding agent over MCP.
 
 1. **Agent First (MCP)** — Your coding agent runs jobs, queries data, traces [lineage](user_guide/lineage.md), and builds dashboards.
-2. **Pandas-like Objects at ClickHouse Scale** — Tables behave like Python [objects](user_guide/object.md); the data never leaves ClickHouse.
+2. **Pandas-like Objects at ClickHouse Scale** — Tables behave like Python [objects](user_guide/object/index.md); the data never leaves ClickHouse.
 3. **Dynamic Task Allocation** — Tasks spawn tasks, so the pipeline shapes itself to the data at runtime.
-4. **Hybrid Agentic Flow** — You stay in control through visibility and decision making: a [web UI](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/ui.md) for jobs, objects, and dashboards.
+4. **Hybrid Agentic Flow** — You stay in control through visibility and decision making: a [web UI](user_guide/ui.md) for jobs, objects, and dashboards.
 5. **Multiple Languages** — [Python](user_guide/task_api_python.md), [Java](user_guide/task_api_java.md), or any language through the JSON [Task Interface](user_guide/task_interface.md).
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
@@ -58,8 +58,8 @@ python -m aaiclick setup
 ```
 
 - [Getting Started](getting_started.md) — installation, setup, environment variables
-- [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
-- [Object API](user_guide/object.md) — operators, aggregations, views, group by
+- [Orchestration](user_guide/orchestration/index.md) — `@task` and `@job` decorators, workers
+- [Object API](user_guide/object/index.md) — operators, aggregations, views, group by
 - [Examples](examples/orchestration_basic.md) — runnable scripts for every feature
 
 # Without Orchestration

@@ -24,6 +24,7 @@ def _pod(job: int, *, scheduled: bool, task: ContainerState = _RUNNING, n: int =
 LIMITS = K8sLimits(max_pending=2, max_pending_total=3, max_pods=None, pending_timeout=900.0)
 
 
+# req: designs/kubernetes_runner/capacity-gate
 @pytest.mark.parametrize(
     "states,limits,expected",
     [

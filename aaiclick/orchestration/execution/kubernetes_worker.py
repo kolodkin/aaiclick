@@ -1,7 +1,7 @@
 """Kubernetes runner — the Pod launchers and the watch-driven task coroutines.
 
 See docs/designs/kubernetes_runner.md.
-See docs/designs/orchestration.md — "Execution layers".
+See docs/architecture/topology.md — "Execution layers".
 
 The concurrent worker (``k8s_worker_loop``) runs :func:`run_module_pod` /
 :func:`run_shell_pod` once per claimed task; both await their Pod's stage

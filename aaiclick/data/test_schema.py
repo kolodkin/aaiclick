@@ -5,6 +5,8 @@ This module tests the schema property that returns schema information
 including table name, fieldtype, and column details.
 """
 
+from datetime import UTC, datetime
+
 import pytest
 
 from aaiclick import (
@@ -25,6 +27,27 @@ from aaiclick.data.object_context import get_ch_client
 from aaiclick.data.object_context.lifecycle import get_data_lifecycle
 
 # =============================================================================
+# Inferred Types
+# =============================================================================
+
+
+# req: user_guide/object_context/inferred-types
+@pytest.mark.parametrize(
+    "values, expected",
+    [
+        pytest.param([1, 2], "Int64", id="int"),
+        pytest.param([1.5], "Float64", id="float"),
+        pytest.param([True, False], "Bool", id="bool"),
+        pytest.param(["a", "b"], "String", id="str"),
+        pytest.param([datetime(2024, 1, 1, tzinfo=UTC)], "DateTime64(3, 'UTC')", id="datetime"),
+    ],
+)
+async def test_value_type_inference(ctx, values, expected):
+    obj = await create_object_from_value(values)
+    assert obj.schema.columns["value"].ch_type() == expected
+
+
+# =============================================================================
 # Basic Schema Tests
 # =============================================================================
 
@@ -41,6 +64,7 @@ async def test_schema_array(ctx):
     assert schema.columns["value"].type == "Int64"
 
 
+# req: user_guide/object_context/schema-patterns
 async def test_schema_dict(ctx):
     """Test schema for dict object."""
     obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]})
@@ -171,6 +195,7 @@ async def test_copied_view_schema(ctx):
 # =============================================================================
 
 
+# req: user_guide/object_context/schema-patterns
 @pytest.mark.parametrize(
     "value,expected_fieldtype,expected_type",
     [

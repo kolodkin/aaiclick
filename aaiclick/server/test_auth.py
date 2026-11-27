@@ -29,12 +29,14 @@ OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
 # --- resolve_principal ---------------------------------------------------
 
 
+# req: user_guide/deployment/deployment-modes, architecture/topology/deployment-modes, architecture/security/auth-scope, designs/auth/mode-derived-gating
 async def test_local_mode_returns_synthetic_admin(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     principal = await auth.resolve_principal(authorization=None)
     assert principal.role == "admin" and principal.kind == "none"
 
 
+# req: user_guide/deployment/allowed-hosts, user_guide/dns_rebinding/host-guard, user_guide/dns_rebinding/allowed-hosts
 @pytest.mark.parametrize(
     "host, status",
     [
@@ -55,14 +57,25 @@ async def test_local_mode_answers_only_allowed_hosts(monkeypatch, anon_client, h
     assert response.status_code == status
 
 
+# req: architecture/security/distributed-requires-token
 async def test_enabled_ignores_host_header(enabled, anon_client):
     response = await anon_client.get("/health", headers={"host": "aaiclick.example.com"})
     assert response.status_code == 200
 
 
+# req: architecture/security/auth-scope
 async def test_enabled_missing_token_unauthorized(enabled):
     with pytest.raises(Unauthorized):
         await auth.resolve_principal(authorization=None)
+
+
+# req: designs/api_server/open-paths
+@pytest.mark.parametrize(
+    "path",
+    ["/health", f"{API_PREFIX}/openapi.json", f"{API_PREFIX}/docs", f"{API_PREFIX}/redoc"],
+)
+async def test_open_paths_need_no_credential(enabled, anon_client, path):
+    assert (await anon_client.get(path)).status_code == 200
 
 
 async def test_enabled_bad_signature_unauthorized(orch_ctx, enabled, anon_client):
@@ -72,6 +85,7 @@ async def test_enabled_bad_signature_unauthorized(orch_ctx, enabled, anon_client
     assert Problem.model_validate(res.json()).code is ProblemCode.UNAUTHORIZED
 
 
+# req: user_guide/access/token-never-outranks-owner, architecture/security/role-ceiling, designs/auth/token-capped-by-owner
 async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
     """An ``aaic_`` credential is looked up in the DB and carries the owner's
     current role and the token's scope."""
@@ -87,6 +101,7 @@ async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
         await auth.resolve_principal(authorization=f"Bearer {created.token}")
 
 
+# req: user_guide/access/token-never-outranks-owner, architecture/security/role-ceiling, designs/auth/token-capped-by-owner
 async def test_demoted_owner_cannot_regain_admin_with_an_old_token(enabled, orch_ctx, anon_client):
     """An admin token minted before a demotion must not let its owner promote themselves back."""
     user = await users.create_user(CreateUserRequest(username="demoted", password="pw", role="admin"))
@@ -106,6 +121,7 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
         await auth.resolve_principal(authorization="Bearer aaic_not-a-real-token")
 
 
+# req: architecture/security/principal-resolution, architecture/security/scope-ladder
 @pytest.mark.parametrize(
     "held, required",
     [
@@ -119,6 +135,7 @@ def test_check_scope_admits_down_the_ladder(held, required):
     auth.check_scope(principal, required)
 
 
+# req: architecture/security/principal-resolution, architecture/security/scope-ladder
 @pytest.mark.parametrize(
     "held, required",
     [
@@ -132,6 +149,7 @@ def test_check_scope_forbids_up_the_ladder(held, required):
         auth.check_scope(principal, required)
 
 
+# req: architecture/security/principal-resolution
 def test_unscoped_principal_is_bounded_by_role_alone():
     """A session carries no scope; its role sets the ceiling."""
     auth.check_scope(auth.Principal(user_id=1, role="admin", kind="session"), "admin")
@@ -140,6 +158,7 @@ def test_unscoped_principal_is_bounded_by_role_alone():
 # --- principal_to_scope --------------------------------------------------
 
 
+# req: architecture/security/principal-resolution
 @pytest.mark.parametrize(
     ("principal", "expected"),
     [
@@ -170,6 +189,7 @@ def test_check_scope_forbids_too_little():
 # --- PrincipalAuthMiddleware ---------------------------------------------
 
 
+# req: designs/auth/mcp-tokens-only, designs/auth/mcp-mount-middleware
 async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
     """The mount only needs a principal (per-tool RBAC is in mcp_rbac.py); a read token sees no write tools."""
     headers = await api_token_headers(SCOPE_READ, role=ROLE_VIEWER)
@@ -180,6 +200,7 @@ async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
     assert "list_jobs" in names and "run_job" not in names
 
 
+# req: designs/auth/mcp-tokens-only
 async def test_mcp_mount_refuses_a_session_jwt(enabled):
     """MCP is the machine door; a session JWT belongs on REST."""
     async with mcp_http() as client:
@@ -188,6 +209,7 @@ async def test_mcp_mount_refuses_a_session_jwt(enabled):
     assert res.status_code == 401
 
 
+# req: designs/auth/mcp-local-open
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
 
@@ -200,6 +222,7 @@ async def test_mcp_middleware_open_in_local_mode(monkeypatch):
 # --- warn_if_open --------------------------------------------------------
 
 
+# req: designs/auth/mode-derived-gating
 def test_warn_if_open_logs_in_local_mode(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     with patch.object(auth.logger, "warning") as warning:
@@ -207,6 +230,7 @@ def test_warn_if_open_logs_in_local_mode(monkeypatch):
     warning.assert_called_once()
 
 
+# req: designs/auth/mode-derived-gating
 def test_warn_if_open_silent_in_distributed_mode(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     with patch.object(auth.logger, "warning") as warning:

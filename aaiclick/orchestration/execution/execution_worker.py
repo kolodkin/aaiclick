@@ -632,6 +632,7 @@ async def _execution_worker_loop(
     install_signal_handlers: bool = True,
     max_empty_polls: int | None = None,
     mode_label: str = "async",
+    stop: asyncio.Event | None = None,
 ) -> int:
     """Shared execution_worker loop used by both async and multiprocessing execution_workers.
 
@@ -645,15 +646,16 @@ async def _execution_worker_loop(
         install_signal_handlers: Install SIGTERM/SIGINT handlers.
         max_empty_polls: Exit after N consecutive empty polls (test helper).
         mode_label: Label for log messages (e.g. "async", "mp").
+        stop: Set to end the loop between iterations, never inside a claim
+            or a database call.
 
     Returns:
         Number of tasks successfully executed.
     """
-    shutdown_requested = False
+    stop = stop or asyncio.Event()
 
     def signal_handler(signum, frame):
-        nonlocal shutdown_requested
-        shutdown_requested = True
+        stop.set()
 
     if install_signal_handlers:
         signal.signal(signal.SIGTERM, signal_handler)
@@ -677,7 +679,8 @@ async def _execution_worker_loop(
     empty_polls = 0
 
     try:
-        while not shutdown_requested:
+        # Checked only between iterations: a stop never interrupts a claim or DB call (see local_runtime).
+        while not stop.is_set():
             if max_tasks is not None and tasks_executed >= max_tasks:
                 break
 
@@ -695,7 +698,7 @@ async def _execution_worker_loop(
                     status = None
                 if status == EXECUTION_WORKER_STOPPING:
                     logger.info("ExecutionWorker %s received stop request", execution_worker_id)
-                    shutdown_requested = True
+                    stop.set()
                     continue
                 if status == EXECUTION_WORKER_STOPPED:
                     logger.warning("ExecutionWorker %s marked STOPPED; exiting", execution_worker_id)
@@ -705,7 +708,7 @@ async def _execution_worker_loop(
 
             if task is None:
                 empty_polls += 1
-                await asyncio.sleep(POLL_INTERVAL)
+                await wait_or_timeout(stop, POLL_INTERVAL)
                 continue
 
             empty_polls = 0
@@ -743,7 +746,8 @@ async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[boo
 
     ``CancelledError`` is either the monitor aborting the run (``cancel_job``
     / ``clear_task``), reported as a non-failure so the loop moves on, or the
-    worker itself being cancelled (``local start`` shutdown), which propagates
+    worker itself being cancelled (``local start`` shutdown past its grace
+    period), which propagates
     so the loop exits instead of orphaning the task.
     """
     require_container_runner(task, None)
@@ -781,6 +785,7 @@ async def execution_worker_main_loop(
     max_tasks: int | None = None,
     install_signal_handlers: bool = True,
     max_empty_polls: int | None = None,
+    stop: asyncio.Event | None = None,
 ) -> int:
     """Main execution_worker execution loop (in-process async execution).
 
@@ -792,6 +797,7 @@ async def execution_worker_main_loop(
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
+        stop: Set to end the loop between iterations (``local_runtime`` shutdown)
 
     Returns:
         int: Number of tasks executed
@@ -802,4 +808,5 @@ async def execution_worker_main_loop(
         max_tasks=max_tasks,
         install_signal_handlers=install_signal_handlers,
         max_empty_polls=max_empty_polls,
+        stop=stop,
     )

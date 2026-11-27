@@ -6,6 +6,7 @@ from aaiclick import create_object_from_value
 from aaiclick.data.object_context import get_ch_client
 
 
+# req: designs/object_context/arrow-ingest
 async def test_insert_arrow_round_trip(ctx):
     obj = await create_object_from_value({"a": [1, 2], "s": ["x", "y"]})
     ch = get_ch_client()
@@ -33,6 +34,7 @@ async def test_insert_arrow_fills_default_columns(ctx):
     assert result.result_rows == [(1,), (2,), (3,)]
 
 
+# req: designs/object_context/arrow-ingest
 async def test_insert_arrow_dotted_column_names(ctx):
     """Flattened dot / dot-star column names insert correctly."""
     obj = await create_object_from_value([{"x": {"y": 1}, "b": [{"c": 10}]}])

@@ -134,6 +134,7 @@ behind the server.
 
 ## Timestamps
 
+<!-- req: naive-utc-timestamps -->
 The server returns every datetime as naive UTC: ISO with no `Z` or offset.
 `new Date()` reads that as local time, so parse with `parseUtc`
 (`src/lib/format.ts`). New server datetime fields must stay naive UTC.
@@ -142,6 +143,7 @@ The server returns every datetime as naive UTC: ISO with no `Z` or offset.
 
 **Implementation**: `aaiclick/orchestration/events/`
 
+<!-- req: live-updates -->
 One SSE connection per UI session carries a single event kind, `changed`, with
 no payload. The client invalidates its React Query cache on each frame and REST
 supplies authoritative state — events are signals, not data.
@@ -299,18 +301,20 @@ stream cannot leave a badge still saying "live". Freshness is that query's own
 `dataUpdatedAt`; a borrowed one would lie. Every query the UI has, and each
 view's one badge for the query backing what is on screen:
 
+<!-- req: badge-refresh-modes -->
 | View / panel                      | Query key                         | Kept current by                                 | Badge    |
 |-----------------------------------|-----------------------------------|-------------------------------------------------|----------|
 | Jobs list                         | `["jobs"]`                        | `/events`                                       | `stream` |
 | Job detail — header + tasks table | `["job", ref]`                    | `/events`                                       | `stream` |
 | Job detail — graph                | `["job-graph", ref]`              | `/events`                                       | `stream` |
+| Job detail — timings, duration    | `["job-timings", ref]`            | `/events`                                       | `stream` |
 | Task detail — record              | `["task", id]`                    | `/events`                                       | `stream` |
 | Task detail — logs                | `["task-logs", id]`               | own 2 s timer, once the task has started        | `poll`   |
 | Registered jobs                   | `["registered-jobs"]`             | its own register / enable / disable mutations   | `manual` |
 | Data                              | `["objects", …]`, `["object", …]` | the reader, through the badge's refresh control | `manual` |
 | Dashboard                         | `["dashboard-results", name]`     | its own Refresh button                          | —        |
 
-The first four are `LIVE_KEYS` — the only keys a `changed` frame invalidates.
+The first five are `LIVE_KEYS` — the only keys a `changed` frame invalidates.
 While the stream is down they fall back to the 2 s `refetchInterval` and their
 badge says `polling`; the rest are unaffected by the stream either way and never
 claim otherwise. In graph view the job-detail header suppresses its own badge,
@@ -336,36 +340,3 @@ fallback. Retiring the poll for a pushed per-line envelope would need a change
 source `/events` does not have, and only pays off once a running task's log
 volume makes the 2 s fetch expensive. Earlier attempts of a retried task are
 kept in ClickHouse but not yet reachable from the UI — see `future.md`.
-
-# Testing
-
-**Implementation**: `test_e2e/web/`
-
-| Layer                | Tool                | Where                                                                     |
-|----------------------|---------------------|---------------------------------------------------------------------------|
-| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
-| Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
-| Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
-| End-to-end (browser) | Playwright (Python) | `test_e2e/web/`, pytest                                                   |
-
-**One test body, both modes.** Tests create jobs in-process through the
-orchestration API (the same pattern as `seed.py`), never through REST: no
-credentials are needed under distributed-mode auth, and whichever worker the
-mode runs executes the job. The live-update tests therefore run against both
-transports — `LocalTransport` locally, Postgres `LISTEN`/`NOTIFY` in the `UI e2e
-dist` job — and the distributed run is the only place the full chain
-`pg_notify` → SSE frame → browser DOM is exercised end to end.
-
-`shot("name")` saves a numbered full-page PNG to `test-results/shots/` (reset
-per run, gitignored).
-
-**Why Playwright Python**: an e2e test exercises the browser, FastAPI,
-orchestrator and DB together. `test_e2e/web/` shares the pytest harness with
-`test_e2e/docker/` rather than running a parallel Node runner.
-
-!!! warning "E2E suites don't run in default `pytest`"
-    `test_e2e/<suite>/` is excluded from the default `pytest` testpaths and
-    only runs when the path is passed explicitly or in a dedicated CI workflow.
-    The `UI e2e dist` job in `.github/workflows/_test-reusable.yaml` runs
-    `test_e2e/web/` on every PR against the distributed (Postgres + ClickHouse)
-    backend.

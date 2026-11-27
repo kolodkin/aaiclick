@@ -63,6 +63,7 @@ async def test_events_requires_principal(anon_client):
     assert response.status_code == 401
 
 
+# req: designs/frontend/live-updates
 async def test_events_stream_frames_a_change(app_client, bus):
     request = await _stream(app_client, bus)
     bus.publish()
@@ -73,6 +74,7 @@ async def test_events_stream_frames_a_change(app_client, bus):
     assert response.text.count("event: changed") == 1
 
 
+# req: designs/frontend/live-updates
 async def test_events_stream_rate_floor_collapses_bursts(app_client, bus, monkeypatch):
     """Signals that land while a stream sits out the floor become one frame."""
     monkeypatch.setattr(events, "MIN_FRAME_INTERVAL", 0.2)
@@ -86,6 +88,7 @@ async def test_events_stream_rate_floor_collapses_bursts(app_client, bus, monkey
     assert response.text.count("event: changed") == 2
 
 
+# req: designs/frontend/live-updates
 async def test_events_stream_sends_keepalive_comments(app_client, bus, monkeypatch):
     monkeypatch.setattr(events, "KEEPALIVE_INTERVAL", 0.05)
     request = await _stream(app_client, bus)

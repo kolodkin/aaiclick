@@ -20,6 +20,7 @@ async def _persisted_shell_task(command, command_env=None) -> Task:
     return task
 
 
+# req: designs/orchestration/shell-in-task-child, designs/task_interface/where-it-runs
 async def test_shell_in_child_succeeds_on_exit_zero(orch_ctx_no_ch):
     task = await _persisted_shell_task(["true"])
     success, result_ref, error = await _run_task_in_child(task, 1, shell_spec=ShellSpec(["true"], None))
@@ -35,6 +36,7 @@ async def test_shell_in_child_fails_on_nonzero(orch_ctx_no_ch):
     assert "exit" in (error or "")
 
 
+# req: user_guide/orchestration/runners/shell-container-env
 async def test_shell_in_child_command_env_overlaid(orch_ctx_no_ch):
     cmd = ["python", "-c", "import os,sys; sys.exit(0 if os.environ.get('K')=='v' else 3)"]
     task = await _persisted_shell_task(cmd, {"K": "v"})
@@ -42,6 +44,7 @@ async def test_shell_in_child_command_env_overlaid(orch_ctx_no_ch):
     assert success is True
 
 
+# req: designs/orchestration/log-sink-per-runner, designs/orchestration/shell-in-task-child
 async def test_shell_in_child_streams_logs_to_clickhouse(orch_ctx_no_ch):
     """Shell output is captured to CH task_logs under a registered run_id."""
     cmd = ["sh", "-c", "echo first line; echo second line"]
@@ -56,6 +59,7 @@ async def test_shell_in_child_streams_logs_to_clickhouse(orch_ctx_no_ch):
     assert read_logs_via_child(task.id, run.run_id) == ["first line", "second line"]
 
 
+# req: user_guide/task_interface/io-contract, designs/orchestration/shell-in-task-child
 async def test_mp_shell_task_result_reaches_result_ref(orch_ctx_no_ch):
     """The child reads in.json, writes out.json, and the result rides back as
     a serialized native ref."""

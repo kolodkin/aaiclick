@@ -204,7 +204,7 @@ async def drop_all_ch_tables() -> None:
 
     Truncates the migration-created tables while they match the last full
     rebuild; otherwise drops everything and re-applies migrations (see
-    ``docs/designs/testing.md``).
+    ``docs/contributor/testing.md``).
     """
     ch = get_ch_client()
     tables = await _all_table_ddl(ch)
@@ -487,7 +487,7 @@ async def orch_module_ctx():
     """Module-scoped ``orch_context()`` with chdb — entered once per module.
 
     chdb's Session is a true per-process singleton (see
-    ``docs/designs/testing.md``); orch_context never closes it, so this
+    ``docs/contributor/testing.md``); orch_context never closes it, so this
     fixture's scope only affects orchestration state, not chdb lifecycle.
     """
     async with module_orch_scope(orch_context()):

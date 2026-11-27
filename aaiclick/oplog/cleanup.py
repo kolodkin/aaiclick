@@ -1,7 +1,7 @@
 """
 aaiclick.oplog.cleanup - Table cleanup helpers.
 
-See docs/designs/oplog.md — "Table Lifecycle & Cleanup".
+See docs/architecture/data_model.md — "Table Lifecycle & Cleanup".
 """
 
 from __future__ import annotations

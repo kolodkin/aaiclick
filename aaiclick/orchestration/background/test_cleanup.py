@@ -41,6 +41,7 @@ async def _table_names(engine, table: str) -> set[str]:
         return {row[0] for row in result.fetchall()}
 
 
+# req: designs/orchestration/lifecycle-refs
 async def test_cleanup_skips_pinned_tables(bg_db):
     """Tables with a pin_ref are NOT dropped even when no run refs exist."""
     await insert_context_ref(bg_db, "t_unpinned", 100)
@@ -56,6 +57,7 @@ async def test_cleanup_skips_pinned_tables(bg_db):
     assert "t_unpinned" not in remaining, "Unpinned table was not cleaned up"
 
 
+# req: designs/orchestration/lifecycle-refs
 async def test_cleanup_skips_tables_with_active_runs(bg_db):
     """Tables with run refs in table_run_refs are NOT dropped."""
     await insert_context_ref(bg_db, "t_active", 100)
@@ -104,6 +106,7 @@ async def test_clean_task_runs_batch_removes_multiple_run_ids(bg_db):
     assert await get_run_refs(bg_db, "t3") == {"run_3"}
 
 
+# req: designs/orchestration/lifecycle-refs
 async def test_clean_task_run_then_cleanup_drops_table(bg_db):
     """After clean_task_run removes run refs, cleanup drops the table."""
     await insert_context_ref(bg_db, "t_orphan", 100)
@@ -121,6 +124,7 @@ async def test_clean_task_run_then_cleanup_drops_table(bg_db):
     assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
 
 
+# req: user_guide/orchestration/running_jobs/preservation-modes, user_guide/lineage/dropped-tables, architecture/data_model/job-driven-cleanup, designs/orchestration/background-passes
 async def test_cleanup_full_mode_skips_drop(bg_db):
     """Tables belonging to a FULL-mode job are preserved by cleanup."""
     await insert_job(bg_db, 777, preservation_mode="FULL")
@@ -137,6 +141,7 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     mock_ch().command.assert_not_called()
 
 
+# req: user_guide/orchestration/running_jobs/preservation-modes, architecture/data_model/job-driven-cleanup, designs/orchestration/background-passes
 async def test_cleanup_none_mode_drops(bg_db):
     """Tables belonging to a NONE-mode job are dropped as normal."""
     await insert_job(bg_db, 888, preservation_mode="NONE")
@@ -246,6 +251,7 @@ async def test_drop_tables_gives_up_after_consecutive_failures(bg_db):
     assert await _table_names(bg_db, "table_context_refs") == {f"t_{i}" for i in range(5)}
 
 
+# req: user_guide/object_context/persistent-tables-outlive-refcount, architecture/data_model/table-name-prefixes
 async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     """``p_*`` and ``j_<id>_*`` tables are exempt from refcount-based cleanup."""
     await insert_context_ref(bg_db, "p_user_catalog", 100)
@@ -262,6 +268,7 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     assert "t_scratch" not in remaining, "Temp table was not cleaned up"
 
 
+# req: user_guide/object_context/persistent-tables-outlive-refcount, architecture/data_model/table-name-prefixes
 async def test_delete_job_data_exempts_persistent_tables(orch_ctx, bg_db):
     """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never ``p_*``."""
     job_id = 555
@@ -284,6 +291,7 @@ async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
     return {row[0] for row in result.result_rows}
 
 
+# req: user_guide/orchestration/managing_jobs/task-logs, user_guide/lineage/operation-log, architecture/data_model/internal-databases, designs/orchestration/background-passes, designs/orchestration/task-log-rows
 async def test_delete_job_data_purges_ch_log_tables(orch_ctx, bg_db):
     """``_delete_job_data`` synchronously deletes the job's operation_log and task_logs rows, and no other job's."""
     job_id, other_job_id = 556, 557
@@ -332,6 +340,7 @@ async def test_delete_job_data_keeps_job_when_log_purge_fails(orch_ctx, bg_db):
         assert (await session.execute(text(f"SELECT id FROM jobs WHERE id = {job_id}"))).scalar_one() == job_id
 
 
+# req: designs/orchestration/failing-pass-isolated
 async def test_failing_pass_does_not_stop_the_others(bg_db, monkeypatch):
     """One pass raising (e.g. a DB restart) is logged; the passes after it still run."""
     worker = make_worker()

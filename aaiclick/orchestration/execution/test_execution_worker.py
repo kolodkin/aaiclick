@@ -46,6 +46,7 @@ from .execution_worker import (
 from .runner import OUTPUT_FOLLOWER_DRAIN_TIMEOUT, execute_task
 
 
+# req: user_guide/orchestration/managing_jobs/task-logs-destination
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -59,12 +60,14 @@ def test_task_logs_destination(monkeypatch, value, expected):
     assert task_logs_destination() == expected
 
 
+# req: user_guide/orchestration/managing_jobs/task-logs-destination
 def test_task_logs_destination_rejects_unknown_value(monkeypatch):
     monkeypatch.setenv("AAICLICK_TASK_LOGS", "stdout")
     with pytest.raises(ValueError, match="AAICLICK_TASK_LOGS must be one of"):
         task_logs_destination()
 
 
+# req: designs/orchestration/worker-main-loop
 async def test_register_worker(orch_ctx):
     """Test execution_worker registration."""
     execution_worker = await register_execution_worker()
@@ -114,6 +117,7 @@ async def test_worker_heartbeat_nonexistent(orch_ctx):
     assert await execution_worker_heartbeat(999999999) == EXECUTION_WORKER_STOPPED
 
 
+# req: designs/orchestration/worker-liveness
 async def test_heartbeat_never_revives_stopped_worker(orch_ctx):
     """A worker the sweep marked STOPPED stays STOPPED; the heartbeat reports it."""
     execution_worker = await register_execution_worker()
@@ -243,6 +247,7 @@ async def test_claim_next_task_no_tasks(orch_ctx):
     assert task is None
 
 
+# req: designs/orchestration/task-claiming
 async def test_claim_next_task_basic(orch_ctx):
     """Test basic task claiming."""
     # Register execution_worker
@@ -311,6 +316,7 @@ async def test_claim_next_task_does_not_register_claimed_task(orch_ctx):
     assert task.id not in registry
 
 
+# req: designs/orchestration/task-claiming
 @pytest.mark.skipif(
     is_sqlite(),
     reason="FOR UPDATE SKIP LOCKED requires PostgreSQL",
@@ -345,6 +351,7 @@ async def test_claim_next_task_skip_locked(orch_ctx):
     assert task2.execution_worker_id == worker2.id
 
 
+# req: designs/orchestration/task-claiming
 async def test_claim_next_task_prioritizes_oldest_job(orch_ctx):
     """Test that older running jobs are prioritized."""
     # Create execution_worker first
@@ -384,6 +391,7 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx):
     assert next_task.job_id == job1.id
 
 
+# req: designs/orchestration/task-claiming
 async def test_claim_respects_task_dependency(orch_ctx):
     """Test that claim_next_task respects task -> task dependencies."""
     # Register execution_worker
@@ -424,6 +432,7 @@ async def test_claim_respects_task_dependency(orch_ctx):
     assert claimed3.id == task2.id
 
 
+# req: designs/orchestration/task-claiming
 async def test_claim_respects_group_dependency(orch_ctx):
     """Test that claim_next_task respects group -> task dependencies."""
     # Register execution_worker
@@ -541,6 +550,7 @@ async def test_drive_vehicle_survives_a_failing_output_collection(orch_ctx, monk
     assert result.success
 
 
+# req: designs/orchestration/worker-liveness
 async def test_renew_claim(orch_ctx):
     """Renewal pushes ``claim_expires_at`` out while the run owns the task and
     refuses once the task was cleared to a new epoch."""
@@ -563,6 +573,7 @@ async def test_renew_claim(orch_ctx):
     assert await renew_claim(task.id, execution_worker.id, task.run_epoch)
 
 
+# req: designs/orchestration/worker-liveness
 @pytest.mark.parametrize(
     "heartbeat, self_stop_after",
     [
@@ -600,6 +611,7 @@ class _HangingVehicle(_StillRunningVehicle):
         self.terminated.set()
 
 
+# req: designs/orchestration/worker-liveness
 async def test_drive_vehicle_raises_when_worker_self_stops(orch_ctx):
     """A self-stopped worker's run is terminated and surfaces as WorkerStopped,
     never as a task result."""

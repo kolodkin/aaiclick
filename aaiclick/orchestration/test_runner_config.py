@@ -32,6 +32,7 @@ def test_prebuilt_requires_nonempty_image_tag():
         ImagePrebuilt(image_tag="")
 
 
+# req: designs/orchestration/selecting-image-source
 @pytest.mark.parametrize(
     "build, fields",
     [
@@ -49,6 +50,7 @@ def test_validate_image_exclusivity_accepts_one_side():
     validate_image_exclusivity(None, "a" * 40, build=True)
 
 
+# req: designs/java-sdk/jvm-entry-type
 @pytest.mark.parametrize(
     "entry_type, command, match",
     [
@@ -93,6 +95,7 @@ def test_parse_image_source_rejects_unknown_type():
         parse_image_source({"type": "carrier-pigeon"})
 
 
+# req: user_guide/orchestration/runners/docker-resource-flags, designs/kubernetes_runner/job-resources
 def test_validate_resources_rejects_non_mapping():
     with pytest.raises(ValueError, match="resources must be a mapping"):
         validate_resources([{"cpus": "1"}])

@@ -42,6 +42,7 @@ async def test_set_role_missing_raises_not_found(orch_ctx):
         await users.set_role(12345, "admin")
 
 
+# req: designs/auth/session-revocation
 async def test_demotion_revokes_sessions(orch_ctx):
     """Without revocation a demoted admin's refresh token would keep minting
     tokens, and the demotion would only bind at its natural expiry."""
@@ -53,6 +54,7 @@ async def test_demotion_revokes_sessions(orch_ctx):
         await auth.refresh(RefreshRequest(refresh_token=refresh_token), secret=SECRET)
 
 
+# req: designs/auth/session-revocation
 async def test_disable_revokes_sessions(orch_ctx):
     view, refresh_token = await _logged_in("disabled_user")
 
@@ -62,6 +64,7 @@ async def test_disable_revokes_sessions(orch_ctx):
         await auth.refresh(RefreshRequest(refresh_token=refresh_token), secret=SECRET)
 
 
+# req: designs/auth/session-revocation
 async def test_admin_password_reset_revokes_sessions(orch_ctx):
     view, refresh_token = await _logged_in("reset_user")
 
@@ -83,6 +86,7 @@ async def test_reenabling_a_user_leaves_sessions_alone(orch_ctx):
     assert await auth.login(LoginRequest(username="reenabled", password="pw"), secret=SECRET)
 
 
+# req: designs/auth/login-rejections
 async def test_create_user_without_password_cannot_login(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="sso_only", email="s@example.com"))
     assert view.has_password is False and view.email == "s@example.com"

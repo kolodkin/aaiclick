@@ -41,7 +41,7 @@ async def example():
     print(f"a * b  = {await result.data()}")  # → [20, 80, 150, 320, 500]
 
     result = a / b
-    print(f"a / b  = {await result.data()}")  # → [5, 5, 6, 5, 5]
+    print(f"a / b  = {await result.data()}")  # → [5.0, 5.0, 6.0, 5.0, 5.0]
 
     result = a // b
     print(f"a // b = {await result.data()}")  # → [5, 5, 6, 5, 5]
@@ -50,7 +50,7 @@ async def example():
     print(f"a %% b = {await result.data()}")  # → [0, 0, 0, 0, 0]
 
     result = a**b
-    print(f"a ** b = {await result.data()}")  # → [100, 160000, 24300000, 6553600000000, 97656250000000000]
+    print(f"a ** b = {await result.data()}")  # → [100.0, 160000.0, 24300000.0, 6553600000000.0, 9.765625e+16]
 
     # Scalar broadcast
     section("Scalar broadcast")
@@ -68,7 +68,7 @@ async def example():
     print(f"100 - a = {await result.data()}")  # → [99, 98, 97, 96, 95]
 
     result = 2**a
-    print(f"2 ** a  = {await result.data()}")  # → [2, 4, 8, 16, 32]
+    print(f"2 ** a  = {await result.data()}")  # → [2.0, 4.0, 8.0, 16.0, 32.0]
 
     # Comparison
     section("Comparison operators")
@@ -135,7 +135,7 @@ async def example():
 
     total = await a.sum()
     normalized = a / total
-    print(f"normalized (a / sum(a)): {await normalized.data()}")  # → [0, 0, 0, 0, 0]
+    print(f"normalized (a / sum(a)): {await normalized.data()}")  # → [0.0666..., 0.1333..., 0.2, 0.2666..., 0.3333...]
 
     b = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
     diff = b - a
@@ -191,7 +191,7 @@ async def example():
     print(f"array_map('*')  = {await result.data()}")  # → [20, 80, 150, 320, 500]
 
     result = await a.array_map(b, "/")
-    print(f"array_map('/')  = {await result.data()}")  # → [5, 5, 6, 5, 5]
+    print(f"array_map('/')  = {await result.data()}")  # → [5.0, 5.0, 6.0, 5.0, 5.0]
 
     result = await a.array_map(b, "//")
     print(f"array_map('//') = {await result.data()}")  # → [5, 5, 6, 5, 5]
@@ -200,7 +200,7 @@ async def example():
     print(f"array_map('%%') = {await result.data()}")  # → [0, 0, 0, 0, 0]
 
     result = await a.array_map(b, "**")
-    print(f"array_map('**') = {await result.data()}")  # → [100, 160000, 24300000, 6553600000000, 97656250000000000]
+    print(f"array_map('**') = {await result.data()}")  # → [100.0, 160000.0, 24300000.0, 6553600000000.0, 9.765625e+16]
 
     # Scalar broadcast via array_map
     section("Scalar broadcast via array_map")

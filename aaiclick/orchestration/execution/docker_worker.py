@@ -1,6 +1,6 @@
 """Docker runner — host-side ExecuteFns driving containers.
 
-See docs/designs/orchestration.md — "Execution layers".
+See docs/architecture/topology.md — "Execution layers".
 
 ``_run_task_in_container`` runs in the host worker process; it pulls the
 image (when a registry is configured), spawns ``docker run``, sends

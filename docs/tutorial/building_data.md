@@ -37,5 +37,5 @@ without leaving ClickHouse:
 
 # See Also
 
-- [Object API](../user_guide/object.md) — `copy`, `concat`, and `insert`
+- [Object API](../user_guide/object/index.md) — `copy`, `concat`, and `insert`
 - [Examples: Data Manipulation](../examples/data_manipulation.md) — the complete runnable script

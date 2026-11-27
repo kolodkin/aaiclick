@@ -27,6 +27,7 @@ _SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 pytestmark = pytest.mark.usefixtures("orch_ctx")
 
 
+# req: architecture/contracts/internal-api-contract
 async def test_list_objects_returns_page():
     await create_object_from_value([1, 2, 3], name="list_a", scope="global")
     await create_object_from_value([4, 5], name="list_b", scope="global")
@@ -141,6 +142,7 @@ async def test_purge_objects_requires_time_filter():
         await objects.purge_objects(PurgeObjectsRequest())
 
 
+# req: designs/viewer/scope-keys
 async def test_list_objects_job_scope_by_ref():
     job = await create_job("objs_job", _SAMPLE_TASK)
     async with task_scope(task_id=get_snowflake_id(), job_id=job.id, run_id=get_snowflake_id()):
@@ -174,6 +176,7 @@ async def test_list_objects_job_scope_by_ref():
     assert ([(o.name, o.scope) for o in filtered.items], filtered.total) == ([("persist", "global")], 2)
 
 
+# req: designs/viewer/task-value-listing
 async def test_list_objects_kind_adds_task_rows():
     job = await create_job("kinds_job", create_task(_SAMPLE_TASK, {"n": 1}, name="t"))
     async with get_sql_session() as session:

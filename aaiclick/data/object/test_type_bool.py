@@ -1,7 +1,7 @@
 """
-Tests for boolean (UInt8) data type - scalars, arrays, operators, and statistics.
+Tests for boolean (Bool) data type - scalars, arrays, operators, and statistics.
 
-Note: Booleans are stored as UInt8 in ClickHouse (True=1, False=0),
+Note: Booleans are stored as Bool in ClickHouse (True=1, False=0),
 so arithmetic operations work on the underlying integer values.
 """
 
@@ -23,7 +23,7 @@ from aaiclick import create_object_from_value
     ],
 )
 async def test_bool_creation(ctx, value, expected):
-    """Booleans are stored as UInt8, so they read back as 1/0."""
+    """Booleans are stored as Bool and read back as 1/0."""
     obj = await create_object_from_value(value, aai_id=True)
     data = await obj.data()
     assert data == expected

@@ -37,8 +37,13 @@ extra_css:
 plugins:
   - search
 
+validation:
+  anchors: warn
+
 exclude_docs: |
   designs/
+  contributor/
+  architecture/
   drafts/
 
 markdown_extensions:
@@ -74,20 +79,39 @@ nav:
     - Building & Combining Data: tutorial/building_data.md
     - Orchestration: tutorial/orchestration.md
   - User Guide:
-    - Orchestration: user_guide/orchestration.md
-    - Deployment: user_guide/deployment.md
-    - Task API: user_guide/task_api.md
-    - Task API (Python): user_guide/task_api_python.md
-    - Task API (Java): user_guide/task_api_java.md
-    - Task Interface: user_guide/task_interface.md
-    - Container Images: user_guide/container_images.md
-    - DNS Rebinding: user_guide/dns_rebinding.md
-    - Sandbox: user_guide/sandbox.md
-    - Lineage: user_guide/lineage.md
-    - Example Projects: user_guide/example_projects.md
-    - Object API: user_guide/object.md
-    - Ingest: user_guide/ingest.md
-    - ObjectContext: user_guide/object_context.md
+    - Data:
+      - Object API:
+        - Overview: user_guide/object/index.md
+        - Operators: user_guide/object/operators.md
+        - Lazy Results: user_guide/object/lazy_results.md
+        - Data Retrieval: user_guide/object/data_retrieval.md
+        - Export: user_guide/object/export.md
+        - Blob Storage: user_guide/object/blob_storage.md
+        - Views and copy(): user_guide/object/views.md
+      - Ingest: user_guide/ingest.md
+      - ObjectContext: user_guide/object_context.md
+    - Orchestration:
+      - Orchestration:
+        - Overview: user_guide/orchestration/index.md
+        - Tasks and Jobs: user_guide/orchestration/tasks_and_jobs.md
+        - Running Jobs: user_guide/orchestration/running_jobs.md
+        - Runners: user_guide/orchestration/runners.md
+        - Parallel Operators: user_guide/orchestration/parallel_operators.md
+        - Managing Jobs: user_guide/orchestration/managing_jobs.md
+      - Task API: user_guide/task_api.md
+      - Task API (Python): user_guide/task_api_python.md
+      - Task API (Java): user_guide/task_api_java.md
+      - Task Interface: user_guide/task_interface.md
+      - Lineage: user_guide/lineage.md
+    - Operations:
+      - Deployment: user_guide/deployment.md
+      - Container Images: user_guide/container_images.md
+      - Sandbox: user_guide/sandbox.md
+      - DNS Rebinding: user_guide/dns_rebinding.md
+      - Example Projects: user_guide/example_projects.md
+    - Web UI:
+      - UI: user_guide/ui.md
+      - Access: user_guide/access.md
   - Examples:
     - Data:
       - Basic Operators: examples/basic_operators.md

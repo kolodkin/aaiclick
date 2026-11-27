@@ -36,6 +36,6 @@ LIMIT.
 
 # See Also
 
-- [Object API](../user_guide/object.md) — `group_by`, `agg`, and `having`
+- [Object API](../user_guide/object/index.md) — `group_by`, `agg`, and `having`
 - [Examples: Group By](../examples/group_by.md) — every grouping pattern, including HAVING
 - [Examples: Aggregation Table](../examples/aggregation_table.md) — wide aggregation output

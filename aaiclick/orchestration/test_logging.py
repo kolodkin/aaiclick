@@ -16,6 +16,7 @@ from aaiclick.orchestration.logging import (
 from aaiclick.testing import until
 
 
+# req: designs/orchestration/task-log-rows
 def test_sink_tags_lines_with_their_stream():
     sink = ChLogSink()
     sink.write(STDOUT_STREAM, "out line\n")
@@ -52,6 +53,7 @@ def test_sink_finalize_after_drain_flushes_partials():
 # capture_task_output / read_task_logs round trips through ClickHouse
 
 
+# req: user_guide/orchestration/managing_jobs/task-logs
 @pytest.mark.parametrize(
     "emit, stream",
     [
@@ -71,6 +73,7 @@ async def test_capture_task_output_stream(orch_ctx, emit, stream):
     assert any(line.text == "Hello, world!" and line.stream == stream for line in lines)
 
 
+# req: user_guide/orchestration/managing_jobs/task-logs, designs/orchestration/task-logs-stream
 async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     """Completed lines are readable from task_logs while the task body is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)

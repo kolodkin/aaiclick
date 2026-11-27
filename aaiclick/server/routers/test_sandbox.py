@@ -45,23 +45,27 @@ async def test_config_hides_remote_from_non_admin(app_client, viewer_headers, sa
     assert body == {"enabled": True, "remote": None}
 
 
+# req: user_guide/sandbox/enable-with-remote
 async def test_config_shows_remote_to_admin(orch_ctx, app_client, sandbox_remote):
     body = (await app_client.get(f"{API_PREFIX}/sandbox/config")).json()
     assert body == {"enabled": True, "remote": str(sandbox_remote)}
 
 
+# req: user_guide/sandbox/enable-with-remote
 async def test_config_when_disabled(orch_ctx, app_client, monkeypatch):
     monkeypatch.delenv("AAICLICK_SANDBOX", raising=False)
     body = (await app_client.get(f"{API_PREFIX}/sandbox/config")).json()
     assert body == {"enabled": False, "remote": None}
 
 
+# req: user_guide/sandbox/enable-with-remote
 async def test_submit_when_disabled_is_404(orch_ctx, app_client, monkeypatch):
     monkeypatch.delenv("AAICLICK_SANDBOX", raising=False)
     resp = await app_client.post(f"{API_PREFIX}/sandbox", json={"name": "hello", "source": SOURCE})
     assert resp.status_code == 404
 
 
+# req: user_guide/sandbox/any-user-submits, user_guide/sandbox/non-admin-sandbox-only, user_guide/sandbox/submission-lifecycle
 async def test_viewer_can_submit_and_row_is_pending(app_client, viewer_headers, sandbox_remote):
     resp = await app_client.post(
         f"{API_PREFIX}/sandbox", json={"name": "hello", "source": SOURCE}, headers=viewer_headers
@@ -78,6 +82,7 @@ async def test_viewer_can_submit_and_row_is_pending(app_client, viewer_headers, 
     assert detail["source"] == SOURCE
 
 
+# req: user_guide/sandbox/writing-a-file
 @pytest.mark.parametrize(
     "payload, detail",
     [
@@ -92,6 +97,7 @@ async def test_submit_rejects(app_client, viewer_headers, sandbox_remote, payloa
     assert detail in resp.text
 
 
+# req: user_guide/sandbox/clone-and-push, user_guide/sandbox/read-source
 async def test_detail_reads_from_the_rows_remote_after_the_sandbox_moves(orch_ctx, app_client, tmp_path, monkeypatch):
     """A stored submission stays readable when ``AAICLICK_SANDBOX`` is unset
     or pointed elsewhere: the source comes from the row's own remote."""

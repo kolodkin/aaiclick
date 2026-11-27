@@ -56,6 +56,7 @@ async def test_nested_orch_context_does_not_dispose_outer_engine():
         assert dispose_spy.call_count == 1
 
 
+# req: architecture/backends/one-chdb-session-per-process
 async def test_nested_orch_context_reuses_ch_client():
     async with orch_context():
         outer_ch = _ch_client_var.get()

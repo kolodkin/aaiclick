@@ -12,11 +12,11 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 - Tests also run in GitHub Actions with both local and distributed backends
 - For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
 
-**Architecture**: `docs/designs/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
+**Architecture**: `docs/contributor/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
 
 # Testing
 
-Use the `vmodel` skill before a change that alters behavior: it pairs each test with the doc statement it proves, by layer (`docs/user_guide/`, `docs/designs/`, module docstring).
+Use the `vmodel` skill before a change that alters behavior: it pairs each test with the doc statement it proves, by layer (`docs/user_guide/`, `docs/architecture/`, `docs/designs/`, module docstring); `aaiclick/test_vmodel.py` checks the links.
 
 Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, what NOT to test, when to parametrize input/expected clusters, and when a redundant test is safe to delete.
 

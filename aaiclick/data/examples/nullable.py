@@ -79,7 +79,9 @@ async def example():
     result = await obj_nullable.concat(obj_regular)
     schema_result = result.schema
     print(f"Result nullable:  {schema_result.columns['value'].nullable}")  # → True
-    print(f"Result data: {await result.data()}")  # → [10, None, 20, 30] (row order is undefined)
+    # concat has no row order: sort, NULLs last
+    values = sorted(await result.data(), key=lambda v: (v is None, v or 0))
+    print(f"Result data: {values}")  # → [10, 20, 30, None]
 
     section("Example 3: Arithmetic with nullable values")
 

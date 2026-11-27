@@ -1,6 +1,6 @@
 """Base for models that appear in the OpenAPI schema.
 
-See docs/designs/api_server.md — "Required fields on the wire".
+See docs/architecture/contracts.md — "Required fields on the wire".
 """
 
 from pydantic import BaseModel, ConfigDict

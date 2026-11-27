@@ -5,6 +5,7 @@ import pytest
 from aaiclick.viewer.scope import ScopeRef, parse_scope
 
 
+# req: designs/viewer/scope-keys
 @pytest.mark.parametrize(
     "key, expected",
     [
@@ -17,6 +18,7 @@ def test_parse_scope(key, expected):
     assert parse_scope(key) == expected
 
 
+# req: designs/viewer/scope-keys
 @pytest.mark.parametrize("key", ["", "global", "job:", "job", "task:1"])
 def test_parse_scope_rejects(key):
     with pytest.raises(ValueError):

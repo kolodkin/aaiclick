@@ -433,7 +433,7 @@ async def orch_context() -> AsyncIterator[None]:
         engine = create_sql_engine(get_db_url())
         handler = create_db_handler()
 
-    # chdb's Session is a per-process singleton (docs/designs/testing.md — "chdb Session Constraint"):
+    # chdb's Session is a per-process singleton (docs/contributor/testing.md — "chdb Session Constraint"):
     # a nested context reuses the outer client instead of opening another.
     ch_client_owned = LazyChClient() if _ch_client_var.get() is None else None
 

@@ -1,6 +1,6 @@
 """Local-mode worker startup/shutdown helper.
 
-See docs/designs/orchestration.md — "Topology".
+See docs/architecture/topology.md — "Topology".
 
 Used by the FastAPI lifespan in ``aaiclick.server.app`` to start the
 ``BackgroundWorker`` and the execution ``execution_worker_main_loop`` for the
@@ -30,6 +30,9 @@ from aaiclick.internal_api.setup import (
 from .background import BackgroundWorker
 from .execution import execution_worker_main_loop
 from .orch_context import orch_context
+
+# Seconds a stopping worker may take to finish its iteration before it is cancelled.
+STOP_GRACE_S = 5.0
 
 
 @asynccontextmanager
@@ -62,12 +65,25 @@ async def local_runtime() -> AsyncIterator[None]:
         await background.start()
         try:
             # uvicorn (or the outer process) owns SIGTERM/SIGINT — the worker must not steal them.
-            worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False))
+            stop = asyncio.Event()
+            worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False, stop=stop))
             try:
                 yield
             finally:
-                worker_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await worker_task
+                # Ask the worker to stop between iterations instead of cancelling it.
+                # A cancel that lands inside a SQLite call (claim, heartbeat) makes
+                # SQLAlchemy discard that aiosqlite connection without closing it;
+                # orch_context then disposes the engine, and garbage collection later
+                # raises aiosqlite's ResourceWarning in whatever test or request is
+                # running (the intermittent "Server local" CI failure). Cancel only a
+                # worker still busy with a task after STOP_GRACE_S.
+                stop.set()
+                try:
+                    await asyncio.wait({worker_task}, timeout=STOP_GRACE_S)
+                finally:
+                    # Also reached when this block is itself cancelled mid-wait.
+                    worker_task.cancel()  # no-op once the worker has stopped
+                    with suppress(asyncio.CancelledError):
+                        await worker_task
         finally:
             await background.stop()

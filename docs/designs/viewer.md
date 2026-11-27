@@ -27,6 +27,7 @@ copy is refreshed and `npm run check` / `npm test` re-run.
 
 ## The contract the kernel expects
 
+<!-- req: kernel-contract -->
 | Input             | Shape                                                                                                                                    | aaiclick source                                           |
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
 | result rows       | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact`, 64-bit integers / decimals / denormals quoted, named tuples as objects | `POST /viewer/query` returns ClickHouse's output verbatim |
@@ -47,12 +48,14 @@ adapter, `src/lib/viewer.ts`, converts aaiclick's wire order-by pair
 Objects are shown under a scope key — a string, so it fits the prompt, the
 URL, dashboards and CLI flags:
 
+<!-- req: scope-keys -->
 | Scope            | Tables listed                                    |
 |------------------|--------------------------------------------------|
 | `all`            | `persistent` plus every job's `j_*` rows         |
 | `persistent`     | `p_*` rows in `table_registry`                   |
 | `job:<id\|name>` | `table_registry` rows with the resolved `job_id` |
 
+<!-- req: job-scope-resolution -->
 A job scope resolves like `get_job`: an id names one run, a name the latest
 run with that name. Dashboards store the key as given, so
 `job:nightly_etl` follows each new run while `job:123` stays pinned. Temp and
@@ -65,11 +68,13 @@ Every surface identifies an object as `(scope, name)`, which maps to
 
 ## Queries name an object, not a table
 
+<!-- req: object-not-table -->
 A query request carries a scope, an object name and constraints — never SQL
 with a `FROM`. `query_object` opens the object and builds the SELECT with the
 Object API, so the table name is produced inside `aaiclick/data` like for
 every other consumer; the SPA, MCP and CLI never see one.
 
+<!-- req: where-guard -->
 The `where` expression is the one free-text input. Its guard
 (`aaiclick/data/sql_utils.py`, shared with the lineage sandbox) rejects
 comments, unbalanced parentheses, statement separators, DDL/DML keywords and
@@ -84,6 +89,7 @@ objects: `future.md`.
 
 **Implementation**: `aaiclick/internal_api/task_values.py`
 
+<!-- req: task-value-listing -->
 A job's Python inputs and results are JSON in `tasks.kwargs` /
 `tasks.result` (`task_interface.md`), never tables. A job listing with
 `kind="all"` adds one row per top-level kwarg and per non-null result of
@@ -122,6 +128,7 @@ A task row is addressed by task id, since task names repeat within a job:
 `<task_name>.<kwarg>` / `<task_name>.result`. Object names cannot start with
 a digit, so an address never collides with one.
 
+<!-- req: task-value-query -->
 `query_object` accepts an address in `object` under a job scope and runs no
 SQL: it returns the stored JSON as text in one `value` cell, in the kernel's
 `{meta, data}` shape — text, because a browser would round the 64-bit ids
@@ -134,6 +141,7 @@ stored. `where`, `fields` and `order_by` are rejected, and a value over
 The viewer builds on three additions to `aaiclick/data` and
 `aaiclick/internal_api`:
 
+<!-- req: raw-clickhouse-output -->
 - Object listing and lookup filtered by job, and opening a job's object from
   outside a task.
 - `Object.select_sql()`: the SELECT an object reads itself with; `View` and
@@ -150,6 +158,7 @@ The viewer builds on three additions to `aaiclick/data` and
 Every function runs under `orch_context()`. Models:
 `aaiclick/viewer/view_models.py`.
 
+<!-- req: internal-api-verbs -->
 | Function                                    | Returns                                | Notes                                                                                                                 |
 |---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
 | `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` (MCP, CLI)        |
@@ -165,6 +174,7 @@ request adds `scope`, paging and `fmt`.
 
 ## Dashboard params
 
+<!-- req: dashboard-params -->
 A dashboard's `params` are QueryView's selector specs (`name`, `kind`,
 `options`, `default: none`), interpreted by the kernel in the browser. A
 `{name}` placeholder in a panel's `where` takes the chosen value: a quoted
@@ -178,12 +188,14 @@ panel whose selector is unchosen is held back. `save_dashboard` rejects
 
 **Implementation**: `aaiclick/viewer/models.py`
 
+<!-- req: dashboard-storage -->
 `viewer_dashboards`, unique on `name`, migrated through the Alembic chain.
 `queries` and `params` are JSON text; the server validates each panel's
 `where` with the rules above.
 
 ## Surfaces
 
+<!-- req: surfaces -->
 - **REST** (`/viewer` prefix, the objects router's dependencies):
   `POST /query` (raw ClickHouse text, no parse / re-serialise on the server),
   `GET|PUT|DELETE /dashboards[/{name}]`, `POST /dashboards/{name}:run`,
@@ -202,15 +214,3 @@ Local mode (`python -m aaiclick local start`) runs the API and workers in one
 process, so the viewer's ClickHouse access nests into the runtime context and
 the chdb lock is not an issue; distributed mode runs it inside the API server
 over clickhouse-connect. Nothing in the viewer is per-process.
-
-# Testing
-
-- chdb: `query_object` over persistent and job objects — fields, `where`,
-  ordering, paging, CSV, the `where` guard, unknown objects and jobs;
-  dashboard round-trips; `run_dashboard` / `run_queries` column orientation.
-- Routers: routes, 404 / 422 problems, 401 without a token in distributed
-  mode.
-- Vitest (`npm test`): the kernel's own tests, prompt parsing, the adapter.
-- Playwright (seeded before the server starts): `@data` lists, orders and
-  pages the seeded object, `@dashboard` renders the saved dashboard and
-  re-runs it through `setParams`.

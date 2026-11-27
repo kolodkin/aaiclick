@@ -16,6 +16,7 @@ from .app import API_PREFIX
 from .audit import AuditMiddleware, should_audit
 
 
+# req: designs/auth/audit-scope, designs/auth/audit-policy
 @pytest.mark.parametrize(
     "policy, method, path, action, expected",
     [
@@ -37,6 +38,7 @@ def test_should_audit(policy, method, path, action, expected):
     assert should_audit(policy, method, path, action) is expected
 
 
+# req: designs/auth/audit-filter-before-sql
 def test_auditable_path_excludes_streams_and_docs():
     """Gating happens before the SQL context opens, so a long-lived SSE stream
     never pins an engine for the life of the connection."""
@@ -47,6 +49,7 @@ def test_auditable_path_excludes_streams_and_docs():
     assert audit_mw.auditable_path("/health") is False
 
 
+# req: designs/auth/audit-policy
 def test_audit_policy_env(monkeypatch):
     monkeypatch.delenv("AAICLICK_AUDIT_LOG", raising=False)
     assert config.audit_policy() == "writes"
@@ -60,6 +63,7 @@ async def _rows(**filters):
     return (await audit_api.list_audit(AuditListFilter(**filters))).items
 
 
+# req: designs/auth/audit-row, designs/auth/audit-attribution
 async def test_login_attempts_are_attributed(orch_ctx, enabled, anon_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "writes")
     await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
@@ -72,6 +76,7 @@ async def test_login_attempts_are_attributed(orch_ctx, enabled, anon_client, mon
     assert rows[0].duration_ms >= 0
 
 
+# req: designs/auth/audit-row, designs/auth/audit-attribution
 async def test_authenticated_write_carries_the_principal(orch_ctx, enabled, anon_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "writes")
     admin = await users.create_user(CreateUserRequest(username="root", password="pw", role="admin"))
@@ -89,6 +94,7 @@ async def test_authenticated_write_carries_the_principal(orch_ctx, enabled, anon
     assert row.status == 404 and row.method == "POST"
 
 
+# req: designs/auth/audit-policy
 async def test_policy_all_logs_reads_and_off_logs_nothing(orch_ctx, enabled, anon_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "all")
     await anon_client.get(f"{API_PREFIX}/jobs")
@@ -96,6 +102,18 @@ async def test_policy_all_logs_reads_and_off_logs_nothing(orch_ctx, enabled, ano
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "off")
     await anon_client.get(f"{API_PREFIX}/jobs")
     assert len(await _rows(path="/api/v0/jobs")) == 1
+
+
+# req: designs/auth/audit-policy
+async def test_a_failed_audit_insert_does_not_fail_the_request(orch_ctx, app_client, monkeypatch):
+    monkeypatch.setenv("AAICLICK_AUDIT_LOG", "all")
+
+    async def broken_insert(row):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr(audit_mw.store, "insert", broken_insert)
+
+    assert (await app_client.get(f"{API_PREFIX}/jobs")).status_code == 200
 
 
 async def test_audit_middleware_does_not_leak_a_ch_client_into_downstream():
@@ -129,6 +147,7 @@ async def test_audit_middleware_does_not_leak_a_ch_client_into_downstream():
     assert seen == [None], "middleware leaked a ChClient into the wrapped app"
 
 
+# req: designs/auth/audit-attribution
 async def test_audit_route_is_admin_only(orch_ctx, enabled, anon_client, app_client):
     await users.create_user(CreateUserRequest(username="viewer", password="pw"))
     login = await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "viewer", "password": "pw"})

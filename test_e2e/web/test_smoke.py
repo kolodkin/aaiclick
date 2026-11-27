@@ -55,6 +55,7 @@ _FALLBACK_MATCH = re.search(r"isLiveConnected\(\)\s*\?\s*false\s*:\s*(\d+)", _MA
 POLL_FALLBACK_MS = int(_FALLBACK_MATCH.group(1)) if _FALLBACK_MATCH else 5000
 
 
+# req: user_guide/ui/home
 @_spa_built
 def test_home_loads(page, base_url: str, shot) -> None:
     """Root URL renders the SPA shell (header + content area)."""
@@ -64,6 +65,7 @@ def test_home_loads(page, base_url: str, shot) -> None:
     shot("home")
 
 
+# req: user_guide/ui/jobs-list
 @_spa_built
 def test_jobs_view_loads(page, base_url: str, shot) -> None:
     """Navigating to /?p=@jobs shows the jobs view."""
@@ -74,6 +76,7 @@ def test_jobs_view_loads(page, base_url: str, shot) -> None:
     shot("jobs-view")
 
 
+# req: user_guide/ui/home
 @_spa_built
 def test_home_chip_returns_home(page, base_url: str, shot) -> None:
     """The "← home" chip emits the empty prompt, which must still navigate."""
@@ -84,6 +87,7 @@ def test_home_chip_returns_home(page, base_url: str, shot) -> None:
     shot("home-chip")
 
 
+# req: user_guide/ui/prompt-drives-the-view
 @_spa_built
 def test_prompt_updates_url(page, base_url: str, shot) -> None:
     """Typing into the prompt input updates the URL query parameter."""
@@ -115,6 +119,7 @@ def output_task_id(base_url: str) -> str:
     return _run_task_and_wait(TASK_WITH_OUTPUT)
 
 
+# req: user_guide/ui/task-detail
 @_spa_built
 def test_task_view_shows_logs(page, base_url: str, output_task_id: str, shot) -> None:
     """The task view renders captured logs (local mode only).
@@ -139,6 +144,7 @@ def test_task_view_shows_logs(page, base_url: str, output_task_id: str, shot) ->
     assert logs.locator(".src-stderr", has_text="This is stdout").count() == 0
 
 
+# req: user_guide/ui/task-detail
 @_spa_built
 def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path) -> None:
     """A retried task offers one "Task tries" button per run, colored by how the
@@ -173,6 +179,7 @@ def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path
     shot("task-tries-first")
 
 
+# req: user_guide/ui/task-detail
 @_spa_built
 def test_task_view_colors_logs_by_keyword(page, base_url: str, shot) -> None:
     """The task view colors lines by keyword and shows timestamps only when toggled; the toggle survives a reload."""
@@ -472,6 +479,7 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     assert idle == [], f"task view kept fetching after the task finished: {idle}"
 
 
+# req: user_guide/ui/task-detail
 @_spa_built
 def test_task_view_says_a_queued_task_has_not_started(page, base_url: str, shot) -> None:
     """A task that has not run yet says so instead of "no logs captured".

@@ -14,6 +14,7 @@ async def _user(username: str = "alice", role: Role = ROLE_MEMBER):
     return await users.create_user(CreateUserRequest(username=username, password="pw", role=role))
 
 
+# req: designs/auth/token-format
 async def test_create_returns_secret_once_and_list_hides_it(orch_ctx):
     user = await _user()
     created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="write"))
@@ -26,6 +27,7 @@ async def test_create_returns_secret_once_and_list_hides_it(orch_ctx):
     assert not hasattr(page.items[0], "token")
 
 
+# req: designs/auth/token-format
 async def test_created_token_resolves_by_hash(orch_ctx):
     user = await _user()
     created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci"))
@@ -33,6 +35,7 @@ async def test_created_token_resolves_by_hash(orch_ctx):
     assert resolved is not None and resolved.user.id == user.id and resolved.token.scope == SCOPE_READ
 
 
+# req: designs/auth/token-expiry
 async def test_expiry_validated_and_revoke_deactivates(orch_ctx):
     user = await _user()
     with pytest.raises(Invalid):
@@ -47,6 +50,7 @@ async def test_expiry_validated_and_revoke_deactivates(orch_ctx):
     assert await store.resolve_api_token(security.sha256_hex(created.token)) is None
 
 
+# req: designs/auth/token-expiry
 async def test_aware_expiry_is_normalized_to_naive_utc(orch_ctx):
     """The SPA sends ``...Z``; the store and the future check both run on naive UTC."""
     user = await _user()
@@ -59,6 +63,7 @@ async def test_aware_expiry_is_normalized_to_naive_utc(orch_ctx):
         )
 
 
+# req: designs/auth/token-routes
 async def test_revoke_other_users_token_is_not_found(orch_ctx):
     alice = await _user("alice")
     bob = await _user("bob")
@@ -68,6 +73,7 @@ async def test_revoke_other_users_token_is_not_found(orch_ctx):
     assert await store.resolve_api_token(security.sha256_hex(created.token)) is not None
 
 
+# req: designs/auth/mint-ceiling
 @pytest.mark.parametrize(
     "role, allowed, refused",
     [
@@ -84,6 +90,7 @@ async def test_mint_ceiling_is_the_owners_role(orch_ctx, role, allowed, refused)
         await api_tokens.create_token(user.id, CreateApiTokenRequest(name="no", scope=refused))
 
 
+# req: designs/auth/mint-ceiling
 async def test_admin_mints_every_level(orch_ctx):
     admin = await _user(role=ROLE_ADMIN)
     minted = await api_tokens.create_token(admin.id, CreateApiTokenRequest(name="a", scope=SCOPE_ADMIN))

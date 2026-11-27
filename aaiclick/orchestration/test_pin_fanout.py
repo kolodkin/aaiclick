@@ -38,6 +38,7 @@ async def _pin_from(producer_id: int, job_id: int) -> set[int]:
         return {row[0] for row in rows}
 
 
+# req: designs/orchestration/pin-fanout-edges
 async def test_pin_task_to_group_reaches_members(orch_ctx):
     """A >> G: A's table is pinned once per member of G."""
     job = await create_job("pin_task_to_group", _ENTRY)
@@ -50,6 +51,7 @@ async def test_pin_task_to_group_reaches_members(orch_ctx):
     assert await _pin_from(producer.id, job.id) == {m1.id, m2.id}
 
 
+# req: designs/orchestration/pin-fanout-edges
 async def test_pin_group_to_group_reaches_members(orch_ctx):
     """G1 >> G2: a G1 member's table is pinned once per member of G2, never for siblings."""
     job = await create_job("pin_group_to_group", _ENTRY)

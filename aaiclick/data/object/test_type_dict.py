@@ -49,6 +49,7 @@ async def test_dict_orient_dict(ctx):
     assert data == {"x": 10, "y": 20}
 
 
+# req: user_guide/object_context/schema-patterns
 async def test_dict_orient_records(ctx):
     """Test data() with orient=ORIENT_RECORDS returns list of dicts."""
     obj = await create_object_from_value({"x": 10, "y": 20})
@@ -102,6 +103,7 @@ async def test_dict_of_arrays_orient_dict(ctx):
     assert data["age"] == [30, 25]
 
 
+# req: user_guide/object_context/schema-patterns
 async def test_dict_of_arrays_orient_records(ctx):
     """Test dict of arrays with orient=ORIENT_RECORDS returns list of row dicts."""
     obj = await create_object_from_value({"name": ["Alice", "Bob", "Charlie"], "age": [30, 25, 35]})
@@ -132,6 +134,7 @@ async def test_dict_of_arrays_records_preserves_order(ctx):
 # =============================================================================
 
 
+# req: user_guide/object_context/mixed-dict-is-one-record
 async def test_dict_mixed_scalar_and_list(ctx):
     """A dict mixing scalars and lists is one record; lists become Array columns."""
     obj = await create_object_from_value({"id": 1, "tags": ["a", "b"]})

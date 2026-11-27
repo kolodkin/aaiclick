@@ -13,11 +13,12 @@ writes its return value to `out.json`. No database, no runner env.
 # Architecture
 
 `jvm` is the third row of the entry-type/layers table in
-`docs/designs/orchestration.md` ("Execution layers"): the layer-2 runner
+`docs/architecture/topology.md` ("Execution layers"): the layer-2 runner
 invocation is the image's own `ENTRYPOINT` (the SDK shim) plus the class
 name as its one argument, and layer-3 is the shim reflecting and invoking
 the `@AaiTask` method.
 
+<!-- req: jvm-dispatch -->
 A `jvm` task is dispatched exactly like a container `shell` task: the worker
 resolves its kwargs into `in.json`, launches the container / Pod on the shell
 vehicle with **only** `command_env` and `AAICLICK_IO_DIR` (no DB credentials
@@ -31,6 +32,7 @@ the container's output into `task_logs`.
 
 **Implementation**: `aaiclick/orchestration/runner_config.py`
 
+<!-- req: jvm-entry-type -->
 - `"jvm"` is an `EntryType` value on a plain String column, so adding it
   needed no migration. `tasks.entrypoint` holds the Java class name
   (`com.example.Pipeline`), or `com.example.Pipeline#method` when the class
@@ -42,6 +44,7 @@ the container's output into `task_logs`.
 
 ## Validation
 
+<!-- req: jvm-validation -->
 Enforced at commit and at submission (`run_job`):
 
 - A `jvm` task's kwargs may carry only plain values, `native` wrappers, and
@@ -101,62 +104,4 @@ public class Pipeline {
 }
 ```
 
-Image contract — the `ENTRYPOINT` *is* the shim:
-
-```dockerfile
-FROM eclipse-temurin:21-jre
-COPY target/app.jar /app/app.jar
-COPY target/libs /app/libs
-ENTRYPOINT ["java", "-cp", "/app/app.jar:/app/libs/*", \
-            "io.github.kolodkin.aaiclick.task.AaiTaskShim"]
-```
-
-Submission:
-
-```python
-await internal_api.run_job(RunJobRequest(
-    name="aggregate", entry_type="jvm",
-    kwargs={"date": "2026-08-20", "window": 7},
-    image="ghcr.io/example/pipeline:1.0",
-))
-```
-
-!!! warning "Compile task classes with `-parameters`"
-    Kwargs bind by Java parameter name. Without
-    `<parameters>true</parameters>` (maven-compiler-plugin) the names compile
-    away to `arg0…` and the shim fails with an explicit message instead of
-    guessing positionally.
-
-# Testing
-
-The shim's only I/O is two files, so the suite is infra-free: each test gets
-a temp dir, writes `in.json`, runs the shim and reads `out.json`.
-
-The docker-runner e2e covers what the unit suite cannot: a `jvm` task between
-two Python tasks, each in its own container — the real `docker create` /
-`docker cp` handoff of `in.json` into a JVM image, the host resolving an
-upstream Python result into it, `out.json` read back, and a Python consumer
-of the jvm return value. The fixture image (`test_e2e/fixtures/jvm_task/`)
-builds the SDK from the checkout, so the shim under test is the commit's.
-
-# Publishing
-
-**Implementation**: `.github/workflows/publish.yaml`
-
-`aaiclick-task-api` publishes to Maven Central via the Central Publisher
-Portal on the **same tag** as the Python package — lockstep versioning; the
-compatibility contract is a release's file data plane and task semantics.
-
-- Namespace `io.github.kolodkin` auto-verifies against the GitHub account.
-- The parent POM uses the CI-friendly `${revision}` version
-  (flatten-maven-plugin); the publish job passes `-Drevision=X.Y.Z` from the
-  tag.
-- The `release` profile adds GPG signing plus sources/javadoc jars and the
-  `central-publishing-maven-plugin`.
-- Secrets: `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` (portal
-  token), `MAVEN_GPG_PRIVATE_KEY` / `MAVEN_GPG_PASSPHRASE`.
-- De-risk with a one-time `0.0.x` dry-run publish (manual
-  `workflow_dispatch`) before the first real lockstep release.
-- The Java leg runs after the PyPI upload, so the release is gated on
-  `mvn verify` at the release version first: a broken jar blocks the
-  irreversible upload instead of orphaning a tagged Python release.
+Image contract, submission and the `-parameters` requirement: [Task API: Java](../user_guide/task_api_java.md#packaging-and-submission).

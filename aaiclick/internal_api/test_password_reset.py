@@ -7,6 +7,7 @@ from aaiclick.internal_api.errors import NotFound, Unauthorized
 SECRET = "internal-api-reset-test-secret-key-32-plus-bytes"
 
 
+# req: user_guide/access/password-reset, designs/auth/reset-token, designs/auth/reset-link-url
 async def test_admin_link_redeems_once_and_revokes_sessions(orch_ctx, monkeypatch):
     monkeypatch.setenv("AAICLICK_PUBLIC_URL", "https://aaiclick.example.com")
     view = await users.create_user(CreateUserRequest(username="alice", password="old"))
@@ -25,6 +26,7 @@ async def test_admin_link_redeems_once_and_revokes_sessions(orch_ctx, monkeypatc
         await password_reset.redeem(PasswordResetRedeem(token=link.token, new_password="again"))
 
 
+# req: designs/auth/reset-link-url
 async def test_link_without_public_url_and_unknown_user(orch_ctx, monkeypatch):
     monkeypatch.delenv("AAICLICK_PUBLIC_URL", raising=False)
     view = await users.create_user(CreateUserRequest(username="bob", password="pw"))
@@ -33,11 +35,13 @@ async def test_link_without_public_url_and_unknown_user(orch_ctx, monkeypatch):
         await password_reset.create(12345)
 
 
+# req: user_guide/access/password-reset, designs/auth/reset-mint-redeem
 async def test_bad_token_rejected(orch_ctx):
     with pytest.raises(Unauthorized):
         await password_reset.redeem(PasswordResetRedeem(token="nope", new_password="x"))
 
 
+# req: designs/auth/reset-token
 async def test_password_change_voids_outstanding_links(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="carol", password="pw"))
     link = await password_reset.create(view.id)

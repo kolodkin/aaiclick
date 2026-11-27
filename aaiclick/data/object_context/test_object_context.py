@@ -12,6 +12,7 @@ from aaiclick.data.object_context import delete_object, get_ch_client
 # DDL and registry persistence
 
 
+# req: user_guide/object_context/no-implicit-order-column
 async def test_create_object_emits_no_aai_id_column(ctx):
     obj = await create_object_from_value([1.0, 2.0, 3.0])
     ch_client = get_ch_client()
@@ -39,12 +40,32 @@ async def test_create_object_allows_user_column_named_aai_id(ctx):
     assert "label" in names
 
 
+# req: user_guide/object/views/create-object-rejects-view-schema, architecture/data_model/schema-in-sql
 async def test_create_object_rejects_view_schema(ctx):
     """A ``ViewSchema`` says how to read a table, not what table to create."""
     obj = await create_object_from_value({"a": [1, 2]})
 
     with pytest.raises(TypeError, match="not a ViewSchema"):
         await create_object(obj.rename({"a": "x"}).schema)
+
+
+# req: user_guide/object_context/quoted-column-names
+async def test_column_names_needing_quotes_work_end_to_end(ctx):
+    """A column name with a space, or a SQL keyword, survives ingest, reads, operators, concat, insert and join."""
+    obj = await create_object_from_value({"my col": [1, 2, 2], "select": [10, 20, 30]})
+
+    assert await obj.data(order_by="`select` DESC") == {"my col": [2, 2, 1], "select": [30, 20, 10]}
+    assert sorted(await (obj["my col"] + obj["select"]).data()) == [11, 22, 32]
+    assert await obj["select"].sum().data() == 60
+    assert sorted((await (await obj.concat(obj)).data())["select"]) == [10, 10, 20, 20, 30, 30]
+
+    target = await create_object_from_value({"my col": [0], "select": [0]})
+    await target.insert(obj)
+    assert sorted((await target.data())["select"]) == [0, 10, 20, 30]
+
+    other = await create_object_from_value({"my col": [1, 2], "order": [5, 6]})
+    joined = await obj.join(other, on="my col")
+    assert await joined.data(order_by="`select`") == {"my col": [1, 2, 2], "select": [10, 20, 30], "order": [5, 6, 6]}
 
 
 # Context-manager lifecycle (objects become stale after context exits)
@@ -62,6 +83,7 @@ async def test_context_object_stale_flag(ctx):
 # Stale-object guards
 
 
+# req: user_guide/object_context/stale-object-raises
 async def test_stale_object_prevents_data_access(ctx):
     """Test that stale objects prevent database access."""
     obj = await create_object_from_value([1, 2, 3])
@@ -74,6 +96,7 @@ async def test_stale_object_prevents_data_access(ctx):
         await obj.data()
 
 
+# req: user_guide/object_context/stale-object-raises
 async def test_stale_object_prevents_operators(ctx):
     """Test that stale objects prevent operator usage."""
     obj1 = await create_object_from_value([1, 2, 3])
@@ -87,6 +110,7 @@ async def test_stale_object_prevents_operators(ctx):
         await (obj1 + obj2)
 
 
+# req: user_guide/object_context/stale-object-raises
 async def test_stale_object_prevents_aggregates(ctx):
     """Test that stale objects prevent aggregate methods."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
@@ -111,6 +135,7 @@ async def test_stale_object_prevents_aggregates(ctx):
         await obj.std()
 
 
+# req: user_guide/object_context/stale-object-raises
 @pytest.mark.parametrize(
     "method, args",
     [

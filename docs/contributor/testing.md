@@ -148,3 +148,121 @@ follow; the `python-testing-style` skill holds the details and examples.
 6. Test modules under `test_e2e/` need unique basenames: with no
    `__init__.py`, the default `prepend` import mode can't collect two of the
    same name. `importlib` mode would, but breaks the bare `from job_wait import …`.
+
+# Deployment tests
+
+- `test_e2e/compose/test_env_init.py` runs `env.init.sh` as a user would
+  (PR CI, "Misc local" group).
+- `deploy/helm/check.sh` lints the chart and asserts on renders: generated
+  Secret, `existingSecret`, external URLs, image tags, the no-database
+  failure, a stable checksum. The PR `chart` job runs it; helm templates are
+  not YAML before rendering, so they get no Python tests.
+- `test_e2e/compose/` drives the reference stack in CI: server health, an
+  execution worker registered, and a job round trip via `docker compose exec`
+  into the server.
+
+# Frontend tests
+
+**Implementation**: `test_e2e/web/`
+
+| Layer                | Tool                | Where                                                                     |
+|----------------------|---------------------|---------------------------------------------------------------------------|
+| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
+| Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
+| Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
+| End-to-end (browser) | Playwright (Python) | `test_e2e/web/`, pytest                                                   |
+
+**One test body, both modes.** Tests create jobs in-process through the
+orchestration API (the same pattern as `seed.py`), never through REST: no
+credentials are needed under distributed-mode auth, and whichever worker the
+mode runs executes the job. The live-update tests therefore run against both
+transports — `LocalTransport` locally, Postgres `LISTEN`/`NOTIFY` in the `UI e2e
+dist` job — and the distributed run is the only place the full chain
+`pg_notify` → SSE frame → browser DOM is exercised end to end.
+
+`shot("name")` saves a numbered full-page PNG to `test-results/shots/` (reset
+per run, gitignored).
+
+**Why Playwright Python**: an e2e test exercises the browser, FastAPI,
+orchestrator and DB together. `test_e2e/web/` shares the pytest harness with
+`test_e2e/docker/` rather than running a parallel Node runner.
+
+!!! warning "E2E suites don't run in default `pytest`"
+    `test_e2e/<suite>/` is excluded from the default `pytest` testpaths and
+    only runs when the path is passed explicitly or in a dedicated CI workflow.
+    The `UI e2e dist` job in `.github/workflows/_test-reusable.yaml` runs
+    `test_e2e/web/` on every PR against the distributed (Postgres + ClickHouse)
+    backend.
+
+# Java SDK tests
+
+The shim's only I/O is two files, so the suite is infra-free: each test gets
+a temp dir, writes `in.json`, runs the shim and reads `out.json`.
+
+The docker-runner e2e covers what the unit suite cannot: a `jvm` task between
+two Python tasks, each in its own container — the real `docker create` /
+`docker cp` handoff of `in.json` into a JVM image, the host resolving an
+upstream Python result into it, `out.json` read back, and a Python consumer
+of the jvm return value. The fixture image (`test_e2e/fixtures/jvm_task/`)
+builds the SDK from the checkout, so the shim under test is the commit's.
+
+# Kubernetes end-to-end test
+
+`test_e2e/kubernetes/` mirrors `test_e2e/docker/`: the same `sample_job` fixture
+and git-daemon publishing, driven through the `register-job` → `run-job` CLI,
+with the reconciler running in-process. The reusable workflow
+`_kubernetes-e2e-reusable.yaml` follows `_docker-e2e-reusable.yaml` with a
+**k3s** cluster (the production distribution, so NetworkPolicy is enforced)
+plus the same Postgres / ClickHouse services. A `kubernetes_e2e` marker gates the suite;
+collection skips it unless `kubectl cluster-info` succeeds.
+
+Three tests cover the concurrent worker: a fan-out whose peak number of live
+Pods, sampled while it runs, is above one; a worker stopped mid-run whose module
+and shell Pods the next worker adopts (one attempt each, shell log intact across
+the restart); and a job no node can fit that fails on the not-started deadline
+while another job completes beside it.
+
+!!! note "k3s networking recipe"
+    - **Services**: Postgres, ClickHouse, pypiserver and the registry run as
+      pods from `test_e2e/kubernetes/chart`. k3s runs on the runner itself, so
+      each NodePort answers on `localhost`; `--service-node-port-range` is
+      widened so every nodePort equals the standard port.
+    - **Registry**: the image tag `localhost:5000/aaiclick-job:<sha>[-<dockerfile>]`
+      is pushed by a host-network buildkitd over loopback and pulled by the
+      node's containerd over plain HTTP via a `/etc/rancher/k3s/registries.yaml`
+      mirror.
+    - **Pod → DBs**: one DSN serves pods (Service name via CoreDNS) and the
+      runner (`/etc/hosts` alias → `127.0.0.1` → NodePort).
+    - **Build → test pypi**: `host.docker.internal` + `--add-host=…:host-gateway`,
+      same as the docker e2e.
+    - **Local dev**: k3s is Linux-only; on macOS run the same cluster with
+      [k3d](https://k3d.io).
+
+# Blob storage tests
+
+`aaiclick/data/object/test_blob.py` runs against an in-process moto server on
+both backends; a remote ClickHouse reaches it through
+`AAICLICK_TEST_FILESERVER_HOST`. On a remote server the module probes
+`system.settings` and skips unless the profile opts in, so it runs in the
+dedicated `Blob storage dist` CI job — which starts ClickHouse with the
+`users.d` file mounted and fails on a skip — and skips in the jobs that use
+stock service containers. `claudeai/run.sh` uses the same `users.d` file and
+starts a real MinIO for manual checks.
+
+Its `store` fixture runs the shared export / open tests against S3 and Azure.
+Azure uses Azurite, Microsoft's Azure Storage emulator: started with `npx`
+locally (chdb, connection string in the env), or the container the
+`Blob storage dist` job runs, whose ClickHouse mounts `docker/clickhouse/test/`
+to define and grant the `azurite_test` collection.
+
+# Viewer tests
+
+- chdb: `query_object` over persistent and job objects — fields, `where`,
+  ordering, paging, CSV, the `where` guard, unknown objects and jobs;
+  dashboard round-trips; `run_dashboard` / `run_queries` column orientation.
+- Routers: routes, 404 / 422 problems, 401 without a token in distributed
+  mode.
+- Vitest (`npm test`): the kernel's own tests, prompt parsing, the adapter.
+- Playwright (seeded before the server starts): `@data` lists, orders and
+  pages the seeded object, `@dashboard` renders the saved dashboard and
+  re-runs it through `setParams`.

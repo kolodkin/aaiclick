@@ -48,6 +48,7 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
     await run_smoke_flow("docker_e2e_smoke", docker_e2e_user_repo)
 
 
+# req: user_guide/container_images/default-dockerfile, user_guide/container_images/manifest-install
 @pytest.mark.docker_e2e
 async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
     """A user repo with no Dockerfile builds on the default layer over
@@ -62,6 +63,7 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
     )
 
 
+# req: user_guide/container_images/index-urls-as-secrets
 @pytest.mark.docker_e2e
 async def test_docker_runner_build_sees_no_worker_secrets(orch_ctx, docker_e2e_leak_repo):
     """A Dockerfile step — even one declaring ``ARG PIP_INDEX_URL`` — sees no
@@ -92,6 +94,7 @@ async def test_docker_runner_jvm_fanout(orch_ctx, docker_e2e_user_repo, jvm_task
     await run_jvm_fanout_flow("docker_e2e_jvm_fanout", docker_e2e_user_repo, jvm_task_image)
 
 
+# req: user_guide/orchestration/runners/shell-container-env
 @pytest.mark.docker_e2e
 async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
     """A shell command in a prebuilt image: no build task, and the
@@ -119,6 +122,7 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
     assert completed.status == JOB_FAILED, completed.status
 
 
+# req: user_guide/sandbox/submission-lifecycle
 @pytest.mark.docker_e2e
 async def test_docker_runner_sandbox_submission(orch_ctx, sandbox_remote, tmp_path):
     """A sandbox submission is committed into an empty remote and every ``@job``

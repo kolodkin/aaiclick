@@ -10,6 +10,7 @@ from .execution_worker import get_execution_worker, register_execution_worker, r
 from .mp_worker import mp_worker_main_loop
 
 
+# req: designs/orchestration/worker-main-loop
 async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatch, fast_poll):
     """Test that the main loop exits when a stop request is detected."""
     worker = await register_execution_worker()

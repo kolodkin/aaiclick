@@ -15,6 +15,7 @@ from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 # =============================================================================
 
 
+# req: user_guide/ingest/nested-flattening
 async def test_nested_single_record(ctx):
     """Single dict with nested list-of-dicts."""
     obj = await create_object_from_value(
@@ -33,6 +34,7 @@ async def test_nested_single_record(ctx):
     ]
 
 
+# req: user_guide/ingest/nested-flattening
 async def test_nested_single_record_schema(ctx):
     """Schema uses dot-star notation for nested columns."""
     obj = await create_object_from_value(
@@ -58,6 +60,7 @@ async def test_nested_single_record_schema(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/nested-flattening
 async def test_nested_multiple_records(ctx):
     """List of dicts with nested list-of-dicts."""
     obj = await create_object_from_value(
@@ -79,6 +82,7 @@ async def test_nested_multiple_records(ctx):
     assert data[1]["b"] == [{"c": [7, 8, 9], "d": 15}]
 
 
+# req: user_guide/ingest/nested-flattening
 async def test_nested_records_orient_dict(ctx):
     """Orient dict transposes nested records."""
     obj = await create_object_from_value(
@@ -99,6 +103,7 @@ async def test_nested_records_orient_dict(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/nested-flattening
 @pytest.mark.parametrize(
     "value",
     [
@@ -140,6 +145,7 @@ async def test_nested_many_elements(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/nested-ingest-strictness
 async def test_nested_records_inconsistent_keys_raises(ctx):
     """Records with different keys should raise ValueError."""
     with pytest.raises(ValueError, match="identical keys"):
@@ -156,6 +162,7 @@ async def test_nested_records_inconsistent_keys_raises(ctx):
 # =============================================================================
 
 
+# req: user_guide/ingest/star-stacking
 async def test_deep_nested_two_levels(ctx):
     """Two levels of nested list-of-dicts."""
     obj = await create_object_from_value(
@@ -184,6 +191,7 @@ async def test_deep_nested_two_levels(ctx):
     assert data["level1"][1]["level2"] == [{"val": 30}]
 
 
+# req: user_guide/ingest/star-stacking
 @pytest.mark.parametrize(
     "value",
     [
@@ -206,6 +214,7 @@ async def test_multi_level_lists_of_dicts_round_trip(ctx, value):
     assert data == value
 
 
+# req: user_guide/ingest/star-stacking
 async def test_list_of_lists_of_dicts_schema(ctx):
     """Each list level around the dict adds one star and one Array wrapper."""
     obj = await create_object_from_value({"a": [[{"x": 1, "c": [1, 2]}]]})
@@ -219,6 +228,7 @@ async def test_list_of_lists_of_dicts_schema(ctx):
     assert int(schema.columns["a.*.*.c"].array) == 3
 
 
+# req: user_guide/ingest/star-stacking
 async def test_list_of_lists_of_dicts_in_records(ctx):
     """Same shape round-trips inside a records list, including empty inner lists."""
     records = [

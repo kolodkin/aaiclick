@@ -81,6 +81,7 @@ async def test_local_worker_dispatch_exception_fails_task(orch_ctx):
     assert task.error == "RuntimeError: no image tag"
 
 
+# req: designs/orchestration/worker-main-loop
 async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
     """The in-process runner heartbeats while a task runs, not only between
     claims — otherwise any task longer than the dead-worker timeout is
@@ -122,6 +123,7 @@ async def test_local_worker_cancel_propagates_to_loop(orch_ctx):
     assert stopped.status == EXECUTION_WORKER_STOPPED
 
 
+# req: designs/orchestration/worker-liveness
 async def test_local_worker_self_stops_when_marked_stopped(orch_ctx, monkeypatch):
     """A worker whose heartbeat finds it STOPPED aborts its run without
     reporting it and exits the loop; the task keeps its claim and epoch for
@@ -151,6 +153,7 @@ async def _task_row(job_id: int) -> Task:
         return (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
 
 
+# req: designs/orchestration/cancel-detection
 async def test_local_worker_cancelled_mid_run(orch_ctx):
     """Cancelling a running task kills the run; the worker reports it back by
     releasing its ownership and stamping the run, and only then does the

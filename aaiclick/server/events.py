@@ -1,6 +1,6 @@
 """``GET /events`` — server-sent change signals for the UI.
 
-See docs/designs/api_server.md — "Live updates — `GET /api/v0/events`".
+See docs/architecture/contracts.md — "Live updates — `GET /api/v0/events`".
 
 The stream carries one event kind, ``changed``, with no payload: the browser
 invalidates its query cache and refetches through REST. Signals come from

@@ -17,11 +17,13 @@ from aaiclick.orchestration.models import PRESERVATION_FULL, PRESERVATION_NONE, 
 from aaiclick.orchestration.orch_context import get_sql_session
 
 
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, designs/orchestration/preservation-precedence
 async def test_default_mode_is_none_when_env_unset(monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     assert get_default_preservation_mode() == PRESERVATION_NONE
 
 
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, user_guide/orchestration/running_jobs/preservation-modes, architecture/data_model/job-driven-cleanup
 @pytest.mark.parametrize(
     "env_value",
     [
@@ -53,6 +55,7 @@ async def test_create_job_persists_preservation_mode(orch_ctx):
     assert db_job.preservation_mode == PRESERVATION_FULL
 
 
+# req: user_guide/orchestration/running_jobs/preservation-modes, architecture/data_model/job-driven-cleanup
 async def test_create_job_env_default_applied(orch_ctx, monkeypatch):
     monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "FULL")
     job = await create_job(

@@ -35,6 +35,7 @@ site", and the script is talking to `evil.com`. The browser never notices that
 
 # The guard
 
+<!-- req: host-guard -->
 The browser always writes the site's real name into `Host`; a script cannot
 fake it. The server drops any local-mode request whose `Host` is not on its
 list.
@@ -45,6 +46,7 @@ flowchart TD
     B -- no --> C[Server answers 400.<br>Nothing happens.]
 ```
 
+<!-- req: allowed-hosts -->
 The list:
 
 ```
@@ -55,17 +57,7 @@ You can add:    AAICLICK_ALLOWED_HOSTS=203.0.113.7,aaiclick.lan
 Add names only when you run `--host 0.0.0.0` and open the UI by those names.
 Each name you add is trusted, so list only names whose DNS you control.
 
-# Why distributed mode needs no guard
-
-Distributed mode requires an `Authorization: Bearer` token on every request.
-The frontend sets that header itself; a script on `evil.com` cannot read your
-aaiclick tab's memory, and the browser does not add the header on its own.
-
-```mermaid
-flowchart TD
-    A[Script sends request<br>no Authorization header] --> B{Server: token present?}
-    B -- no --> C[Server answers 401.<br>Nothing happens.]
-```
+Distributed mode needs no guard: every request must carry a session or API token, which a rebinding page cannot send.
 
 # Real-world examples
 

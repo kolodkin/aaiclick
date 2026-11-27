@@ -30,12 +30,14 @@ const FIXTURE = [
   task("root", [[1, 4, "COMPLETED"]]),
 ];
 
+// req: designs/ui/timings-spans
 test("timeline orders by first start, never-run last", () => {
   const { rows } = timelineRows(FIXTURE, T0 + 10_000);
   expect(rows.map((r) => r.task.id)).toEqual(["root", "retried", "never"]);
   expect(rows[2].attempts).toHaveLength(0);
 });
 
+// req: designs/ui/timings-spans
 test("retried row has one wait and a failed first attempt", () => {
   const row = timelineRows(FIXTURE, T0 + 10_000).rows[1];
   expect(row.waits).toEqual([{ start: T0 + 3000, end: T0 + 5000 }]);
@@ -44,6 +46,7 @@ test("retried row has one wait and a failed first attempt", () => {
   expect(row.total).toBe(9000);
 });
 
+// req: designs/ui/timings-spans
 test("running attempt and blocked span end at now", () => {
   const now = T0 + 7000;
   const { rows } = timelineRows([task("run", [[1, null, "RUNNING"]]), task("wait", [], null)], now);
@@ -58,6 +61,7 @@ test("duration ranks attempts, labels retries, clamps skew", () => {
   expect(rows[3].ms).toBe(0);
 });
 
+// req: designs/ui/timings-spans
 test("parallel counts overlapping attempts", () => {
   const { rows, origin, end } = timelineRows(FIXTURE, T0 + 10_000);
   expect(Math.max(...parallelCounts(rows, origin, end, 90))).toBe(2);

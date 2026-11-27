@@ -17,19 +17,23 @@ import pytest
 from aaiclick import (
     FIELDTYPE_SCALAR,
     ColumnInfo,
+    Object,
     Schema,
     create_object,
     create_object_from_value,
 )
+from aaiclick.data.models import ENGINE_MEMORY, ENGINE_MERGE_TREE
 from aaiclick.data.object_context import (
     delete_object,
     get_ch_client,
     get_data_lifecycle,
+    get_engine,
     object_context,
 )
 from aaiclick.data.object_context.lifecycle import LocalLifecycleHandler
 
 
+# req: user_guide/object_context/stale-on-context-exit
 async def test_context_multiple_objects():
     """Every Object is live inside ``object_context()`` and stale after exit."""
     async with object_context():
@@ -49,6 +53,7 @@ async def test_context_multiple_objects():
     assert obj3.stale
 
 
+# req: user_guide/object_context/stale-on-context-exit
 async def test_context_with_operations():
     """Operator results are tracked and become stale on context exit.
 
@@ -113,6 +118,7 @@ async def test_context_dict_values():
     assert obj2.stale
 
 
+# req: user_guide/object_context/stale-on-context-exit
 async def test_context_concat_operation():
     """``concat`` results inherit the lifecycle and stale-mark on exit."""
     async with object_context():
@@ -127,6 +133,7 @@ async def test_context_concat_operation():
     assert result.stale
 
 
+# req: user_guide/object_context/stale-on-context-exit, user_guide/object_context/stale-object-raises
 async def test_context_stale_error_messages():
     """``data()`` on a stale Object raises with the table name in the message."""
     async with object_context():
@@ -147,9 +154,38 @@ async def test_delete_object_marks_stale_inline():
         assert obj.stale
 
 
+@object_context()
+async def _sum_in_decorated_context() -> tuple[Object, int]:
+    obj = await create_object_from_value([1, 2, 3])
+    return obj, await obj.sum().data()
+
+
+# req: user_guide/object_context/object-context-decorator
+async def test_object_context_decorator_wraps_function():
+    """``@object_context()`` opens a context for the call and closes it on return."""
+    obj, total = await _sum_in_decorated_context()
+    assert total == 6
+    assert obj.stale
+
+
 async def test_object_context_always_creates_local_lifecycle():
     """``object_context()`` (vs ``orch_context()``) creates a LocalLifecycleHandler."""
     async with object_context():
         assert isinstance(get_data_lifecycle(), LocalLifecycleHandler)
         obj = await create_object_from_value([1, 2, 3])
         assert await obj.data() == [1, 2, 3]
+
+
+# req: designs/object_context/managed-resources
+async def test_nested_object_context_restores_outer_resources():
+    """An inner ``object_context()`` sets its own resources and resets each on exit."""
+    async with object_context():
+        outer_client, outer_lifecycle = get_ch_client(), get_data_lifecycle()
+        async with object_context(engine=ENGINE_MERGE_TREE):
+            assert get_engine() == ENGINE_MERGE_TREE
+            assert get_data_lifecycle() is not outer_lifecycle
+        assert get_ch_client() is outer_client
+        assert get_data_lifecycle() is outer_lifecycle
+        assert get_engine() == ENGINE_MEMORY
+        assert await (await create_object_from_value([1, 2])).data() == [1, 2]
+    assert get_data_lifecycle() is None

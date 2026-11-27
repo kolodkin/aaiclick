@@ -1,15 +1,18 @@
 Sandbox
 ---
 
+<!-- req: any-user-submits -->
 Any signed-in user pastes one Python file of `@task` / `@job` definitions,
 names it, and every job in it runs once. Each submission is a commit in a git
 repo you own.
 
+<!-- req: non-admin-sandbox-only -->
 Sandbox jobs are the only jobs a non-admin role can issue: registering or
 running a regular job stays admin-only.
 
 # Enabling
 
+<!-- req: enable-with-remote -->
 Set `AAICLICK_SANDBOX` on the API server to a git remote URL:
 
 ```bash
@@ -22,6 +25,7 @@ AAICLICK_SANDBOX=git@github.com:acme/aaiclick-sandbox.git
     it. Authenticate with an SSH deploy key or the host's git credential
     helper instead of a token in the URL.
 
+<!-- req: clone-and-push -->
 - The server clones the remote under `<AAICLICK_LOCAL_ROOT>/sandbox/<hash of
   the remote>` and pushes one commit per submission. An empty repo works.
 - Only the server reads the variable; workers get the remote and commit from
@@ -31,6 +35,7 @@ AAICLICK_SANDBOX=git@github.com:acme/aaiclick-sandbox.git
   [Container Images](container_images.md). Execution workers must be able to
   clone the remote.
 
+<!-- req: sandbox-command -->
 The `@sandbox` command appears on the home page once enabled.
 
 # Writing a file
@@ -49,6 +54,7 @@ def hello_job():
     return hello()
 ```
 
+<!-- req: writing-a-file -->
 - Every top-level `@job` function runs once, with no arguments; a file
   without one is rejected. A job returns a task, a flat list or tuple of
   tasks, or a `TaskResult` when it also carries data.
@@ -58,6 +64,7 @@ def hello_job():
 
 # What happens
 
+<!-- req: submission-lifecycle -->
 1. The file is committed as `YYYYMMDD/sb_<unix ts>_<name>.py`; the row shows
    `pending` with the short SHA.
 2. The background worker claims the row (`running`) and submits one job per
@@ -68,6 +75,7 @@ def hello_job():
    directory is fine: entrypoints resolve through importlib, not an `import`
    statement.
 
+<!-- req: read-source -->
 Click a submission's name to read its source.
 
 # Limits

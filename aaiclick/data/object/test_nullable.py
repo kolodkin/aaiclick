@@ -333,6 +333,7 @@ async def test_coalesce_fields_of_one_ordered_view(ctx):
 # --- Concat with nullable ---
 
 
+# req: user_guide/ingest/concat-nullable-promotion
 async def test_concat_nullable_with_nonnullable(ctx):
     """Concat of nullable and non-nullable promotes result to nullable."""
 

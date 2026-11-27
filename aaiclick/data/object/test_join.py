@@ -45,6 +45,7 @@ def test_resolve_join_keys(kwargs, expected):
     assert resolve_join_keys(**kwargs) == expected
 
 
+# req: user_guide/ingest/join-key-arguments
 @pytest.mark.parametrize(
     "kwargs,match",
     [
@@ -105,6 +106,7 @@ def _cols(**kwargs: ColumnInfo) -> dict[str, ColumnInfo]:
     return dict(kwargs)
 
 
+# req: user_guide/ingest/join-key-dedup
 def test_schema_using_form_dedupes_key():
     left = _cols(k=ColumnInfo("Int64"), a=ColumnInfo("String"))
     right = _cols(k=ColumnInfo("Int64"), b=ColumnInfo("Float64"))
@@ -120,6 +122,7 @@ def test_schema_using_form_dedupes_key():
     assert rproj == [("b", "b")]
 
 
+# req: user_guide/ingest/join-key-dedup
 def test_schema_on_form_keeps_both_keys():
     left = _cols(id=ColumnInfo("Int64"), name=ColumnInfo("String"))
     right = _cols(tconst=ColumnInfo("Int64"), total=ColumnInfo("Float64"))
@@ -157,6 +160,7 @@ def test_schema_missing_key_raises(left_cols, right_cols, keys, match):
         build_join_schema(left_cols, right_cols, keys, how="inner", suffixes=None)
 
 
+# req: user_guide/ingest/join-key-types
 @pytest.mark.parametrize(
     "left_type,right_type,expected_result_type",
     [
@@ -176,6 +180,7 @@ def test_schema_key_type_compatibility(left_type, right_type, expected_result_ty
     assert schema.columns["k"].type == expected_result_type
 
 
+# req: user_guide/ingest/join-key-types
 def test_schema_key_type_incompatible_raises():
     with pytest.raises(ValueError, match="key types incompatible"):
         build_join_schema(
@@ -187,6 +192,7 @@ def test_schema_key_type_incompatible_raises():
         )
 
 
+# req: user_guide/ingest/join-collisions
 @pytest.mark.parametrize(
     "suffixes",
     [
@@ -205,6 +211,7 @@ def test_schema_collision_without_suffixes_raises(suffixes):
         )
 
 
+# req: user_guide/ingest/join-collisions
 @pytest.mark.parametrize(
     "suffixes,expected_l,expected_r",
     [
@@ -226,6 +233,7 @@ def test_schema_collision_renamed_by_suffixes(suffixes, expected_l, expected_r):
     assert rproj == [("score", expected_r)]
 
 
+# req: user_guide/ingest/join-collisions
 def test_schema_empty_suffix_raises():
     with pytest.raises(ValueError, match="non-empty"):
         build_join_schema(
@@ -237,6 +245,7 @@ def test_schema_empty_suffix_raises():
         )
 
 
+# req: user_guide/ingest/join-types
 @pytest.mark.parametrize(
     "how,left_nullable,right_nullable",
     [
@@ -257,6 +266,7 @@ def test_schema_nullable_promotion_per_how(how, left_nullable, right_nullable):
     assert schema.columns["k"].nullable is (left_nullable and right_nullable)
 
 
+# req: user_guide/ingest/join-low-cardinality
 def test_schema_low_cardinality_preserved_and_promoted():
     left = _cols(k=ColumnInfo("Int64"), tag=ColumnInfo("String", low_cardinality=True))
     right = _cols(k=ColumnInfo("Int64"))
@@ -285,6 +295,7 @@ def test_schema_cross_join_has_no_keys():
 # =============================================================================
 
 
+# req: user_guide/ingest/join-types, user_guide/ingest/join-key-dedup
 async def test_join_inner_records(ctx):
     users = await create_object_from_value({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]})
     orders = await create_object_from_value({"id": [1, 1, 4], "total": [9.5, 14.0, 2.0]})
@@ -308,6 +319,7 @@ async def test_join_quotes_identifiers(ctx, how):
     assert {"from": 2, "a b": "y", "c d": 7} in rows
 
 
+# req: user_guide/ingest/join-types
 async def test_join_left_fills_null(ctx):
     users = await create_object_from_value({"id": [1, 2], "name": ["Alice", "Bob"]})
     orders = await create_object_from_value({"id": [1], "total": [9.5]})
@@ -320,6 +332,7 @@ async def test_join_left_fills_null(ctx):
     assert joined.schema.columns["total"].nullable is True
 
 
+# req: user_guide/ingest/join-types
 async def test_join_right_promotes_left(ctx):
     users = await create_object_from_value({"id": [1], "name": ["Alice"]})
     orders = await create_object_from_value({"id": [1, 2], "total": [9.5, 2.0]})
@@ -331,6 +344,7 @@ async def test_join_right_promotes_left(ctx):
     assert by_id == {1: "Alice", 2: None}
 
 
+# req: user_guide/ingest/join-types, user_guide/ingest/join-key-dedup
 async def test_join_full_outer(ctx):
     a = await create_object_from_value({"k": [1, 2], "x": [10, 20]})
     b = await create_object_from_value({"k": [2, 3], "y": [200, 300]})
@@ -342,6 +356,7 @@ async def test_join_full_outer(ctx):
     assert by_k == {1: (10, None), 2: (20, 200), 3: (None, 300)}
 
 
+# req: user_guide/ingest/join-key-dedup
 async def test_join_left_on_right_on_keeps_both_keys(ctx):
     users = await create_object_from_value({"id": [1, 2], "name": ["A", "B"]})
     orders = await create_object_from_value({"user_id": [1, 1], "total": [9.5, 14.0]})
@@ -353,6 +368,7 @@ async def test_join_left_on_right_on_keeps_both_keys(ctx):
     assert set(rows[0].keys()) == {"id", "user_id", "name", "total"}
 
 
+# req: user_guide/ingest/join-collisions
 async def test_join_suffixes_on_collision(ctx):
     a = await create_object_from_value({"id": [1, 2], "score": [10, 20]})
     b = await create_object_from_value({"id": [1, 2], "score": [99, 88]})
@@ -364,6 +380,7 @@ async def test_join_suffixes_on_collision(ctx):
     assert by_id == {1: (10, 99), 2: (20, 88)}
 
 
+# req: user_guide/ingest/join-types
 async def test_join_cross(ctx):
     colors = await create_object_from_value({"c": ["red", "blue"]})
     sizes = await create_object_from_value({"s": ["S", "M", "L"]})
@@ -391,6 +408,7 @@ async def test_join_self_join_aliases(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/lazy_results/materializing-ops-name-scope
 async def test_join_with_name_global_scope(ctx):
     """join(name=..., scope='global') routes through the named-table path."""
     left = await create_object_from_value({"id": [1, 2], "v": [10, 20]})
@@ -406,6 +424,7 @@ async def test_join_with_name_global_scope(ctx):
         await delete_persistent_object("join_named_global", scope="global")
 
 
+# req: user_guide/object/lazy_results/materializing-ops-name-scope
 async def test_join_with_name_temp_scope(ctx):
     """join(name=...) defaults to temp_named scope (t_<name>_<id>)."""
     left = await create_object_from_value({"id": [1], "v": [10]})
@@ -416,3 +435,15 @@ async def test_join_with_name_temp_scope(ctx):
     assert joined.table.startswith("t_join_named_temp_")
     rows = await joined.data(orient="records")
     assert rows == [{"id": 1, "v": 10, "w": 100}]
+
+
+# req: user_guide/ingest/join-order
+async def test_join_result_orders_on_request(ctx):
+    """A join result has no row order of its own; ``data(order_by=...)`` and ``.view(order_by=...)`` give one."""
+    users = await create_object_from_value({"id": [3, 1, 2], "name": ["C", "A", "B"]})
+    orders = await create_object_from_value({"id": [2, 3, 1], "total": [20, 30, 10]})
+    joined = await users.join(orders, on="id")
+
+    expected = {"id": [1, 2, 3], "name": ["A", "B", "C"], "total": [10, 20, 30]}
+    assert await joined.data(order_by="id") == expected
+    assert await joined.view(order_by="total").data() == expected

@@ -9,6 +9,7 @@ helper's only production caller.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock
 
@@ -23,10 +24,11 @@ from aaiclick.testing import reset_test_state, until
 
 from . import local_runtime as lr
 from . import sql_context
+from .execution import execution_worker as ew
 from .factories import create_job
 from .fixtures.sample_tasks import simple_task
 from .jobs.queries import get_tasks_for_job
-from .models import RUN_SCHEDULED, TASK_PENDING, Job, RegisteredJob
+from .models import RUN_SCHEDULED, TASK_COMPLETED, Job, RegisteredJob
 from .orch_context import get_sql_session, orch_context
 from .registered_jobs import register_job
 
@@ -35,13 +37,17 @@ class _StopEarly(Exception):
     """Ends the helper once the setup decision under test has been made."""
 
 
+local_only = pytest.mark.skipif(not is_local(), reason="the local runtime runs only on chdb + SQLite")
+_CLAIM_SQL = "UPDATE tasks SET status = ?, execution_worker_id"
+
+
 class _RaisingWorker:
     async def start(self) -> None:
         raise _StopEarly
 
 
-async def _idle_forever(**_kwargs) -> None:
-    await asyncio.Event().wait()
+async def _idle_forever(*, stop: asyncio.Event, **_kwargs) -> None:
+    await stop.wait()
 
 
 def _set_up_local_db(monkeypatch) -> None:
@@ -94,6 +100,7 @@ async def test_local_runtime_rebuilds_when_the_marker_outlives_the_schema(monkey
     assert called == [True]
 
 
+# req: designs/orchestration/background-shares-engine
 async def test_local_runtime_opens_one_sql_engine(monkeypatch):
     """The BackgroundWorker runs inside the helper's ``orch_context`` and uses
     its engine, so a local server holds one connection pool on local.db —
@@ -110,27 +117,31 @@ async def test_local_runtime_opens_one_sql_engine(monkeypatch):
     assert spy.call_count == 1
 
 
-async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatch):
-    """Race window: the block ends while the worker's claim has written but
-    not committed, so the cancel lands inside one of its driver calls and
-    SQLAlchemy discards the connection. Its open transaction must not keep
-    SQLite's write lock: the worker's own STOPPED write would then fail with
-    "database is locked"."""
-    if not is_local():
-        pytest.skip("the local runtime runs only on chdb + SQLite")
+# req: designs/orchestration/stop-between-iterations
+@local_only
+async def test_local_runtime_stops_its_worker_between_iterations(monkeypatch):
+    """The block ends while the worker's claim has written but not committed.
+    The worker is stopped, not cancelled inside that SQLite call (a cancelled
+    call makes SQLAlchemy discard its connection unclosed): it finishes the
+    claim, runs the task, and its own STOPPED write succeeds."""
     async with reset_test_state(orch_context(), reset_sql=True):
         job = await create_job("claimed_at_shutdown", simple_task)
     mid_claim = asyncio.Event()
     claim_connections = []
+    cancelled_in_driver: list[str] = []
     execute = aiosqlite.core.Connection._execute
 
     async def pause_mid_claim(self, fn, *args, **kwargs):
-        if args and str(args[0]).lstrip().startswith("UPDATE tasks SET status = ?, execution_worker_id"):
+        if args and str(args[0]).lstrip().startswith(_CLAIM_SQL):
             claim_connections.append(self)
         elif self in claim_connections and fn.__name__ == "fetchall" and not mid_claim.is_set():
             # The claim has written and is reading the task back; the commit is still to come.
             mid_claim.set()
-            await asyncio.sleep(0.2)
+            try:
+                await asyncio.sleep(0.2)
+            except asyncio.CancelledError:
+                cancelled_in_driver.append(fn.__name__)
+                raise
         return await execute(self, fn, *args, **kwargs)
 
     monkeypatch.setattr(aiosqlite.core.Connection, "_execute", pause_mid_claim)
@@ -138,9 +149,43 @@ async def test_local_runtime_shutdown_mid_claim_leaves_no_sqlite_lock(monkeypatc
     async with lr.local_runtime():
         await asyncio.wait_for(mid_claim.wait(), 10)
 
+    assert cancelled_in_driver == []
     async with orch_context():
         (task,) = await get_tasks_for_job(job.id)
-    assert task.status == TASK_PENDING and task.execution_worker_id is None
+    assert task.status == TASK_COMPLETED
+
+
+# req: designs/orchestration/stop-between-iterations
+@local_only
+async def test_local_runtime_cancelled_while_stopping_still_cancels_its_worker(monkeypatch):
+    """A lifespan cancelled during the stop grace period (server cancel, Ctrl-C)
+    must still cancel and await its worker, not leave it running against a
+    disposed engine."""
+    async with reset_test_state(orch_context(), reset_sql=True):
+        pass
+    busy = asyncio.Event()
+
+    async def slow_claim(execution_worker_id):
+        busy.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(ew, "claim_next_task", slow_claim)
+
+    async def run() -> None:
+        async with lr.local_runtime():
+            await busy.wait()
+
+    outer = asyncio.create_task(run())
+    await asyncio.wait_for(busy.wait(), 10)
+    await asyncio.sleep(0.1)  # the block has exited and waits on the busy worker
+    outer.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await outer
+
+    pending = [
+        t for t in asyncio.all_tasks() if getattr(t.get_coro(), "__name__", None) == "execution_worker_main_loop"
+    ]
+    assert pending == []
 
 
 async def _scheduled_runs(registered_job_id: int) -> int:
@@ -154,6 +199,7 @@ async def _scheduled_runs(registered_job_id: int) -> int:
         ).scalar_one()
 
 
+# req: user_guide/orchestration/running_jobs/cron-scheduling, designs/orchestration/cron-scheduling
 async def test_local_runtime_creates_a_due_scheduled_run(orch_ctx, monkeypatch):
     """Local mode is one process: the BackgroundWorker polls inside the
     server's ``orch_context``, and the ``orch_context`` its schedule pass

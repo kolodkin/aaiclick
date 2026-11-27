@@ -32,7 +32,7 @@ async def example():
 
     result = await ch.query(f"SELECT engine, sorting_key FROM system.tables WHERE name = '{sales.table}'")
     engine, sorting_key = result.result_rows[0]
-    print(f"Engine: {engine}, ORDER BY: {sorting_key}")  # → Engine: MergeTree, ORDER BY: date
+    print(f"Engine: {engine}, ORDER BY: {sorting_key}")  # → Engine: MergeTree, ORDER BY: (date)
 
     section("Example 2: Multiple column order_by")
 

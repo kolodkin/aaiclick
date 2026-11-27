@@ -39,6 +39,7 @@ def many_tasks() -> list[int]:
     return run_in_process(seed)
 
 
+# req: user_guide/ui/prompt-dropdown
 def test_typing_task_lists_tasks_without_switching_view(page, base_url: str, many_tasks, shot) -> None:
     open_page(page, f"{base_url}/?p=@jobs")
     page.wait_for_selector("text=Jobs")
@@ -51,6 +52,7 @@ def test_typing_task_lists_tasks_without_switching_view(page, base_url: str, man
     shot("dropdown-tasks")
 
 
+# req: user_guide/ui/prompt-dropdown
 def test_scrolling_loads_the_next_page(page, base_url: str, many_tasks) -> None:
     open_page(page, f"{base_url}/")
     page.fill("#prompt", "@task ")
@@ -62,6 +64,7 @@ def test_scrolling_loads_the_next_page(page, base_url: str, many_tasks) -> None:
     page.wait_for_function(f"() => document.querySelectorAll('{ROWS}').length > 50")
 
 
+# req: user_guide/ui/prompt-dropdown
 def test_picking_a_row_commits_and_routes(page, base_url: str, many_tasks, shot) -> None:
     open_page(page, f"{base_url}/")
     page.fill("#prompt", "@task ")
@@ -83,6 +86,7 @@ def test_no_matches(page, base_url: str, shot) -> None:
     shot("dropdown-no-matches")
 
 
+# req: user_guide/ui/prompt-dropdown
 def test_escape_resets_the_draft(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@jobs")
     page.fill("#prompt", "@task ")
@@ -102,6 +106,7 @@ def test_enter_commits_an_unknown_command(page, base_url: str) -> None:
     page.wait_for_selector("text=Unknown command")
 
 
+# req: user_guide/ui/prompt-drives-the-view
 def test_back_restores_prompt_and_view(page, base_url: str) -> None:
     open_page(page, f"{base_url}/?p=@jobs")
     page.fill("#prompt", "@registered")

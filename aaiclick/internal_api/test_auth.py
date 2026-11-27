@@ -22,6 +22,7 @@ async def _make_user(username="alice", password="pw"):
     await users.create_user(CreateUserRequest(username=username, password=password))
 
 
+# req: designs/auth/login-token-pair
 async def test_login_success(orch_ctx):
     await _make_user()
     pair = await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
@@ -29,6 +30,7 @@ async def test_login_success(orch_ctx):
     assert pair.access_token and pair.refresh_token
 
 
+# req: designs/auth/token-claims
 async def test_login_token_carries_the_role(orch_ctx):
     await users.create_user(CreateUserRequest(username="boss", password="pw", role=ROLE_ADMIN))
 
@@ -37,12 +39,14 @@ async def test_login_token_carries_the_role(orch_ctx):
     assert claims.role == ROLE_ADMIN
 
 
+# req: designs/auth/login-rejections
 async def test_login_bad_password_raises(orch_ctx):
     await _make_user()
     with pytest.raises(Unauthorized):
         await auth.login(LoginRequest(username="alice", password="nope"), secret=SECRET)
 
 
+# req: designs/auth/login-lockout
 async def test_repeated_bad_passwords_lock_login(orch_ctx):
     """Without a limit a password is a brute-force target."""
     await _make_user()
@@ -54,6 +58,7 @@ async def test_repeated_bad_passwords_lock_login(orch_ctx):
         await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
 
 
+# req: designs/auth/login-lockout
 async def test_a_successful_login_resets_the_failure_count(orch_ctx):
     await _make_user()
     for _ in range(2):
@@ -63,6 +68,7 @@ async def test_a_successful_login_resets_the_failure_count(orch_ctx):
         await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
 
 
+# req: designs/auth/login-lockout
 async def test_password_change_guesses_count_toward_the_lock(orch_ctx):
     """A stolen session must not be a way to guess the current password without limit."""
     view = await users.create_user(CreateUserRequest(username="alice", password="pw"))
@@ -74,11 +80,13 @@ async def test_password_change_guesses_count_toward_the_lock(orch_ctx):
         await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
 
 
+# req: designs/auth/login-rejections
 async def test_login_unknown_user_raises(orch_ctx):
     with pytest.raises(Unauthorized):
         await auth.login(LoginRequest(username="ghost", password="pw"), secret=SECRET)
 
 
+# req: designs/auth/login-rejections
 @pytest.mark.parametrize(
     "username",
     [
@@ -103,6 +111,7 @@ async def test_every_failed_login_pays_for_bcrypt(orch_ctx, monkeypatch, usernam
     assert len(calls) == 1
 
 
+# req: designs/auth/login-rejections
 async def test_disabled_user_cannot_login(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="dis", password="pw"))
     await users.disable_user(view.id, True)
@@ -110,6 +119,7 @@ async def test_disabled_user_cannot_login(orch_ctx):
         await auth.login(LoginRequest(username="dis", password="pw"), secret=SECRET)
 
 
+# req: designs/auth/refresh-rotation
 async def test_refresh_rotates_and_rejects_reuse(orch_ctx):
     await _make_user()
     pair = await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
@@ -119,6 +129,7 @@ async def test_refresh_rotates_and_rejects_reuse(orch_ctx):
         await auth.refresh(RefreshRequest(refresh_token=pair.refresh_token), secret=SECRET)
 
 
+# req: designs/auth/refresh-rotation
 async def test_concurrent_refreshes_of_one_token_mint_one_pair(orch_ctx):
     """Two refreshes racing on the same token: one wins, the other is a 401.
 
@@ -137,6 +148,7 @@ async def test_concurrent_refreshes_of_one_token_mint_one_pair(orch_ctx):
     assert sum(isinstance(o, Unauthorized) for o in outcomes) == 1
 
 
+# req: designs/auth/change-own-password
 async def test_change_password_swaps_the_credential(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="pw_user", password="old"))
     await auth.change_password(view.id, ChangePasswordRequest(current_password="old", new_password="new"))
@@ -146,12 +158,14 @@ async def test_change_password_swaps_the_credential(orch_ctx):
     assert await auth.login(LoginRequest(username="pw_user", password="new"), secret=SECRET)
 
 
+# req: designs/auth/change-own-password
 async def test_change_password_wrong_current_raises(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="pw_bad", password="old"))
     with pytest.raises(Unauthorized):
         await auth.change_password(view.id, ChangePasswordRequest(current_password="guess", new_password="new"))
 
 
+# req: designs/auth/session-revocation
 async def test_change_password_revokes_existing_sessions(orch_ctx):
     """The reason the endpoint exists: a leaked refresh token must not survive
     the password change that was meant to shut it out."""
@@ -164,6 +178,7 @@ async def test_change_password_revokes_existing_sessions(orch_ctx):
         await auth.refresh(RefreshRequest(refresh_token=pair.refresh_token), secret=SECRET)
 
 
+# req: designs/auth/logout-and-me
 async def test_logout_revokes_refresh(orch_ctx):
     await _make_user()
     pair = await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)

@@ -58,6 +58,7 @@ async def _age_heartbeat(worker_id: int, seconds: float) -> None:
         await session.commit()
 
 
+# req: designs/kubernetes_runner/reconciler
 async def test_renew_claims_only_owned_epochs(orch_ctx):
     w = await register_execution_worker()
     t1 = await _claimed(w.id, "renew_a")
@@ -85,6 +86,7 @@ async def test_renew_claims_keeps_claim_fresh_across_ticks(orch_ctx):
     assert renewed_until is not None and renewed_until >= first
 
 
+# req: designs/kubernetes_runner/reconciler
 async def test_in_flight_status_flags_cancelled_and_cleared(orch_ctx):
     w = await register_execution_worker()
     live = await _claimed(w.id, "status_live")
@@ -103,6 +105,7 @@ async def test_in_flight_status_flags_cancelled_and_cleared(orch_ctx):
     }
 
 
+# req: designs/kubernetes_runner/deadlines
 async def test_in_flight_status_reports_run_start(orch_ctx):
     w = await register_execution_worker()
     started = await _claimed(w.id, "status_started")
@@ -115,6 +118,7 @@ async def test_in_flight_status_reports_run_start(orch_ctx):
     assert by_id[pending.id].run_started_at is None
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_adopt_run_from_stopped_worker(orch_ctx):
     old = await register_execution_worker()
     new = await register_execution_worker()
@@ -125,6 +129,7 @@ async def test_adopt_run_from_stopped_worker(orch_ctx):
     assert (await _task(t.id)).execution_worker_id == new.id
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_adopt_run_refuses_live_owner(orch_ctx):
     old = await register_execution_worker()
     new = await register_execution_worker()
@@ -134,6 +139,7 @@ async def test_adopt_run_refuses_live_owner(orch_ctx):
     assert (await _task(t.id)).execution_worker_id == old.id
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_adopt_run_from_silent_worker(orch_ctx):
     old = await register_execution_worker()
     new = await register_execution_worker()
@@ -143,6 +149,7 @@ async def test_adopt_run_from_silent_worker(orch_ctx):
     assert await adopt_run(_key(t), old.id, new.id)
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_adopt_run_fenced_on_previous_owner(orch_ctx):
     old = await register_execution_worker()
     first = await register_execution_worker()
@@ -155,6 +162,7 @@ async def test_adopt_run_fenced_on_previous_owner(orch_ctx):
     assert (await _task(t.id)).execution_worker_id == first.id
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_adopt_run_refuses_stale_epoch(orch_ctx):
     old = await register_execution_worker()
     new = await register_execution_worker()
@@ -164,6 +172,7 @@ async def test_adopt_run_refuses_stale_epoch(orch_ctx):
     assert not await adopt_run(RunKey(t.id, t.run_epoch + 1), old.id, new.id)
 
 
+# req: designs/kubernetes_runner/quota-release
 async def test_release_claim_returns_task_to_pending(orch_ctx):
     w = await register_execution_worker()
     t = await _claimed(w.id, "release_pending")

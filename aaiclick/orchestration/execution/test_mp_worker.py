@@ -17,6 +17,7 @@ from .mp_worker import mp_worker_main_loop
 pytestmark = pytest.mark.usefixtures("fast_poll")
 
 
+# req: designs/orchestration/worker-main-loop
 async def test_mp_worker_executes_task(orch_ctx_no_ch):
     """Test that mp worker executes a task in a child process."""
     job = await create_job(
@@ -83,6 +84,7 @@ async def test_mp_worker_main_loop_rejects_bad_runner(monkeypatch):
         await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
 
+# req: user_guide/container_images/dispatching-worker-refuses-chdb, architecture/topology/worker-runner
 async def test_mp_worker_main_loop_rejects_chdb_with_runner(monkeypatch, tmp_path):
     """Container task logs are written from the parent, where a chdb session
     would lock every later task's child out of the database."""
@@ -110,6 +112,7 @@ async def _task_row(job_id: int) -> Task:
         return (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
 
 
+# req: designs/orchestration/cancel-detection
 async def test_mp_worker_kills_cancelled_module_task(orch_ctx_no_ch):
     """Cancelling a running module task kills its child instead of waiting for
     it to finish; the task then settles to CANCELLED."""

@@ -34,6 +34,14 @@ with the v1.0.0 release.
 
 Items deferred until preconditions are met.
 
+## Sharded Joins
+
+Deferred until a sharded backend exists.
+
+The default chdb backend is single-shard, so a plain `JOIN` suffices. A future sharded backend would use `GLOBAL JOIN` and `join_algorithm` hints (`parallel_hash`, `partial_merge`, `grace_hash`); the API leaves room for a later `strategy=` kwarg.
+
+Semi / anti / asof joins are not supported yet — each needs its own semantics (left-only output schema, required `order_by`, tolerance).
+
 ## Blob Storage Support
 
 Deferred until it can be tested against real buckets — emulators (moto,
@@ -90,7 +98,7 @@ running buildx, so it holds no git credentials — only a token with
   move to GitHub secrets.
 
 Until then, a private GitHub repo builds with a GitHub App key on the worker
-(`docs/user_guide/orchestration.md`, "Image source").
+(`docs/user_guide/orchestration/runners.md`, "Image source").
 
 ## Objects in Non-Python Tasks
 
@@ -164,7 +172,7 @@ Today `create_object_from_url`, `insert_from_url` and `export` take
 Not a credential mechanism: ClickHouse checks
 `s3_allow_server_credentials_in_user_queries` on every read, and a per-Object
 value would let any caller lend themselves the server's identity
-(`docs/designs/blob_storage.md` — "Credentials").
+(`docs/architecture/security.md` — "Credentials").
 
 **When to revisit**: when a workload needs per-query tuning (memory limits,
 format or inference settings) that a connection default cannot express.
@@ -177,7 +185,7 @@ sites: the default insert list in `aaiclick/data/object/emit.py`, the copy
 path in `ingest.py` and the URL ingest in `url.py`. Fix it once at the shared
 column-list builders rather than per operation, then audit the remaining
 SELECT projections. Dotted names, the same gap:
-`technical_debt.md` — "Unquoted Identifier Interpolation in Remaining SQL Builders".
+`docs/contributor/technical_debt.md` — "Unquoted Identifier Interpolation in Remaining SQL Builders".
 
 **When to revisit**: before accepting user-supplied column names from
 external sources (CSV headers, parquet) as a supported path.
@@ -324,6 +332,9 @@ An MCP client can already do Tier 2 by hand: `run_job` with
 tables. Missing is a one-call `request_full_replay` that re-runs the original
 job with its recorded kwargs, returns the new job's handle, and reports input
 drift (row counts, old vs new). Design: `docs/designs/lineage.md` (Tier 2).
+Planned shape: `request_full_replay(reason: str) -> ReplayHandle` with
+`ReplayHandle(original_job_id, replayed_job_id, drift: dict[str, int])` and
+`replay_timeout` / `replay_failed` error kinds.
 
 **When to revisit**: when Tier 1's static reasoning demonstrably fails on
 real questions — a bug whose explanation lives only in an intermediate table

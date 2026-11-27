@@ -89,6 +89,7 @@ def reduce_view_pipeline(values: list, where: str, partition_size: int):
 # --- Tests ---
 
 
+# req: user_guide/orchestration/parallel_operators/parallel-operators, designs/orchestration/operator-tasks, designs/orchestration/reduce-layers
 @pytest.mark.parametrize(
     "pipeline, pipeline_kwargs, expected",
     [
@@ -111,6 +112,7 @@ async def test_reduce(orch_ctx, pipeline, pipeline_kwargs, expected):
         assert (await result_obj.data())[0] == expected
 
 
+# req: designs/orchestration/reduce-empty-raises
 async def test_reduce_empty_raises(orch_ctx):
     """reduce() of empty Object without initializer fails with TypeError."""
     j = await ajob_test(reduce_empty)
@@ -119,6 +121,7 @@ async def test_reduce_empty_raises(orch_ctx):
     assert "reduce() of empty sequence" in (j.error or "")
 
 
+# req: user_guide/orchestration/tasks_and_jobs/dynamic-task-data, user_guide/orchestration/parallel_operators/operator-result, designs/orchestration/expander-hold
 async def test_reduce_consumer_sees_filled_result(orch_ctx):
     """A consumer of reduce() runs after every layer, not after the expander alone."""
     j = await reduce_consumer(values=[1, 2, 3, 4, 5], partition_size=2)
@@ -128,6 +131,7 @@ async def test_reduce_consumer_sees_filled_result(orch_ctx):
     assert await get_job_result(j) == [15]
 
 
+# req: designs/orchestration/reduce-layers
 @pytest.mark.parametrize(
     "where, expected",
     [

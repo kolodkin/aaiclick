@@ -80,6 +80,7 @@ async def test_clear_resets_target_only(orch_ctx):
     assert reset.run_epoch == 1
 
 
+# req: user_guide/orchestration/managing_jobs/clear-task, designs/orchestration/cancel-and-clear
 async def test_clear_resets_transitive_chain(orch_ctx):
     """Clearing the head of A→B→C resets all three; an unrelated task is untouched."""
     job = await create_job("clear_chain", EP)
@@ -102,6 +103,7 @@ async def test_clear_resets_transitive_chain(orch_ctx):
     assert await _status(unrelated.id) == TASK_COMPLETED
 
 
+# req: user_guide/orchestration/managing_jobs/clear-task, designs/orchestration/cancel-and-clear
 async def test_clear_leaves_upstream_untouched(orch_ctx):
     """Clearing the middle of A→B→C resets B and C but leaves A completed."""
     job = await create_job("clear_middle", EP)
@@ -167,6 +169,7 @@ async def test_clear_task_to_group_resets_group_members(orch_ctx):
         assert await _status(tid) == TASK_PENDING
 
 
+# req: user_guide/orchestration/managing_jobs/clear-task, designs/orchestration/cancel-and-clear
 async def test_clear_revives_terminal_job(orch_ctx):
     """Clearing a task in a FAILED job reactivates the job to RUNNING."""
     job = await create_job("clear_revive", EP)
@@ -246,6 +249,7 @@ async def test_clear_nonexistent_task_raises(orch_ctx):
         await clear_task(999999999)
 
 
+# req: designs/orchestration/cancel-and-clear, designs/kubernetes_runner/result-epoch-fencing
 async def test_clear_fences_stale_update_task_status(orch_ctx):
     """After a clear bumps the epoch, a stale-epoch status write is rejected."""
     job = await create_job("fence_update", EP)

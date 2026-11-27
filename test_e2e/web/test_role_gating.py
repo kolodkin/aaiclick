@@ -70,6 +70,7 @@ def _open_registered(page, base_url: str, role: str) -> None:
     page.wait_for_selector("table")
 
 
+# req: user_guide/ui/role-gated-controls
 @_spa_built
 def test_viewer_sees_mutating_controls_disabled(page, base_url: str, shot) -> None:
     _open_registered(page, base_url, "viewer")
@@ -84,6 +85,7 @@ def test_viewer_sees_mutating_controls_disabled(page, base_url: str, shot) -> No
     assert toggle.is_disabled(), "the enabled/disabled toggle should be disabled for a viewer"
 
 
+# req: user_guide/ui/role-gated-controls
 @_spa_built
 def test_admin_sees_mutating_controls_enabled(page, base_url: str, shot) -> None:
     """The gate must not leak onto admins — this is what would catch an
@@ -98,6 +100,7 @@ def test_admin_sees_mutating_controls_enabled(page, base_url: str, shot) -> None
     assert page.locator("button.toggle").first.is_enabled()
 
 
+# req: user_guide/ui/home
 @_spa_built
 @pytest.mark.parametrize(
     "mode, user_id, disabled",

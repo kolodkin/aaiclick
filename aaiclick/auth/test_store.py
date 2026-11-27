@@ -33,6 +33,7 @@ async def test_set_role_missing_user_raises(orch_ctx):
         await store.set_role(999, ROLE_ADMIN)
 
 
+# req: designs/auth/session-revocation
 async def test_revoke_all_for_user_kills_active_tokens(orch_ctx):
     u = await store.create_user(username="dave", password_hash="h")
     await store.create_refresh_token(user_id=u.id, token_hash="d1", ttl=3600)
@@ -43,6 +44,7 @@ async def test_revoke_all_for_user_kills_active_tokens(orch_ctx):
     assert await store.get_active_refresh("d2") is None
 
 
+# req: designs/auth/session-revocation
 async def test_revoke_all_for_user_skips_rotated_and_other_users(orch_ctx):
     """Only this user's still-active rows are counted — already-rotated rows are
     inactive, and another user's session must survive."""
@@ -66,6 +68,7 @@ async def test_refresh_token_lifecycle(orch_ctx):
     assert await store.get_active_refresh("hash1") is None  # rotated => inactive
 
 
+# req: designs/auth/refresh-rotation
 async def test_rotate_refresh_consumes_the_row_exactly_once(orch_ctx):
     """The second rotation of one row fails: rotation is a conditional UPDATE, so
     two refreshes racing on the same token cannot both mint a new pair."""
@@ -75,6 +78,7 @@ async def test_rotate_refresh_consumes_the_row_exactly_once(orch_ctx):
     assert not await store.rotate_refresh(rt.id)
 
 
+# req: designs/auth/refresh-rotation
 async def test_rotate_refresh_rejects_a_revoked_row(orch_ctx):
     u = await store.create_user(username="heidi", password_hash="h")
     rt = await store.create_refresh_token(user_id=u.id, token_hash="h1", ttl=3600)
@@ -82,6 +86,7 @@ async def test_rotate_refresh_rejects_a_revoked_row(orch_ctx):
     assert not await store.rotate_refresh(rt.id)
 
 
+# req: designs/auth/reset-token
 async def test_consume_password_reset_is_single_use_under_concurrency(orch_ctx):
     """Two redemptions racing on one reset token: exactly one gets the row."""
     u = await store.create_user(username="ivan", password_hash="h")
@@ -92,6 +97,7 @@ async def test_consume_password_reset_is_single_use_under_concurrency(orch_ctx):
     assert sum(row is not None for row in rows) == 1
 
 
+# req: designs/auth/reset-token
 async def test_consume_password_reset_rejects_expired(orch_ctx):
     u = await store.create_user(username="judy", password_hash="h")
     await store.create_password_reset(user_id=u.id, token_hash="r2", ttl=-1)

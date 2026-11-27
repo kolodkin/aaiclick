@@ -83,6 +83,7 @@ async def test_cancelled_cleanup_waits_for_owning_worker(bg_db):
     assert await _get_pin_refs(bg_db, 100) == {"t_upstream"}
 
 
+# req: designs/orchestration/background-passes
 async def test_cancelled_cleanup_fails_job_after_sibling_abort(bg_db):
     """A fail-fast sibling settling to CANCELLED is what lets its still-RUNNING
     job roll up to FAILED."""

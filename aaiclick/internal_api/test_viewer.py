@@ -32,6 +32,7 @@ async def _seed_orders():
     )
 
 
+# req: designs/viewer/kernel-contract, designs/viewer/raw-clickhouse-output
 async def test_query_object_returns_json_compact_meta_and_data():
     await _seed_orders()
     res = await viewer.query_object(ObjectQueryRequest(object="orders", order_by=[OrderBy("id", "ASC")]))
@@ -41,6 +42,7 @@ async def test_query_object_returns_json_compact_meta_and_data():
     assert res.text is None
 
 
+# req: designs/viewer/object-not-table
 async def test_query_object_fields_where_order_limit_offset():
     await _seed_orders()
     res = await viewer.query_object(
@@ -57,6 +59,7 @@ async def test_query_object_fields_where_order_limit_offset():
     assert res.data == [["b"]]
 
 
+# req: designs/viewer/raw-clickhouse-output, designs/viewer/internal-api-verbs
 async def test_query_object_csv():
     await _seed_orders()
     res = await viewer.query_object(
@@ -66,6 +69,7 @@ async def test_query_object_csv():
     assert res.meta == [] and res.data == []
 
 
+# req: designs/viewer/scope-keys, designs/viewer/job-scope-resolution
 async def test_query_object_job_scope_by_id_and_name():
     job = await create_job("viewer_job", _SAMPLE_TASK)
     async with task_scope(task_id=get_snowflake_id(), job_id=job.id, run_id=get_snowflake_id()):
@@ -77,6 +81,18 @@ async def test_query_object_job_scope_by_id_and_name():
     assert by_id.data == by_name.data == [["5"], ["6"]]
 
 
+# req: designs/viewer/job-scope-resolution
+async def test_query_object_job_name_follows_the_latest_run():
+    for values in ([1], [2]):
+        job = await create_job("rerun_job", _SAMPLE_TASK)
+        async with task_scope(task_id=get_snowflake_id(), job_id=job.id, run_id=get_snowflake_id()):
+            await create_object_from_value(values, name="result", scope="job")
+
+    latest = await viewer.query_object(ObjectQueryRequest(scope="job:rerun_job", object="result"))
+    assert latest.data == [["2"]]
+
+
+# req: designs/viewer/where-guard
 @pytest.mark.parametrize(
     "request_kwargs",
     [
@@ -104,6 +120,7 @@ async def test_query_object_unknown_object_and_job():
         await viewer.query_object(ObjectQueryRequest(scope="job:no_such", object="x"))
 
 
+# req: designs/viewer/kernel-contract, designs/viewer/internal-api-verbs, designs/viewer/dashboard-params
 async def test_dashboard_round_trip_and_run():
     await _seed_orders()
     dash = await viewer.save_dashboard(
@@ -136,6 +153,7 @@ async def test_dashboard_round_trip_and_run():
         await viewer.get_dashboard("sales")
 
 
+# req: designs/viewer/dashboard-params, designs/viewer/dashboard-storage
 async def test_save_dashboard_validates_panels():
     with pytest.raises(errors.Invalid):
         await viewer.save_dashboard(DashboardIn(name="bad", html="<p/>", queries={}))
@@ -164,6 +182,7 @@ async def _job_with_task_value() -> tuple[Job, Task]:
     return job, task
 
 
+# req: designs/viewer/task-value-query
 async def test_query_object_task_value():
     job, task = await _job_with_task_value()
     res = await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object=f"{task.id}"))
@@ -174,6 +193,7 @@ async def test_query_object_task_value():
     assert as_csv.text == "value\r\n1\r\n"
 
 
+# req: designs/viewer/task-value-query
 @pytest.mark.parametrize(
     "extra",
     [
@@ -188,6 +208,7 @@ async def test_query_object_task_value_rejects_constraints(extra):
         await viewer.query_object(ObjectQueryRequest(scope=f"job:{job.id}", object=f"{task.id}", **extra))
 
 
+# req: designs/viewer/task-value-query
 async def test_query_object_address_outside_job_scope_is_not_found():
     _, task = await _job_with_task_value()
     with pytest.raises(errors.NotFound):

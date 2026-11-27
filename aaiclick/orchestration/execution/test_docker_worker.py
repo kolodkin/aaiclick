@@ -33,6 +33,7 @@ def _cmdtask(**kw):
     )
 
 
+# req: user_guide/task_interface/container-env-isolation, designs/task_interface/transport-details
 def test_build_docker_create_cmd_sets_io_dir_and_env_file():
     cmd = build_docker_create_cmd(
         "aaiclick-task-7-2", "img:tag", ["echo", "hi"], {"cpus": "0.5", "memory": "256m"}, "/tmp/x.env"
@@ -151,6 +152,7 @@ def _docker_dispatch(entry_type: EntryType, resources: dict | None = None) -> Jo
     )
 
 
+# req: designs/kubernetes_runner/job-resources
 async def test_module_container_honours_job_resources(orch_ctx, monkeypatch, tmp_path):
     """The job's ``resources`` flags reach the real ``docker run`` argv."""
     await dispatch_with_fake_cli(
@@ -165,6 +167,7 @@ async def test_module_container_honours_job_resources(orch_ctx, monkeypatch, tmp
     assert argv[argv.index("--memory") + 1] == "64m"
 
 
+# req: designs/orchestration/log-sink-per-runner
 async def test_module_container_that_registered_its_run_is_left_alone(orch_ctx, monkeypatch, tmp_path):
     """A module image registers its own run and captures its own output, so the
     host adds no run and writes nothing — that would log every line twice."""
@@ -181,6 +184,7 @@ async def test_module_container_that_registered_its_run_is_left_alone(orch_ctx, 
     assert await read_task_logs(stored.id, run.run_id) == []
 
 
+# req: designs/orchestration/log-sink-per-runner
 async def test_module_container_that_died_in_bootstrap_gets_its_output_logged(orch_ctx, monkeypatch, tmp_path):
     """A container that failed before ``execute_task`` (bad DB URL, broken
     image) registered no run and wrote no logs: the host registers the
@@ -249,6 +253,7 @@ esac
 """
 
 
+# req: user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers, designs/task_interface/transport-per-runner
 async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_path):
     """The host writes the resolved kwargs into the container, reads back what
     the command wrote to ``out.json`` and stores it as the task result; the
@@ -276,6 +281,7 @@ async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch
     assert not list(tmp_path.glob("aaiclick-io-*")) and not list(tmp_path.glob("aaiclick-task-*.env"))
 
 
+# req: designs/task_interface/transport-details
 @pytest.mark.parametrize(
     "mode, status, error",
     [
@@ -295,6 +301,7 @@ async def test_shell_container_out_json_read_failures(orch_ctx, monkeypatch, tmp
         assert error in (stored.error or "")
 
 
+# req: designs/orchestration/log-sink-per-runner, designs/java-sdk/jvm-dispatch
 async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
     """The jvm shim writes no logs itself: the host registers the attempt and
     follows ``docker logs`` into task_logs. The class name is the shim's one

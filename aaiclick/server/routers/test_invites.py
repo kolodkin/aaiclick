@@ -10,6 +10,7 @@ async def _user(username: str, role: Role):
     return await users.create_user(CreateUserRequest(username=username, password="pw", role=role))
 
 
+# req: user_guide/access/invites, designs/auth/invite-inert-user
 async def test_invite_returns_user_and_link(orch_ctx, app_client, enabled):
     await _user("root", ROLE_ADMIN)
     headers = await login(app_client, "root")
@@ -22,6 +23,7 @@ async def test_invite_returns_user_and_link(orch_ctx, app_client, enabled):
     assert body["user"]["role"] == ROLE_VIEWER and body["link"]["token"]
 
 
+# req: user_guide/access/invites, designs/auth/invite-admin-session
 async def test_viewer_is_forbidden(orch_ctx, app_client, enabled):
     await _user("viewer", ROLE_VIEWER)
     headers = await login(app_client, "viewer")
@@ -29,6 +31,7 @@ async def test_viewer_is_forbidden(orch_ctx, app_client, enabled):
     assert res.status_code == 403 and res.json()["code"] == "forbidden"
 
 
+# req: user_guide/access/api-tokens, designs/auth/invite-admin-session
 async def test_an_api_token_cannot_invite(orch_ctx, app_client, enabled):
     """An invite creates an account — the permanent foothold a leaked token
     must not be able to mint for itself."""

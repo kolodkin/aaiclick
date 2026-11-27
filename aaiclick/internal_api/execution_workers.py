@@ -1,6 +1,6 @@
 """Internal API for execution_worker commands.
 
-See docs/designs/api_server.md — "Worker lifecycle — CLI only".
+See docs/architecture/contracts.md — "Worker lifecycle — CLI only".
 
 Each function runs inside an active ``orch_context()`` and reads the SQL
 session via the contextvar getter. Returns pydantic view models.

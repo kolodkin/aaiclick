@@ -40,6 +40,7 @@ async def _rejected(branch: str) -> None:
     raise SandboxGitError("! [rejected] main -> main (non-fast-forward)")
 
 
+# req: user_guide/sandbox/clone-and-push
 async def test_first_submission_into_empty_remote_creates_main(tmp_path):
     remote = _bare(tmp_path, seed=False)
     repo = SandboxRepo(str(remote), tmp_path / "clone")
@@ -48,6 +49,7 @@ async def test_first_submission_into_empty_remote_creates_main(tmp_path):
     assert await repo.read_file(committed.path, committed.sha) == "x = 1\n"
 
 
+# req: user_guide/sandbox/clone-and-push
 async def test_second_submission_stacks_on_master(tmp_path):
     remote = _bare(tmp_path, branch="master", seed=True)
     repo = SandboxRepo(str(remote), tmp_path / "clone")
@@ -79,6 +81,7 @@ async def test_rejected_push_retries_once_then_raises(tmp_path):
             await repo.commit_file("20261009/sb_3_c.py", "z\n", author=AUTHOR, message="m")
 
 
+# req: user_guide/sandbox/submission-lifecycle
 def test_submission_path_and_module_parts():
     now = datetime(2026, 10, 9, 12, 0, tzinfo=UTC)
     path = submission_path("hello", now)
@@ -129,6 +132,7 @@ async def test_empty_remote_recovers_after_a_failed_push(tmp_path):
     assert _git(remote, "rev-list", "--count", "main") == "1"
 
 
+# req: user_guide/sandbox/read-source
 async def test_read_file_from_a_fresh_clone_over_file_url(tmp_path):
     """A shallow clone that never saw a commit still reads it: a restarted
     server, or a second replica, serves older submissions."""

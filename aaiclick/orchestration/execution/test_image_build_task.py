@@ -34,6 +34,7 @@ def test_build_task_name(source, expected):
     assert build_task_name(source) == expected
 
 
+# req: designs/orchestration/build-modes
 async def test_run_image_build_local_mode_builds_unprefixed_tag(monkeypatch):
     calls: list[str] = []
 
@@ -47,6 +48,7 @@ async def test_run_image_build_local_mode_builds_unprefixed_tag(monkeypatch):
     assert calls == [compute_image_tag(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))]
 
 
+# req: user_guide/orchestration/runners/build-mode-required, designs/orchestration/build-modes, designs/kubernetes_runner/k8s-build-needs-registry
 async def test_run_image_build_requires_a_build_mode(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)

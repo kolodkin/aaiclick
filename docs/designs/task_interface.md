@@ -1,6 +1,8 @@
 Task Interface — The JSON Contract Between a Task and the Orchestrator
 ---
 
+Vocabulary (the wire contract): `docs/architecture/contracts.md`.
+
 The JSON-only contract that lets a process in any language take part in a
 job: a **vocabulary** of tagged dicts and a **file data plane** for inputs
 and results. Python and Java are bindings of it
@@ -9,44 +11,9 @@ The user-facing contract — files, vocabulary, spawn example, `task` fields,
 limits — is in the [user guide](../user_guide/task_interface.md); this doc
 covers mechanics and decisions.
 
-# Vocabulary
-
-**Implementation**: `aaiclick/data/object/refs.py`
-
-Shapes and fields: [user guide, Vocabulary](../user_guide/task_interface.md#vocabulary).
-
-- `job_id` on an `object` ref pins the table: the background worker skips it
-  until the job completes. Its schema is read back from the table registry.
-- Python return values: `None` → `null`; Object/View → ref + `job_id`;
-  `BaseModel` → `pydantic`; anything else → `native`.
-
-## Returned tasks and handles
-
-A `task` dict is built through `create_task()`, so it gets Python's entry
-validation. Rules enforced at registration:
-
-- A string `task_id` / `group_id` is a handle naming a sibling in the same
-  return value; an int names a committed task. Handles become minted ids, and
-  each consumed handle becomes a dependency edge, alongside `depends_on`.
-- An unknown, duplicate or wrong-kind handle (a task where a group is
-  expected) fails the parent.
-- `data` is a plain value (`native` unwraps) or a task handle — the parent's
-  consumers then wait for that task, like `task_result(data=child)`. Any
-  other handle in `data` is an error.
-
-Lifecycle of the user guide's fan-out (`w1`, `w2` → `fin`; ids illustrative):
-
-| Step                        | `fin`'s `values` kwarg                                         |
-|-----------------------------|----------------------------------------------------------------|
-| Parent writes `out.json`    | `[{"_aaiclick_type": "upstream", "task_id": "w1"}, …"w2"]`     |
-| Host mints ids after exit 0 | `w1` → 7301, `w2` → 7302, `fin` → 7303                         |
-| Host swaps handles, commits | `[{…, "task_id": 7301}, {…, "task_id": 7302}]` + edges to 7303 |
-| `fin` launches              | `in.json`: `{"values": [2, 4]}`                                |
-
-Handles live only in that `out.json`; the parent's result points at 7303.
-
 # File data plane
 
+<!-- req: file-data-plane -->
 Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 - **Before launch**: the host replaces each `upstream` ref with
@@ -61,12 +28,14 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 ## Transport per runner
 
+<!-- req: transport-per-runner -->
 | Runner          | `in.json` in                                                                           | `out.json` out                                                 |
 |-----------------|----------------------------------------------------------------------------------------|----------------------------------------------------------------|
 | host subprocess | per-attempt temp dir, `AAICLICK_IO_DIR` in the child's env                             | read from the temp dir, removed after                          |
 | docker          | `docker create` → `docker cp` → `docker start`                                         | `docker cp` of the IO dir back, then `docker rm`               |
 | kubernetes      | `kubectl cp` into an `emptyDir`; init container `io-in` waits for an `in.ready` marker | `kubectl exec -c io -- cat` via a `sleep` sidecar, then delete |
 
+<!-- req: transport-details -->
 - **Containers**: `AAICLICK_IO_DIR` is `/aaiclick`; the argv follows the
   image's `ENTRYPOINT`, which is how the jvm shim gets its class name.
 - **Docker**: the host IO dir is world-writable (non-root images can write
@@ -83,6 +52,7 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 **Implementation**: `aaiclick/orchestration/execution/io_plane.py`
 
+<!-- req: where-it-runs -->
 | Worker                                 | Runs the command                                               |
 |----------------------------------------|----------------------------------------------------------------|
 | In-process (local mode, `job_test`)    | in the worker's event loop                                     |
@@ -90,7 +60,7 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 | Container runners (docker, kubernetes) | host-side on a `ShellVehicle` (multi-step launch)              |
 
 What each runner launches for `module` / `shell` / `jvm`:
-[orchestration.md, Execution layers](orchestration.md#execution-layers).
+[orchestration.md, Execution layers](../architecture/topology.md#execution-layers).
 
 # Decisions
 

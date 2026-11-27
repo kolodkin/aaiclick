@@ -17,6 +17,7 @@ from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
 
 
+# req: architecture/security/auth-data-model
 async def test_user_round_trips(orch_ctx):
     uid = get_snowflake_id()
     async with get_sql_session() as session:
@@ -29,6 +30,7 @@ async def test_user_round_trips(orch_ctx):
         assert row.disabled is False
 
 
+# req: user_guide/access/roles, architecture/security/role-ceiling
 async def test_user_role_defaults_to_viewer(orch_ctx):
     """Least privilege: a user created without an explicit role only reads."""
     uid = get_snowflake_id()
@@ -40,6 +42,7 @@ async def test_user_role_defaults_to_viewer(orch_ctx):
         assert row.role == ROLE_VIEWER
 
 
+# req: architecture/security/auth-data-model, designs/auth/token-claims
 async def test_refresh_token_round_trips(orch_ctx):
     uid = get_snowflake_id()
     async with get_sql_session() as session:
@@ -54,6 +57,7 @@ async def test_refresh_token_round_trips(orch_ctx):
         assert row.token_hash == "h"
 
 
+# req: architecture/security/scope-ladder
 @pytest.mark.parametrize(
     "held, required, expected",
     [
@@ -70,6 +74,7 @@ def test_scope_admits(held, required, expected):
     assert scope_admits(held, required) is expected
 
 
+# req: architecture/security/auth-data-model
 async def test_api_token_carries_its_scope(orch_ctx):
     uid = get_snowflake_id()
     async with get_sql_session() as session:

@@ -57,6 +57,7 @@ async def test_query_table_runs_validated_select(revenue_table):
     assert result.truncated is False
 
 
+# req: designs/lineage/tool-result-types
 @pytest.mark.parametrize(
     "sql",
     [
@@ -77,6 +78,7 @@ async def test_query_table_wraps_execution_errors_as_invalid(revenue_table):
         await lineage_api.query_table(f"SELECT no_such_column FROM {revenue_table}", target_table=revenue_table)
 
 
+# req: designs/lineage/tool-result-types
 async def test_query_table_without_lineage_raises_not_found(orch_ctx):
     """A target no operation produced has an empty graph, so nothing is in scope."""
     with pytest.raises(NotFound):
@@ -90,11 +92,13 @@ async def test_get_table_schema_returns_describe_result(revenue_table):
     assert "value" in [c.name for c in schema.columns]
 
 
+# req: designs/lineage/tool-scope
 async def test_get_table_schema_raises_invalid_when_out_of_scope(revenue_table):
     with pytest.raises(Invalid):
         await lineage_api.get_table_schema("p_secret", target_table=revenue_table)
 
 
+# req: designs/lineage/tool-result-types
 async def test_get_table_schema_raises_not_found_when_describe_fails(revenue_table):
     """The table was dropped after its lineage was recorded."""
     await objects.delete_object(_REVENUE)

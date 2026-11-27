@@ -42,6 +42,7 @@ from aaiclick.orchestration.registered_jobs import run_job
 from aaiclick.testing import get_task_runs, until
 
 
+# req: user_guide/container_images/k8s-build-on-buildkitd
 @pytest.mark.kubernetes_e2e
 async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
     """Build the fixture image, run the entry task's chain as Pods, assert it
@@ -130,6 +131,7 @@ async def _until(predicate, timeout: float = 300.0, what: str = "condition") -> 
         raise AssertionError(f"{e}; pods={await _managed_pods()}") from None
 
 
+# req: user_guide/deployment/worker-drives-many-pods
 @pytest.mark.kubernetes_e2e
 async def test_concurrent_pods_one_worker(orch_ctx, kubernetes_e2e_user_repo):
     """One worker drives the fan-out's Pods at the same time: the peak number
@@ -162,6 +164,7 @@ async def test_concurrent_pods_one_worker(orch_ctx, kubernetes_e2e_user_repo):
     assert peak >= 2, peak
 
 
+# req: user_guide/deployment/worker-drives-many-pods
 @pytest.mark.kubernetes_e2e
 async def test_worker_restart_adopts_pods(orch_ctx, kubernetes_e2e_user_repo, tmp_path):
     """Stopping the worker mid-run leaves a module Pod and a shell Pod
@@ -224,6 +227,7 @@ async def _two_pods_running() -> bool:
     return len([p for p in (await _managed_pods()).values() if p == "Running"]) >= 2
 
 
+# req: user_guide/deployment/worker-drives-many-pods
 @pytest.mark.kubernetes_e2e
 async def test_unschedulable_job_does_not_block_others(orch_ctx, monkeypatch, tmp_path):
     """A job no node can fit stays Pending; another job completes meanwhile

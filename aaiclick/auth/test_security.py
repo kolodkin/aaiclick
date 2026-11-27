@@ -68,6 +68,7 @@ def test_decode_rejects_wrong_type():
         security.decode_access_token(bad, SECRET)
 
 
+# req: user_guide/access/api-tokens, designs/auth/token-format
 def test_api_token_format():
     token = security.generate_api_token()
     assert security.is_api_token(token)
@@ -76,6 +77,7 @@ def test_api_token_format():
     assert security.generate_api_token() != token
 
 
+# req: designs/auth/totp
 def test_totp_matches_rfc6238_vector():
     """RFC 6238 Appendix B, SHA-1, 8 digits truncated to our 6: at T=59 the
     code is 94287082 → last six digits 287082."""
@@ -83,6 +85,7 @@ def test_totp_matches_rfc6238_vector():
     assert security.totp_code(secret, at=59) == "287082"
 
 
+# req: designs/auth/totp
 def test_verify_totp_accepts_drift_and_rejects_stale():
     secret = security.generate_totp_secret()
     now = 1_700_000_000.0

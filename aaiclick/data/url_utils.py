@@ -1,7 +1,7 @@
 """
 aaiclick.data.url_utils - Checks on the URLs aaiclick hands to ClickHouse.
 
-See docs/designs/blob_storage.md — "Credentials".
+See docs/architecture/security.md — "Credentials".
 """
 
 from pathlib import Path

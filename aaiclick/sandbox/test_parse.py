@@ -3,6 +3,7 @@ import pytest
 from .parse import SandboxSourceError, find_job_functions
 
 
+# req: user_guide/sandbox/writing-a-file
 @pytest.mark.parametrize(
     "source, expected",
     [
@@ -21,6 +22,7 @@ def test_find_job_functions(source, expected):
     assert find_job_functions(source) == expected
 
 
+# req: user_guide/sandbox/writing-a-file
 @pytest.mark.parametrize(
     "source, message",
     [
@@ -33,6 +35,7 @@ def test_find_job_functions_rejects(source, message):
         find_job_functions(source)
 
 
+# req: user_guide/sandbox/writing-a-file
 @pytest.mark.parametrize(
     "source, expected",
     [
@@ -45,6 +48,7 @@ def test_find_job_functions_more_forms(source, expected):
     assert find_job_functions(source) == expected
 
 
+# req: user_guide/sandbox/writing-a-file
 @pytest.mark.parametrize(
     "source",
     [
@@ -55,3 +59,9 @@ def test_find_job_functions_more_forms(source, expected):
 def test_find_job_functions_rejects_names_aaiclick_does_not_export(source):
     with pytest.raises(SandboxSourceError, match="no @job function found"):
         find_job_functions(source)
+
+
+# req: user_guide/sandbox/writing-a-file
+def test_find_job_functions_never_runs_the_source():
+    source = "raise SystemExit('imported')\nfrom aaiclick.orchestration import job\n@job\ndef a(): ...\n"
+    assert find_job_functions(source) == ["a"]

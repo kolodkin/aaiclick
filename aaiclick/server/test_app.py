@@ -17,8 +17,9 @@ from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.testing import reset_test_state, until
 from aaiclick.view_models import Problem
 
-from .app import API_PREFIX, _lifespan, app
+from .app import API_PREFIX, _lifespan, _seed_admin, app
 from .auth import SAFE_METHODS, require_admin, require_session, require_write
+from .conftest import login
 from .credential_guard import PLACEHOLDER_MARKER
 
 # Mint or redeem the credential itself, so no principal exists yet.
@@ -42,6 +43,7 @@ def _dependency_calls(dependant):
         yield from _dependency_calls(sub)
 
 
+# req: architecture/contracts/rest-surface
 def test_all_resource_routes_are_prefixed():
     excluded = {"/health", "/docs/oauth2-redirect"}
     for r in app.routes:
@@ -50,6 +52,7 @@ def test_all_resource_routes_are_prefixed():
         assert r.path.startswith(API_PREFIX), f"route {r.path!r} is not under {API_PREFIX}"
 
 
+# req: architecture/contracts/rest-surface, designs/api_server/route-guards
 def test_every_mutating_route_names_its_scope_guard():
     """``require_principal`` only authenticates; the guard a route declares is
     the one scope gate. So every non-safe route must carry one, or be a listed
@@ -63,6 +66,7 @@ def test_every_mutating_route_names_its_scope_guard():
         assert guards, f"{sorted(r.methods)} {r.path} declares no scope guard"
 
 
+# req: architecture/topology/server-layers
 def test_expected_routes_are_registered():
     paths = {r.path for r in app.routes if isinstance(r, Route)}
     for expected in [
@@ -90,6 +94,7 @@ async def test_health(app_client):
     assert response.json() == {"status": "ok"}
 
 
+# req: architecture/contracts/rest-surface
 async def test_openapi_schema_served_under_prefix(app_client):
     response = await app_client.get(f"{API_PREFIX}/openapi.json")
     assert response.status_code == 200
@@ -108,6 +113,7 @@ async def test_openapi_schema_served_under_prefix(app_client):
         assert model_name in schemas, f"{model_name} not in OpenAPI components.schemas"
 
 
+# req: architecture/contracts/rest-surface
 async def test_openapi_advertises_problem_responses_for_declared_routes(app_client):
     """Any route that declares a ``Problem`` response via ``problem_responses()`` must
     appear in the OpenAPI spec with the matching ``Problem`` ``$ref`` — guards against
@@ -143,6 +149,7 @@ async def no_leftover_work():
         pass
 
 
+# req: user_guide/deployment/local-start, architecture/topology/process-topology, designs/api_server/local-lifespan-workers
 async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
     """In local mode, the lifespan registers an execution ExecutionWorker row.
 
@@ -156,6 +163,7 @@ async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
         await until(lambda: list_execution_workers(status=EXECUTION_WORKER_ACTIVE), what="ACTIVE worker")
 
 
+# req: architecture/topology/server-layers, designs/api_server/local-lifespan-workers
 async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, monkeypatch):
     """A request nests into the lifespan's ``orch_context`` instead of opening
     its own engine on local.db, whose fresh connections raced the shared pool."""
@@ -181,6 +189,7 @@ async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, mo
     assert spy.call_count == 1
 
 
+# req: architecture/topology/process-topology, designs/api_server/local-lifespan-workers
 async def test_lifespan_distributed_mode_is_a_no_op(no_leftover_work):
     """In distributed mode, the lifespan must enter and exit cleanly without
     starting workers — workers run as separate processes there.
@@ -197,6 +206,7 @@ async def test_lifespan_distributed_mode_is_a_no_op(no_leftover_work):
         pass
 
 
+# req: designs/auth/mode-derived-gating
 async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
     """Distributed mode without a signing secret is a startup error, not a
     healthy server whose every login is a 500."""
@@ -208,6 +218,7 @@ async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
             pass
 
 
+# req: user_guide/deployment/generated-credentials, designs/deployment/startup-guard
 async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     """A template credential is public: starting with one is an error, not a warning."""
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", f"{PLACEHOLDER_MARKER}-admin-password")
@@ -215,3 +226,17 @@ async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     with pytest.raises(RuntimeError, match=r"AAICLICK_ADMIN_PASSWORD.*env\.init\.sh"):
         async with _lifespan(app):
             pass
+
+
+# req: user_guide/deployment/seed-admin, user_guide/access/admin-bootstrap
+async def test_seed_admin_inserted_only_while_users_table_is_empty(orch_ctx, enabled, anon_client, monkeypatch):
+    """A later startup with a changed ``AAICLICK_ADMIN_PASSWORD`` keeps the first password."""
+    monkeypatch.delenv("AAICLICK_ADMIN_USERNAME", raising=False)
+    monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", "first-pw")
+    await _seed_admin()
+    monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", "second-pw")
+    await _seed_admin()
+
+    await login(anon_client, "admin", "first-pw")
+    res = await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "admin", "password": "second-pw"})
+    assert res.status_code == 401

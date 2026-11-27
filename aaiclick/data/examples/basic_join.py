@@ -39,7 +39,11 @@ async def example():
     section("Example 2: Left join (unmatched rows → NULL on right)")
 
     joined = await users.join(orders, on="id", how="left")
-    rows = sorted(await joined.data(orient=ORIENT_RECORDS), key=lambda r: r["id"])
+    # a join has no row order of its own: sort by id, then total (NULLs last)
+    rows = sorted(
+        await joined.data(orient=ORIENT_RECORDS),
+        key=lambda r: (r["id"], r["total"] is None, r["total"] or 0),
+    )
     print(
         f"Rows: {rows}"
     )  # → [{'id': 1, 'name': 'Alice', 'total': 9.5}, {'id': 1, 'name': 'Alice', 'total': 14.0}, {'id': 2, 'name': 'Bob', 'total': None}, {'id': 3, 'name': 'Carol', 'total': None}]

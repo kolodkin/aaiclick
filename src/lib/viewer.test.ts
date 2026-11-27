@@ -10,6 +10,7 @@ import {
 } from "./viewer";
 
 describe("scope keys", () => {
+  // req: designs/viewer/scope-keys
   test("persistent and job", () => {
     expect(scopeKey(null)).toBe("persistent");
     expect(scopeKey("nightly_etl")).toBe("job:nightly_etl");
@@ -29,6 +30,7 @@ describe("scope keys", () => {
 });
 
 describe("order by adapters", () => {
+  // req: designs/viewer/kernel-contract
   test("cols to wire pairs", () => {
     const cols = [
       { name: "a", dir: "ASC" as const },
@@ -42,6 +44,7 @@ describe("order by adapters", () => {
 });
 
 describe("fields", () => {
+  // req: designs/viewer/kernel-contract
   test("fieldsFromSchema drops aai_id and keeps order", () => {
     const fields = fieldsFromSchema({
       aai_id: { type: "UInt64" },
