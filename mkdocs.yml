@@ -108,6 +108,9 @@ nav:
       - Sandbox: user_guide/sandbox.md
       - DNS Rebinding: user_guide/dns_rebinding.md
       - Example Projects: user_guide/example_projects.md
+    - Web UI:
+      - UI: user_guide/ui.md
+      - Access: user_guide/access.md
   - Examples:
     - Data:
       - Basic Operators: examples/basic_operators.md

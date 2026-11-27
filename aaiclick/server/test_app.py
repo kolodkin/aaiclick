@@ -220,7 +220,7 @@ async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
             pass
 
 
-# req: user_guide/deployment/seed-admin
+# req: user_guide/deployment/seed-admin, user_guide/access/admin-bootstrap
 async def test_seed_admin_inserted_only_while_users_table_is_empty(orch_ctx, enabled, anon_client, monkeypatch):
     """A later startup with a changed ``AAICLICK_ADMIN_PASSWORD`` keeps the first password."""
     monkeypatch.delenv("AAICLICK_ADMIN_USERNAME", raising=False)

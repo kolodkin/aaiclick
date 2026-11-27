@@ -26,6 +26,7 @@ _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing;
 _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs through chdb (local mode)")
 
 
+# req: user_guide/ui/data-view
 @_spa_built
 @_local_only
 def test_data_lists_and_previews_object(page, base_url: str) -> None:
@@ -41,6 +42,7 @@ def test_data_lists_and_previews_object(page, base_url: str) -> None:
     assert rows.locator("tbody tr").count() == 3
 
 
+# req: user_guide/ui/data-view
 @_spa_built
 @_local_only
 def test_object_view_orders_and_pages(page, shot, base_url: str) -> None:
@@ -65,6 +67,7 @@ def test_object_view_orders_and_pages(page, shot, base_url: str) -> None:
     playwright_api.expect(first).to_contain_text("20")
 
 
+# req: user_guide/ui/dashboard
 @_spa_built
 @_local_only
 def test_dashboard_renders_saved_dashboard(page, shot, base_url: str) -> None:
@@ -81,6 +84,7 @@ def test_dashboard_renders_saved_dashboard(page, shot, base_url: str) -> None:
     shot("dashboard-params")
 
 
+# req: user_guide/ui/data-view
 @_spa_built
 @_local_only
 def test_job_data_tab_opens_object(page, base_url: str, shot) -> None:
@@ -105,6 +109,7 @@ def test_job_data_tab_opens_object(page, base_url: str, shot) -> None:
     page.wait_for_url(lambda url: unquote_plus(url).endswith(f"@job {job_id}"), timeout=5000)
 
 
+# req: user_guide/ui/ids-in-links-names-when-typed
 @_spa_built
 @_local_only
 def test_job_opened_by_name_keeps_its_header_on_a_tab_click(page, base_url: str) -> None:
@@ -141,6 +146,7 @@ def test_task_data_tab(page, base_url: str, shot) -> None:
     page.get_by_test_id("value-view").get_by_test_id("object-rows").wait_for(timeout=15000)
 
 
+# req: user_guide/ui/ids-in-links-names-when-typed
 @_spa_built
 @_local_only
 def test_typed_names_open_the_latest_job_and_task(page, base_url: str) -> None:
@@ -164,6 +170,7 @@ def test_task_data_tab_without_values(page, base_url: str) -> None:
     playwright_api.expect(page.get_by_text("No inputs or result")).to_be_visible()
 
 
+# req: user_guide/ui/job-detail
 @_spa_built
 @_local_only
 def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
@@ -176,6 +183,7 @@ def test_wide_job_table_and_graph(page, base_url: str, shot) -> None:
     shot("job-graph-100-tasks")
 
 
+# req: user_guide/ui/data-view
 @_spa_built
 @_local_only
 def test_data_job_lists_and_opens_task_value(page, shot, base_url: str) -> None:

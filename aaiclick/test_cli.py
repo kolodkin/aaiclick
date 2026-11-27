@@ -182,6 +182,7 @@ def test_main_dispatches_run_job_to_handler():
     assert dispatched_args.git_sha == "b" * 40
 
 
+# req: user_guide/access/admin-bootstrap
 def test_user_role_parsers():
     parser = build_parser()
     args = parser.parse_args(["user", "create", "u", "--role", "admin"])
@@ -412,7 +413,7 @@ def test_setup_does_not_prompt_when_not_a_tty(monkeypatch):
     assert calls == [False]
 
 
-# req: user_guide/lineage/distributed-bearer-token
+# req: user_guide/lineage/distributed-bearer-token, user_guide/access/api-tokens
 def test_token_parser_flags():
     parser = build_parser()
     args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", "write", "--expires-days", "30"])
@@ -424,6 +425,7 @@ def test_token_parser_flags():
     assert args.token_command == "revoke" and args.token_id == 42
 
 
+# req: user_guide/access/admin-bootstrap
 def test_user_parser_new_commands():
     parser = build_parser()
     args = parser.parse_args(["user", "create", "sso_only", "--email", "s@example.com"])
@@ -449,7 +451,7 @@ def test_audit_parser_flags():
     )
 
 
-# req: user_guide/lineage/distributed-bearer-token
+# req: user_guide/lineage/distributed-bearer-token, user_guide/access/api-tokens
 def test_token_parser_accepts_every_scope():
     parser = build_parser()
     for level in ("read", "write", "admin"):

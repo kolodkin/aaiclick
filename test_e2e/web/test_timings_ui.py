@@ -26,6 +26,7 @@ def seeded_job_id() -> int:
     return run_in_process(lambda: seed_graph_job("timings_ui_demo"))
 
 
+# req: user_guide/ui/job-timings
 def test_timings_tab_renders_a_row_per_task(page, base_url: str, seeded_job_id: int, shot) -> None:
     open_page(page, f"{base_url}/?p=@job {seeded_job_id} timings")
     page.wait_for_selector("[data-testid='job-timings']", timeout=15000)
@@ -42,6 +43,7 @@ def test_timings_tab_renders_a_row_per_task(page, base_url: str, seeded_job_id: 
     assert off_axis == 0
 
 
+# req: user_guide/ui/job-timings
 def test_duration_tab_ranks_longest_first(page, base_url: str, seeded_job_id: int, shot) -> None:
     open_page(page, f"{base_url}/?p=@job {seeded_job_id} duration")
     page.wait_for_selector("[data-testid='duration-row']", timeout=15000)

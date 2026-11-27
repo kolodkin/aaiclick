@@ -16,6 +16,7 @@ def test_auth_enabled(monkeypatch, is_local, expected):
     assert config.auth_enabled() is expected
 
 
+# req: user_guide/access/auth-config
 def test_ttls_have_defaults(monkeypatch):
     monkeypatch.delenv("AAICLICK_JWT_ACCESS_TTL", raising=False)
     monkeypatch.delenv("AAICLICK_JWT_REFRESH_TTL", raising=False)
@@ -23,6 +24,7 @@ def test_ttls_have_defaults(monkeypatch):
     assert config.refresh_ttl() == 1209600
 
 
+# req: user_guide/access/auth-config
 def test_require_jwt_secret_raises_when_unset(monkeypatch):
     monkeypatch.delenv("AAICLICK_JWT_SECRET", raising=False)
     with pytest.raises(RuntimeError, match="AAICLICK_JWT_SECRET"):
@@ -35,7 +37,7 @@ def test_admin_seed_none_when_unset(monkeypatch):
     assert config.admin_seed() is None
 
 
-# req: user_guide/deployment/seed-admin
+# req: user_guide/deployment/seed-admin, user_guide/access/auth-config
 def test_admin_seed_username_defaults_to_admin(monkeypatch):
     monkeypatch.delenv("AAICLICK_ADMIN_USERNAME", raising=False)
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", "pw")

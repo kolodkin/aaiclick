@@ -68,6 +68,7 @@ def test_decode_rejects_wrong_type():
         security.decode_access_token(bad, SECRET)
 
 
+# req: user_guide/access/api-tokens
 def test_api_token_format():
     token = security.generate_api_token()
     assert security.is_api_token(token)

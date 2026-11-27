@@ -29,6 +29,7 @@ async def _admin(username="root"):
 # --- what an invite produces --------------------------------------------
 
 
+# req: user_guide/access/invites
 async def test_invite_creates_a_passwordless_user_with_a_link(orch_ctx):
     root = await _admin()
     invite = await invites.invite(root.id, InviteUserRequest(username="alice", email="a@example.com"))
@@ -37,6 +38,7 @@ async def test_invite_creates_a_passwordless_user_with_a_link(orch_ctx):
     assert invite.link.token and invite.link.expires_at is not None
 
 
+# req: user_guide/access/invites
 async def test_invited_user_cannot_log_in_until_the_link_is_redeemed(orch_ctx):
     """The whole point: an invite grants no access on its own."""
     root = await _admin()

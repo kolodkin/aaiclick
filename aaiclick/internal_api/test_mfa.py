@@ -29,6 +29,7 @@ async def _enrolled(username="alice"):
     return view, setup.secret
 
 
+# req: user_guide/access/mfa
 async def test_login_demands_code_once_enabled(orch_ctx):
     view, secret = await _enrolled()
     with pytest.raises(MfaRequired):
@@ -39,6 +40,7 @@ async def test_login_demands_code_once_enabled(orch_ctx):
     assert security.decode_access_token(pair.access_token, SECRET).user_id == view.id
 
 
+# req: user_guide/access/mfa
 async def test_code_admits_once(orch_ctx):
     """A code seen over a shoulder or off the wire is spent by the login that
     used it — replaying it inside its 30 s window fails."""
@@ -88,6 +90,7 @@ async def test_setup_and_enable_guards(orch_ctx):
         await auth.mfa_enable(fresh.id, MfaEnableRequest(code="123456"))
 
 
+# req: user_guide/access/mfa
 async def test_disable_needs_both_factors(orch_ctx):
     view, secret = await _enrolled("off")
     with pytest.raises(Unauthorized):
@@ -100,6 +103,7 @@ async def test_disable_needs_both_factors(orch_ctx):
         await auth.mfa_disable(view.id, MfaDisableRequest(password="pw", code="000000"))
 
 
+# req: user_guide/access/mfa
 async def test_admin_reset_clears_mfa(orch_ctx):
     view, _secret = await _enrolled("lost")
     reset = await users.reset_mfa(view.id)

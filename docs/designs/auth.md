@@ -29,16 +29,7 @@ never crosses the HTTP auth layer.
 Enforcement follows the backend mode (`is_local()`), not an env var. These tune
 the enforced (distributed) case:
 
-| Variable                      | Purpose                                                                                 | Default          |
-|-------------------------------|-----------------------------------------------------------------------------------------|------------------|
-| `AAICLICK_JWT_SECRET`         | HS256 signing secret. **Required** in distributed mode.                                 | unset            |
-| `AAICLICK_JWT_ACCESS_TTL`     | Access-JWT lifetime, seconds.                                                           | `1800` (30 min)  |
-| `AAICLICK_JWT_REFRESH_TTL`    | Refresh-token lifetime, seconds.                                                        | `1209600` (14 d) |
-| `AAICLICK_ADMIN_USERNAME`     | Seed-admin username (inserted on startup when no users exist).                          | `admin`          |
-| `AAICLICK_ADMIN_PASSWORD`     | Seed-admin password.                                                                    | unset            |
-| `AAICLICK_PUBLIC_URL`         | Browser-facing origin (`https://aaiclick.example.com`). Needed by password-reset links. | unset            |
-| `AAICLICK_PASSWORD_RESET_TTL` | Reset-link lifetime, seconds — see [Password Reset](#password-reset).                   | `3600` (1 h)     |
-| `AAICLICK_AUDIT_LOG`          | `writes` / `all` / `off` — see [Audit Log](#audit-log).                                 | `writes`         |
+The variables and their defaults are user-facing: [Access — Configuration](../user_guide/access.md#configuration).
 
 !!! warning "Distributed without a secret is a hard error"
     In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the template's
@@ -329,13 +320,7 @@ request) the synthetic admin applies and every tool is open.
 
 # CLI & Admin Bootstrap
 
-- **CLI**: `aaiclick user create <username> [--password] [--email] [--role]`,
-  `invite`, `list`, `set-role`, `disable`, `enable`, `passwd`, `set-email`,
-  `reset-mfa`, `reset-link` — thin in-process renderers over
-  `internal_api.users`. `aaiclick token ...` and `aaiclick audit list` likewise.
-- **Startup seed**: with auth enabled and `AAICLICK_ADMIN_PASSWORD` set, an
-  **admin** (username `AAICLICK_ADMIN_USERNAME`, default `admin`) is inserted
-  during server lifespan startup if the `users` table is empty.
+The `user` / `token` / `audit` CLI verbs are thin in-process renderers over `internal_api.users`, `internal_api.api_tokens` and `aaiclick.audit`, admin-equivalent. Commands and the startup seed: [Access — Admin bootstrap](../user_guide/access.md#admin-bootstrap).
 
 # SPA
 
@@ -353,17 +338,7 @@ request) the synthetic admin applies and every tool is open.
   viewers rather than hidden — a greyed-out control shows the action exists and
   why it is unavailable, where hiding it reads as a missing feature.
   Presentation only; `require_admin` is still the enforcement.
-- The header shows the signed-in username with a sign-out control. Account and
-  admin views are prompt-driven like the rest of the UI:
-
-| Prompt          | View                                                                                                | Who       |
-|-----------------|-----------------------------------------------------------------------------------------------------|-----------|
-| `@account`      | Change password, MFA setup / disable                                                                | any user  |
-| `@tokens`       | List / create / revoke the caller's API tokens                                                      | any user  |
-| `@users`        | User table: create, set role, disable / enable, set password, set email, reset MFA, mint reset link | admin     |
-| `@invite`       | Invite a user — see [Invites](#invites)                                                             | admin     |
-| `@audit`        | Audit log table with user / path filters                                                            | admin     |
-| `reset <token>` | Set a new password from a reset link                                                                | anonymous |
+- Account and admin views are listed in [Access — Account pages](../user_guide/access.md#account-pages).
 
 # Multi-Factor Auth
 

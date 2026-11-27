@@ -29,6 +29,7 @@ async def test_user_round_trips(orch_ctx):
         assert row.disabled is False
 
 
+# req: user_guide/access/roles
 async def test_user_role_defaults_to_viewer(orch_ctx):
     """Least privilege: a user created without an explicit role only reads."""
     uid = get_snowflake_id()

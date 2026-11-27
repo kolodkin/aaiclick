@@ -75,6 +75,7 @@ async def test_enabled_bad_signature_unauthorized(orch_ctx, enabled, anon_client
     assert Problem.model_validate(res.json()).code is ProblemCode.UNAUTHORIZED
 
 
+# req: user_guide/access/token-never-outranks-owner
 async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
     """An ``aaic_`` credential is looked up in the DB and carries the owner's
     current role and the token's scope."""
@@ -90,6 +91,7 @@ async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
         await auth.resolve_principal(authorization=f"Bearer {created.token}")
 
 
+# req: user_guide/access/token-never-outranks-owner
 async def test_demoted_owner_cannot_regain_admin_with_an_old_token(enabled, orch_ctx, anon_client):
     """An admin token minted before a demotion must not let its owner promote themselves back."""
     user = await users.create_user(CreateUserRequest(username="demoted", password="pw", role="admin"))

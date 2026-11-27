@@ -83,6 +83,7 @@ def graph_page(page, base_url: str, seeded_job_id: int):
     return open_graph(page, base_url, seeded_job_id)
 
 
+# req: user_guide/ui/job-graph
 def test_graph_renders_every_task_and_edge(graph_page, shot) -> None:
     """All 9 seeded tasks reach the canvas, with the pipeline edges drawn.
 
@@ -94,12 +95,14 @@ def test_graph_renders_every_task_and_edge(graph_page, shot) -> None:
     assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT + _ROOT_BUILD_EDGE_COUNT
 
 
+# req: user_guide/ui/job-graph
 @pytest.mark.parametrize("status", _EXPECTED_STATUSES)
 def test_graph_colors_each_status(graph_page, status: str) -> None:
     """Each task status renders its own node class, so colours are distinct."""
     assert graph_page.locator(f".gnode-{status}").count() >= 1
 
 
+# req: user_guide/ui/job-graph
 def test_build_dependencies_render_as_badges_not_edges(graph_page) -> None:
     """The build gates every other task, shown once per node rather than as
     N-1 edges crossing the canvas."""
@@ -134,6 +137,7 @@ def test_build_badge_reflects_build_status(page, base_url: str, shot) -> None:
     assert page.locator(".react-flow__edge.gedge-build").count() == 0
 
 
+# req: user_guide/ui/job-graph
 def test_build_edges_toggle_reveals_every_dependency(graph_page, shot) -> None:
     """The full fan is available on demand, and toggling it must not move a
     node — layout is computed from every edge, drawn or not."""
@@ -172,6 +176,7 @@ def test_clicking_build_badge_opens_the_build_task(graph_page, seeded_job_id: in
     assert graph_page.input_value("#prompt") == f"@task {build_id}"
 
 
+# req: user_guide/ui/job-graph
 def test_group_dependencies_draw_one_edge_into_and_out_of_the_frame(graph_page, seeded_job_id: int) -> None:
     """``extract >> group`` and ``group >> report`` are one edge each, on the
     container — not one per member — while layout still sees every member."""
@@ -189,6 +194,7 @@ def test_group_dependencies_draw_one_edge_into_and_out_of_the_frame(graph_page, 
     assert graph_page.locator(f".react-flow__edge[data-id^='{group_id}>']").count() == 1
 
 
+# req: user_guide/ui/job-graph
 def test_clicking_a_node_navigates_to_the_task(graph_page) -> None:
     """Clicking a node sets the prompt to that task's route."""
     graph_page.locator(".gnode").first.click()
@@ -212,6 +218,7 @@ def _contains(outer: dict[str, float], inner: dict[str, float]) -> bool:
     )
 
 
+# req: user_guide/ui/job-graph
 def test_group_renders_as_a_container_around_its_members(graph_page) -> None:
     """The ``transforms`` group is drawn as one frame enclosing exactly its two
     member tasks, with the rest of the pipeline outside it."""
@@ -229,6 +236,7 @@ def test_group_renders_as_a_container_around_its_members(graph_page) -> None:
     assert head["y"] + head["height"] < first_member_top
 
 
+# req: user_guide/ui/job-graph
 def test_group_status_is_rolled_up_from_its_members(graph_page) -> None:
     """``transform_a`` is done and ``transform_b`` is running, so the frame
     reads RUNNING: activity outranks outcome."""
@@ -244,6 +252,7 @@ def test_group_status_settles_once_members_finish(page, base_url: str, all_green
     assert page.locator(".ggroup-RUNNING").count() == 0
 
 
+# req: user_guide/ui/job-graph
 def test_clicking_a_group_does_not_navigate(graph_page) -> None:
     """Only tasks have a detail view; the frame is a visual grouping."""
     before = graph_page.input_value("#prompt")
@@ -254,6 +263,7 @@ def test_clicking_a_group_does_not_navigate(graph_page) -> None:
     assert graph_page.input_value("#prompt") == before
 
 
+# req: user_guide/ui/job-detail
 def test_toggle_switches_between_table_and_graph(page, base_url: str, seeded_job_id: int, shot) -> None:
     """The Table/Graph chips move the prompt between the two views."""
     open_page(page, f"{base_url}/?p=@job {seeded_job_id}")
