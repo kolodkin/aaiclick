@@ -14,6 +14,12 @@ spec:
       labels:
         app: aaiclick-postgres
     spec:
+      # Start as the image's postgres user (uid 999) so the entrypoint skips gosu,
+      # which hangs under k3s's containerd AppArmor profile on ubuntu-26.04.
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
       containers:
         - name: postgres
           image: {{ .Values.postgres.image }}
