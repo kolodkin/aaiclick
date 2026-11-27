@@ -70,9 +70,13 @@ async def local_runtime() -> AsyncIterator[None]:
             try:
                 yield
             finally:
-                # Stop between iterations: a cancel landing inside a SQLite call makes
-                # SQLAlchemy discard that connection unclosed. Cancel only a worker
-                # still busy (a running task) after the grace period.
+                # Ask the worker to stop between iterations instead of cancelling it.
+                # A cancel that lands inside a SQLite call (claim, heartbeat) makes
+                # SQLAlchemy discard that aiosqlite connection without closing it;
+                # orch_context then disposes the engine, and garbage collection later
+                # raises aiosqlite's ResourceWarning in whatever test or request is
+                # running (the intermittent "Server local" CI failure). Cancel only a
+                # worker still busy with a task after STOP_GRACE_S.
                 stop.set()
                 done, _ = await asyncio.wait({worker_task}, timeout=STOP_GRACE_S)
                 if not done:

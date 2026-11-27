@@ -680,6 +680,8 @@ async def _execution_worker_loop(
     empty_polls = 0
 
     try:
+        # ``stop`` is checked only here, between iterations, so a stopping worker
+        # never leaves a claim or a DB call half done (see local_runtime).
         while not shutdown_requested and not (stop is not None and stop.is_set()):
             if max_tasks is not None and tasks_executed >= max_tasks:
                 break
