@@ -9,6 +9,7 @@ from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Co
 from aaiclick.data.object_context import create_object
 
 
+# req: user_guide/object/rename
 async def test_rename_basic(ctx):
     """Renamed columns appear under new names in data()."""
     schema = Schema(
@@ -31,6 +32,7 @@ async def test_rename_basic(ctx):
     assert data["keep_me"] == [42]
 
 
+# req: user_guide/object/rename
 async def test_rename_insert_into_target(ctx):
     """Renamed view can be inserted into target with matching column names."""
     # Source has "src_col", target expects "dst_col"
@@ -62,6 +64,7 @@ async def test_rename_insert_into_target(ctx):
     assert data["shared"] == [10]
 
 
+# req: user_guide/object/rename
 async def test_rename_with_computed_columns(ctx):
     """rename() + with_columns() can be chained."""
     schema = Schema(
@@ -84,6 +87,7 @@ async def test_rename_with_computed_columns(ctx):
     assert data["doubled"] == [10]
 
 
+# req: user_guide/object/rename-chaining
 async def test_rename_collision_raises(ctx):
     """Renaming to an existing non-renamed column name raises."""
     schema = Schema(

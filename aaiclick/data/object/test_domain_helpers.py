@@ -24,6 +24,7 @@ DATES = [
 ]
 
 
+# req: user_guide/object/domain-helpers
 @pytest.mark.parametrize(
     "helper,expected_col,expected",
     [
@@ -40,6 +41,7 @@ async def test_date_helpers(ctx, helper, expected_col, expected):
     assert result[expected_col] == expected
 
 
+# req: user_guide/object/domain-helpers
 async def test_with_date_diff(ctx):
     """with_date_diff computes difference between two date columns in given unit."""
     obj = await create_object_from_value(
@@ -59,6 +61,7 @@ async def test_with_date_diff(ctx):
     assert result["start_end_diff"] == [30, 92]
 
 
+# req: user_guide/object/domain-helpers
 async def test_with_date_diff_custom_alias(ctx):
     """with_date_diff accepts alias override."""
     obj = await create_object_from_value(
@@ -77,6 +80,7 @@ async def test_with_date_diff_custom_alias(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/domain-helpers
 @pytest.mark.parametrize(
     "helper,input_vals,col,expected_col,expected",
     [
@@ -94,6 +98,7 @@ async def test_string_helpers(ctx, helper, input_vals, col, expected_col, expect
     assert result[expected_col] == expected
 
 
+# req: user_guide/object/domain-helpers
 async def test_string_helpers_custom_alias(ctx):
     """String helpers accept alias= override."""
     obj = await create_object_from_value({"city": ["New York", "London"]})
@@ -107,6 +112,7 @@ async def test_string_helpers_custom_alias(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/domain-helpers
 @pytest.mark.parametrize(
     "helper,input_vals,expected_col,expected",
     [
@@ -130,6 +136,7 @@ async def test_math_helpers(ctx, helper, input_vals, expected_col, expected):
 # =============================================================================
 
 
+# req: user_guide/object/domain-helpers
 @pytest.mark.parametrize(
     "scores,bucket_size,expected_buckets",
     [
@@ -147,6 +154,7 @@ async def test_with_bucket(ctx, scores, bucket_size, expected_buckets):
     assert result["score_bucket"] == expected_buckets
 
 
+# req: user_guide/object/domain-helpers
 async def test_with_hash_bucket(ctx):
     """with_hash_bucket() assigns values to n buckets deterministically."""
     obj = await create_object_from_value({"key": ["a", "b", "c", "d", "e", "f"]})
@@ -165,6 +173,7 @@ async def test_with_hash_bucket(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/domain-helpers
 async def test_with_if(ctx):
     """with_if() creates a conditional String column."""
     obj = await create_object_from_value({"score": [30, 60, 90]})
@@ -189,6 +198,7 @@ async def test_with_if_chained_with_group_by(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/with-multi-if
 async def test_with_multi_if_first_match_wins(ctx):
     """with_multi_if() takes the earliest matching branch, not the last."""
     obj = await create_object_from_value({"score": [95, 72, 45, 88, 60]})
@@ -202,6 +212,7 @@ async def test_with_multi_if_first_match_wins(ctx):
     assert data["grade"] == ["A", "C", "F", "B", "C"]
 
 
+# req: user_guide/object/with-multi-if
 async def test_with_multi_if_sql_conditions_and_results(ctx):
     """Branches are raw SQL: boolean operators in conditions, expressions in results."""
     obj = await create_object_from_value(
@@ -226,6 +237,7 @@ async def test_with_multi_if_sql_conditions_and_results(ctx):
     assert data["final_price"] == [0.0, 160.0, 50.0, 80.0]
 
 
+# req: user_guide/object/with-multi-if
 async def test_with_multi_if_empty_branches(ctx):
     """with_multi_if() requires at least one branch."""
     obj = await create_object_from_value({"score": [1, 2]})
@@ -238,6 +250,7 @@ async def test_with_multi_if_empty_branches(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/domain-helpers
 async def test_with_split_by_char(ctx):
     """with_split_by_char() splits a String column into Array(String)."""
     obj = await create_object_from_value({"tags": ["a,b,c", "d,e"]})
@@ -246,6 +259,7 @@ async def test_with_split_by_char(ctx):
     assert result["tags_parts"] == [["a", "b", "c"], ["d", "e"]]
 
 
+# req: user_guide/object/domain-helpers
 async def test_with_split_by_char_custom_alias(ctx):
     """with_split_by_char() accepts alias= override."""
     obj = await create_object_from_value({"csv": ["x:y", "z"]})
@@ -259,6 +273,7 @@ async def test_with_split_by_char_custom_alias(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/domain-helpers
 @pytest.mark.parametrize(
     "records, to_type, nullable, alias, out_column, expected",
     [

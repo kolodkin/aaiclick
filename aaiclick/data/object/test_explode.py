@@ -13,6 +13,7 @@ from aaiclick.data.object import View
 # =============================================================================
 
 
+# req: user_guide/object/explode
 async def test_explode_single_column_data(ctx):
     """Exploding a single Array column returns each element as its own row."""
     obj = await create_object_from_value(
@@ -28,6 +29,7 @@ async def test_explode_single_column_data(ctx):
     assert result["tags"] == ["python", "rust", "python", "go"]
 
 
+# req: user_guide/object/explode
 async def test_explode_schema_type_change(ctx):
     """Exploded column changes from Array(T) to T in the materialized schema."""
     obj = await create_object_from_value(
@@ -108,6 +110,7 @@ async def test_explode_scalar_sum(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/explode
 async def test_explode_multi_column_zip(ctx):
     """Exploding multiple columns zips them (not a cartesian product)."""
     obj = await create_object_from_value(
@@ -133,6 +136,7 @@ async def test_explode_multi_column_zip(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/explode
 async def test_left_explode_preserves_empty_arrays(ctx):
     """LEFT ARRAY JOIN keeps rows with empty arrays.
 
@@ -154,6 +158,7 @@ async def test_left_explode_preserves_empty_arrays(ctx):
     assert result["tags"][bob_idx] == ""
 
 
+# req: user_guide/object/explode
 async def test_default_explode_drops_empty_arrays(ctx):
     """Default ARRAY JOIN (non-left) drops rows with empty arrays."""
     obj = await create_object_from_value(

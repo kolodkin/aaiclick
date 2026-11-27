@@ -18,6 +18,7 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
+# req: user_guide/object/group-by-aggregations
 async def test_group_by_sum_single_key(ctx):
     """Basic sum with one group key."""
     obj = await create_object_from_value(
@@ -34,6 +35,7 @@ async def test_group_by_sum_single_key(ctx):
     assert pairs == [("A", 30), ("B", 70)]
 
 
+# req: user_guide/object/group-by-having
 async def test_group_by_sum_multiple_keys(ctx):
     """Sum with two group keys."""
     obj = await create_object_from_value(
@@ -54,6 +56,7 @@ async def test_group_by_sum_multiple_keys(ctx):
     assert lookup[("West", "B")] == 40
 
 
+# req: user_guide/object/group-by-aggregations
 async def test_group_by_mean(ctx):
     """Mean aggregation."""
     obj = await create_object_from_value(
@@ -70,6 +73,7 @@ async def test_group_by_mean(ctx):
     assert abs(pairs["B"] - 35.0) < THRESHOLD
 
 
+# req: user_guide/object/group-by-aggregations
 async def test_group_by_min_max(ctx):
     """Min/max preserve source type."""
     obj = await create_object_from_value(
@@ -93,6 +97,7 @@ async def test_group_by_min_max(ctx):
     assert max_pairs["B"] == 8
 
 
+# req: user_guide/object/group-by-aggregations
 async def test_group_by_count(ctx):
     """Count returns key + _count columns."""
     obj = await create_object_from_value(
@@ -109,6 +114,7 @@ async def test_group_by_count(ctx):
     assert pairs["B"] == 2
 
 
+# req: user_guide/object/group-by-aggregations
 async def test_group_by_std_var(ctx):
     """Std/var return Float64."""
     obj = await create_object_from_value(
@@ -129,6 +135,7 @@ async def test_group_by_std_var(ctx):
     assert abs(var_data["value"][0] - 5.0) < THRESHOLD
 
 
+# req: user_guide/object/group-by-aggregations
 async def test_group_by_any(ctx):
     """any() picks an arbitrary non-NULL value per group."""
     obj = await create_object_from_value(
@@ -175,6 +182,7 @@ async def test_group_by_any_via_agg(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/group-by-agg-spec
 async def test_group_by_agg_multiple(ctx):
     """Multi-agg with field: operator mapping via agg()."""
     obj = await create_object_from_value(
@@ -207,6 +215,7 @@ async def test_group_by_agg_multiple(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/group-by-having
 async def test_group_by_result_is_dict_object(ctx):
     """Result is normal dict Object, supports data()."""
     obj = await create_object_from_value(
@@ -353,6 +362,7 @@ async def test_group_by_on_single_field_view(ctx):
     assert pairs[3] == 3
 
 
+# req: user_guide/object/group-by-having
 async def test_group_by_on_where_view(ctx):
     """obj.view(where='amount > 15').group_by('category').sum('amount')."""
     obj = await create_object_from_value(
@@ -428,6 +438,7 @@ async def test_group_by_string_keys(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/group-by-having
 async def test_group_by_having_sum(ctx):
     """having('sum(amount) > 30') filters groups by sum."""
     obj = await create_object_from_value(
@@ -564,6 +575,7 @@ async def test_group_by_having_returns_new_query(ctx):
     assert set(result2["category"]) == {"A", "B"}
 
 
+# req: user_guide/object/group-by-having
 async def test_group_by_having_chained_and(ctx):
     """Multiple .having() calls chain with AND."""
     obj = await create_object_from_value(
@@ -581,6 +593,7 @@ async def test_group_by_having_chained_and(ctx):
     assert data["amount"] == [60]
 
 
+# req: user_guide/object/group-by-having
 async def test_group_by_or_having(ctx):
     """or_having() chains with OR."""
     obj = await create_object_from_value(
@@ -601,6 +614,7 @@ async def test_group_by_or_having(ctx):
     assert "A" not in cats
 
 
+# req: user_guide/object/group-by-having
 async def test_group_by_having_and_or_mixed(ctx):
     """Mixed .having() and .or_having() chaining."""
     obj = await create_object_from_value(
@@ -631,6 +645,7 @@ async def test_group_by_having_and_or_mixed(ctx):
     assert "B" not in cats
 
 
+# req: user_guide/object/group-by-having, user_guide/object/or-where-requires-where
 async def test_group_by_or_having_without_having_raises(ctx):
     """or_having() without prior having() raises ValueError."""
     obj = await create_object_from_value(
@@ -676,6 +691,7 @@ async def test_group_array_distinct_basic(ctx):
     assert sorted(lookup[2]) == ["a", "b"]  # duplicate "b" collapsed
 
 
+# req: user_guide/object/group-by-aggregations
 async def test_group_array_distinct_convenience(ctx):
     """group_array_distinct() convenience method delegates to agg()."""
     obj = await create_object_from_value(
@@ -697,6 +713,7 @@ async def test_group_array_distinct_convenience(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/group-by-agg-spec
 async def test_agg_multi_on_same_column(ctx):
     """Multiple aggregations on the same column via list of Agg."""
     obj = await create_object_from_value(
@@ -721,6 +738,7 @@ async def test_agg_multi_on_same_column(ctx):
     assert abs(data["amount_avg"][b] - 35.0) < THRESHOLD
 
 
+# req: user_guide/object/group-by-agg-spec
 async def test_agg_single_agg_alias(ctx):
     """Single Agg renames the result column."""
     obj = await create_object_from_value(
@@ -743,6 +761,7 @@ async def test_agg_single_agg_alias(ctx):
     assert data["total"][lookup["B"]] == 20
 
 
+# req: user_guide/object/group-by-agg-spec
 async def test_agg_multi_mixed_spec(ctx):
     """Mix of plain op, single Agg, and list of Agg in one agg() call."""
     obj = await create_object_from_value(
@@ -797,6 +816,7 @@ async def test_agg_multi_same_column_with_having(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/materializing-ops-name-scope
 async def test_group_by_sum_with_name_global_scope(ctx):
     """sum(name=..., scope='global') routes through the named-table path."""
     obj = await create_object_from_value({"category": ["A", "A", "B"], "amount": [10, 20, 30]})
@@ -811,6 +831,7 @@ async def test_group_by_sum_with_name_global_scope(ctx):
         await delete_persistent_object("gb_sum_named_global", scope="global")
 
 
+# req: user_guide/object/materializing-ops-name-scope
 async def test_group_by_agg_with_name_temp_scope(ctx):
     """agg(name=...) defaults to temp_named scope (t_<name>_<id>)."""
     obj = await create_object_from_value({"category": ["A", "B"], "amount": [10, 20]})
@@ -825,6 +846,7 @@ async def test_group_by_agg_with_name_temp_scope(ctx):
     ]
 
 
+# req: user_guide/object/materializing-ops-name-scope
 async def test_group_by_count_with_name(ctx):
     """count() also accepts name/scope (different code path — no column arg)."""
     obj = await create_object_from_value({"category": ["A", "A", "B"]})

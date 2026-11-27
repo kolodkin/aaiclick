@@ -82,6 +82,7 @@ def test_literal_query_info_falls_back_to_table(value):
     assert literal_query_info(value) is None
 
 
+# req: user_guide/object/isin-list-literals
 async def test_isin_list_over_threshold_uses_table(ctx):
     """A list longer than LITERAL_LIST_MAX still works — through the table path."""
     obj = await create_object_from_value([0, 5, LITERAL_LIST_MAX + 5])

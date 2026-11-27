@@ -14,6 +14,7 @@ from aaiclick import View, create_object_from_value
 # =============================================================================
 
 
+# req: user_guide/object/column-selection
 async def test_dict_selector_basic(ctx):
     """Test basic dict field selection with __getitem__."""
     obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
@@ -25,6 +26,7 @@ async def test_dict_selector_basic(ctx):
     assert view.is_single_field
 
 
+# req: user_guide/object/column-selection
 @pytest.mark.parametrize(
     "value, field, expected",
     [
@@ -166,6 +168,7 @@ async def test_dict_selector_repr(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/column-selection
 async def test_multi_field_selector_basic(ctx):
     """Test multi-field selection with list syntax."""
     obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
@@ -177,6 +180,7 @@ async def test_multi_field_selector_basic(ctx):
     assert not view.is_single_field
 
 
+# req: user_guide/object/column-selection
 async def test_multi_field_selector_data(ctx):
     """Test that multi-field selector returns dict with selected columns."""
     obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)

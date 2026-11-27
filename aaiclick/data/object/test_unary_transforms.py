@@ -13,6 +13,7 @@ from aaiclick import create_object_from_value
 # =============================================================================
 
 
+# req: user_guide/object/unary-transforms
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -35,6 +36,7 @@ async def test_year(ctx, value, expected):
     assert await result.data() == expected
 
 
+# req: user_guide/object/unary-transforms
 async def test_month_array(ctx):
     """Extract month from an array of DateTimes."""
     dates = [
@@ -47,6 +49,7 @@ async def test_month_array(ctx):
     assert await result.data() == [1, 6, 12]
 
 
+# req: user_guide/object/unary-transforms
 async def test_day_of_week_array(ctx):
     """Extract day of week from DateTimes (1=Mon, 7=Sun)."""
     dates = [
@@ -64,6 +67,7 @@ async def test_day_of_week_array(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/unary-transforms
 async def test_lower(ctx):
     """Lowercase string values."""
     obj = await create_object_from_value(["Hello", "WORLD", "FoO"])
@@ -71,6 +75,7 @@ async def test_lower(ctx):
     assert await result.data() == ["hello", "world", "foo"]
 
 
+# req: user_guide/object/unary-transforms
 async def test_upper(ctx):
     """Uppercase string values."""
     obj = await create_object_from_value(["Hello", "world", "FoO"])
@@ -78,6 +83,7 @@ async def test_upper(ctx):
     assert await result.data() == ["HELLO", "WORLD", "FOO"]
 
 
+# req: user_guide/object/unary-transforms
 async def test_length(ctx):
     """String length of values."""
     obj = await create_object_from_value(["", "hi", "hello"])
@@ -85,6 +91,7 @@ async def test_length(ctx):
     assert await result.data() == [0, 2, 5]
 
 
+# req: user_guide/object/unary-transforms
 async def test_trim(ctx):
     """Trim whitespace from string values."""
     obj = await create_object_from_value(["  hello  ", " world", "foo "])
@@ -97,6 +104,7 @@ async def test_trim(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/unary-transforms
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -111,6 +119,7 @@ async def test_abs(ctx, value, expected):
     assert await result.data() == expected
 
 
+# req: user_guide/object/unary-transforms
 async def test_log2_array(ctx):
     """Log base 2 of numeric values."""
     obj = await create_object_from_value([1, 2, 4, 8, 16])
@@ -118,6 +127,7 @@ async def test_log2_array(ctx):
     assert await result.data() == [0.0, 1.0, 2.0, 3.0, 4.0]
 
 
+# req: user_guide/object/unary-transforms
 @pytest.mark.parametrize(
     "value, expected",
     [
@@ -137,6 +147,7 @@ async def test_sqrt(ctx, value, expected):
 # =============================================================================
 
 
+# req: user_guide/object/unary-transforms-chain
 async def test_chain_year_then_sum(ctx):
     """year() returns an Object that can be aggregated."""
     dates = [
@@ -150,6 +161,7 @@ async def test_chain_year_then_sum(ctx):
     assert await total.data() == 2024 + 2024 + 2025
 
 
+# req: user_guide/object/unary-transforms-chain
 async def test_chain_abs_then_sum(ctx):
     """abs() returns an Object that can be aggregated."""
     obj = await create_object_from_value([-3, -1, 2])
@@ -158,6 +170,7 @@ async def test_chain_abs_then_sum(ctx):
     assert await result.data() == 6.0
 
 
+# req: user_guide/object/unary-transforms-chain
 async def test_chain_length_then_max(ctx):
     """length() returns an Object that can be aggregated."""
     obj = await create_object_from_value(["a", "bb", "ccc", "dddd"])

@@ -16,6 +16,7 @@ from aaiclick.testing import SAMPLE_TABLE
 _chdb_only = pytest.mark.skipif(not is_chdb(), reason="local file locations need the chdb backend")
 
 
+# req: user_guide/object/open-local-file
 @_chdb_only
 @pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl.zst", ".jsonl.lz4"])
 async def test_export_open_local_round_trip(ctx, tmp_path, extension):
@@ -39,6 +40,7 @@ async def test_export_view_back_to_its_own_file(ctx, tmp_path):
     }
 
 
+# req: user_guide/object/open-local-file
 @_chdb_only
 async def test_open_local_glob_aggregates_in_place(ctx, tmp_path):
     for part in (1, 2):
@@ -47,6 +49,7 @@ async def test_open_local_glob_aggregates_in_place(ctx, tmp_path):
     assert await opened.sum().data() == 3
 
 
+# req: user_guide/object/open-local-file
 @_chdb_only
 async def test_open_local_without_extension_detects_format(ctx, tmp_path):
     exported = await (await create_object_from_value(SAMPLE_TABLE)).export(str(tmp_path / "sample.parquet"))
@@ -54,6 +57,7 @@ async def test_open_local_without_extension_detects_format(ctx, tmp_path):
     assert await (await open_object_from_url(path)).data() == SAMPLE_TABLE
 
 
+# req: user_guide/object/open-local-file
 @_chdb_only
 async def test_open_local_with_any_clickhouse_format(ctx, tmp_path):
     """``format=`` is not limited to the names aaiclick maps extensions to."""
@@ -63,6 +67,7 @@ async def test_open_local_with_any_clickhouse_format(ctx, tmp_path):
     assert await opened.data() == SAMPLE_TABLE
 
 
+# req: user_guide/object/open-local-file
 @_chdb_only
 async def test_open_local_relative_path(ctx, tmp_path, monkeypatch):
     await (await create_object_from_value([1, 2, 3])).export(str(tmp_path / "rel.parquet"))
@@ -70,6 +75,7 @@ async def test_open_local_relative_path(ctx, tmp_path, monkeypatch):
     assert await (await open_object_from_url("rel.parquet")).data() == [1, 2, 3]
 
 
+# req: user_guide/object/export-local-needs-chdb, user_guide/object/open-local-file
 @pytest.mark.skipif(is_chdb(), reason="chdb reads and writes local files")
 async def test_local_paths_rejected_on_remote_server(ctx, tmp_path):
     path = str(tmp_path / "sample.parquet")

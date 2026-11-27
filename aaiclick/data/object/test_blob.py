@@ -227,6 +227,7 @@ async def server_lends_s3_identity(request, ctx) -> None:
 # =============================================================================
 
 
+# req: user_guide/object/export-bucket
 async def test_export_writes_the_file(ctx, store):
     obj = await create_object_from_value(SAMPLE_TABLE)
     url = store.url("export/sample.parquet")
@@ -234,6 +235,7 @@ async def test_export_writes_the_file(ctx, store):
     assert store.read_parquet("export/sample.parquet") == SAMPLE_TABLE
 
 
+# req: user_guide/object/export-bucket
 async def test_export_honors_view_constraints(ctx, store):
     obj = await create_object_from_value(SAMPLE_TABLE)
     view = obj.view(where="score > 15", order_by="id", limit=1)
@@ -241,6 +243,7 @@ async def test_export_honors_view_constraints(ctx, store):
     assert store.read_parquet("export/view.parquet") == {"id": [2], "name": ["bob"], "score": [20.0]}
 
 
+# req: user_guide/object/export-bucket
 async def test_export_to_existing_key_needs_overwrite(ctx, store):
     url = store.url("export/twice.parquet")
     await (await create_object_from_value([1, 2])).export(url, overwrite=True, connection=store.connection)
@@ -252,6 +255,7 @@ async def test_export_to_existing_key_needs_overwrite(ctx, store):
     assert store.read_parquet("export/twice.parquet") == {"value": [7, 8, 9]}
 
 
+# req: user_guide/object/export-ch-settings
 async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
     obj = await create_object_from_value(SAMPLE_TABLE)
     await obj.export(
@@ -262,6 +266,7 @@ async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
     assert bucket.parquet_compression("export/settings.parquet") == "SNAPPY"
 
 
+# req: user_guide/object/export-reserved-bucket-settings
 @pytest.mark.parametrize(
     "url, connection, setting",
     [
@@ -296,6 +301,7 @@ async def sample_url(ctx, store) -> str:
     return await obj.export(store.url("open/sample.parquet"), overwrite=True, connection=store.connection)
 
 
+# req: user_guide/object/open-object-from-url, user_guide/object/s3-named-collection, user_guide/object/azure-blob-storage
 @pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl", ".orc", ".avro"])
 async def test_export_open_round_trip(ctx, store, extension):
     obj = await create_object_from_value(SAMPLE_TABLE)
@@ -304,6 +310,7 @@ async def test_export_open_round_trip(ctx, store, extension):
     assert await opened.data() == SAMPLE_TABLE
 
 
+# req: user_guide/object/open-object-from-url-rules
 @pytest.mark.parametrize(
     "format, expected",
     [
@@ -320,16 +327,19 @@ async def test_csv_round_trip(ctx, store, format, expected):
     assert await (await open_object_from_url(url, connection=store.connection)).data() == expected
 
 
+# req: user_guide/object/open-object-from-url
 async def test_located_object_filters_and_aggregates_in_place(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, connection=store.connection)
     assert await opened.view(where="score > 15")["score"].sum().data() == 50.25
 
 
+# req: user_guide/object/open-object-from-url-rules
 async def test_open_selected_columns(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, columns=["id", "name"], connection=store.connection)
     assert await opened.data() == {"id": [1, 2, 3], "name": ["alice", "bob", "charlie"]}
 
 
+# req: user_guide/object/open-object-from-url-rules
 @pytest.mark.parametrize("glob", ["*", pytest.param("?", id="question-mark-is-a-glob-not-a-query")])
 async def test_open_glob(ctx, store, glob):
     for part in (1, 2):
@@ -339,6 +349,7 @@ async def test_open_glob(ctx, store, glob):
     assert sorted(await opened.data()) == [1, 2]
 
 
+# req: user_guide/object/open-object-from-url-rules
 async def test_open_without_extension_detects_format(ctx, bucket):
     """ClickHouse detects the format from the content when no extension names it."""
     obj = await create_object_from_value(SAMPLE_TABLE)
@@ -359,12 +370,14 @@ async def test_open_url_with_quote_in_key(ctx, store):
     assert await (await open_object_from_url(url, connection=store.connection)).data() == [1, 2, 3]
 
 
+# req: user_guide/object/open-object-from-url-rules
 async def test_located_object_rejects_insert(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, connection=store.connection)
     with pytest.raises(ValueError, match="read-only"):
         await opened.insert([4])
 
 
+# req: user_guide/object/open-object-from-url-rules
 async def test_located_object_rejects_insert_from_url(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, connection=store.connection)
     with pytest.raises(ValueError, match="read-only"):
@@ -419,6 +432,7 @@ async def test_create_object_validates_location_and_format(ctx, overrides, match
         await create_object(_located_schema(**overrides))
 
 
+# req: user_guide/object/open-object-from-url-rules
 @pytest.mark.parametrize(
     "url, match",
     [
@@ -480,6 +494,7 @@ def test_parse_az_url(url, expected):
     assert parse_az_url(url) == expected
 
 
+# req: user_guide/object/azure-credentials
 async def test_chdb_missing_env_var(ctx, monkeypatch):
     monkeypatch.setattr(ch_client, "is_chdb", lambda: True)
     monkeypatch.delenv(AZURE_CONNECTION_ENV, raising=False)
@@ -532,6 +547,7 @@ async def test_chdb_defines_collection_once_per_client(ctx, monkeypatch):
     assert len(statements) == 4
 
 
+# req: user_guide/object/azure-credentials
 async def test_server_needs_connection(ctx, monkeypatch):
     monkeypatch.setattr(ch_client, "is_chdb", lambda: False)
     with pytest.raises(ValueError, match="needs connection"):

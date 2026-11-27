@@ -24,6 +24,7 @@ NUM_ITEMS = 10000
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values,expected_result",
     [
@@ -59,6 +60,7 @@ async def test_array_min(ctx, values, expected_result):
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values,expected_result",
     [
@@ -94,6 +96,7 @@ async def test_array_max(ctx, values, expected_result):
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values,expected_result",
     [
@@ -129,6 +132,7 @@ async def test_array_sum(ctx, values, expected_result):
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values,expected_result",
     [
@@ -162,6 +166,7 @@ async def test_array_mean(ctx, values, expected_result):
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values",
     [
@@ -257,6 +262,7 @@ async def test_statistics(ctx, values):
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values,expected_count",
     [
@@ -289,6 +295,7 @@ async def test_array_count(ctx, values, expected_count):
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values",
     [
@@ -334,6 +341,7 @@ async def test_var_equals_std_squared(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "values,quantile_level,expected_approx",
     [

@@ -7,6 +7,7 @@ import pytest
 from aaiclick import create_object_from_value
 
 
+# req: user_guide/object/chained-where
 async def test_view_where_single(ctx):
     """where() on Object creates a View with WHERE condition."""
     obj = await create_object_from_value([1, 2, 3, 4, 5], aai_id=True)
@@ -15,6 +16,7 @@ async def test_view_where_single(ctx):
     assert result == [4, 5]
 
 
+# req: user_guide/object/chained-where
 async def test_view_where_chained_and(ctx):
     """Multiple where() calls chain with AND."""
     obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], aai_id=True)
@@ -23,6 +25,7 @@ async def test_view_where_chained_and(ctx):
     assert result == [3, 4, 5, 6, 7]
 
 
+# req: user_guide/object/chained-where
 async def test_view_or_where(ctx):
     """or_where() chains with OR."""
     obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], aai_id=True)
@@ -41,6 +44,7 @@ async def test_view_where_returns_new_view(ctx):
     assert await view2.data() == [2, 3, 4]
 
 
+# req: user_guide/object/chained-where
 async def test_view_where_and_or_mixed(ctx):
     """Mixed where() and or_where() chaining."""
     obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], aai_id=True)
@@ -49,6 +53,7 @@ async def test_view_where_and_or_mixed(ctx):
     assert result == [4, 5, 6, 10]
 
 
+# req: user_guide/object/or-where-requires-where
 @pytest.mark.parametrize(
     "call, match",
     [

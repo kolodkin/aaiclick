@@ -58,6 +58,7 @@ See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment mo
 
 # Operator Support
 
+<!-- req: scalar-operands -->
 All operators work element-wise on scalar and array data, creating new Object
 tables. Python scalars work on either side (`obj * 2`, `2 * obj`) and are
 inlined into the SQL as typed literals, never given a table of their own. Full
@@ -65,8 +66,10 @@ script: [Examples: Basic Operators](../examples/basic_operators.md).
 
 ## Arithmetic Type Promotion
 
+<!-- req: arithmetic-type-promotion -->
 Result types match ClickHouse's native promotion rules, verified against `SELECT toTypeName()`.
 
+<!-- req: arithmetic-operators -->
 ??? note "Arithmetic Operators"
 
     | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
@@ -79,6 +82,7 @@ Result types match ClickHouse's native promotion rules, verified against `SELECT
     | `%`             | Modulo         | `%`                   | `__mod__`       | `__rmod__`        |
     | `**`            | Power          | `power()`             | `__pow__`       | `__rpow__`        |
 
+<!-- req: comparison-operators -->
 ??? note "Comparison Operators"
 
     | Python Operator | Description           | ClickHouse Equivalent | Python Method |
@@ -90,8 +94,10 @@ Result types match ClickHouse's native promotion rules, verified against `SELECT
     | `>`             | Greater Than          | `>`                   | `__gt__`      |
     | `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      |
 
+    <!-- req: comparison-result-uint8 -->
     Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`). The result column is always `UInt8` (0/1), as in ClickHouse, whatever the operand type.
 
+<!-- req: bitwise-operators -->
 ??? note "Bitwise Operators"
 
     | Python Operator | Description | ClickHouse Equivalent | Forward Method | Reverse Method |
@@ -104,6 +110,7 @@ Result types match ClickHouse's native promotion rules, verified against `SELECT
 
 Reduce an array to a scalar Object.
 
+<!-- req: aggregation-operators -->
 | Method            | ClickHouse Function | Notes                                            |
 |-------------------|---------------------|--------------------------------------------------|
 | `.min()`          | `min()`             |                                                  |
@@ -118,6 +125,7 @@ Reduce an array to a scalar Object.
 
 ## Unique
 
+<!-- req: unique -->
 | Method       | ClickHouse Implementation                  | Notes                |
 |--------------|--------------------------------------------|----------------------|
 | `.unique()`  | `GROUP BY`                                 | Order not guaranteed |
@@ -125,8 +133,10 @@ Reduce an array to a scalar Object.
 
 ## String/Regex Operators
 
+<!-- req: string-regex-lazy -->
 Pattern matching on String columns. Each method takes a `str` pattern and returns a [`LazyOperator`](#lazy-operator-results-a-b-and-asum-are-plans-not-tables) — chainable, and nameable with `.as_(name, scope=...)`.
 
+<!-- req: string-regex-operators -->
 | Method           | ClickHouse Function           | Result Type | Description                   |
 |------------------|-------------------------------|-------------|-------------------------------|
 | `.match(p)`      | `match(val, p)`               | UInt8       | RE2 regex match (0 or 1)      |
@@ -147,6 +157,7 @@ ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
 
 ## Membership Operator: `isin()`
 
+<!-- req: isin -->
 `.isin(other)` returns a `LazyOperator` UInt8 mask computed as
 `value IN (SELECT value FROM other_table)` — all data stays in the database.
 `other` is an `Object` or a Python `list`.
@@ -164,12 +175,14 @@ obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2,
 mask = await obj["category"].isin(allowed)
 ```
 
+<!-- req: isin-list-literals -->
 A Python list is inlined as literals (`arrayJoin([...])`) rather than loaded into a table; lists longer than `LITERAL_LIST_MAX` (1000) fall back to a table. Runnable examples: `examples/isin.py`.
 
 ## Unary Transform Operators
 
 Apply a ClickHouse function element-wise to the value column, returning a new Object — the Object-level counterparts of the View [Domain Helpers](#domain-helpers).
 
+<!-- req: unary-transforms -->
 | Method          | ClickHouse Function | Result Type | Category  |
 |-----------------|---------------------|-------------|-----------|
 | `.year()`       | `toYear()`          | UInt16      | Date/time |
@@ -183,12 +196,14 @@ Apply a ClickHouse function element-wise to the value column, returning a new Ob
 | `.log2()`       | `log2()`            | Float64     | Math      |
 | `.sqrt()`       | `sqrt()`            | Float64     | Math      |
 
+<!-- req: unary-transforms-chain -->
 Results chain with any operator (e.g., `await obj.year().unique()`). Runnable examples: `examples/transforms.py`.
 
 ## Group By Operations
 
 Pandas-style two-step: `obj.group_by('key')` returns a `GroupByQuery`, then `.sum('col')` etc.
 
+<!-- req: group-by-aggregations -->
 | Method                       | Description                       | Result Column Type                     |
 |------------------------------|-----------------------------------|----------------------------------------|
 | `.sum(col)`                  | Sum per group                     | Preserves int types, Float64 for float |
@@ -202,6 +217,7 @@ Pandas-style two-step: `obj.group_by('key')` returns a `GroupByQuery`, then `.su
 | `.group_array_distinct(col)` | Distinct values → Array per group | `Array(T)` where T is source type      |
 | `.agg({col: op})`            | Multiple aggregations             | Per-function type rules                |
 
+<!-- req: group-by-agg-spec -->
 **`agg()` spec formats** — each dict value accepts three forms, mixable in one call:
 
 | Form                       | Example                                                              | Behavior                              |
@@ -210,6 +226,7 @@ Pandas-style two-step: `obj.group_by('key')` returns a `GroupByQuery`, then `.su
 | `Agg(op, alias)`           | `{'amount': Agg(GB_SUM, 'total')}`                                   | Single op with explicit alias         |
 | `[Agg(op, alias), ...]`    | `{'amount': [Agg(GB_SUM, 'amt_sum'), Agg(GB_MEAN, 'amt_avg')]}`      | Multiple ops on the same column       |
 
+<!-- req: group-by-having -->
 Multiple group keys, View support, and chained `.having()`/`.or_having()` for post-aggregation filtering (same AND/OR pattern as WHERE). `.or_having()` requires a prior `.having()`. Result is a normal dict Object. See `examples/group_by.py`.
 
 **Known gap**: No `Array(T)` column support — `groupArray()`, `groupUniqArray()`, per-group concat not available.
@@ -220,6 +237,7 @@ For large datasets, ClickHouse can spill to disk via `max_bytes_before_external_
 
 # Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
 
+<!-- req: lazy-operator-results -->
 Every value-column operator returns a `LazyOperator` — an `Object` subclass that captures the plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. `CREATE TABLE` + `INSERT INTO ... SELECT` run when it is awaited.
 
 | Family            | Methods                                                                                                                     |
@@ -259,6 +277,7 @@ yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
 
 Names the result table and chooses its lifetime. Returns a new `LazyOperator` (the receiver is unchanged):
 
+<!-- req: as-name-scope -->
 | `scope`                  | Table name             | Lifetime                                                               |
 |--------------------------|------------------------|------------------------------------------------------------------------|
 | `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context                                                 |
@@ -267,6 +286,7 @@ Names the result table and chooses its lifetime. Returns a new `LazyOperator` (t
 
 ## `name` / `scope` on always-materializing ops
 
+<!-- req: materializing-ops-name-scope -->
 `.copy()`, `.concat()`, `.join()`, and every `GroupByQuery` aggregation
 (`.sum()`, `.mean()`, `.min()`, `.max()`, `.count()`, `.std()`, `.var()`,
 `.any()`, `.group_array_distinct()`, `.agg()`) always create a new table, so
@@ -285,6 +305,7 @@ On a `LazyOperator` they forward to the materialized delegate, so
 
 ## Invariants
 
+<!-- req: lazy-invariants -->
 - **No DB writes until awaited.** Creating a `LazyOperator` is pure-Python. A lazy that's never awaited never creates a table.
 - **Sync `.table` raises pre-materialize.** Reading `.table` (or any property derived from it — `.scope`, `.persistent`, `.order_by`) on an unawaited LazyOperator raises `RuntimeError`. `.schema` works (it's precomputed).
 - **Async methods auto-materialize.** `.data()`, `.sum()`, etc. first `await self` (materializes once, cached) then delegate.
@@ -293,6 +314,7 @@ On a `LazyOperator` they forward to the materialized delegate, so
 
 ## Chained operators
 
+<!-- req: chained-lazy-operators -->
 `(a + b) + c` builds a tree:
 
 ```
@@ -317,10 +339,12 @@ LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 
 ## data()
 
+<!-- req: data-shapes -->
 Returns: scalar → value, array → list, dict → dict or list of dicts.
 
 **Orient** (dict Objects):
 
+<!-- req: data-orient -->
 | Constant         | Value       | Description                                  |
 |------------------|-------------|----------------------------------------------|
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
@@ -328,10 +352,12 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 
 ## markdown()
 
+<!-- req: markdown -->
 Returns data as a plain-text markdown table with auto-sized columns. Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
 
 ## execute()
 
+<!-- req: execute -->
 Runs the same SELECT `.data()` would issue (honoring `where`, `order_by`, `limit`, `offset`, computed columns, renames, field selection), discards every row server-side (`FORMAT Null`), and returns a `QueryStats`. Use it to benchmark a View, warm caches, or assert a query *runs* without paying for transport. Per-call `order_by` / `limit` / `offset` mirror `.data()`. No safety row cap applies — the whole pipeline runs unless you pass `limit`.
 
 ```python
@@ -355,6 +381,7 @@ print(stats.elapsed_s)   # server-side wall time
 
 ## stats()
 
+<!-- req: stats -->
 Returns `QueryStats | None`: populated on objects **born from a server-side query**, `None` otherwise. It is async (not a property) because on an un-awaited `LazyOperator` it first materializes it, like `.data()`.
 
 | Object origin                                                  | `await .stats()`               |
@@ -373,6 +400,7 @@ print(stats.read_rows)      # how many it scanned to produce them
 
 # Export
 
+<!-- req: export -->
 Export data to a local file, in the format its extension names. The embedded
 chdb engine writes straight to disk with no Python round-trip, so
 multi-million-row exports stay memory-bounded. View constraints (`where`,
@@ -387,6 +415,7 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 
 ## Supported extensions
 
+<!-- req: export-extensions -->
 | Extension                       | ClickHouse format | Notes                                  |
 |---------------------------------|-------------------|----------------------------------------|
 | `.csv`                          | `CSV`             | no header row                          |
@@ -401,6 +430,7 @@ await obj.view(where="score > 10", limit=1000).export("/tmp/top.jsonl")
 | `.xml`                          | `XML`             | one `<row>` element per record         |
 | `.sql`                          | `SQLInsert`       | `INSERT INTO table VALUES (...)`       |
 
+<!-- req: export-format-override -->
 These are the formats ClickHouse itself picks for each extension. `format=`
 overrides the extension with any ClickHouse output format:
 
@@ -409,6 +439,7 @@ await obj.export("/tmp/data.csv", format="CSVWithNames")  # with a header row
 await obj.export("/tmp/data.bin", format="Native")
 ```
 
+<!-- req: export-ch-settings -->
 `ch_settings=` sends ClickHouse settings with the export statement:
 
 ```python
@@ -416,6 +447,7 @@ await obj.export("/tmp/data.csv", ch_settings={"format_csv_delimiter": ";"})
 await obj.export(url, ch_settings={"output_format_parquet_compression_method": "snappy"})
 ```
 
+<!-- req: export-reserved-bucket-settings -->
 On a bucket export, `s3_truncate_on_insert`, `s3_create_new_file_on_insert` and
 `s3_allow_server_credentials_in_user_queries` raise: `overwrite` owns the
 first, the second would write to a different key, and the third stays a
@@ -423,6 +455,7 @@ first, the second would write to a different key, and the third stays a
 
 ## Compression
 
+<!-- req: export-compression -->
 Append a compression suffix and ClickHouse compresses the file: `.gz`, `.xz`,
 `.zst`, `.br`, `.lz4`, `.snappy`. `.bz2` works on a ClickHouse server only;
 chdb cannot write it and raises `ValueError`.
@@ -434,11 +467,13 @@ await obj.export("/tmp/data.json.xz")
 ```
 
 !!! warning "Local files need the chdb backend"
+    <!-- req: export-local-needs-chdb -->
     A remote ClickHouse cannot reach the client's disk, so a local path raises
     `ValueError` there. Export to a [bucket](#bucket-targets) instead.
 
 ## Bucket targets
 
+<!-- req: export-bucket -->
 An `http(s)://` or `s3://` path is written to object storage by ClickHouse
 itself, on both backends, and `export` returns the URL:
 
@@ -452,6 +487,7 @@ Credentials: [Blob Storage](#blob-storage).
 
 # Blob Storage
 
+<!-- req: open-object-from-url -->
 `open_object_from_url` opens a file in S3-compatible storage as an Object and
 queries it in place — nothing is ingested. With `export` it lets one job hand
 a result to the next as a plain URL:
@@ -464,6 +500,7 @@ daily = await open_object_from_url(url)
 await daily.view(where="country = 'US'")["revenue"].sum().data()
 ```
 
+<!-- req: open-object-from-url-rules -->
 - **Schema** is inferred from the file; `columns=` narrows it,
   `column_types=` skips inference.
 - **Format** follows the extension as in [Export](#supported-extensions).
@@ -484,6 +521,7 @@ await daily.view(where="country = 'US'")["revenue"].sum().data()
 
 ## Local files
 
+<!-- req: open-local-file -->
 On the embedded chdb backend the same call opens a file on local disk, so an
 exported path feeds straight back in. A remote ClickHouse raises `ValueError`,
 as local export does.
@@ -527,6 +565,7 @@ both once you have bucket credentials.
     no setting of its own for this: lending the server's identity is the
     ClickHouse operator's decision.
 
+<!-- req: s3-named-collection -->
 To use different keys per bucket instead, name a ClickHouse named collection
 with `connection=` — no profile line needed. Define it in `config.d` with only
 the keys, and grant it as for [Azure](#azure):
@@ -551,6 +590,7 @@ code runs locally.
 
 ## Azure
 
+<!-- req: azure-blob-storage -->
 `az://container/path` reads and writes Azure Blob Storage through a ClickHouse
 named collection — the account endpoint and key never appear in a URL or in the
 SQL aaiclick sends. Pass its name as `connection=`:
@@ -560,6 +600,7 @@ url = await daily.export("az://reports/2026/daily.parquet", connection="lake")
 daily = await open_object_from_url(url, connection="lake")
 ```
 
+<!-- req: azure-credentials -->
 | Backend           | Where the credentials go                                        |
 |-------------------|-----------------------------------------------------------------|
 | chdb (embedded)   | `AZURE_STORAGE_CONNECTION_STRING` in the aaiclick environment   |
@@ -593,15 +634,18 @@ GRANT NAMED COLLECTION ON lake TO aaiclick
 
 # Views
 
+<!-- req: views -->
 Read-only filtered projection of an Object — same table, no data copy. Created via `obj.view(where=..., limit=..., offset=..., order_by=...)`. Supports all read operations; cannot `insert()`. See `examples/view_examples.py`.
 
 ## Chained WHERE Clauses
 
+<!-- req: chained-where -->
 - `obj.where(cond)` — creates View with initial WHERE
 - `view.where(cond)` — AND-chains: `.where('x > 10').where('y < 20')` → `WHERE (x > 10) AND (y < 20)`
 - `view.or_where(cond)` — OR-chains: `.where('x > 100').or_where('y < 5')` → `WHERE (x > 100) OR (y < 5)`
 
 !!! warning "`or_where()` requires a prior `where()`"
+    <!-- req: or-where-requires-where -->
     Calling `or_where()` without a preceding `where()` raises `ValueError`.
     Same applies to `or_having()` on `GroupByQuery`.
 
@@ -609,6 +653,7 @@ Read-only filtered projection of an Object — same table, no data copy. Created
 
 Select columns from a dict Object → View (same table, restricted SELECT).
 
+<!-- req: column-selection -->
 - `obj["col"]` — single column → array-like View (single `value` field)
 - `obj[["col_a", "col_b"]]` — multiple columns → dict-like View
 
@@ -623,6 +668,7 @@ arr = await obj["x"].copy()        # new array Object
 await obj[["x", "y"]].data()       # {'x': [1, 2, 3], 'y': [10, 20, 30]}
 ```
 
+<!-- req: column-selection-constraints -->
 Preserves WHERE and computed column constraints when chained on a filtered View. The selection is the View's output: computed columns it omits are dropped from `data()` and `copy()`, while ones added after a multi-field selection join it. A single-field selection can't take computed columns — add them before selecting.
 
 ```python
@@ -635,6 +681,7 @@ await obj[["x", "y"]].with_columns(s).data()  # {'x': [...], 'y': [...], 's': [.
 
 `with_columns({name: Computed(type, expression)})` adds SQL-expression columns as a View — no new table, no data copy. `Computed` comes from `aaiclick.data.models`.
 
+<!-- req: with-columns -->
 - Synchronous (no `await`). Works on Objects and Views; preserves existing constraints.
 - Always returns a dict-like View: array sources promote to dict; scalar sources raise `ValueError`.
 - Adds, never replaces — a column name collision raises `ValueError`.
@@ -643,6 +690,7 @@ await obj[["x", "y"]].with_columns(s).data()  # {'x': [...], 'y': [...], 's': [.
 
 ## `literal()` Helper
 
+<!-- req: literal-helper -->
 Convenience wrapper for constant columns — handles SQL quoting:
 
 ```python
@@ -663,6 +711,7 @@ Supported types: `str` (quoted), `int`/`float` (bare), `bool` (`true`/`false`).
 
 Named shortcuts that delegate to `with_columns()`. Each auto-names the result column; all accept `alias=` override and return a `View`.
 
+<!-- req: domain-helpers -->
 | Helper                                       | Default Alias          | Type            | Expression                       |
 |----------------------------------------------|------------------------|-----------------|----------------------------------|
 | `with_year(col)`                             | `{col}_year`           | `UInt16`        | `toYear(col)`                    |
@@ -684,6 +733,7 @@ Named shortcuts that delegate to `with_columns()`. Each auto-names the result co
 | `with_split_by_char(col, sep)`               | `{col}_parts`          | `Array(String)` | `splitByChar(sep, col)`          |
 | `with_isin(col, other)`                      | `{col}_isin`           | `UInt8`         | `col IN (SELECT value FROM …)`   |
 
+<!-- req: with-multi-if -->
 `with_multi_if()` takes `(condition, result)` pairs — plain 2-tuples or `Branch` from `aaiclick.data.models` — and the earliest
 match wins. `default` is required: ClickHouse's `multiIf` has no implicit else. Both halves are raw
 SQL, so `AND` / `OR` / `NOT` / `IN` compose in a condition, and a result may be a literal, a column,
@@ -696,6 +746,7 @@ or an expression.
 
 ## Column Renaming: `rename()`
 
+<!-- req: rename -->
 Returns a **View** aliasing column names (`old AS new`). Synchronous, no `await`.
 
 ```python
@@ -712,14 +763,17 @@ kev_view = kev.rename({
 await consolidated.insert(kev_view)
 ```
 
+<!-- req: rename-chaining -->
 Chainable with `with_columns()`, `where()`, and other View operations. New names must not collide with non-renamed columns.
 
 ## Explode
 
+<!-- req: explode -->
 `.explode(*columns, left=False)` flattens Array column(s) into rows, duplicating scalar columns; exploded columns change from `Array(T)` to `T`. Returns a **View**, so downstream operators fuse into a single query. See `aaiclick/data/examples/explode.py`.
 
 # The copy() Method
 
+<!-- req: copy -->
 Full data copy → new Object. Works on both Objects and Views — filters, computed columns, and ORDER BY are preserved.
 
 ```python

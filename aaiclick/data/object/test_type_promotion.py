@@ -66,6 +66,7 @@ OPERATOR_CASES = [
 ]
 
 
+# req: user_guide/object/arithmetic-type-promotion
 @pytest.mark.parametrize("op,ch_func,type_a,type_b", OPERATOR_CASES)
 async def test_operator_result_type(ctx, op, ch_func, type_a, type_b):
     """Pure function: _result_value_type must match ClickHouse toTypeName()."""

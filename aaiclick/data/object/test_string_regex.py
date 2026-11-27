@@ -14,6 +14,7 @@ from aaiclick import create_object_from_value
 # =============================================================================
 
 
+# req: user_guide/object/string-regex-operators
 @pytest.mark.parametrize(
     "value, pattern, expected",
     [
@@ -34,6 +35,7 @@ async def test_match(ctx, value, pattern, expected):
 # =============================================================================
 
 
+# req: user_guide/object/string-regex-operators
 @pytest.mark.parametrize(
     "value, pattern, expected",
     [
@@ -55,6 +57,7 @@ async def test_like(ctx, value, pattern, expected):
 # =============================================================================
 
 
+# req: user_guide/object/string-regex-operators
 @pytest.mark.parametrize(
     "value, pattern, expected",
     [
@@ -73,6 +76,7 @@ async def test_ilike(ctx, value, pattern, expected):
 # =============================================================================
 
 
+# req: user_guide/object/string-regex-operators
 @pytest.mark.parametrize(
     "value, pattern, expected",
     [
@@ -92,6 +96,7 @@ async def test_extract(ctx, value, pattern, expected):
 # =============================================================================
 
 
+# req: user_guide/object/string-regex-operators
 @pytest.mark.parametrize(
     "value, pattern, replacement, expected",
     [
@@ -120,6 +125,7 @@ async def test_match_result_used_in_sum(ctx):
     assert await total.data() == 3
 
 
+# req: user_guide/object/string-regex-lazy
 async def test_extract_then_match(ctx):
     """Chain extract followed by match."""
     obj = await create_object_from_value(["id:123", "id:abc", "id:456"])

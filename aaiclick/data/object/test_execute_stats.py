@@ -24,12 +24,14 @@ def _assert_scanned(stats: QueryStats, expected_rows: int) -> None:
     assert stats.elapsed_s is not None and stats.elapsed_s >= 0
 
 
+# req: user_guide/object/execute
 async def test_execute_returns_stats_with_read_rows(ctx):
     obj = await create_object_from_value(list(range(100)))
     stats = await obj.execute()
     _assert_scanned(stats, 100)
 
 
+# req: user_guide/object/execute
 async def test_execute_creates_no_table_and_returns_no_rows(ctx):
     obj = await create_object_from_value(list(range(50)))
     before = await list_ch_tables(get_ch_client())
@@ -41,6 +43,7 @@ async def test_execute_creates_no_table_and_returns_no_rows(ctx):
     assert sorted(await obj.data()) == list(range(50))
 
 
+# req: user_guide/object/execute
 async def test_execute_honors_where(ctx):
     obj = await create_object_from_value(list(range(100)))
     view = obj.view(where="value < 10")
@@ -51,6 +54,7 @@ async def test_execute_honors_where(ctx):
     assert sorted(await obj.data()) == list(range(100))
 
 
+# req: user_guide/object/execute
 async def test_execute_honors_limit(ctx):
     obj = await create_object_from_value(list(range(1000)))
     stats = await obj.execute(limit=10)
@@ -58,12 +62,14 @@ async def test_execute_honors_limit(ctx):
     assert stats.elapsed_s is not None
 
 
+# req: user_guide/object/execute
 async def test_execute_on_view_measures_projection(ctx):
     obj = await create_object_from_value({"x": [1, 2, 3, 4], "y": [5, 6, 7, 8]})
     stats = await obj["x"].execute()
     _assert_scanned(stats, 4)
 
 
+# req: user_guide/object/stats
 async def test_copy_stats_populated(ctx):
     obj = await create_object_from_value(list(range(40)))
     copied = await obj.copy()
@@ -74,6 +80,7 @@ async def test_copy_stats_populated(ctx):
     assert cs.written_rows is None or cs.written_rows == 40
 
 
+# req: user_guide/object/stats
 async def test_copy_selected_fields_stats_populated(ctx):
     obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6]})
     copied = await obj["x"].copy()
@@ -82,17 +89,20 @@ async def test_copy_selected_fields_stats_populated(ctx):
     _assert_scanned(cs, 3)
 
 
+# req: user_guide/object/stats
 async def test_stats_none_on_plain_object(ctx):
     obj = await create_object_from_value([1, 2, 3])
     assert await obj.stats() is None
 
 
+# req: user_guide/object/stats
 async def test_stats_none_on_unexecuted_view(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5])
     view = obj.view(where="value > 2")
     assert await view.stats() is None
 
 
+# req: user_guide/object/stats
 async def test_lazy_binary_operator_stats(ctx):
     a = await create_object_from_value([1, 2, 3], aai_id=True)
     b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -103,6 +113,7 @@ async def test_lazy_binary_operator_stats(ctx):
     assert rs.read_rows is not None and rs.read_rows > 0
 
 
+# req: user_guide/object/stats
 async def test_lazy_stats_triggers_materialization(ctx):
     """await lazy.stats() materializes the un-awaited LazyOperator, mirroring .data()."""
     a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -113,6 +124,7 @@ async def test_lazy_stats_triggers_materialization(ctx):
     assert rs.read_rows is not None and rs.read_rows > 0
 
 
+# req: user_guide/object/stats
 async def test_lazy_aggregation_stats(ctx):
     obj = await create_object_from_value(list(range(10)))
     result = await obj.sum()
@@ -122,6 +134,7 @@ async def test_lazy_aggregation_stats(ctx):
     _assert_scanned(rs, 10)
 
 
+# req: user_guide/object/stats
 async def test_lazy_unary_transform_stats(ctx):
     obj = await create_object_from_value(["Hello", "World"])
     result = await obj.lower()
@@ -131,6 +144,7 @@ async def test_lazy_unary_transform_stats(ctx):
     assert rs.read_rows is not None and rs.read_rows > 0
 
 
+# req: user_guide/object/stats
 async def test_group_by_stats(ctx):
     obj = await create_object_from_value({"k": ["a", "a", "b"], "v": [1, 2, 3]})
     result = await obj.group_by("k").sum("v")
@@ -139,6 +153,7 @@ async def test_group_by_stats(ctx):
     _assert_scanned(rs, 3)
 
 
+# req: user_guide/object/stats
 async def test_string_op_stats(ctx):
     obj = await create_object_from_value(["apple", "banana", "avocado"])
     result = await obj.like("a%")
@@ -147,6 +162,7 @@ async def test_string_op_stats(ctx):
     _assert_scanned(rs, 3)
 
 
+# req: user_guide/object/stats
 async def test_isin_stats(ctx):
     obj = await create_object_from_value(["a", "b", "c", "d"])
     allowed = await create_object_from_value(["a", "c"])
@@ -156,6 +172,7 @@ async def test_isin_stats(ctx):
     assert rs.read_rows is not None and rs.read_rows > 0
 
 
+# req: user_guide/object/stats
 async def test_coalesce_stats(ctx):
     obj = await create_object_from_value([1, 2, 3])
     result = await obj.coalesce(0)
@@ -164,6 +181,7 @@ async def test_coalesce_stats(ctx):
     assert rs.read_rows is not None and rs.read_rows > 0
 
 
+# req: user_guide/object/stats
 async def test_join_stats(ctx):
     users = await create_object_from_value({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]})
     orders = await create_object_from_value({"id": [1, 1, 4], "total": [9.5, 14.0, 2.0]})
@@ -173,6 +191,7 @@ async def test_join_stats(ctx):
     assert rs.read_rows is not None and rs.read_rows > 0
 
 
+# req: user_guide/object/stats
 async def test_concat_stats(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4, 5, 6])

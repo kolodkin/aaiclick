@@ -8,6 +8,7 @@ from aaiclick import create_object_from_value
 from aaiclick.data.models import Computed
 
 
+# req: user_guide/object/views
 @pytest.mark.parametrize(
     "value, view_kwargs, expected",
     [
@@ -28,6 +29,7 @@ async def test_view_constraints(ctx, value, view_kwargs, expected):
     assert await view.data() == expected
 
 
+# req: user_guide/object/views
 async def test_view_insert_blocked(ctx):
     """Test that insert() is blocked on views."""
     obj = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -72,6 +74,7 @@ async def test_view_both_sides(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/column-selection-constraints
 async def test_view_getitem_preserves_where(ctx):
     """__getitem__ on a filtered View preserves the WHERE clause."""
     obj = await create_object_from_value(
@@ -88,6 +91,7 @@ async def test_view_getitem_preserves_where(ctx):
     assert result == ["C", "A", "B"]
 
 
+# req: user_guide/object/column-selection-constraints
 async def test_view_getitem_preserves_computed_columns(ctx):
     """__getitem__ on a View with computed columns preserves them."""
     obj = await create_object_from_value(
@@ -122,6 +126,7 @@ async def test_computed_field_with_other_projection_needs_row_order(ctx):
         _ = v["d"] + obj["y"]
 
 
+# req: user_guide/object/rename-chaining
 async def test_view_rename_preserves_where(ctx):
     """rename() on a filtered View preserves the WHERE clause."""
     obj = await create_object_from_value(

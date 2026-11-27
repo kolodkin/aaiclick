@@ -162,6 +162,7 @@ FORMATS: list[tuple[str, Callable[[str], None]]] = [
 ]
 
 
+# req: user_guide/object/export-extensions, user_guide/object/export-compression
 @pytest.mark.parametrize(
     "filename,validator",
     FORMATS,
@@ -183,6 +184,7 @@ async def test_export_format(ctx, tmp_path, filename, validator):
 # =============================================================================
 
 
+# req: user_guide/object/export
 async def test_export_view_constraints(ctx, tmp_path):
     """View predicates must apply to the exported rows."""
     obj = await create_object_from_value(SAMPLE_TABLE)
@@ -194,6 +196,7 @@ async def test_export_view_constraints(ctx, tmp_path):
     assert lines == ['3,"charlie",30.25', '2,"bob",20']
 
 
+# req: user_guide/object/export
 async def test_export_limit(ctx, tmp_path):
     """``limit`` must propagate to the export query."""
     obj = await create_object_from_value(SAMPLE_TABLE)
@@ -203,12 +206,14 @@ async def test_export_limit(ctx, tmp_path):
     assert len(rows) == 2
 
 
+# req: user_guide/object/export-format-override
 async def test_export_format_overrides_extension(ctx, tmp_path):
     obj = await create_object_from_value(SAMPLE_TABLE)
     path = await obj.export(str(tmp_path / "data.csv"), format="CSVWithNames")
     assert Path(path).read_text().splitlines()[0] == '"id","name","score"'
 
 
+# req: user_guide/object/export-ch-settings
 async def test_export_ch_settings_reach_the_statement(ctx, tmp_path):
     obj = await create_object_from_value(SAMPLE_TABLE)
     path = await obj.export(str(tmp_path / "data.csv"), ch_settings={"format_csv_delimiter": ";"})
@@ -222,6 +227,7 @@ async def test_export_ch_settings_cannot_stop_replacing(ctx, tmp_path):
     assert Path(path).read_text().split() == ["7"]
 
 
+# req: user_guide/object/export-compression
 async def test_export_bz2_is_rejected_on_chdb(ctx, tmp_path):
     obj = await create_object_from_value([1])
     with pytest.raises(ValueError, match="bz2"):
@@ -234,6 +240,7 @@ async def test_export_rejects_setting_name_carrying_sql(ctx, tmp_path):
         await obj.export(str(tmp_path / "data.csv"), ch_settings={"max_threads=1 --": 1})
 
 
+# req: user_guide/object/export
 async def test_failed_export_keeps_existing_file(ctx, tmp_path):
     path = str(tmp_path / "data.csv")
     await (await create_object_from_value([1, 2])).export(path)
@@ -248,6 +255,7 @@ async def test_failed_export_keeps_existing_file(ctx, tmp_path):
 # =============================================================================
 
 
+# req: user_guide/object/export-extensions
 @pytest.mark.parametrize(
     "filename",
     [
@@ -261,6 +269,7 @@ async def test_export_unsupported_extension_raises(ctx, tmp_path, filename):
         await obj.export(str(tmp_path / filename))
 
 
+# req: user_guide/object/export
 @pytest.mark.parametrize(
     "filename, read, expected",
     [
@@ -277,6 +286,7 @@ async def test_export_replaces_existing_file(ctx, tmp_path, filename, read, expe
     assert read(path) == expected
 
 
+# req: user_guide/object/export
 async def test_export_returns_absolute_path(ctx, tmp_path, monkeypatch):
     """Even when given a relative path, the returned path is absolute."""
     obj = await create_object_from_value(SAMPLE_TABLE)

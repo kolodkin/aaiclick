@@ -14,6 +14,7 @@ from aaiclick.data.object import View
 # =============================================================================
 
 
+# req: user_guide/object/with-columns
 async def test_with_columns_computed(ctx):
     """Add computed columns; returns View; original unchanged."""
     obj = await create_object_from_value(
@@ -43,6 +44,7 @@ async def test_with_columns_computed(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/with-columns
 async def test_with_columns_validation_errors(ctx):
     """Empty dict, scalar, and collision all raise ValueError."""
     obj = await create_object_from_value({"x": [1, 2]})
@@ -59,6 +61,7 @@ async def test_with_columns_validation_errors(ctx):
         total.with_columns({"y": Computed("Int64", "1")})
 
 
+# req: user_guide/object/with-columns
 async def test_with_columns_expression_validation(ctx):
     """Semicolons and subqueries are rejected."""
     obj = await create_object_from_value({"x": [1, 2]})
@@ -73,6 +76,7 @@ async def test_with_columns_expression_validation(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/with-columns
 async def test_view_with_columns_preserves_constraints(ctx):
     """Computed columns work with WHERE and LIMIT."""
     obj = await create_object_from_value(
@@ -101,6 +105,7 @@ async def test_view_with_columns_preserves_constraints(ctx):
     assert result_l["doubled"] == [20, 40, 60]
 
 
+# req: user_guide/object/with-columns
 async def test_view_with_columns_chaining(ctx):
     """Chained with_columns() calls merge; each returns independent View."""
     obj = await create_object_from_value({"a": [1, 2, 3]})
@@ -120,6 +125,7 @@ async def test_view_with_columns_chaining(ctx):
         view1.with_columns({"b": Computed("Int64", "a + 2")})
 
 
+# req: user_guide/object/column-selection-constraints
 async def test_with_columns_after_selection(ctx):
     """Computed columns added after a field selection join it; source columns outside the selection still collide."""
     obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
@@ -132,6 +138,7 @@ async def test_with_columns_after_selection(ctx):
         view.with_columns({"c": Computed("Int64", "a")})
 
 
+# req: user_guide/object/column-selection-constraints
 async def test_with_columns_on_single_field_selection_raises(ctx):
     """A single-field selection reads as an array and has no room for computed columns."""
     obj = await create_object_from_value({"a": [1, 2], "b": [3, 4]})
@@ -145,6 +152,7 @@ async def test_with_columns_on_single_field_selection_raises(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/with-columns
 async def test_with_columns_group_by(ctx):
     """group_by can use computed columns as keys."""
     obj = await create_object_from_value(
@@ -189,6 +197,7 @@ async def test_split_by_char_explode(ctx):
     assert sorted(result["parts"]) == ["a", "b", "c", "d", "e"]
 
 
+# req: user_guide/object/literal-helper
 @pytest.mark.parametrize(
     "col_name, value, ch_type, expected",
     [
@@ -207,6 +216,7 @@ async def test_literal_with_columns(ctx, col_name, value, ch_type, expected):
     assert result[col_name] == expected
 
 
+# req: user_guide/object/literal-helper
 def test_literal_unsupported_type():
     with pytest.raises(TypeError, match="Unsupported literal type"):
         literal([1, 2], "Array(UInt8)")

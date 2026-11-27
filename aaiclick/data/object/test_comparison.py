@@ -17,6 +17,7 @@ from aaiclick import create_object_from_value
 # =============================================================================
 
 
+# req: user_guide/object/comparison-operators
 @pytest.mark.parametrize(
     "val_a,val_b,op,expected",
     [
@@ -81,6 +82,7 @@ async def test_comparison_then_unique(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/comparison-result-uint8
 @pytest.mark.parametrize(
     "rows, rhs",
     [
@@ -110,6 +112,7 @@ async def test_comparison_result_is_uint8(ctx, rows, rhs):
 # =============================================================================
 
 
+# req: user_guide/object/comparison-operators
 @pytest.mark.parametrize(
     "arr,scalar,op,expected",
     [

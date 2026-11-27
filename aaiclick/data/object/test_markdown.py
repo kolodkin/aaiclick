@@ -10,6 +10,7 @@ import pytest
 from aaiclick import create_object_from_value
 
 
+# req: user_guide/object/markdown
 @pytest.mark.parametrize(
     "value, truncate, expected",
     [
@@ -41,6 +42,7 @@ async def test_markdown(ctx, value, truncate, expected):
     assert await obj.markdown(truncate=truncate) == expected
 
 
+# req: user_guide/object/markdown
 async def test_markdown_formats_floats_and_nulls(ctx):
     """Floats render with 2 decimals; NULLs (here from a failed nullable cast) render as N/A."""
     obj = await create_object_from_value([{"n": "1.5"}, {"n": "bad"}, {"n": "2"}])

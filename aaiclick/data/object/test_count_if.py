@@ -5,6 +5,7 @@ import pytest
 from aaiclick import create_object_from_value
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "value, condition, expected",
     [
@@ -22,6 +23,7 @@ async def test_count_if_str(ctx, value, condition, expected):
     assert await result.data() == expected
 
 
+# req: user_guide/object/aggregation-operators
 @pytest.mark.parametrize(
     "conditions, expected",
     [

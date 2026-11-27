@@ -17,6 +17,7 @@ from aaiclick import create_object_from_value
 # =============================================================================
 
 
+# req: user_guide/object/bitwise-operators
 @pytest.mark.parametrize(
     "val_a,val_b,op,expected",
     [
@@ -50,6 +51,7 @@ async def test_bitwise(ctx, val_a, val_b, op, expected):
 # =============================================================================
 
 
+# req: user_guide/object/bitwise-operators
 @pytest.mark.parametrize(
     "scalar,val,op,expected",
     [

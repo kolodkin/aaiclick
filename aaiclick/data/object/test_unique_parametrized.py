@@ -13,6 +13,7 @@ from aaiclick import create_object_from_value
 # =============================================================================
 
 
+# req: user_guide/object/unique
 @pytest.mark.parametrize(
     "values,expected_unique",
     [
