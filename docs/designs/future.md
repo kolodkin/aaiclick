@@ -12,6 +12,19 @@ unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
 Bring it back as one nightly job, outside the per-PR jobs, that publishes the
 report where it is read (HTML artifact, or a coverage service with PR diffs).
 
+# E2E Runners on ubuntu-26.04
+
+The Docker and Kubernetes e2e workflows are pinned to `ubuntu-24.04`. On
+`ubuntu-26.04` (Docker 29):
+
+- **Docker e2e** — the daemon refuses the plain-HTTP CI registry
+  (`server gave HTTP response to HTTPS client`). Likely fix: list it under
+  `insecure-registries`, or serve it over TLS.
+- **Kubernetes e2e** — the Postgres pod never passes its readiness probe and
+  logs nothing. Cause unknown; k3s is also unpinned.
+
+Fix both, then return the workflows to `ubuntu-latest`.
+
 # Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce
