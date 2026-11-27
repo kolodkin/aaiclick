@@ -20,7 +20,7 @@ PREBUILT = dump_image_source(ImagePrebuilt(image_tag="ghcr.io/example/pipeline:1
 OBJECT_REF = {"_aaiclick_type": "object", "table": "t_1"}
 
 
-# req: user_guide/orchestration/runners/image-source
+# req: user_guide/orchestration/runners/image-source, designs/orchestration/child-image-inheritance
 def test_stamp_inherited_image_fills_only_undeclared():
     declared = create_task("m.f1")
     declared.image_source = BUILD_B
@@ -30,6 +30,7 @@ def test_stamp_inherited_image_fills_only_undeclared():
     assert inherited.image_source == BUILD_A
 
 
+# req: designs/orchestration/child-image-inheritance, designs/java-sdk/jvm-validation
 @pytest.mark.parametrize(
     "parent_entry_type, child, inherits",
     [
@@ -74,7 +75,7 @@ def test_validate_plain_data_plane_accepts(kwargs):
     validate_plain_data_plane_tasks([_jvm_task(kwargs)])
 
 
-# req: user_guide/task_interface/plain-kwargs-only, user_guide/task_interface/reserved-type-key
+# req: user_guide/task_interface/plain-kwargs-only, user_guide/task_interface/reserved-type-key, designs/task_interface/file-data-plane, designs/java-sdk/jvm-validation
 @pytest.mark.parametrize(
     "kwargs, image_source, match",
     [
@@ -104,6 +105,7 @@ def test_validate_plain_data_plane_rejects_shell_object_ref():
         validate_plain_data_plane_tasks([t])
 
 
+# req: designs/java-sdk/jvm-validation
 def test_validate_plain_data_plane_jvm_requires_entrypoint():
     t = _jvm_task()
     t.entrypoint = ""
@@ -124,7 +126,7 @@ async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int
     return list(builds), {(d.previous_id, d.next_id) for d in deps}
 
 
-# req: user_guide/orchestration/runners/build-image-task
+# req: user_guide/orchestration/runners/build-image-task, designs/orchestration/build-task-injection
 async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     job_id = (await create_job("j", "m.entry")).id
@@ -144,7 +146,7 @@ async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, mon
     assert (by_sha["b" * 40], t3.id) in edges
 
 
-# req: user_guide/orchestration/runners/build-image-task
+# req: user_guide/orchestration/runners/build-image-task, designs/orchestration/build-task-injection
 async def test_commit_tasks_reuses_existing_build_task_in_job(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     job_id = (await create_job("j", "m.entry")).id
@@ -161,6 +163,7 @@ async def test_commit_tasks_reuses_existing_build_task_in_job(orch_ctx_no_ch, mo
     assert {(builds[0].id, first.id), (builds[0].id, second.id)} <= edges
 
 
+# req: designs/orchestration/build-task-injection
 async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, monkeypatch):
     """commit_tasks on a docker job: undeclared tasks inherit the committing
     task's image, and a build task + edges appear in the same commit."""
@@ -190,6 +193,7 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
     assert build.id in {d.previous_id for d in deps}
 
 
+# req: designs/java-sdk/jvm-validation
 async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch):
     """The committing task's image is not a substitute for a jvm task's own."""
     job = await create_job("j", "m.entry")

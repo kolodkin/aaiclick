@@ -6,6 +6,7 @@ import { ALL_COMMANDS, isCommitOnType } from "./commands";
 // A trailing space in `complete` awaits an argument, so fill one in: a number, since jobs go by id.
 const prompts = ALL_COMMANDS.flatMap((c) => [c.cmd, c.complete?.replace(/ $/, " 1")].filter((p) => p !== undefined));
 
+// req: designs/ui/command-registry
 test.each(prompts)("%s parses", (prompt) => {
   expect(parsePrompt(prompt).kind).not.toBe("unknown");
 });

@@ -12,6 +12,7 @@ from ..conftest import login
 V = f"{API_PREFIX}/viewer"
 
 
+# req: designs/viewer/kernel-contract, designs/viewer/raw-clickhouse-output, designs/viewer/surfaces
 async def test_query_object_route(orch_ctx, app_client):
     await create_object_from_value({"id": [1, 2], "name": ["a", "b"]}, name="http_orders", scope="global")
     response = await app_client.post(f"{V}/query", json={"object": "http_orders", "order_by": [["id", "ASC"]]})
@@ -31,6 +32,7 @@ async def test_query_object_route_errors(orch_ctx, app_client):
     assert bad.status_code == 422
 
 
+# req: designs/viewer/surfaces
 async def test_dashboard_routes(orch_ctx, app_client):
     await create_object_from_value({"id": [1]}, name="http_o", scope="global")
     put_d = await app_client.put(f"{V}/dashboards/d1", json={"html": "<p/>", "queries": {"p": {"object": "http_o"}}})
@@ -44,6 +46,7 @@ async def test_dashboard_routes(orch_ctx, app_client):
     assert (await app_client.get(f"{V}/dashboards/d1")).status_code == 404
 
 
+# req: designs/viewer/surfaces
 async def test_viewer_requires_auth(orch_ctx, anon_client, monkeypatch):
     # Distributed mode (auth on), independent of the local/dist test matrix.
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
@@ -52,6 +55,7 @@ async def test_viewer_requires_auth(orch_ctx, anon_client, monkeypatch):
     assert response.status_code == 401
 
 
+# req: designs/viewer/surfaces
 async def test_read_token_runs_post_reads_but_cannot_write(orch_ctx, app_client, enabled):
     """``POST /viewer/query`` and a dashboard run are reads: the route's guard
     decides the scope, not the HTTP method."""
@@ -71,3 +75,17 @@ async def test_read_token_runs_post_reads_but_cannot_write(orch_ctx, app_client,
         f"{V}/dashboards/d_ro", json={"html": "<p/>", "queries": {"p": {"object": "http_ro"}}}, headers=token
     )
     assert denied.status_code == 403 and denied.json()["code"] == "forbidden"
+
+
+# req: designs/viewer/surfaces
+async def test_viewer_role_reads_and_runs_but_only_members_save(orch_ctx, enabled, app_client):
+    await users.create_user(CreateUserRequest(username="vic", password="pw", role="viewer"))
+    await users.create_user(CreateUserRequest(username="mia", password="pw", role="member"))
+    viewer_h, member_h = await login(app_client, "vic"), await login(app_client, "mia")
+    await create_object_from_value({"id": [1]}, name="http_roles", scope="global")
+    body = {"html": "<p/>", "queries": {"p": {"object": "http_roles"}}}
+
+    assert (await app_client.put(f"{V}/dashboards/d_roles", json=body, headers=viewer_h)).status_code == 403
+    assert (await app_client.put(f"{V}/dashboards/d_roles", json=body, headers=member_h)).status_code == 200
+    assert (await app_client.post(f"{V}/query", json={"object": "http_roles"}, headers=viewer_h)).status_code == 200
+    assert (await app_client.post(f"{V}/dashboards/d_roles:run", headers=viewer_h)).status_code == 200

@@ -11,7 +11,7 @@ from aaiclick.server.app import API_PREFIX
 from ..conftest import login
 
 
-# req: user_guide/access/sign-in
+# req: user_guide/access/sign-in, designs/auth/login-token-pair, designs/auth/logout-and-me
 async def test_login_then_access_protected(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
 
@@ -25,6 +25,7 @@ async def test_login_then_access_protected(orch_ctx, app_client, enabled):
     assert body["role"] == "admin" and body["username"] == "alice"
 
 
+# req: designs/auth/login-rejections
 async def test_login_bad_password_401(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw"))
     res = await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "alice", "password": "x"})
@@ -32,7 +33,7 @@ async def test_login_bad_password_401(orch_ctx, app_client, enabled):
     assert res.json()["code"] == "unauthorized"
 
 
-# req: user_guide/access/sign-in
+# req: user_guide/access/sign-in, designs/auth/refresh-rotation
 async def test_refresh_flow(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw"))
     login = (await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "alice", "password": "pw"})).json()
@@ -40,7 +41,7 @@ async def test_refresh_flow(orch_ctx, app_client, enabled):
     assert res.status_code == 200 and res.json()["refresh_token"] != login["refresh_token"]
 
 
-# req: user_guide/access/sign-in
+# req: user_guide/access/sign-in, designs/auth/change-own-password
 async def test_change_own_password_as_viewer(orch_ctx, app_client, enabled):
     """A viewer can reach ``/auth/me/password`` — ``/users`` is admin-only, so
     this is their only route to a password change."""
@@ -56,7 +57,7 @@ async def test_change_own_password_as_viewer(orch_ctx, app_client, enabled):
     assert res.status_code == 204
 
 
-# req: user_guide/access/sign-in
+# req: user_guide/access/sign-in, designs/auth/change-own-password
 async def test_change_own_password_wrong_current_401(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="vw2", password="pw"))
     login = (await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "vw2", "password": "pw"})).json()
@@ -71,14 +72,28 @@ async def test_change_own_password_wrong_current_401(orch_ctx, app_client, enabl
     assert res.json()["code"] == "unauthorized"
 
 
-# req: architecture/security/distributed-requires-token
+# req: architecture/security/distributed-requires-token, designs/api_server/route-guards, designs/api_server/auth-problem-errors
 async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client, enabled):
     res = await anon_client.get(f"{API_PREFIX}/execution-workers")
     assert res.status_code == 401
     assert res.headers["www-authenticate"] == "Bearer"
 
 
-# req: user_guide/access/api-tokens
+# req: designs/auth/revocation-at-refresh-boundary
+async def test_revoked_user_keeps_their_access_token_until_it_expires(orch_ctx, enabled, anon_client):
+    """An access JWT is checked by signature alone; revocation closes only the refresh chain."""
+    view = await users.create_user(CreateUserRequest(username="leaver", password="pw"))
+    pair = (await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "leaver", "password": "pw"})).json()
+
+    await users.disable_user(view.id, True)
+
+    access = {"Authorization": f"Bearer {pair['access_token']}"}
+    assert (await anon_client.get(f"{API_PREFIX}/jobs", headers=access)).status_code == 200
+    refreshed = await anon_client.post(f"{API_PREFIX}/auth/refresh", json={"refresh_token": pair["refresh_token"]})
+    assert refreshed.status_code == 401
+
+
+# req: user_guide/access/api-tokens, designs/auth/token-routes
 async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
     """Session mints a token → the token authenticates → revoke → 401."""
     await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
@@ -105,7 +120,7 @@ async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
     assert (await app_client.get(f"{API_PREFIX}/auth/me", headers=token_header)).status_code == 401
 
 
-# req: user_guide/access/api-tokens
+# req: user_guide/access/api-tokens, designs/auth/token-ownership, designs/auth/scope-ladder, designs/api_server/auth-problem-errors
 async def test_read_token_cannot_write_or_manage_tokens(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
     session = await login(app_client, "alice")
@@ -128,7 +143,7 @@ async def test_token_routes_422_in_local_mode(orch_ctx, app_client, monkeypatch)
     assert res.status_code == 422 and res.json()["code"] == "invalid"
 
 
-# req: user_guide/access/sign-in
+# req: user_guide/access/sign-in, designs/auth/mfa-login, designs/api_server/auth-problem-errors
 async def test_login_mfa_required_problem_code(orch_ctx, app_client, enabled):
     view = await users.create_user(CreateUserRequest(username="mfa", password="pw"))
     setup = await auth_api.mfa_setup(view.id)
@@ -144,7 +159,7 @@ async def test_login_mfa_required_problem_code(orch_ctx, app_client, enabled):
     assert ok.status_code == 200
 
 
-# req: user_guide/access/password-reset
+# req: user_guide/access/password-reset, designs/auth/reset-mint-redeem, designs/api_server/open-paths
 async def test_password_reset_routes(orch_ctx, enabled, anon_client, app_client):
     """``enabled`` precedes ``app_client`` so the fixture mints its admin header."""
     view = await users.create_user(CreateUserRequest(username="reset_me", password="old"))
@@ -161,7 +176,7 @@ async def test_password_reset_routes(orch_ctx, enabled, anon_client, app_client)
     assert again.status_code == 401
 
 
-# req: user_guide/access/api-tokens
+# req: user_guide/access/api-tokens, designs/auth/scope-ladder, designs/api_server/route-guards
 async def test_write_token_cannot_reach_an_admin_route(orch_ctx, app_client, enabled):
     """The ladder, not the HTTP verb, is what separates write from admin."""
     user = await users.create_user(CreateUserRequest(username="w", password="pw", role="admin"))

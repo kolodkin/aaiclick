@@ -17,7 +17,7 @@ from aaiclick.orchestration.models import PRESERVATION_FULL, PRESERVATION_NONE, 
 from aaiclick.orchestration.orch_context import get_sql_session
 
 
-# req: user_guide/orchestration/running_jobs/preservation-mode-precedence
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, designs/orchestration/preservation-precedence
 async def test_default_mode_is_none_when_env_unset(monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     assert get_default_preservation_mode() == PRESERVATION_NONE

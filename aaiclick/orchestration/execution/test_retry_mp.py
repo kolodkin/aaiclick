@@ -25,6 +25,7 @@ from .mp_worker import mp_worker_main_loop
 from .test_retry import _cancel_all_pending_tasks, _run_until_terminal
 
 
+# req: designs/orchestration/retry-resets-to-pending
 async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
     """ExecutionWorker retries a failing task until max_retries exhausted, then marks FAILED."""
     await _cancel_all_pending_tasks()
@@ -91,6 +92,7 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
         assert j.status == JOB_FAILED
 
 
+# req: designs/orchestration/retry-resets-to-pending
 async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, fast_poll):
     """Flaky task fails twice, succeeds on the third attempt via retry."""
     await _cancel_all_pending_tasks()

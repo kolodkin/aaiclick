@@ -134,6 +134,7 @@ behind the server.
 
 ## Timestamps
 
+<!-- req: naive-utc-timestamps -->
 The server returns every datetime as naive UTC: ISO with no `Z` or offset.
 `new Date()` reads that as local time, so parse with `parseUtc`
 (`src/lib/format.ts`). New server datetime fields must stay naive UTC.
@@ -299,18 +300,20 @@ stream cannot leave a badge still saying "live". Freshness is that query's own
 `dataUpdatedAt`; a borrowed one would lie. Every query the UI has, and each
 view's one badge for the query backing what is on screen:
 
+<!-- req: badge-refresh-modes -->
 | View / panel                      | Query key                         | Kept current by                                 | Badge    |
 |-----------------------------------|-----------------------------------|-------------------------------------------------|----------|
 | Jobs list                         | `["jobs"]`                        | `/events`                                       | `stream` |
 | Job detail — header + tasks table | `["job", ref]`                    | `/events`                                       | `stream` |
 | Job detail — graph                | `["job-graph", ref]`              | `/events`                                       | `stream` |
+| Job detail — timings, duration    | `["job-timings", ref]`            | `/events`                                       | `stream` |
 | Task detail — record              | `["task", id]`                    | `/events`                                       | `stream` |
 | Task detail — logs                | `["task-logs", id]`               | own 2 s timer, once the task has started        | `poll`   |
 | Registered jobs                   | `["registered-jobs"]`             | its own register / enable / disable mutations   | `manual` |
 | Data                              | `["objects", …]`, `["object", …]` | the reader, through the badge's refresh control | `manual` |
 | Dashboard                         | `["dashboard-results", name]`     | its own Refresh button                          | —        |
 
-The first four are `LIVE_KEYS` — the only keys a `changed` frame invalidates.
+The first five are `LIVE_KEYS` — the only keys a `changed` frame invalidates.
 While the stream is down they fall back to the 2 s `refetchInterval` and their
 badge says `polling`; the rest are unaffected by the stream either way and never
 claim otherwise. In graph view the job-detail header suppresses its own badge,

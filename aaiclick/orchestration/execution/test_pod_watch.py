@@ -51,17 +51,20 @@ def test_parse_shell_pod_container_states():
     assert not state.done and state.running
 
 
+# req: designs/kubernetes_runner/deadlines
 def test_parse_image_pull_backoff_reason():
     waiting = {"waiting": {"reason": "ImagePullBackOff", "message": "Back-off pulling image"}}
     state = parse_pod(_pod(phase="Pending", task=waiting))
     assert state.not_started_reason() == "ImagePullBackOff: Back-off pulling image"
 
 
+# req: designs/kubernetes_runner/reconciler
 def test_done_when_task_container_terminated_even_if_pod_running():
     state = parse_pod(_pod(phase="Running", task={"terminated": {"exitCode": 3}}))
     assert state.done and state.task.exit_code == 3 and not state.running
 
 
+# req: designs/kubernetes_runner/pod-cancellation
 async def test_futures_registered_before_apply_see_fast_transitions():
     watch = PodWatch("ns", "kubectl")
     futures = watch.expect(NAME)
@@ -74,6 +77,7 @@ async def test_futures_registered_before_apply_see_fast_transitions():
     assert watch.states[NAME].done
 
 
+# req: designs/kubernetes_runner/reconciler
 async def test_deleted_pod_resolves_done_as_gone():
     watch = PodWatch("ns", "kubectl")
     futures = watch.expect(NAME)
@@ -105,6 +109,7 @@ async def test_changed_set_only_on_scheduling_done_or_gone():
     assert watch.changed.is_set()
 
 
+# req: designs/kubernetes_runner/reconciler
 async def test_resync_resolves_done_and_vanished(monkeypatch):
     watch = PodWatch("ns", "kubectl")
     finished = watch.expect(NAME)
@@ -137,6 +142,7 @@ async def test_forget_drops_futures_without_state():
     assert watch.states[NAME].done
 
 
+# req: designs/kubernetes_runner/pod-labels
 @pytest.mark.parametrize("deleted", [False, True])
 async def test_apply_ignores_unlabeled_pods(deleted):
     watch = PodWatch("ns", "kubectl")

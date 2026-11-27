@@ -16,6 +16,7 @@ the enforced (distributed) case:
 The variables and their defaults are user-facing: [Access — Configuration](../user_guide/access.md#configuration).
 
 !!! warning "Distributed without a secret is a hard error"
+    <!-- req: mode-derived-gating -->
     In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the template's
     `change-me-...` placeholder, the server refuses to start. In local mode auth
     is disabled, every request is allowed, and the server logs a single startup
@@ -44,6 +45,7 @@ Passwords are hashed with `bcrypt`; access JWTs are signed HS256 with
 
 ## Login → token pair
 
+<!-- req: login-token-pair -->
 `POST /api/v0/auth/login` `{username, password}` → `200 TokenPair`:
 
 ```json
@@ -51,6 +53,7 @@ Passwords are hashed with `bcrypt`; access JWTs are signed HS256 with
   "expires_in": 1800 }
 ```
 
+<!-- req: login-rejections -->
 - The user must exist, be enabled, have a password, and the password must
   match. Otherwise `401` (`code="unauthorized"`) — no user-enumeration
   distinction in body or timing: every rejection runs bcrypt, against a dummy
@@ -58,15 +61,18 @@ Passwords are hashed with `bcrypt`; access JWTs are signed HS256 with
 - With MFA enabled, the request must also carry a valid `totp_code`; a correct
   password without one answers `401` `code="mfa_required"` so the client can
   prompt and retry — see [Multi-Factor Auth](#multi-factor-auth).
+<!-- req: login-lockout -->
 - Five failed passwords or codes in a row — at login, password change or MFA
   changes — lock the account for 15 minutes, so neither can be brute-forced. A
   locked login gets the same `401` "invalid username or password" as a wrong
   one, so a lock does not confirm the account exists. Success resets the count.
+<!-- req: token-claims -->
 - Access JWT claims: `sub=<user_id>`, `role`, `exp`, `type="access"`.
 - Refresh token: a random opaque secret; only its `sha256` is stored.
 
 ## Refresh (rotation)
 
+<!-- req: refresh-rotation -->
 `POST /api/v0/auth/refresh` `{refresh_token}` → new `TokenPair`. The row is
 looked up by hash and rejected if missing / expired / rotated / revoked. On
 success the old row is stamped `rotated_at` and a fresh token is issued,
@@ -77,12 +83,14 @@ IS NULL`), so two refreshes racing on one token mint one pair; the loser gets
 
 ## Logout
 
+<!-- req: logout-and-me -->
 `POST /api/v0/auth/logout` `{refresh_token}` revokes that refresh row. Access
 JWTs are stateless and expire on their own (≤ 30 min). `GET /api/v0/auth/me`
 returns `MeView {id, username, role, mfa_enabled}` for the current principal.
 
 ## Change own password
 
+<!-- req: change-own-password -->
 `PUT /api/v0/auth/me/password` `{current_password, new_password}` → `204`. Open
 to **any** role — `/users` is admin-only, so otherwise a viewer could never
 rotate their own credential. `current_password` is required so a stolen access
@@ -91,6 +99,7 @@ real user (see [Roles](../architecture/security.md#roles)), so the route answers
 
 ## Session revocation
 
+<!-- req: session-revocation -->
 Every still-active refresh row of a user is stamped `revoked_at` on role change,
 disable, admin password reset and self-service password change — a demotion
 must not be outlived by a refresh token still minting the old claims, and
@@ -98,6 +107,7 @@ someone changing their password after a suspected leak needs the other party's
 token dead.
 
 !!! note "Revocation binds at the refresh boundary, not instantly"
+    <!-- req: revocation-at-refresh-boundary -->
     Access JWTs are verified by signature alone — no DB read — so a revoked
     user keeps their existing access token until it expires (≤ 30 min by
     default). Revocation closes the renewal chain; it does not claw back the
@@ -112,12 +122,15 @@ token dead.
 Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
 that should hold neither a password nor a refresh token.
 
+<!-- req: token-format -->
 - **Format**: `aaic_` + 43 URL-safe random characters. The prefix lets the
   resolver route the credential without a JWT parse attempt, and lets secret
   scanners recognise it. Only `sha256(secret)` is stored; the raw secret is
   returned exactly once, in the create response.
+<!-- req: token-expiry -->
 - **Expiry**: optional `expires_at` (an aware value is normalized to naive
   UTC); `None` never expires. The SPA form defaults to 90 days.
+<!-- req: token-ownership -->
 - **Ownership**: tokens belong to their minter; disabling the user disables
   every token. A token cannot mint or revoke tokens (`403`) — token management
   needs a real session, so a leaked token cannot bootstrap a permanent foothold.
@@ -126,6 +139,7 @@ that should hold neither a password nor a refresh token.
 
 ## The scope ladder
 
+<!-- req: scope-ladder -->
 A token carries one of three ordered levels and admits its own level plus every
 level beneath it. `read` is the default at every mint site.
 
@@ -135,15 +149,18 @@ level beneath it. `read` is the default at every mint site.
 | `write` | a member's own mutations — dashboards                                                                              | `require_write`           |
 | `admin` | everything else — run / cancel jobs, register, clear tasks, delete / purge objects, users, workers, setup, migrate | `require_admin`           |
 
+<!-- req: mint-ceiling -->
 A caller mints at or below `ROLE_SCOPES[their role]`; above the ceiling is `422`
 naming the caller's own level.
 
 !!! important "A token never outranks its owner"
+    <!-- req: token-capped-by-owner -->
     The ceiling applies at mint **and** on every request: a token holds the
     lower of its own scope and its owner's current role. Demote the owner from
     admin to viewer and an outstanding `admin` token drops to `read` at once.
     Disabling the owner stops it outright.
 
+<!-- req: token-routes -->
 | Route                      | Guard   | Purpose                                                                  |
 |----------------------------|---------|--------------------------------------------------------------------------|
 | `GET /auth/tokens`         | session | The caller's tokens (`ApiTokenView`, no secret)                          |
@@ -159,21 +176,25 @@ user may mint.
 
 **Implementation**: `aaiclick/server/mcp_rbac.py`
 
+<!-- req: mcp-tokens-only -->
 With auth enabled, `/mcp` takes **API tokens only** — a session JWT there is
 `401`. The surface is for unattended clients, an API token is their credential,
 and the restriction gives every MCP principal a real level to gate on. Each
 tool's tag *is* the level it needs on [the scope ladder](#the-scope-ladder), and
 `tools/list` only shows what the caller may call.
 
+<!-- req: mcp-tool-tags -->
 | Tag     | Needs                    | Tools                                                                                                                                                                                                                                                                                                                   |
 |---------|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `read`  | `read`; any user         | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `list_tasks`, `get_task`, `get_task_logs`, `list_execution_workers`, `list_objects`, `get_object`, `lineage_graph`, `lineage_nodes`, `lineage_query`, `lineage_schema`, `query_object`, `list_dashboards`, `get_dashboard`, `run_dashboard`, `run_queries` |
 | `write` | `write`; member or admin | `save_dashboard`, `delete_dashboard`                                                                                                                                                                                                                                                                                    |
 | `admin` | `admin`; admin           | `cancel_job`, `run_job`, `register_job`, `enable_job`, `disable_job`, `unregister_job`, `clear_task`, `delete_object`, `purge_objects`, `setup`, `migrate`                                                                                                                                                              |
 
+<!-- req: mcp-fail-closed -->
 A tool's required level is its highest tag, so a mistagged tool fails closed
 rather than open.
 
+<!-- req: mcp-mount-middleware -->
 FastAPI's `Depends` does not reach mounted sub-apps, so the mount is wrapped in
 an ASGI middleware that checks the credential is an API token, resolves the
 principal, rejects anonymous calls with a `401` `Problem`, and stores the
@@ -181,6 +202,7 @@ principal on the ASGI scope. A FastMCP middleware then runs on every
 `tools/call` and `tools/list`, reads the principal from the current HTTP
 request and applies the table above. Denials surface as tool errors.
 
+<!-- req: mcp-local-open -->
 In local mode and for in-process clients (`fastmcp.Client(mcp)`, no HTTP
 request) the synthetic admin applies and every tool is open.
 
@@ -210,10 +232,12 @@ The `user` / `token` / `audit` CLI verbs are thin in-process renderers over `int
 
 **Implementation**: `aaiclick/auth/security.py`
 
+<!-- req: totp -->
 TOTP (RFC 6238: SHA-1, 30 s step, 6 digits, ±1 step drift) on the standard
 library — no new dependency. Any authenticator app works from the `otpauth://`
 URI or the base32 secret.
 
+<!-- req: mfa-routes -->
 | Route                        | Guard   | Purpose                                                          |
 |------------------------------|---------|------------------------------------------------------------------|
 | `POST /auth/me/mfa/setup`    | session | Generate a pending secret → `MfaSetupView {secret, otpauth_uri}` |
@@ -221,6 +245,7 @@ URI or the base32 secret.
 | `POST /auth/me/mfa/disable`  | session | `{password, code}` — both factors required to turn it off        |
 | `POST /users/{id}/mfa/reset` | admin   | Clear the secret and flag (lost-device recovery)                 |
 
+<!-- req: mfa-login -->
 Login with `mfa_enabled`: `{username, password}` alone → `401`
 `code="mfa_required"`; a wrong `totp_code` → plain `401`. Each code admits once:
 an accepted code's time step is claimed in `totp_last_step` (conditional update,
@@ -234,16 +259,19 @@ path, matching the CLI-first admin model.
 
 **Implementation**: `aaiclick/internal_api/password_reset.py`
 
+<!-- req: reset-token -->
 A reset token is a one-time secret bound to a user with a short TTL
 (`AAICLICK_PASSWORD_RESET_TTL`). Consuming it sets the password and revokes the
 user's sessions, like an admin reset.
 
+<!-- req: reset-mint-redeem -->
 - **Mint**: `POST /users/{id}/password-reset` (admin) →
   `PasswordResetLinkView {token, expires_at, url}`; the operator hands the link
   over out of band. CLI: `aaiclick user reset-link <user_id>`.
 - **Redeem**: `POST /auth/password-reset {token, new_password}` (public) →
   `204`, or `401` for an unknown / expired / consumed token.
 
+<!-- req: reset-link-url -->
 The link is `AAICLICK_PUBLIC_URL/?p=reset%20<token>`, which the SPA routes to
 the new-password form; without that variable only the raw `token` is returned.
 
@@ -261,18 +289,21 @@ tells the user to ask an administrator.
 
 **Implementation**: `aaiclick/internal_api/invites.py`
 
+<!-- req: invite-inert-user -->
 Onboarding is a reset link by another name: `POST /invites` → `InviteView {user,
 link}` creates the user with no password, grants their role and mints their
 link in one call. The account grants nothing until the link is redeemed, since
 login refuses any user whose `password_hash` is `None` — an unredeemed invite is
 inert, not an open door.
 
+<!-- req: invite-admin-session -->
 Only an admin may invite, and may grant any role; anyone else is `403`.
 Inviting needs a **session** (`require_session`), so an API token cannot mint
 one. An account is exactly the permanent foothold a leaked token must not be
 able to create for itself — the same reason token management and every `/users`
 route are session-only.
 
+<!-- req: invite-cli-unrestricted -->
 CLI: `aaiclick user invite <username> [--role viewer|member|admin] [--email]`;
 the in-process CLI is admin-equivalent and caps against nothing.
 
@@ -286,16 +317,19 @@ the in-process CLI is admin-equivalent and caps against nothing.
 
 **Implementation**: `aaiclick/audit/`
 
+<!-- req: audit-scope -->
 Who called what, when — one row per HTTP request under `/api/v0/` or `/mcp`,
 written by an ASGI middleware after the response is produced. `/health`, docs
 and static assets are never logged.
 
+<!-- req: audit-filter-before-sql -->
 The path filter runs *before* the middleware opens the request's SQL context,
 which also excludes the SSE stream (`GET /api/v0/events`,
 `docs/designs/frontend.md`): a row written when a client disconnects would say
 nothing, and wrapping the stream would pin one SQL engine open for the life of
 every open browser tab.
 
+<!-- req: audit-row -->
 | Column        | Type                        | Notes                                                                               |
 |---------------|-----------------------------|-------------------------------------------------------------------------------------|
 | `id`          | `BigInteger` PK (snowflake) |                                                                                     |
@@ -310,11 +344,13 @@ every open browser tab.
 | `duration_ms` | `Integer`                   |                                                                                     |
 | `client_ip`   | `String \| None`            |                                                                                     |
 
+<!-- req: audit-policy -->
 `AAICLICK_AUDIT_LOG` selects the policy: `writes` (default) records every
 non-safe method plus every `/mcp` tool call; `all` also records reads (the SPA
 polls every 2 s, so expect volume); `off` disables the middleware. Insert
 failures are logged and never fail the request.
 
+<!-- req: audit-attribution -->
 The principal comes from `request.state` (set by `require_principal` and the
 `/mcp` mount middleware); the login route stamps the attempted username so
 failed logins are attributable. `GET /audit` (admin) pages the table

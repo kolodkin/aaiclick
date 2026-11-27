@@ -65,7 +65,7 @@ def test_validate_worker_runner_rejects_unknown(monkeypatch):
         validate_worker_runner()
 
 
-# req: user_guide/orchestration/runners/build-mode-required
+# req: user_guide/orchestration/runners/build-mode-required, designs/orchestration/build-modes, designs/orchestration/worker-prerequisites, designs/kubernetes_runner/k8s-build-needs-registry
 def test_validate_worker_runner_rejects_kubernetes_with_local_build(monkeypatch):
     monkeypatch.setenv(ENV_WORKER_RUNNER, "kubernetes")
     monkeypatch.setenv("AAICLICK_LOCAL_BUILD", "1")

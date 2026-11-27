@@ -40,7 +40,7 @@ async def test_export_view_back_to_its_own_file(ctx, tmp_path):
     }
 
 
-# req: user_guide/object/blob_storage/open-local-file, architecture/backends/backend-capabilities
+# req: user_guide/object/blob_storage/open-local-file, architecture/backends/backend-capabilities, designs/blob_storage/located-object-pointer
 @_chdb_only
 async def test_open_local_glob_aggregates_in_place(ctx, tmp_path):
     for part in (1, 2):
@@ -67,7 +67,7 @@ async def test_open_local_with_any_clickhouse_format(ctx, tmp_path):
     assert await opened.data() == SAMPLE_TABLE
 
 
-# req: user_guide/object/blob_storage/open-local-file, architecture/backends/backend-capabilities
+# req: user_guide/object/blob_storage/open-local-file, architecture/backends/backend-capabilities, designs/blob_storage/located-object-rules
 @_chdb_only
 async def test_open_local_relative_path(ctx, tmp_path, monkeypatch):
     await (await create_object_from_value([1, 2, 3])).export(str(tmp_path / "rel.parquet"))
@@ -75,7 +75,7 @@ async def test_open_local_relative_path(ctx, tmp_path, monkeypatch):
     assert await (await open_object_from_url("rel.parquet")).data() == [1, 2, 3]
 
 
-# req: user_guide/object/export/export-local-needs-chdb, user_guide/object/blob_storage/open-local-file, architecture/backends/backend-capabilities
+# req: user_guide/object/export/export-local-needs-chdb, user_guide/object/blob_storage/open-local-file, architecture/backends/backend-capabilities, designs/blob_storage/located-object-rules, designs/blob_storage/export-to-bucket
 @pytest.mark.skipif(is_chdb(), reason="chdb reads and writes local files")
 async def test_local_paths_rejected_on_remote_server(ctx, tmp_path):
     path = str(tmp_path / "sample.parquet")

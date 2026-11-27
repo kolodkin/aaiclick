@@ -35,7 +35,7 @@ async def _reload(row_id: int) -> SandboxFile:
     return row
 
 
-# req: user_guide/sandbox/submission-lifecycle
+# req: user_guide/sandbox/submission-lifecycle, designs/orchestration/background-passes
 async def test_pending_row_runs_every_job(orch_ctx):
     row = await _insert_row(["first", "second"])
     calls = []

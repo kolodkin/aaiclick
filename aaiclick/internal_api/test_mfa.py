@@ -29,7 +29,7 @@ async def _enrolled(username="alice"):
     return view, setup.secret
 
 
-# req: user_guide/access/mfa
+# req: user_guide/access/mfa, designs/auth/mfa-login
 async def test_login_demands_code_once_enabled(orch_ctx):
     view, secret = await _enrolled()
     with pytest.raises(MfaRequired):
@@ -40,7 +40,7 @@ async def test_login_demands_code_once_enabled(orch_ctx):
     assert security.decode_access_token(pair.access_token, SECRET).user_id == view.id
 
 
-# req: user_guide/access/mfa
+# req: user_guide/access/mfa, designs/auth/mfa-login
 async def test_code_admits_once(orch_ctx):
     """A code seen over a shoulder or off the wire is spent by the login that
     used it — replaying it inside its 30 s window fails."""
@@ -51,6 +51,7 @@ async def test_code_admits_once(orch_ctx):
         await auth.login(request, secret=SECRET)
 
 
+# req: designs/auth/mfa-login
 async def test_wrong_password_never_reveals_mfa(orch_ctx):
     """A bad password is a plain 401 — ``mfa_required`` must not leak that the
     password was right."""
@@ -60,6 +61,7 @@ async def test_wrong_password_never_reveals_mfa(orch_ctx):
     assert not isinstance(excinfo.value, MfaRequired)
 
 
+# req: designs/auth/mfa-routes
 async def test_setup_is_pending_until_enabled(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="pending", password="pw"))
     setup = await auth.mfa_setup(view.id)
@@ -70,6 +72,7 @@ async def test_setup_is_pending_until_enabled(orch_ctx):
     assert (await users.get_user(view.id)).mfa_enabled is False
 
 
+# req: designs/auth/mfa-login
 async def test_enable_revokes_existing_sessions(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="sessions", password="pw"))
     pair = await auth.login(LoginRequest(username="sessions", password="pw"), secret=SECRET)
@@ -79,6 +82,7 @@ async def test_enable_revokes_existing_sessions(orch_ctx):
         await auth.refresh(RefreshRequest(refresh_token=pair.refresh_token), secret=SECRET)
 
 
+# req: designs/auth/mfa-routes
 async def test_setup_and_enable_guards(orch_ctx):
     view, _secret = await _enrolled("guarded")
     with pytest.raises(Conflict):
@@ -90,7 +94,7 @@ async def test_setup_and_enable_guards(orch_ctx):
         await auth.mfa_enable(fresh.id, MfaEnableRequest(code="123456"))
 
 
-# req: user_guide/access/mfa
+# req: user_guide/access/mfa, designs/auth/mfa-routes
 async def test_disable_needs_both_factors(orch_ctx):
     view, secret = await _enrolled("off")
     with pytest.raises(Unauthorized):
@@ -103,7 +107,7 @@ async def test_disable_needs_both_factors(orch_ctx):
         await auth.mfa_disable(view.id, MfaDisableRequest(password="pw", code="000000"))
 
 
-# req: user_guide/access/mfa
+# req: user_guide/access/mfa, designs/auth/mfa-routes
 async def test_admin_reset_clears_mfa(orch_ctx):
     view, _secret = await _enrolled("lost")
     reset = await users.reset_mfa(view.id)
@@ -113,6 +117,7 @@ async def test_admin_reset_clears_mfa(orch_ctx):
     assert await auth.login(LoginRequest(username="lost", password="pw"), secret=SECRET)
 
 
+# req: designs/auth/login-lockout
 async def test_repeated_bad_codes_lock_login(orch_ctx):
     """Three codes are live at once; without a limit a leaked password plus guessing finds one."""
     _, secret = await _enrolled()

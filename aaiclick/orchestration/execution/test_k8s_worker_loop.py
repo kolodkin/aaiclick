@@ -189,6 +189,7 @@ async def _job_tasks(job_id: int) -> list[Task]:
         return list((await session.execute(select(Task).where(col(Task.job_id) == job_id))).scalars().all())
 
 
+# req: designs/kubernetes_runner/reconciler
 async def test_runs_tasks_concurrently(orch_ctx, cluster):
     tasks = await _image_job("concurrent", 3)
     loop = cluster.start()
@@ -202,6 +203,7 @@ async def test_runs_tasks_concurrently(orch_ctx, cluster):
     assert sorted(cluster.deleted) == sorted(kw._pod_name(t.id, t.run_epoch) for t in tasks)
 
 
+# req: designs/kubernetes_runner/capacity-gate
 async def test_gate_blocks_saturated_job_only(orch_ctx, cluster):
     """Job A has two unscheduled Pods (its cap); job B still gets claimed."""
     job_a = await create_job("gate_a", create_task(SIMPLE, image="img:1"))
@@ -229,6 +231,7 @@ async def test_gate_blocks_saturated_job_only(orch_ctx, cluster):
     assert await loop == 4
 
 
+# req: designs/kubernetes_runner/capacity-gate
 async def test_max_pods_stops_claims(orch_ctx, cluster):
     cluster.limits = LIMITS._replace(max_pods=1)
     t1, t2 = await _image_job("maxpods", 2)
@@ -245,6 +248,7 @@ async def test_max_pods_stops_claims(orch_ctx, cluster):
     assert await loop == 2
 
 
+# req: designs/kubernetes_runner/quota-release
 async def test_quota_backoff_pauses_claims(orch_ctx, cluster, monkeypatch):
     monkeypatch.setattr(loop_mod, "QUOTA_BACKOFF", 0.8)
     (task,) = await _image_job("quota")
@@ -266,6 +270,7 @@ async def test_quota_backoff_pauses_claims(orch_ctx, cluster, monkeypatch):
     assert await loop == 1
 
 
+# req: designs/kubernetes_runner/quota-in-flight-claim
 async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster, monkeypatch):
     """Race window: the claim issued right after a task starts is still in
     flight when that task is refused by quota. It must not re-claim the
@@ -300,6 +305,7 @@ async def test_quota_release_not_reclaimed_by_in_flight_claim(orch_ctx, cluster,
     assert await claim_next_task(replica) is None
 
 
+# req: designs/kubernetes_runner/pod-cancellation
 async def test_cancel_pending_pod(orch_ctx, cluster):
     (task,) = await _image_job("cancel_pending")
     loop = cluster.start()
@@ -322,6 +328,7 @@ async def _age_claim(task_id: int, seconds: float) -> None:
         await session.commit()
 
 
+# req: designs/kubernetes_runner/deadlines
 async def test_pending_timeout_counts_from_claim(orch_ctx, cluster):
     cluster.limits = LIMITS._replace(pending_timeout=5.0)
     (task,) = await _image_job("pending_timeout")
@@ -340,6 +347,7 @@ async def test_pending_timeout_counts_from_claim(orch_ctx, cluster):
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
+# req: designs/kubernetes_runner/deadlines
 async def test_running_pod_without_run_row_hits_pending_timeout(orch_ctx, cluster):
     cluster.limits = LIMITS._replace(pending_timeout=5.0)
     (task,) = await _image_job("never_registered")
@@ -353,6 +361,7 @@ async def test_running_pod_without_run_row_hits_pending_timeout(orch_ctx, cluste
     assert "the task never started" in ((await _task(task.id)).error or "")
 
 
+# req: designs/kubernetes_runner/deadlines
 async def test_task_timeout_counts_from_run_start(orch_ctx, cluster, monkeypatch):
     monkeypatch.setenv("AAICLICK_TASK_TIMEOUT", "5")
     (task,) = await _image_job("task_timeout")
@@ -372,6 +381,7 @@ async def test_task_timeout_counts_from_run_start(orch_ctx, cluster, monkeypatch
     assert after.status == TASK_PENDING_FAILURE_CLEANUP and after.error == "Task timed out after 5.0s"
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_lost_ownership_by_adoption_keeps_pod(orch_ctx, cluster):
     """Another worker took the run (same epoch): this one detaches and never deletes."""
     (task,) = await _image_job("adopted_away")
@@ -389,6 +399,7 @@ async def test_lost_ownership_by_adoption_keeps_pod(orch_ctx, cluster):
     assert (await _task(task.id)).status == TASK_RUNNING
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_heartbeat_outage_detaches_all(orch_ctx, outage, cluster, monkeypatch):
     worker = await register_execution_worker()
     (task,) = await _image_job("hb_outage")
@@ -406,6 +417,7 @@ async def test_heartbeat_outage_detaches_all(orch_ctx, outage, cluster, monkeypa
     await _stop(loop, worker)
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_shutdown_leaves_pods_running(orch_ctx, cluster):
     worker = await register_execution_worker()
     (task,) = await _image_job("shutdown")
@@ -424,6 +436,7 @@ async def test_shutdown_leaves_pods_running(orch_ctx, cluster):
         assert stopped is not None and stopped.status == "STOPPED"
 
 
+# req: designs/kubernetes_runner/reconciler
 async def test_one_host_task_at_a_time(orch_ctx, cluster, monkeypatch):
     running = {"now": 0, "peak": 0}
 
@@ -466,6 +479,7 @@ async def _claimed_by_dead_worker(name: str, *, shell: bool = False) -> tuple[Ta
     return task, old
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_reclaim_adopts_running_module_pod_from_dead_worker(orch_ctx, cluster):
     task, old = await _claimed_by_dead_worker("reclaim_running")
     cluster.preload = [_pod_json(task, {"running": {}})]
@@ -482,6 +496,7 @@ async def test_reclaim_adopts_running_module_pod_from_dead_worker(orch_ctx, clus
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_reclaim_finishes_done_module_pod(orch_ctx, cluster):
     task, _ = await _claimed_by_dead_worker("reclaim_done")
     cluster.preload = [_pod_json(task, {"terminated": {"exitCode": 0}})]
@@ -491,6 +506,7 @@ async def test_reclaim_finishes_done_module_pod(orch_ctx, cluster):
     assert cluster.pods() == [] and cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_reclaim_deletes_stale_epoch_pod(orch_ctx, cluster):
     task, _ = await _claimed_by_dead_worker("reclaim_stale")
     stale_pod = _pod_json(task, {"running": {}})
@@ -505,6 +521,7 @@ async def test_reclaim_deletes_stale_epoch_pod(orch_ctx, cluster):
     assert await loop == 1
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_reclaim_deletes_pod_of_terminal_task(orch_ctx, cluster):
     task, _ = await _claimed_by_dead_worker("reclaim_terminal")
     await update_task_status(task.id, TASK_COMPLETED, expected_epoch=task.run_epoch)
@@ -514,6 +531,7 @@ async def test_reclaim_deletes_pod_of_terminal_task(orch_ctx, cluster):
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_reclaim_cancelling_task_pod_deleted_and_released(orch_ctx, cluster):
     task, old = await _claimed_by_dead_worker("reclaim_cancelling")
     await cancel_job(task.job_id)
@@ -526,6 +544,7 @@ async def test_reclaim_cancelling_task_pod_deleted_and_released(orch_ctx, cluste
     assert after.status == TASK_PENDING_CANCELLED_CLEANUP and after.execution_worker_id is None
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_reclaim_ignores_live_owner_pods(orch_ctx, cluster):
     live = await register_execution_worker()
     await create_job("reclaim_live", create_task(SIMPLE, image="img:1"))
@@ -539,6 +558,7 @@ async def test_reclaim_ignores_live_owner_pods(orch_ctx, cluster):
     assert (await _task(task.id)).execution_worker_id == live.id
 
 
+# req: designs/kubernetes_runner/adopted-pod-resume
 async def test_reclaim_shell_pod_at_io_in_restages_input(orch_ctx, cluster):  # Review Focus 5
     task, _ = await _claimed_by_dead_worker("reclaim_shell_io_in", shell=True)
     cluster.preload = [_shell_pod_json(task, {"running": {}}, {"waiting": {}})]
@@ -557,6 +577,7 @@ async def test_reclaim_shell_pod_at_io_in_restages_input(orch_ctx, cluster):  # 
     assert after.status == TASK_COMPLETED and after.result == native_ref({"k": "v"})
 
 
+# req: designs/kubernetes_runner/adopted-pod-resume
 async def test_reclaim_shell_pod_at_task_running_resumes_logs(orch_ctx, cluster, monkeypatch):
     task, _ = await _claimed_by_dead_worker("reclaim_shell_running", shell=True)
     run_id = await register_run(task.id)
@@ -577,6 +598,7 @@ async def test_reclaim_shell_pod_at_task_running_resumes_logs(orch_ctx, cluster,
     assert len(await get_task_runs(task.id)) == 1
 
 
+# req: designs/kubernetes_runner/adopted-pod-resume
 async def test_adopted_pod_keeps_original_deadlines(orch_ctx, cluster):
     cluster.limits = LIMITS._replace(pending_timeout=5.0)
     task, _ = await _claimed_by_dead_worker("reclaim_deadline")
@@ -594,6 +616,7 @@ def _tracking(cluster, task: Task) -> bool:
     return bool(cluster.watches) and kw._pod_name(task.id, task.run_epoch) in cluster.watch()._futures
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, outage, cluster, monkeypatch):
     """A bounded worker (``max_tasks``) must not exit while detached: its
     in-flight set is empty, but it still owns the Pod it will take back."""
@@ -615,6 +638,7 @@ async def test_heartbeat_recovery_reattaches_own_pods(orch_ctx, outage, cluster,
     assert (await _task(task.id)).status == TASK_COMPLETED
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_sweep_deletes_reaped_task_pod(orch_ctx, cluster):
     """A Pod whose task was reaped meanwhile (claim expired: new epoch, no
     owner) is nobody's; the sweep removes it on the next heartbeat tick."""
@@ -635,6 +659,7 @@ async def test_sweep_deletes_reaped_task_pod(orch_ctx, cluster):
     await _stop(loop, worker)
 
 
+# req: designs/kubernetes_runner/restart-reclaim
 async def test_sweep_leaves_live_owner_pod(orch_ctx, cluster):
     live = await register_execution_worker()
     await create_job("sweep_live", create_task(SIMPLE, image="img:1"))
@@ -654,6 +679,7 @@ async def test_sweep_leaves_live_owner_pod(orch_ctx, cluster):
 # ---------------------------------------------------------------------------
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_deadline_cancel_is_delivered_once(orch_ctx, cluster, monkeypatch):
     """A slow Pod delete must not be interrupted by the next status tick's
     cancel: the deadline result still lands and the Pod is deleted once."""
@@ -677,6 +703,7 @@ async def test_deadline_cancel_is_delivered_once(orch_ctx, cluster, monkeypatch)
     assert cluster.deleted == [kw._pod_name(task.id, task.run_epoch)]
 
 
+# req: designs/kubernetes_runner/reconciler
 async def test_heartbeat_tick_resyncs_watch(orch_ctx, cluster):
     """Events between the list and the watch stream's start would be lost;
     a resync per heartbeat tick is the backstop."""
@@ -697,6 +724,7 @@ async def test_heartbeat_tick_resyncs_watch(orch_ctx, cluster):
         await _stop(loop, worker)
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, outage, cluster, monkeypatch):
     """Detach must come before another worker may adopt (ADOPT_AFTER =
     2 × HEARTBEAT_INTERVAL), even when the heartbeat call hangs."""
@@ -724,6 +752,7 @@ async def test_heartbeat_outage_detaches_before_adopt_after(orch_ctx, outage, cl
     await _stop(loop, worker)
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_shutdown_before_pod_created_releases_claim(orch_ctx, cluster, monkeypatch):
     """A rollout that lands between the claim and ``kubectl apply`` must cost
     no attempt: the claim goes back to the queue instead of waiting for expiry."""
@@ -751,6 +780,7 @@ async def test_shutdown_before_pod_created_releases_claim(orch_ctx, cluster, mon
     assert cluster.pods() == []
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_slow_heartbeat_is_not_cancelled(orch_ctx, outage, cluster, monkeypatch):
     """A heartbeat slower than the retry cadence (a loaded DB) is left to
     finish — cancelling it mid-UPDATE would hold locks and read as an outage."""

@@ -27,6 +27,7 @@ async def _row(**overrides):
     return row
 
 
+# req: designs/auth/audit-attribution
 async def test_list_filters_and_orders_newest_first(orch_ctx):
     old = await _row(at=utc_now() - timedelta(days=2), method="GET", path="/api/v0/jobs")
     await _row(user_id=2, username="bob", path="/mcp/", action="run_job")

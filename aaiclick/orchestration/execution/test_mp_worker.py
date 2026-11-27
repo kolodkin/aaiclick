@@ -17,6 +17,7 @@ from .mp_worker import mp_worker_main_loop
 pytestmark = pytest.mark.usefixtures("fast_poll")
 
 
+# req: designs/orchestration/worker-main-loop
 async def test_mp_worker_executes_task(orch_ctx_no_ch):
     """Test that mp worker executes a task in a child process."""
     job = await create_job(
@@ -111,6 +112,7 @@ async def _task_row(job_id: int) -> Task:
         return (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
 
 
+# req: designs/orchestration/cancel-detection
 async def test_mp_worker_kills_cancelled_module_task(orch_ctx_no_ch):
     """Cancelling a running module task kills its child instead of waiting for
     it to finish; the task then settles to CANCELLED."""

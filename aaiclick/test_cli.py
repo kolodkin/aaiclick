@@ -284,7 +284,7 @@ async def _seed_job(job_status: JobStatus | None, entrypoint: str, *, task_error
     return job.id
 
 
-# req: user_guide/orchestration/running_jobs/job-wait-exit-status
+# req: user_guide/orchestration/running_jobs/job-wait-exit-status, designs/api_server/cli-rendering-contract
 async def test_job_wait_exits_nonzero_and_reports_the_failed_task(orch_ctx, capsys):
     """CI and ``set -e`` scripts key off the exit code; the operator keys off
     knowing which task blew up."""
@@ -335,7 +335,7 @@ async def test_run_job_does_not_block_without_progress(orch_ctx):
     waiter.assert_not_called()
 
 
-# req: user_guide/orchestration/running_jobs/job-wait-exit-status
+# req: user_guide/orchestration/running_jobs/job-wait-exit-status, designs/api_server/cli-rendering-contract
 async def test_job_wait_json_output_stays_parseable_on_failure(orch_ctx, capsys):
     """``--json`` must emit exactly one JSON document — a trailing human-readable
     failure block would break ``jq`` consumers."""
@@ -487,7 +487,7 @@ async def test_background_start_does_not_validate_worker_runner(monkeypatch, cap
     assert "distributed backends" in err
 
 
-# req: user_guide/orchestration/managing_jobs/inspect-jobs, architecture/data_model/db-models
+# req: user_guide/orchestration/managing_jobs/inspect-jobs, architecture/data_model/db-models, designs/api_server/cli-rendering-contract
 async def test_task_list_prints_the_jobs_task(orch_ctx, capsys):
     job = await run_job("cli_task_list", _VALID_ENTRYPOINT)
 

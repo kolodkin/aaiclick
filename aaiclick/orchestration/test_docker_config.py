@@ -22,6 +22,7 @@ from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.runner_config import ImageBuild, ImagePrebuilt
 
 
+# req: designs/orchestration/build-task-injection
 def test_image_key_stable_and_distinguishes_fields():
     a = ImageBuild(git_remote="git@x:r.git", git_sha="a" * 40, dockerfile=None)
     a_again = ImageBuild(git_remote="git@x:r.git", git_sha="a" * 40, git_branch="ignored", dockerfile=None)
@@ -34,7 +35,7 @@ def test_image_key_stable_and_distinguishes_fields():
     assert image_key(a) != image_key(c)  # dockerfile matters
 
 
-# req: user_guide/orchestration/runners/build-modes
+# req: user_guide/orchestration/runners/build-modes, designs/orchestration/build-modes
 @pytest.mark.parametrize(
     "registry, local_build, expected",
     [
@@ -49,7 +50,7 @@ def test_get_build_mode(monkeypatch, registry, local_build, expected):
     assert get_build_mode() == expected
 
 
-# req: user_guide/orchestration/runners/build-mode-required
+# req: user_guide/orchestration/runners/build-mode-required, designs/orchestration/build-modes
 @pytest.mark.parametrize(
     "registry, local_build, match",
     [
@@ -66,7 +67,7 @@ def test_get_build_mode_rejects_ambiguous_env(monkeypatch, registry, local_build
         get_build_mode()
 
 
-# req: user_guide/orchestration/runners/build-flag-defaults
+# req: user_guide/orchestration/runners/build-flag-defaults, designs/orchestration/selecting-image-source
 @pytest.mark.parametrize(
     "registered, kwargs, expected",
     [
@@ -140,7 +141,7 @@ async def test_resolve_image_source(monkeypatch, registered, kwargs, expected):
     assert await resolve_image_source(registered, **kwargs) == expected
 
 
-# req: user_guide/orchestration/runners/build-flag-defaults
+# req: user_guide/orchestration/runners/build-flag-defaults, designs/orchestration/selecting-image-source
 async def test_resolve_image_source_known_remote_never_reads_working_tree(monkeypatch):
     """A sandbox URL names a repo the submitter's cwd need not contain: the
     scheduler or an API server has no working tree at all."""
@@ -179,13 +180,13 @@ def remote_repo(tmp_path):
     return str(repo), main_sha, feature_sha
 
 
-# req: user_guide/orchestration/runners/build-flag-defaults
+# req: user_guide/orchestration/runners/build-flag-defaults, designs/orchestration/private-repo-split
 async def test_resolve_remote_head_default_branch(remote_repo):
     url, main_sha, _ = remote_repo
     assert await resolve_remote_head(url, None) == RemoteHead(sha=main_sha, branch="main")
 
 
-# req: user_guide/orchestration/runners/build-flag-defaults
+# req: user_guide/orchestration/runners/build-flag-defaults, designs/orchestration/private-repo-split
 async def test_resolve_remote_head_named_branch(remote_repo):
     url, _, feature_sha = remote_repo
     assert await resolve_remote_head(url, "feature") == RemoteHead(sha=feature_sha, branch="feature")
@@ -202,6 +203,7 @@ async def test_resolve_remote_head_unreachable_remote(tmp_path):
         await resolve_remote_head(str(tmp_path / "nowhere"), None)
 
 
+# req: designs/orchestration/build-modes
 @pytest.mark.parametrize(
     "dockerfile, suffix",
     [
@@ -256,7 +258,7 @@ def test_get_buildkit_addr(monkeypatch):
         get_buildkit_addr()
 
 
-# req: user_guide/orchestration/runners/image-source
+# req: user_guide/orchestration/runners/image-source, designs/orchestration/child-image-inheritance
 def test_check_child_build_remote_trusts_parent_repo_any_scheme(monkeypatch):
     """The parent's own repo came from a trusted submitter, so its scheme is not
     second-guessed — only listed prefixes are held to https/git@."""
@@ -266,6 +268,7 @@ def test_check_child_build_remote_trusts_parent_repo_any_scheme(monkeypatch):
         check_child_build_remote("git://git.internal/other.git", "git://git.internal/repo.git")
 
 
+# req: designs/orchestration/default-dockerfile
 @pytest.mark.parametrize("dockerfile", [None, "Dockerfile", "./Dockerfile"])
 def test_default_dockerfile_spellings_share_build_identity(dockerfile):
     """Dedup key and tag agree: every spelling of the default is one build."""

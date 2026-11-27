@@ -33,6 +33,7 @@ def foreach_pipeline():
     return task_result(data=seen, tasks=[values, each, seen])
 
 
+# req: designs/orchestration/graph-frame
 @pytest.mark.parametrize(
     "pipeline, groups, members, expected",
     [

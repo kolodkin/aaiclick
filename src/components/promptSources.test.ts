@@ -5,6 +5,7 @@ import { matchSource, PAGE } from "./promptSources";
 vi.mock("../api/client", () => ({ fetchJSON: vi.fn() }));
 const fetchMock = vi.mocked(fetchJSON);
 
+// req: designs/ui/dropdown-sources
 describe("matchSource", () => {
   test.each([
     ["@task ", "tasks", ""],
@@ -62,12 +63,14 @@ test("commands sharing an endpoint never share cached rows", () => {
 describe("fetchPage", () => {
   beforeEach(() => fetchMock.mockReset());
 
+  // req: designs/ui/dropdown-paging
   test("tasks narrow by name and page by offset", async () => {
     fetchMock.mockResolvedValue({ items: [] });
     await matchSource("@task load", { sandbox: false })!.fetchPage(PAGE);
     expect(fetchMock).toHaveBeenCalledWith(`/tasks?limit=${PAGE}&offset=${PAGE}&search=load`);
   });
 
+  // req: designs/ui/dropdown-sources, designs/ui/dropdown-paging
   test("tasks of a job narrow to that job and insert the task id", async () => {
     fetchMock.mockResolvedValue({ items: [{ id: "7", name: "load", job_id: "1", status: "PENDING" }] });
     const page = await matchSource("@job etl task lo", { sandbox: false })!.fetchPage(0);
@@ -75,6 +78,7 @@ describe("fetchPage", () => {
     expect(page.items[0].insert).toBe("@task 7");
   });
 
+  // req: designs/ui/dropdown-paging
   test("a full page has more, a short one does not", async () => {
     const task = { id: "7", name: "t", job_id: "1", status: "PENDING", created_at: "2026-01-01T00:00:00Z" };
     fetchMock.mockResolvedValueOnce({ items: Array(PAGE).fill(task) }).mockResolvedValueOnce({ items: [task] });
@@ -85,6 +89,7 @@ describe("fetchPage", () => {
     expect(short.items[0].insert).toBe("@task 7");
   });
 
+  // req: designs/ui/dropdown-paging
   test("a full last page has no more when the total says so", async () => {
     const task = { id: "7", name: "t", job_id: "1", status: "PENDING", created_at: "2026-01-01T00:00:00Z" };
     fetchMock.mockResolvedValue({ items: Array(PAGE).fill(task), total: PAGE * 2 });
@@ -94,6 +99,7 @@ describe("fetchPage", () => {
   });
 
   // A name resolves to the latest run, so picking an older run's row must insert its id.
+  // req: designs/ui/dropdown-sources
   test.each([
     ["cancel ", "cancel 9"],
     ["@job ", "@job 9"],
@@ -112,6 +118,7 @@ describe("fetchPage", () => {
     expect((await matchSource(draft, { sandbox: false })!.fetchPage(0)).items[0].label).toBe(label);
   });
 
+  // req: designs/ui/dropdown-sources
   test("@data persistent narrows by the object prefix and keeps the keyword", async () => {
     fetchMock.mockResolvedValue({ items: [{ name: "orders" }] });
     const page = await matchSource("@data persistent or", { sandbox: false })!.fetchPage(0);
@@ -119,6 +126,7 @@ describe("fetchPage", () => {
     expect(page.items[0].insert).toBe("@data persistent orders");
   });
 
+  // req: designs/ui/dropdown-paging
   test("dashboards come in one page and narrow in the browser, not per keystroke", async () => {
     fetchMock.mockResolvedValue({ items: [{ name: "sales" }, { name: "ops" }] });
     const m = matchSource("@dashboard sa", { sandbox: false })!;
@@ -128,6 +136,7 @@ describe("fetchPage", () => {
     expect(page.more).toBe(false);
   });
 
+  // req: designs/ui/dropdown-sources
   test("objects of a job keep the job scope", async () => {
     fetchMock.mockResolvedValue({ items: [{ name: "orders" }] });
     const page = await matchSource("@job etl data or", { sandbox: false })!.fetchPage(0);

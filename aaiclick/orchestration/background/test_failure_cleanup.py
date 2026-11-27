@@ -84,7 +84,7 @@ async def run_failure_cleanup() -> None:
     await run_cleanup_pass(BackgroundWorker._process_failure_cleanup)
 
 
-# req: user_guide/orchestration/tasks_and_jobs/task-decorator
+# req: user_guide/orchestration/tasks_and_jobs/task-decorator, designs/orchestration/retry-resets-to-pending
 async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
     """PENDING_FAILURE_CLEANUP task with retries → PENDING with incremented attempt."""
     await insert_job(bg_db, 1000)
@@ -140,6 +140,7 @@ async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
     assert await get_run_refs(bg_db, "t_table") == set()
 
 
+# req: designs/orchestration/pin-lifecycle
 @pytest.mark.parametrize(
     "max_retries, expected_pins",
     [
@@ -245,6 +246,7 @@ async def _get_run_epoch(engine, task_id):
         return result.scalar_one()
 
 
+# req: designs/orchestration/worker-liveness
 @pytest.mark.parametrize(
     "max_retries, expected_status",
     [
@@ -270,6 +272,7 @@ async def test_failure_cleanup_bumps_run_epoch(bg_db, max_retries, expected_stat
     assert await _get_run_epoch(bg_db, 100) == 1
 
 
+# req: designs/orchestration/worker-liveness, designs/orchestration/background-passes
 async def test_dead_worker_sweep_leaves_its_running_task(bg_db):
     """Worker and task lifetimes are independent: a swept worker is STOPPED,
     but its task keeps running until its own claim expires."""

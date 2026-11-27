@@ -29,6 +29,7 @@ from .kubernetes_worker import build_shell_pod_manifest
 from .pod_watch import PodWatch, pod_labels
 
 
+# req: designs/kubernetes_runner/bare-pod, designs/kubernetes_runner/pod-labels
 def test_build_pod_manifest_shape():
     m = kw._build_pod_manifest(
         name="aaiclick-task-7-2",
@@ -93,6 +94,7 @@ def _fake_create(created: list[dict]):
     return create
 
 
+# req: designs/task_interface/transport-details, designs/kubernetes_runner/secret-owned-by-pod
 def test_env_secret_owned_by_pod():
     secret = kw._build_env_secret("aaiclick-task-7-2", "ns", {"A": "1"}, labels=LABELS, owner_uid="u1")
     assert secret["metadata"]["labels"] == LABELS
@@ -101,6 +103,7 @@ def test_env_secret_owned_by_pod():
     ]
 
 
+# req: designs/kubernetes_runner/secret-owned-by-pod
 async def test_module_launch_creates_pod_before_secret(monkeypatch):
     monkeypatch.setattr(kw, "build_runner_env", lambda: {"X": "1"})
     created: list[dict] = []
@@ -113,6 +116,7 @@ async def test_module_launch_creates_pod_before_secret(monkeypatch):
     assert created[0]["metadata"]["labels"] == LABELS == created[1]["metadata"]["labels"]
 
 
+# req: designs/kubernetes_runner/secret-owned-by-pod
 @pytest.mark.parametrize("command_env,kinds", [({"K": "v"}, ["Pod", "Secret"]), (None, ["Pod"])])
 async def test_shell_launch_creates_pod_before_secret(monkeypatch, tmp_path, command_env, kinds):
     created: list[dict] = []
@@ -128,6 +132,7 @@ async def test_shell_launch_creates_pod_before_secret(monkeypatch, tmp_path, com
         assert created[1]["metadata"]["ownerReferences"][0]["uid"] == "uid-pod"
 
 
+# req: designs/kubernetes_runner/secret-owned-by-pod
 async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
     """The runner env carries database passwords; anyone who can ``get pods``
     must not read them, so they travel in a per-attempt Secret."""
@@ -143,7 +148,7 @@ async def test_module_pod_keeps_runner_env_out_of_the_pod_spec(monkeypatch):
     assert pod["spec"]["containers"][0]["envFrom"] == [{"secretRef": {"name": secret["metadata"]["name"]}}]
 
 
-# req: user_guide/task_interface/container-env-isolation, user_guide/task_interface/k8s-io-helpers
+# req: user_guide/task_interface/container-env-isolation, user_guide/task_interface/k8s-io-helpers, designs/task_interface/transport-per-runner, designs/task_interface/transport-details
 def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
     monkeypatch.setenv("AAICLICK_K8S_IO_IMAGE", "registry.local/busybox:1")
     m = build_shell_pod_manifest(
@@ -265,6 +270,7 @@ def module_pod(monkeypatch):
     return SimpleNamespace(watch=watch, created=created, deleted=deleted, start=start)
 
 
+# req: designs/kubernetes_runner/remote-task-results
 async def test_run_module_pod_success_reads_result_row(module_pod):
     run = module_pod.start()
     await asyncio.sleep(0)
@@ -277,6 +283,7 @@ async def test_run_module_pod_success_reads_result_row(module_pod):
     assert module_pod.deleted == [_POD]
 
 
+# req: designs/kubernetes_runner/adopted-pod-resume
 async def test_run_module_pod_adopted_skips_launch(module_pod):
     module_pod.watch.apply(_pod_json(_POD, {"running": {}}), deleted=False)
     run = module_pod.start(image_tag=None)
@@ -288,6 +295,7 @@ async def test_run_module_pod_adopted_skips_launch(module_pod):
     assert module_pod.deleted == [_POD]
 
 
+# req: designs/kubernetes_runner/pod-cancellation
 async def test_cancel_with_deadline_reason_reports_it_and_deletes_pod(module_pod):
     run = module_pod.start()
     await asyncio.sleep(0)
@@ -299,6 +307,7 @@ async def test_cancel_with_deadline_reason_reports_it_and_deletes_pod(module_pod
     assert module_pod.deleted == [_POD]
 
 
+# req: designs/kubernetes_runner/pod-cancellation
 async def test_cancel_without_reason_reports_cancelled(module_pod):
     run = module_pod.start()
     await asyncio.sleep(0)
@@ -306,6 +315,7 @@ async def test_cancel_without_reason_reports_cancelled(module_pod):
     assert (await run) == kw.RunnerResult(False, None, "cancelled")
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_cancel_detached_keeps_pod(module_pod):
     detach = [False]
     run = module_pod.start(detach=detach)
@@ -319,6 +329,7 @@ async def test_cancel_detached_keeps_pod(module_pod):
     assert module_pod.deleted == []
 
 
+# req: designs/kubernetes_runner/quota-release
 async def test_quota_rejection_raises(module_pod, monkeypatch):
     err = cli.CommandError(("kubectl",), 1, 'pods "x" is forbidden: exceeded quota: compute, requested: cpu=1')
     monkeypatch.setattr(kw, "_kubectl_create_from_file", AsyncMock(side_effect=err))
@@ -422,7 +433,7 @@ def _cp_targets(calls: list[list[str]]) -> list[str]:
     return [c[3].rsplit(":", 1)[1] for c in calls if c[1] == "cp"]
 
 
-# req: user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers
+# req: user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers, designs/orchestration/run-registration, designs/task_interface/transport-per-runner, designs/kubernetes_runner/pod-logs
 async def test_run_shell_pod_full_lifecycle(shell_pod):
     run = shell_pod.start()
     await asyncio.sleep(0)
@@ -450,6 +461,7 @@ async def test_run_shell_pod_full_lifecycle(shell_pod):
     assert shell_pod.deleted == [_POD] and not shell_pod.io_dir.exists()
 
 
+# req: designs/kubernetes_runner/adopted-pod-resume
 async def test_run_shell_pod_adopted_at_io_in_restages_and_copies(shell_pod):
     shell_pod.watch.apply(_shell_pod_json(_POD, {"running": {}}, {"waiting": {}}), deleted=False)
     run = shell_pod.start(image_tag=None)
@@ -465,6 +477,7 @@ async def test_run_shell_pod_adopted_at_io_in_restages_and_copies(shell_pod):
     assert (await run).success
 
 
+# req: designs/kubernetes_runner/adopted-pod-resume
 async def test_run_shell_pod_adopted_at_task_running_reuses_run_and_follows_since(shell_pod, monkeypatch):
     since = datetime(2026, 11, 5, 12, 0, 1, tzinfo=UTC)
     monkeypatch.setattr(kw, "last_task_log_time", AsyncMock(return_value=since))
@@ -482,6 +495,7 @@ async def test_run_shell_pod_adopted_at_task_running_reuses_run_and_follows_sinc
     assert (await run).success
 
 
+# req: designs/kubernetes_runner/adopted-pod-resume
 async def test_run_shell_pod_adopted_at_done_reads_out_json(shell_pod):
     shell_pod.watch.apply(
         _shell_pod_json(_POD, {"terminated": {"exitCode": 0}}, {"terminated": {"exitCode": 0}}), deleted=False
@@ -562,6 +576,7 @@ async def test_run_shell_pod_copy_in_failure_fails_the_task(shell_pod, monkeypat
     assert shell_pod.deleted == [_POD]
 
 
+# req: designs/orchestration/log-sink-per-runner, designs/java-sdk/jvm-dispatch, designs/kubernetes_runner/pod-logs
 async def test_run_shell_pod_jvm_logs_reach_task_logs(orch_ctx, monkeypatch, tmp_path):
     """End to end against the fake ``kubectl`` script: the jvm shim writes no
     logs itself, so the host registers the attempt once the task container
@@ -620,6 +635,7 @@ async def test_run_shell_pod_jvm_logs_reach_task_logs(orch_ctx, monkeypatch, tmp
     assert container["args"] == ["com.example.Pipeline"] and "command" not in container
 
 
+# req: designs/kubernetes_runner/ownership-restart
 async def test_kubectl_delete_does_not_wait(monkeypatch):
     """Deletes run inside the heartbeat tick; waiting for graceful
     termination there would stall heartbeats past ADOPT_AFTER."""

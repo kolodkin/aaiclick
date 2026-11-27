@@ -36,6 +36,7 @@ async def pipeline(orch_shared_ctx) -> PipelineTables:
         return PipelineTables(a.table, b.table, result.table)
 
 
+# req: designs/oplog/graph-traversal
 async def test_backward_oplog(pipeline):
     """backward_oplog returns the 3 upstream nodes with exact structure and edges."""
     a_table, b_table, result_table = pipeline
@@ -91,6 +92,7 @@ async def derived(orch_shared_ctx) -> DerivedTables:
         return DerivedTables(sales.table, total.table, joined.table)
 
 
+# req: designs/oplog/instrumentation-points
 @pytest.mark.parametrize(
     "target, operation, sources",
     [

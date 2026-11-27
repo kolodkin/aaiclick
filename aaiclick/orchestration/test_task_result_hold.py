@@ -70,7 +70,7 @@ def no_hold_plain_data():
     return _parent_then_consume(parent_with_plain_data())
 
 
-# req: user_guide/orchestration/tasks_and_jobs/dynamic-tasks, user_guide/orchestration/tasks_and_jobs/dynamic-task-data
+# req: user_guide/orchestration/tasks_and_jobs/dynamic-tasks, user_guide/orchestration/tasks_and_jobs/dynamic-task-data, designs/orchestration/expander-hold
 @pytest.mark.parametrize(
     "pipeline, expected",
     [

@@ -26,8 +26,10 @@ from aaiclick.data.object_context import (
     delete_object,
     get_ch_client,
     get_data_lifecycle,
+    get_engine,
     object_context,
 )
+from aaiclick.data.models import ENGINE_MEMORY, ENGINE_MERGE_TREE
 from aaiclick.data.object_context.lifecycle import LocalLifecycleHandler
 
 
@@ -172,3 +174,18 @@ async def test_object_context_always_creates_local_lifecycle():
         assert isinstance(get_data_lifecycle(), LocalLifecycleHandler)
         obj = await create_object_from_value([1, 2, 3])
         assert await obj.data() == [1, 2, 3]
+
+
+# req: designs/object_context/managed-resources
+async def test_nested_object_context_restores_outer_resources():
+    """An inner ``object_context()`` sets its own resources and resets each on exit."""
+    async with object_context():
+        outer_client, outer_lifecycle = get_ch_client(), get_data_lifecycle()
+        async with object_context(engine=ENGINE_MERGE_TREE):
+            assert get_engine() == ENGINE_MERGE_TREE
+            assert get_data_lifecycle() is not outer_lifecycle
+        assert get_ch_client() is outer_client
+        assert get_data_lifecycle() is outer_lifecycle
+        assert get_engine() == ENGINE_MEMORY
+        assert await (await create_object_from_value([1, 2])).data() == [1, 2]
+    assert get_data_lifecycle() is None

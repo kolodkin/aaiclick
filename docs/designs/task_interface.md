@@ -13,6 +13,7 @@ covers mechanics and decisions.
 
 # File data plane
 
+<!-- req: file-data-plane -->
 Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 - **Before launch**: the host replaces each `upstream` ref with
@@ -27,12 +28,14 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 ## Transport per runner
 
+<!-- req: transport-per-runner -->
 | Runner          | `in.json` in                                                                           | `out.json` out                                                 |
 |-----------------|----------------------------------------------------------------------------------------|----------------------------------------------------------------|
 | host subprocess | per-attempt temp dir, `AAICLICK_IO_DIR` in the child's env                             | read from the temp dir, removed after                          |
 | docker          | `docker create` → `docker cp` → `docker start`                                         | `docker cp` of the IO dir back, then `docker rm`               |
 | kubernetes      | `kubectl cp` into an `emptyDir`; init container `io-in` waits for an `in.ready` marker | `kubectl exec -c io -- cat` via a `sleep` sidecar, then delete |
 
+<!-- req: transport-details -->
 - **Containers**: `AAICLICK_IO_DIR` is `/aaiclick`; the argv follows the
   image's `ENTRYPOINT`, which is how the jvm shim gets its class name.
 - **Docker**: the host IO dir is world-writable (non-root images can write
@@ -49,6 +52,7 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 **Implementation**: `aaiclick/orchestration/execution/io_plane.py`
 
+<!-- req: where-it-runs -->
 | Worker                                 | Runs the command                                               |
 |----------------------------------------|----------------------------------------------------------------|
 | In-process (local mode, `job_test`)    | in the worker's event loop                                     |

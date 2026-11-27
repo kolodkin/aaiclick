@@ -8,33 +8,9 @@ FastAPI backend. Every view refreshes when an SSE `changed` signal invalidates
 the query cache, falling back to 2 s polling only while that stream is down.
 Tech stack, build, and the live-update chain: `docs/designs/frontend.md`.
 
-# Layout
-
-```
-┌──────────────────────────────────────────┐
-│ [aaiclick]  [ prompt input.............. ]│  ← fixed header
-├──────────────────────────────────────────┤
-│                                          │
-│   dynamic content area                   │  ← updates based on prompt
-│                                          │
-└──────────────────────────────────────────┘
-```
-
 # Navigation
 
-Clicks update the prompt, and the prompt drives the view:
-
-```
-(empty prompt)  ──────▶  Help / command reference
-@jobs           ──────▶  Jobs list
-@job <id>       ──────▶  Job detail (tasks, graph, timings, data)
-@data …         ──────▶  Persistent objects and their rows
-@dashboard …    ──────▶  Saved dashboard in a sandbox
-```
-
-```
-@jobs  ──click job row──▶  @job <id>  ──click task row──▶  @task <id>
-```
+Layout, routes and the click-to-prompt flow: [Web UI](../user_guide/ui.md).
 
 Home lists no `@task` command — tasks are reached through a job, or by typing `@task <id>`.
 
@@ -64,22 +40,21 @@ typed, and then means "the latest".
 
 **Implementation**: `src/components/Header.tsx`
 
-The input edits a draft; the view follows only the committed prompt.
+Draft, commit and Esc: [Web UI](../user_guide/ui.md#the-prompt). Clicks inside
+views commit directly. After `<command> ` the dropdown lists that command's
+values:
 
-- **Commit**: picking a row, Enter, or typing a whole argument-less command (`@jobs`, `@data`, `help`). Clicks inside views commit directly.
-- **Esc**: drops the draft back to the committed prompt.
-- **No command yet**: the dropdown lists matching commands.
-- **After `<command> `**: it lists that command's values; the rest of the draft narrows them.
-
+<!-- req: dropdown-sources -->
 | Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
 |-------------------------------------------------|----------------------|---------------|---------------------|
 | `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
 | `@job`, `cancel`                                | jobs, newest first   | name contains | `<cmd> <id>`        |
-| `run`, `enable`, `disable`                      | registered jobs      | name contains | `<cmd> <name>`      |
+| `run`, `enable`, `disable`, `unregister`        | registered jobs      | name contains | `<cmd> <name>`      |
 | `@data` (+ `persistent`), `@job <id> data`      | objects of the scope | name prefix   | `<cmd> … <name>`    |
 | `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
 | `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
 
+<!-- req: dropdown-paging -->
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
 - `@job <ref> task ` lists that job's tasks.
 - Jobs and tasks narrow through the lists' `search` filter, which also matches a whole id, so a pasted id finds its row.
@@ -95,6 +70,7 @@ The input edits a draft; the view follows only the committed prompt.
 
 Command reference. In local mode (auth disabled) the Account and Administration groups are greyed out and marked "(Distributed mode only)"; the dropdown labels those commands the same way.
 
+<!-- req: command-registry -->
 One registry, `src/components/commands.ts`, feeds Home, the prompt dropdown and the "Unknown command" chips.
 
 ## Jobs List (`@jobs`)
@@ -154,6 +130,7 @@ to the latest finish. Empty groups are omitted. Containers are dagre clusters
 drawn as React Flow subflows; clicking one does nothing, since only tasks have
 a detail view.
 
+<!-- req: timings-spans -->
 **Timings** (`src/components/timings/`) is a Gantt view from
 `GET /jobs/{ref}/timings`: one row per task in start order, one bar per
 attempt (`task_runs`), earlier attempts faded. Before the first bar, grey dots

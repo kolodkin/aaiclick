@@ -42,7 +42,7 @@ async def test_user_role_defaults_to_viewer(orch_ctx):
         assert row.role == ROLE_VIEWER
 
 
-# req: architecture/security/auth-data-model
+# req: architecture/security/auth-data-model, designs/auth/token-claims
 async def test_refresh_token_round_trips(orch_ctx):
     uid = get_snowflake_id()
     async with get_sql_session() as session:
@@ -57,6 +57,7 @@ async def test_refresh_token_round_trips(orch_ctx):
         assert row.token_hash == "h"
 
 
+# req: designs/auth/scope-ladder
 @pytest.mark.parametrize(
     "held, required, expected",
     [

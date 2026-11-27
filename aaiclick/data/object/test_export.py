@@ -162,7 +162,7 @@ FORMATS: list[tuple[str, Callable[[str], None]]] = [
 ]
 
 
-# req: user_guide/object/export/export-extensions, user_guide/object/export/export-compression
+# req: user_guide/object/export/export-extensions, user_guide/object/export/export-compression, designs/blob_storage/export-format
 @pytest.mark.parametrize(
     "filename,validator",
     FORMATS,
@@ -206,7 +206,7 @@ async def test_export_limit(ctx, tmp_path):
     assert len(rows) == 2
 
 
-# req: user_guide/object/export/export-format-override
+# req: user_guide/object/export/export-format-override, designs/blob_storage/export-format
 async def test_export_format_overrides_extension(ctx, tmp_path):
     obj = await create_object_from_value(SAMPLE_TABLE)
     path = await obj.export(str(tmp_path / "data.csv"), format="CSVWithNames")
@@ -269,7 +269,7 @@ async def test_export_unsupported_extension_raises(ctx, tmp_path, filename):
         await obj.export(str(tmp_path / filename))
 
 
-# req: user_guide/object/export/export
+# req: user_guide/object/export/export, designs/blob_storage/export-to-bucket
 @pytest.mark.parametrize(
     "filename, read, expected",
     [

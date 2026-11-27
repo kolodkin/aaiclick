@@ -24,6 +24,7 @@ from .registered_jobs import (
 )
 
 
+# req: designs/orchestration/cron-scheduling
 @pytest.mark.parametrize(
     "schedule, after, expected",
     [
@@ -77,7 +78,7 @@ async def test_register_job_with_schedule(orch_ctx):
     assert job.next_run_at > utc_now()
 
 
-# req: user_guide/orchestration/running_jobs/register-job
+# req: user_guide/orchestration/running_jobs/register-job, designs/orchestration/registered-job-catalog
 async def test_register_job_with_kwargs(orch_ctx):
     await register_job(
         name="param_etl",
@@ -89,7 +90,7 @@ async def test_register_job_with_kwargs(orch_ctx):
     assert job.default_kwargs == {"url": "https://example.com/data.parquet"}
 
 
-# req: user_guide/orchestration/running_jobs/register-job-replace
+# req: user_guide/orchestration/running_jobs/register-job-replace, designs/orchestration/registered-job-catalog
 async def test_register_job_duplicate_raises(orch_ctx):
     await register_job(name="dup_job", entrypoint="myapp.dup")
     with pytest.raises(ValueError, match="already exists"):
@@ -131,7 +132,7 @@ async def test_replace_creates_new(orch_ctx):
     assert job.next_run_at is not None
 
 
-# req: user_guide/orchestration/running_jobs/register-job-replace
+# req: user_guide/orchestration/running_jobs/register-job-replace, designs/orchestration/registered-job-catalog
 async def test_replace_updates_existing(orch_ctx):
     original = await register_job(
         name="upsert_existing",
@@ -152,7 +153,7 @@ async def test_replace_updates_existing(orch_ctx):
     assert updated.updated_at > original.updated_at
 
 
-# req: user_guide/orchestration/running_jobs/manage-registrations
+# req: user_guide/orchestration/running_jobs/manage-registrations, designs/orchestration/registered-job-catalog
 async def test_enable_job(orch_ctx):
     created = await register_job(
         name="to_enable",
@@ -171,7 +172,7 @@ async def test_enable_job_not_found(orch_ctx):
         await enable_job("ghost_job")
 
 
-# req: user_guide/orchestration/running_jobs/manage-registrations
+# req: user_guide/orchestration/running_jobs/manage-registrations, designs/orchestration/registered-job-catalog
 async def test_disable_job(orch_ctx):
     created = await register_job(
         name="to_disable",
@@ -208,7 +209,7 @@ async def test_list_registered_jobs(orch_ctx):
     assert "list_c" in enabled_names
 
 
-# req: user_guide/orchestration/running_jobs/run-job
+# req: user_guide/orchestration/running_jobs/run-job, designs/orchestration/run-job-links-registration
 async def test_run_job_does_not_register(orch_ctx):
     job = await run_job("no_reg", "myapp.no_reg")
     assert job.run_type == RUN_MANUAL
@@ -218,6 +219,7 @@ async def test_run_job_does_not_register(orch_ctx):
     assert reg is None
 
 
+# req: designs/orchestration/run-job-links-registration
 async def test_run_job_creates_entry_task(orch_ctx):
     job = await run_job("task_check", "myapp.task_check", kwargs={"x": 1})
 
@@ -230,7 +232,7 @@ async def test_run_job_creates_entry_task(orch_ctx):
     assert tasks[0].kwargs == {"x": 1}
 
 
-# req: user_guide/orchestration/running_jobs/run-job
+# req: user_guide/orchestration/running_jobs/run-job, designs/orchestration/run-job-links-registration
 async def test_run_job_merges_default_kwargs(orch_ctx):
     await register_job(
         name="merge_kw",
@@ -246,7 +248,7 @@ async def test_run_job_merges_default_kwargs(orch_ctx):
     assert task.kwargs == {"a": 1, "b": 99, "c": 3}
 
 
-# req: user_guide/orchestration/running_jobs/run-job
+# req: user_guide/orchestration/running_jobs/run-job, designs/orchestration/run-job-links-registration
 async def test_run_job_with_existing_registration(orch_ctx):
     reg = await register_job(
         name="existing_reg",
@@ -261,7 +263,7 @@ async def test_run_job_with_existing_registration(orch_ctx):
 # resolve_job_config precedence chain
 
 
-# req: user_guide/orchestration/running_jobs/preservation-mode-precedence
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, designs/orchestration/preservation-precedence
 @pytest.mark.parametrize(
     "explicit, registered, expected",
     [
@@ -279,7 +281,7 @@ def test_resolve_job_config_without_env(monkeypatch, explicit, registered, expec
     assert resolve_job_config(explicit, registered) == expected
 
 
-# req: user_guide/orchestration/running_jobs/preservation-mode-precedence
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, designs/orchestration/preservation-precedence
 @pytest.mark.parametrize(
     "env_mode, registered",
     [
@@ -319,7 +321,7 @@ async def test_register_job_persists_preservation_mode(orch_ctx):
 # run_job inherits registered-job defaults
 
 
-# req: user_guide/orchestration/running_jobs/preservation-mode-precedence
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, designs/orchestration/preservation-precedence
 async def test_run_job_inherits_registered_preservation_mode(orch_ctx, monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     await register_job(
@@ -331,7 +333,7 @@ async def test_run_job_inherits_registered_preservation_mode(orch_ctx, monkeypat
     assert job.preservation_mode == PRESERVATION_FULL
 
 
-# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, user_guide/orchestration/running_jobs/preservation-modes, architecture/data_model/job-driven-cleanup
+# req: user_guide/orchestration/running_jobs/preservation-mode-precedence, user_guide/orchestration/running_jobs/preservation-modes, architecture/data_model/job-driven-cleanup, designs/orchestration/preservation-precedence
 async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
     await register_job(
@@ -357,19 +359,20 @@ async def test_run_job_shell_requires_command():
         await run_job("j", "", entry_type="shell", command=None)
 
 
+# req: designs/java-sdk/jvm-validation
 async def test_run_job_jvm_requires_image_source(orch_ctx):
     # No registration and no image ⇒ subprocess — jvm has no host-JVM contract
     with pytest.raises(ValueError, match="jvm.*image source"):
         await run_job("jvm_job", "com.example.Pipeline", entry_type="jvm")
 
 
-# req: user_guide/orchestration/runners/image-source
+# req: user_guide/orchestration/runners/image-source, designs/orchestration/selecting-image-source
 async def test_run_job_image_and_git_mutually_exclusive():
     with pytest.raises(ValueError, match="mutually exclusive"):
         await run_job("j", "m.f", image="python:3.12", git_sha="a" * 40)
 
 
-# req: user_guide/orchestration/runners/image-source
+# req: user_guide/orchestration/runners/image-source, designs/orchestration/selecting-image-source
 async def test_run_job_image_and_build_mutually_exclusive():
     with pytest.raises(ValueError, match="mutually exclusive"):
         await run_job("j", "m.f", image="python:3.12", build=True)
@@ -392,7 +395,7 @@ async def test_registration_rejects_build_modifiers_without_build(orch_ctx, repl
     assert await get_registered_job("bad_reg") is None
 
 
-# req: user_guide/orchestration/running_jobs/register-job-runner
+# req: user_guide/orchestration/running_jobs/register-job-runner, designs/kubernetes_runner/job-resources
 async def test_register_job_persists_build_and_resources(orch_ctx):
     await register_job(
         name="built",
@@ -407,7 +410,7 @@ async def test_register_job_persists_build_and_resources(orch_ctx):
     assert fetched.resources == {"cpus": "1"}
 
 
-# req: user_guide/orchestration/runners/job-resources
+# req: user_guide/orchestration/runners/job-resources, designs/kubernetes_runner/job-resources
 async def test_run_job_resources_fall_back_to_registration(orch_ctx, monkeypatch):
     monkeypatch.setattr(registered_jobs_module, "is_local", lambda: False)
     await register_job(name="res_reg", entrypoint="myapp.res", image="python:3.12", resources={"cpus": "1"})

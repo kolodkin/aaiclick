@@ -36,6 +36,7 @@ async def _result_row(task: Task) -> RemoteTaskResult:
         ).scalar_one()
 
 
+# req: designs/kubernetes_runner/remote-task-results, designs/kubernetes_runner/result-epoch-fencing
 async def test_remote_entry_main_writes_success_row(orch_ctx):
     """The entrypoint runs a real task and writes a success RemoteTaskResult
     row the host reads back."""
@@ -55,6 +56,7 @@ async def test_remote_entry_main_writes_success_row(orch_ctx):
     assert row.result_ref is None
 
 
+# req: designs/kubernetes_runner/remote-task-results
 async def test_remote_entry_main_writes_failure_row_on_exception(orch_ctx):
     """Failed user code must produce a failure row and exit non-zero — the
     host depends on the exit code as a fast failure signal too."""
@@ -73,6 +75,7 @@ async def test_remote_entry_main_writes_failure_row_on_exception(orch_ctx):
     assert "intentionally" in (row.error or "")
 
 
+# req: designs/kubernetes_runner/pod-never-writes-status
 async def test_remote_entry_main_does_not_write_terminal_task_status(orch_ctx):
     """Reaper invariant: the entrypoint never flips the Task to a terminal
     status — only a RUNNING task_runs row is added (TASK_RUNNING for the
@@ -99,6 +102,7 @@ def test_collect_remote_result_returns_payload():
     assert result == payload
 
 
+# req: designs/kubernetes_runner/remote-task-results
 @pytest.mark.parametrize(
     "exit_code, error, was_cancelled, payload, vehicle_name, expected_error",
     [

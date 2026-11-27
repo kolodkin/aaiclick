@@ -52,7 +52,7 @@ def test_all_resource_routes_are_prefixed():
         assert r.path.startswith(API_PREFIX), f"route {r.path!r} is not under {API_PREFIX}"
 
 
-# req: architecture/contracts/rest-surface
+# req: architecture/contracts/rest-surface, designs/api_server/route-guards
 def test_every_mutating_route_names_its_scope_guard():
     """``require_principal`` only authenticates; the guard a route declares is
     the one scope gate. So every non-safe route must carry one, or be a listed
@@ -149,7 +149,7 @@ async def no_leftover_work():
         pass
 
 
-# req: user_guide/deployment/local-start, architecture/topology/process-topology
+# req: user_guide/deployment/local-start, architecture/topology/process-topology, designs/api_server/local-lifespan-workers
 async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
     """In local mode, the lifespan registers an execution ExecutionWorker row.
 
@@ -163,7 +163,7 @@ async def test_lifespan_starts_worker_in_local_mode(no_leftover_work):
         await until(lambda: list_execution_workers(status=EXECUTION_WORKER_ACTIVE), what="ACTIVE worker")
 
 
-# req: architecture/topology/server-layers
+# req: architecture/topology/server-layers, designs/api_server/local-lifespan-workers
 async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, monkeypatch):
     """A request nests into the lifespan's ``orch_context`` instead of opening
     its own engine on local.db, whose fresh connections raced the shared pool."""
@@ -189,7 +189,7 @@ async def test_local_requests_reuse_the_lifespan_sql_engine(no_leftover_work, mo
     assert spy.call_count == 1
 
 
-# req: architecture/topology/process-topology
+# req: architecture/topology/process-topology, designs/api_server/local-lifespan-workers
 async def test_lifespan_distributed_mode_is_a_no_op(no_leftover_work):
     """In distributed mode, the lifespan must enter and exit cleanly without
     starting workers — workers run as separate processes there.
@@ -206,6 +206,7 @@ async def test_lifespan_distributed_mode_is_a_no_op(no_leftover_work):
         pass
 
 
+# req: designs/auth/mode-derived-gating
 async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
     """Distributed mode without a signing secret is a startup error, not a
     healthy server whose every login is a 500."""
@@ -217,7 +218,7 @@ async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
             pass
 
 
-# req: user_guide/deployment/generated-credentials
+# req: user_guide/deployment/generated-credentials, designs/deployment/startup-guard
 async def test_lifespan_refuses_unreplaced_template_credentials(monkeypatch):
     """A template credential is public: starting with one is an error, not a warning."""
     monkeypatch.setenv("AAICLICK_ADMIN_PASSWORD", f"{PLACEHOLDER_MARKER}-admin-password")

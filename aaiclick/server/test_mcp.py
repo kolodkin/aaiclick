@@ -208,7 +208,7 @@ async def test_get_object_returns_detail(orch_ctx, mcp_client):
     assert detail.name == "mcp_obj_detail"
 
 
-# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface, designs/lineage/tool-result-types
 async def test_lineage_graph_returns_graph(orch_ctx, mcp_client):
     async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1, 2])
@@ -247,7 +247,7 @@ async def test_lineage_nodes_report_a_dropped_table_as_not_live(orch_ctx, mcp_cl
     assert live[a.table] is False and live[b.table] is True
 
 
-# req: user_guide/lineage/direction-depth-and-skill
+# req: user_guide/lineage/direction-depth-and-skill, designs/lineage/tool-scope
 async def test_lineage_tools_follow_direction_and_max_depth(orch_ctx, mcp_client):
     async with task_scope(task_id=1, job_id=1, run_id=100):
         a = await create_object_from_value([1])
@@ -278,7 +278,7 @@ async def test_instructions_point_to_the_skill(mcp_client):
     assert positions == sorted(positions)
 
 
-# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface, designs/lineage/tool-result-types
 async def test_lineage_query_returns_query_result(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
         "lineage_query",
@@ -290,7 +290,7 @@ async def test_lineage_query_returns_query_result(orch_ctx, mcp_client, revenue_
     assert parsed.rows == [[1, 10.0], [2, 20.0]]
 
 
-# req: user_guide/lineage/lineage-query-scope
+# req: user_guide/lineage/lineage-query-scope, designs/lineage/tool-scope, designs/lineage/tool-result-types
 async def test_lineage_query_rejects_out_of_scope(orch_ctx, mcp_client, revenue_lineage):
     """Invalid from internal_api surfaces as an MCP ToolError.
 
@@ -305,7 +305,7 @@ async def test_lineage_query_rejects_out_of_scope(orch_ctx, mcp_client, revenue_
         )
 
 
-# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface, designs/lineage/tool-result-types
 async def test_lineage_schema_returns_columns(orch_ctx, mcp_client, revenue_lineage):
     result = await mcp_client.call_tool(
         "lineage_schema",

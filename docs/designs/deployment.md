@@ -146,6 +146,7 @@ hold, and writes it with `umask 077`.
 
 **Implementation**: `aaiclick/server/credential_guard.py`
 
+<!-- req: startup-guard -->
 The server refuses to start while `AAICLICK_JWT_SECRET`,
 `AAICLICK_ADMIN_PASSWORD`, `AAICLICK_SQL_URL` or `AAICLICK_CH_URL` still
 contains `change-me`: an `.env` copied from `.env.template` by hand and never

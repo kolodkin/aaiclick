@@ -139,12 +139,14 @@ def test_data_list(orch_ctx, items, expected):
     assert result.tasks == []
 
 
+# req: designs/java-sdk/jvm-entry-type
 def test_create_task_jvm_takes_class_name_string():
     task = create_task("com.example.Pipeline#aggregate", {"window": 7}, entry_type="jvm")
     assert task.entrypoint == "com.example.Pipeline#aggregate"
     assert task.name == "Pipeline#aggregate"
 
 
+# req: designs/java-sdk/jvm-entry-type
 def test_create_task_jvm_rejects_callable():
     with pytest.raises(ValueError, match="jvm.*class name"):
         create_task(lambda: None, entry_type="jvm")
@@ -194,7 +196,7 @@ async def _task_entrypoints(job_id: int) -> list[str]:
     return [t.entrypoint for t in rows]
 
 
-# req: user_guide/orchestration/runners/build-image-task
+# req: user_guide/orchestration/runners/build-image-task, designs/orchestration/build-task-injection
 async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     source = ImagePrebuilt(image_tag="python:3.12")
     job = await create_container_job(
@@ -204,7 +206,7 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     assert job.resources is None
 
 
-# req: user_guide/orchestration/runners/job-resources
+# req: user_guide/orchestration/runners/job-resources, designs/kubernetes_runner/job-resources
 async def test_container_job_snapshots_resources(orch_ctx_no_ch):
     source = ImagePrebuilt(image_tag="python:3.12")
     job = await create_container_job(
@@ -213,7 +215,7 @@ async def test_container_job_snapshots_resources(orch_ctx_no_ch):
     assert job.resources == {"limits": {"cpu": "1"}}
 
 
-# req: user_guide/orchestration/runners/build-image-task
+# req: user_guide/orchestration/runners/build-image-task, designs/orchestration/build-task-injection
 async def test_build_job_injects_build_task_without_registry(orch_ctx_no_ch, monkeypatch):
     """Submission never reads the build env: the build task is in the graph
     either way and the worker picks registry vs local when it runs."""
@@ -224,7 +226,7 @@ async def test_build_job_injects_build_task_without_registry(orch_ctx_no_ch, mon
     assert sorted(await _task_entrypoints(job.id)) == sorted([IMAGE_BUILD_ENTRYPOINT, "mod.fn"])
 
 
-# req: user_guide/orchestration/runners/image-source
+# req: user_guide/orchestration/runners/image-source, designs/orchestration/child-image-inheritance
 async def test_create_container_job_stamps_entry_and_injects_build_task(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     source = ImageBuild(git_remote="https://example.com/r.git", git_sha="c" * 40)

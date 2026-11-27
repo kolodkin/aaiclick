@@ -18,6 +18,7 @@ invocation is the image's own `ENTRYPOINT` (the SDK shim) plus the class
 name as its one argument, and layer-3 is the shim reflecting and invoking
 the `@AaiTask` method.
 
+<!-- req: jvm-dispatch -->
 A `jvm` task is dispatched exactly like a container `shell` task: the worker
 resolves its kwargs into `in.json`, launches the container / Pod on the shell
 vehicle with **only** `command_env` and `AAICLICK_IO_DIR` (no DB credentials
@@ -31,6 +32,7 @@ the container's output into `task_logs`.
 
 **Implementation**: `aaiclick/orchestration/runner_config.py`
 
+<!-- req: jvm-entry-type -->
 - `"jvm"` is an `EntryType` value on a plain String column, so adding it
   needed no migration. `tasks.entrypoint` holds the Java class name
   (`com.example.Pipeline`), or `com.example.Pipeline#method` when the class
@@ -42,6 +44,7 @@ the container's output into `task_logs`.
 
 ## Validation
 
+<!-- req: jvm-validation -->
 Enforced at commit and at submission (`run_job`):
 
 - A `jvm` task's kwargs may carry only plain values, `native` wrappers, and

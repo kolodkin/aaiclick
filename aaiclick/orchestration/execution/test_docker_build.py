@@ -29,6 +29,7 @@ async def test_collect_build_args_omits_unset_values(monkeypatch):
     assert not any(a.startswith("PIP_TRUSTED_HOST=") for a in args)
 
 
+# req: designs/orchestration/buildkitd-builds
 async def test_index_urls_are_secrets_not_build_args(monkeypatch):
     monkeypatch.setenv("AAICLICK_PIP_INDEX_URL", "http://tok@pypi.test/simple/")
     monkeypatch.setenv("AAICLICK_PIP_EXTRA_INDEX_URL", "http://extra.test/simple/")
@@ -65,6 +66,7 @@ async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch)
     assert ("git", "-C", "/work", "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
 
 
+# req: designs/orchestration/buildkitd-builds
 async def test_git_clone_gives_auth_env_to_the_fetch_only(monkeypatch):
     """The token overlay reaches the one command that talks to the remote.
     No e2e covers this: a real private clone needs a real GitHub App key."""
@@ -78,6 +80,7 @@ async def test_git_clone_gives_auth_env_to_the_fetch_only(monkeypatch):
     assert [argv[3] for argv in with_env] == ["fetch"]
 
 
+# req: designs/orchestration/buildkitd-builds, designs/orchestration/private-repo-split
 async def test_build_image_to_tag_clones_with_github_app_credentials(monkeypatch):
     _stub_modes(monkeypatch, registry="registry.example:5000", have_image=False)
     monkeypatch.setattr(docker_build, "git_auth_env", AsyncMock(return_value={"X": "1"}))
@@ -89,6 +92,7 @@ async def test_build_image_to_tag_clones_with_github_app_credentials(monkeypatch
     assert docker_build._git_clone_at_sha.await_args.kwargs == {"env": {"X": "1"}}
 
 
+# req: designs/orchestration/default-dockerfile
 async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch):
     """The default-Dockerfile fallback applies only to the implicit ``Dockerfile``;
     an explicitly named path that is absent is a user error."""
@@ -99,6 +103,7 @@ async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch
         await docker_build.build_image_to_tag(source, docker_config.compute_image_tag(source))
 
 
+# req: designs/orchestration/default-dockerfile
 @pytest.mark.parametrize("dockerfile", ["/etc/passwd", "../outside/Dockerfile"])
 async def test_build_image_to_tag_dockerfile_outside_checkout_raises(monkeypatch, dockerfile):
     """A declared ``dockerfile`` must stay inside the checkout: buildx would
@@ -134,6 +139,7 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str,
     return built
 
 
+# req: designs/orchestration/default-dockerfile
 @pytest.mark.parametrize(
     "clone_files, kind",
     [
@@ -152,6 +158,7 @@ async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(mo
     assert built == [{**clone_files, "Dockerfile": render_default_dockerfile(kind), ".dockerignore": ".git\n"}]
 
 
+# req: designs/orchestration/default-dockerfile
 async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
     built = _stub_build_path(monkeypatch, {".dockerignore": "data/\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
@@ -161,6 +168,7 @@ async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
     assert built[0][".dockerignore"] == "data/\n"
 
 
+# req: designs/orchestration/default-dockerfile
 async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
     """A checked-in Dockerfile builds as is: nothing is written into the checkout."""
     built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n", "requirements.txt": "six\n"})
@@ -171,6 +179,7 @@ async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkey
     assert built == [{"Dockerfile": "FROM python:3.12\n", "requirements.txt": "six\n"}]
 
 
+# req: designs/orchestration/default-dockerfile
 @pytest.mark.parametrize(
     "version, env_base_image, expected",
     [
@@ -204,6 +213,7 @@ def _fake_cli(monkeypatch, rcs: dict[tuple[str, ...], int]) -> list[tuple[str, .
     return calls
 
 
+# req: designs/orchestration/buildkitd-builds
 async def test_require_builder_creates_remote_builder_on_miss(monkeypatch):
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     name = docker_build._builder_name()
@@ -215,6 +225,7 @@ async def test_require_builder_creates_remote_builder_on_miss(monkeypatch):
     assert calls[-1] == ("docker", "buildx", "inspect", "--bootstrap", name)
 
 
+# req: designs/orchestration/buildkitd-builds
 def test_builder_name_follows_address(monkeypatch):
     """A changed address gets a fresh builder instead of reusing the stale one."""
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://old:1234")
@@ -223,6 +234,7 @@ def test_builder_name_follows_address(monkeypatch):
     assert docker_build._builder_name() != old
 
 
+# req: designs/orchestration/builder-preflight
 async def test_require_builder_reports_create_failure(monkeypatch):
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     _fake_cli(monkeypatch, {("buildx", "inspect"): 1, ("buildx", "create"): 1})
@@ -231,12 +243,14 @@ async def test_require_builder_reports_create_failure(monkeypatch):
         await docker_build._require_builder()
 
 
+# req: designs/orchestration/builder-preflight
 async def test_require_builder_raises_without_addr(monkeypatch):
     monkeypatch.delenv("AAICLICK_BUILDKIT_ADDR", raising=False)
     with pytest.raises(RuntimeError, match="AAICLICK_BUILDKIT_ADDR"):
         await docker_build._require_builder()
 
 
+# req: designs/orchestration/builder-preflight
 async def test_require_builder_raises_when_unreachable(monkeypatch):
     """An unreachable buildkitd fails the build; nothing falls back to the host daemon."""
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
@@ -248,6 +262,7 @@ async def test_require_builder_raises_when_unreachable(monkeypatch):
     assert all(c[1] == "buildx" for c in calls)
 
 
+# req: designs/orchestration/builder-preflight
 async def test_require_builder_raises_clear_error_when_cli_missing(monkeypatch):
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     monkeypatch.setattr(docker_build.cli, "run", AsyncMock(side_effect=FileNotFoundError(2, "No such file", "docker")))
@@ -273,6 +288,7 @@ def _stub_modes(monkeypatch, *, registry: str | None, have_image: bool) -> Async
     return build
 
 
+# req: designs/orchestration/build-modes
 @pytest.mark.parametrize(
     "registry, push",
     [pytest.param("registry.example:5000", True, id="registry"), pytest.param(None, False, id="local")],
@@ -286,6 +302,7 @@ async def test_build_image_to_tag_builds_on_miss(monkeypatch, registry, push):
     assert build.await_args is not None and build.await_args.kwargs == {"push": push}
 
 
+# req: designs/orchestration/build-modes
 @pytest.mark.parametrize(
     "registry", [pytest.param("registry.example:5000", id="registry"), pytest.param(None, id="local")]
 )
@@ -303,6 +320,7 @@ async def test_build_image_to_tag_cache_hit_skips_build(monkeypatch, registry):
     docker_build._require_builder.assert_not_awaited()
 
 
+# req: designs/orchestration/buildkitd-builds
 @pytest.mark.parametrize("push, flag, absent", [(True, "--push", "--load"), (False, "--load", "--push")])
 async def test_buildx_build_argv(monkeypatch, push, flag, absent):
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
@@ -320,6 +338,7 @@ async def test_buildx_build_argv(monkeypatch, push, flag, absent):
     assert argv[-1] == "/ctx"
 
 
+# req: designs/orchestration/buildkitd-builds
 async def test_buildx_build_resolves_host_gateway(monkeypatch):
     """buildkitd does not know dockerd's ``host-gateway`` keyword, so the worker
     passes the gateway IP itself."""
@@ -344,6 +363,7 @@ async def test_resolve_launch_image_rejects_missing_source():
         await resolve_launch_image(None, task_id=42)
 
 
+# req: designs/orchestration/build-modes
 @pytest.mark.parametrize(
     "registry, expected_tag",
     [
@@ -364,6 +384,7 @@ async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected
     build.assert_not_awaited()
 
 
+# req: designs/orchestration/buildkitd-builds
 async def test_require_builder_passes_tls_opts(monkeypatch):
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     monkeypatch.setenv("AAICLICK_BUILDKIT_TLS_CACERT", "/certs/ca.pem")

@@ -241,6 +241,7 @@ async def _persisted_shell_task(command, command_env=None) -> Task:
     return task
 
 
+# req: designs/orchestration/task-logs-stream
 async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_path):
     """Shell output reaches task_logs while the process is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
@@ -266,6 +267,7 @@ async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_pat
     assert await _current_lines() == ["first", "second"]
 
 
+# req: designs/orchestration/task-log-rows
 async def test_execute_shell_task_splits_streams(orch_ctx):
     """Shell stdout and stderr keep their streams."""
     task = await _persisted_shell_task(["sh", "-c", "echo out line; echo err line 1>&2"])
@@ -311,6 +313,7 @@ async def test_module_output_goes_to_task_logs_destination(
     assert ("This is stdout" in texts) is in_task_logs
 
 
+# req: designs/orchestration/run-registration
 async def test_register_run_inserts_running_rows(orch_ctx):
     """Each register_run call mints a distinct run_id and inserts an open RUNNING row."""
     job = await create_job("register_run_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
@@ -386,7 +389,7 @@ async def _completed_task(result: dict | None, group: Group | None = None) -> Ta
     return src
 
 
-# req: user_guide/task_interface/in-json-plain, user_guide/task_interface/vocabulary, architecture/contracts/task-vocabulary
+# req: user_guide/task_interface/in-json-plain, user_guide/task_interface/vocabulary, architecture/contracts/task-vocabulary, designs/task_interface/file-data-plane
 async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
     src = await _completed_task(native_ref({"a": 1}))
     resolved = await resolve_plain_kwargs(
@@ -395,7 +398,7 @@ async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
     assert resolved == {"x": {"a": 1}, "y": 2, "z": [3, {"w": 4}]}
 
 
-# req: user_guide/task_interface/plain-kwargs-only
+# req: user_guide/task_interface/plain-kwargs-only, designs/task_interface/file-data-plane
 async def test_resolve_plain_kwargs_rejects_object_result(orch_ctx):
     """A producer that stored an Object cannot feed a shell task; this is only
     knowable at launch, after the producer ran."""
@@ -404,6 +407,7 @@ async def test_resolve_plain_kwargs_rejects_object_result(orch_ctx):
         await resolve_plain_kwargs({"d": upstream_ref(src.id)}, src.job_id)
 
 
+# req: designs/task_interface/file-data-plane
 async def test_resolve_plain_kwargs_rejects_other_jobs_task(orch_ctx):
     """A ref resolves only inside the consumer's job, so it cannot read another job's result."""
     src = await _completed_task(native_ref(1))
@@ -483,7 +487,7 @@ async def test_task_object_result_round_trips(orch_ctx):
         assert await result.data() == [10, 20, 30]
 
 
-# req: user_guide/task_api_python/inputs-and-results
+# req: user_guide/task_api_python/inputs-and-results, designs/orchestration/view-lifecycle
 @pytest.mark.parametrize(
     "modifier, expected",
     [
@@ -596,6 +600,7 @@ async def test_run_job_tasks_single_task(orch_ctx):
         assert tasks[0].status == TASK_COMPLETED
 
 
+# req: designs/orchestration/task-logs-stream
 async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
     """Task stdout/stderr is readable cross-host via the CH task_logs stream."""
     job = await create_job("test_job_ch_log", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
@@ -611,6 +616,7 @@ async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
     assert by_text.get("Error message") == "stderr"
 
 
+# req: designs/orchestration/task-log-rows
 async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
     """A task whose entrypoint cannot be imported still gets a run, and the
     ImportError traceback lands in that run's task_logs — not only on the
@@ -658,6 +664,7 @@ async def test_run_job_tasks_failing_shell_task(orch_ctx):
     assert [(line.stream, line.text) for line in logs.lines] == [("stdout", "boom"), ("stderr", "error: exit 3")]
 
 
+# req: designs/task_interface/transport-details
 async def test_run_job_tasks_shell_command_env(orch_ctx):
     """command_env is overlaid onto the shell task's environment."""
     cmd = ["python", "-c", "import os,sys; sys.exit(0 if os.environ.get('K')=='v' else 3)"]
@@ -684,7 +691,7 @@ def _shell_job_coro(name: str, command: list[str], kwargs: dict | None = None):
     return create_job(name, create_task(None, kwargs, name=name, entry_type="shell", command=command))
 
 
-# req: user_guide/task_interface/io-contract, user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers
+# req: user_guide/task_interface/io-contract, user_guide/task_interface/same-files-every-runner, architecture/topology/execution-layers, designs/task_interface/file-data-plane, designs/task_interface/transport-per-runner
 async def test_shell_task_reads_in_json_and_writes_out_json(orch_ctx):
     job = await _shell_job_coro("shell_io", WRITE_DOUBLE, {"n": 21})
     await run_job_tasks(job)
@@ -701,7 +708,7 @@ async def test_shell_task_without_out_json_has_no_result(orch_ctx):
     assert (await get_tasks_for_job(job.id))[0].result is None
 
 
-# req: user_guide/task_interface/spawn-task-result
+# req: user_guide/task_interface/spawn-task-result, designs/task_interface/file-data-plane
 async def test_shell_task_out_json_spawns_children(orch_ctx):
     """A shell entry task returns a task_result dict: two shell workers and a
     finalize summing them; the entry's result is the finalize's (2 + 4 = 6)."""
@@ -738,7 +745,7 @@ async def test_shell_task_out_json_spawns_children(orch_ctx):
         assert await get_job_result(job) == 6
 
 
-# req: user_guide/task_interface/downstream-plain-value
+# req: user_guide/task_interface/downstream-plain-value, designs/task_interface/file-data-plane
 async def test_shell_result_reaches_python_task_as_plain_value(orch_ctx):
     job = await shell_to_python_job()
     await ajob_test(job)
@@ -747,7 +754,7 @@ async def test_shell_result_reaches_python_task_as_plain_value(orch_ctx):
         assert await get_job_result(job) == 42
 
 
-# req: user_guide/task_interface/io-contract
+# req: user_guide/task_interface/io-contract, designs/task_interface/file-data-plane
 async def test_shell_task_nonzero_exit_ignores_out_json(orch_ctx):
     spawn = {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"]}
     cmd = [
@@ -845,7 +852,7 @@ async def test_finish_shell_result_rejects_module_child(orch_ctx, child):
 _PARENT_REMOTE = "https://git/parent.git"
 
 
-# req: user_guide/task_interface/task-fields
+# req: user_guide/task_interface/task-fields, designs/orchestration/child-image-inheritance
 @pytest.mark.parametrize(
     "remote, allow, ok",
     [
@@ -998,6 +1005,7 @@ async def _is_ready(task_id: int) -> bool:
         return row.first() is not None
 
 
+# req: designs/orchestration/expander-hold
 async def test_hold_covers_members_added_to_a_successor_group_later(orch_ctx):
     """parent >> G with G empty at registration: a member added afterwards still waits for the data task."""
     job = await create_job("hold_late_member", "mod.func")
@@ -1021,6 +1029,7 @@ async def test_hold_covers_members_added_to_a_successor_group_later(orch_ctx):
     assert await _is_ready(member.id)
 
 
+# req: designs/orchestration/child-pins
 async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):
     """Dynamic children are pinned on every ephemeral table their kwargs reference.
 

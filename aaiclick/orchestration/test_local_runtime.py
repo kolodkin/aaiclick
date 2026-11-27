@@ -94,6 +94,7 @@ async def test_local_runtime_rebuilds_when_the_marker_outlives_the_schema(monkey
     assert called == [True]
 
 
+# req: designs/orchestration/background-shares-engine
 async def test_local_runtime_opens_one_sql_engine(monkeypatch):
     """The BackgroundWorker runs inside the helper's ``orch_context`` and uses
     its engine, so a local server holds one connection pool on local.db —
@@ -154,7 +155,7 @@ async def _scheduled_runs(registered_job_id: int) -> int:
         ).scalar_one()
 
 
-# req: user_guide/orchestration/running_jobs/cron-scheduling
+# req: user_guide/orchestration/running_jobs/cron-scheduling, designs/orchestration/cron-scheduling
 async def test_local_runtime_creates_a_due_scheduled_run(orch_ctx, monkeypatch):
     """Local mode is one process: the BackgroundWorker polls inside the
     server's ``orch_context``, and the ``orch_context`` its schedule pass

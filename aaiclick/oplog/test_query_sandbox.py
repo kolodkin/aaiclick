@@ -68,7 +68,7 @@ OUT_OF_SCOPE_TABLES: dict[str, str] = {
 }
 
 
-# req: user_guide/lineage/lineage-query-scope
+# req: user_guide/lineage/lineage-query-scope, designs/lineage/parse-tree-scoping
 @pytest.mark.parametrize("table", OUT_OF_SCOPE_TABLES.values(), ids=list(OUT_OF_SCOPE_TABLES))
 async def test_sandboxed_select_rejects_out_of_scope_table(orch_ctx, table):
     """Every scoped-table shape aaiclick creates is rejected when out of graph.
@@ -82,7 +82,7 @@ async def test_sandboxed_select_rejects_out_of_scope_table(orch_ctx, table):
     assert table in str(exc_info.value)
 
 
-# req: user_guide/lineage/lineage-query-scope
+# req: user_guide/lineage/lineage-query-scope, designs/lineage/safety-rails
 @pytest.mark.parametrize(
     "sql, function",
     [
@@ -116,7 +116,7 @@ async def test_sandboxed_select_rejects_table_functions(orch_ctx, sql, function)
     assert function in str(exc_info.value)
 
 
-# req: user_guide/lineage/lineage-query-scope
+# req: user_guide/lineage/lineage-query-scope, designs/lineage/parse-tree-scoping
 @pytest.mark.parametrize(
     "sql, expected",
     [
@@ -145,6 +145,7 @@ async def test_sandboxed_select_rejects_system_tables(orch_ctx):
     assert exc_info.value.kind == "not_select"
 
 
+# req: designs/lineage/parse-tree-scoping
 async def test_sandboxed_select_never_evaluates_sql_while_validating_scope(orch_ctx):
     """Scope validation parses the SQL; nothing in it runs first.
 
@@ -205,6 +206,7 @@ async def test_sandboxed_select_sends_sql_unchanged(orch_ctx):
     assert mock_client.query.call_args.args[0] == sql
 
 
+# req: designs/lineage/safety-rails
 async def test_sandboxed_select_pins_execution_settings(orch_ctx):
     """Every query carries max_execution_time and max_result_rows to prevent runaway scans."""
     mock_client = _ch_client_with_real_parser([], [])
@@ -218,7 +220,7 @@ async def test_sandboxed_select_pins_execution_settings(orch_ctx):
     assert "limit" in settings
 
 
-# req: user_guide/lineage/lineage-query-scope
+# req: user_guide/lineage/lineage-query-scope, designs/lineage/safety-rails
 @pytest.mark.parametrize(
     "sql",
     [
@@ -245,7 +247,7 @@ async def test_sandboxed_select_rejects_in_with_out_of_scope_table(orch_ctx, sql
     assert exc_info.value.kind == "out_of_scope"
 
 
-# req: user_guide/lineage/lineage-query-scope
+# req: user_guide/lineage/lineage-query-scope, designs/lineage/safety-rails
 @pytest.mark.parametrize(
     "sql",
     [
@@ -266,6 +268,7 @@ async def test_sandboxed_select_rejects_settings_clause(orch_ctx, sql):
     assert "SETTINGS" in str(exc_info.value)
 
 
+# req: designs/lineage/safety-rails
 async def test_run_select_truncates_past_the_ceiling_instead_of_failing(orch_ctx):
     """A result larger than the ceiling is cut, not turned into an error.
 
@@ -280,6 +283,7 @@ async def test_run_select_truncates_past_the_ceiling_instead_of_failing(orch_ctx
     assert len(result.rows) == DEFAULT_ROW_LIMIT
 
 
+# req: designs/lineage/safety-rails
 async def test_run_select_is_refused_write_access_by_clickhouse(orch_ctx):
     """ClickHouse refuses the write itself, so the keyword guard is not the only gate.
 
@@ -316,6 +320,7 @@ async def test_liveness_reports_missing_tables():
     assert alive == {TARGET_TABLE: True, PERSISTENT_INPUT: False}
 
 
+# req: designs/lineage/parse-tree-scoping
 @pytest.mark.parametrize(
     "sql, rows, columns",
     [
@@ -382,7 +387,7 @@ async def test_sandboxed_select_accepts_valid_select(orch_ctx, sql, rows, column
     assert isinstance(result, QueryResult)
 
 
-# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface
+# req: user_guide/lineage/lineage-tools, architecture/contracts/mcp-surface, designs/lineage/safety-rails
 @pytest.mark.parametrize(
     "sql",
     [

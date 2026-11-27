@@ -44,6 +44,7 @@ class _FakeSession:
         return _FakeResult(self._value)
 
 
+# req: designs/orchestration/entry-types-compose, designs/orchestration/worker-prerequisites
 async def test_jvm_without_container_runner_fails_instead_of_python_child():
     task = _task(entrypoint="com.example.Pipeline", image_source=None)
     task.entry_type = "jvm"
@@ -53,6 +54,7 @@ async def test_jvm_without_container_runner_fails_instead_of_python_child():
     assert "jvm" in (error or "")
 
 
+# req: designs/orchestration/entry-types-compose, designs/kubernetes_runner/resolved-at-dispatch
 async def test_null_image_source_dispatches_subprocess_whatever_the_worker_runner(monkeypatch):
     monkeypatch.setenv(ENV_WORKER_RUNNER, "kubernetes")
     resolved = await dispatch.resolve_dispatch(_task(image_source=None))
@@ -86,6 +88,7 @@ async def testresolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch,
     assert resolved.pod_config == pod_config
 
 
+# req: designs/orchestration/entry-types-compose, designs/task_interface/where-it-runs
 async def test_dispatch_shell_on_docker_uses_the_shell_vehicle(monkeypatch):
     """Container shell tasks run host-side (the file plane is multi-step), under
     a host-registered log run; only the subprocess runner uses the mp child."""
@@ -113,6 +116,7 @@ async def testresolve_dispatch_jvm_command_is_the_class_name(monkeypatch):
     assert (resolved.entry_type, resolved.command) == ("jvm", ["com.example.Pipeline"])
 
 
+# req: designs/orchestration/entry-types-compose, designs/java-sdk/jvm-dispatch
 async def test_dispatch_jvm_uses_shell_vehicle(monkeypatch):
     resolved = JobDispatch(RUNNER_DOCKER, None, "jvm", ["com.example.Pipeline"], image_source=PREBUILT)
     monkeypatch.setattr(dispatch, "resolve_dispatch", AsyncMock(return_value=resolved))

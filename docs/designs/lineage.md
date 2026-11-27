@@ -84,6 +84,7 @@ Tier 2 replay needs a `FULL` run: `NONE` keeps only persistent tables. Modes and
 
 **Implementation**: `aaiclick/oplog/query_sandbox.py`
 
+<!-- req: tool-scope -->
 Every tool takes `target_table` (plus `direction` / `max_depth`) and
 resolves its scope server-side from that table's lineage graph, so a caller
 cannot widen it:
@@ -103,10 +104,12 @@ async def lineage_query(sql: str, target_table: str, row_limit: int = 100, ...) 
 
 ```
 
+<!-- req: parse-tree-scoping -->
 ClickHouse parses `lineage_query`'s SQL (`EXPLAIN AST`) and the check reads
 table position off the parse tree, so scoping is positive: anything in
 table position that is not a graph table is rejected. Safety rails:
 
+<!-- req: safety-rails -->
 - **Read-only** — anything but `SELECT` is rejected
 - **Scoped** — every table position must name a graph table. Table
   functions (`merge`, `remote`, `url`, `file`, `cluster`) are rejected
@@ -128,6 +131,7 @@ table position that is not a graph table is rejected. Safety rails:
 
 ## Tool Result Types
 
+<!-- req: tool-result-types -->
 Pydantic models, so they serialize through MCP unchanged. A refused query
 raises `SandboxError` with a `kind` (`not_select`, `out_of_scope`,
 `invalid_argument`), mapped to `Invalid`; a target with no lineage, or a

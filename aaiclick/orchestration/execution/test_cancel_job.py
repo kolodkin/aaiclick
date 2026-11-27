@@ -57,7 +57,7 @@ async def _start_run(task_id: int) -> None:
     await register_run(task_id)
 
 
-# req: user_guide/orchestration/managing_jobs/cancel-job
+# req: user_guide/orchestration/managing_jobs/cancel-job, designs/orchestration/cancel-and-clear
 async def test_cancel_pending_job(orch_ctx):
     """Cancelling a PENDING job closes the job at once; its unclaimed tasks go
     to PENDING_CANCELLED_CLEANUP, not yet terminal."""
@@ -110,6 +110,7 @@ async def test_cancel_releases_failure_cleanup_task(orch_ctx):
     assert task.execution_worker_id is None
 
 
+# req: designs/orchestration/cancel-and-clear
 @pytest.mark.parametrize(
     "name, status, error",
     [
@@ -141,6 +142,7 @@ async def test_cancel_already_cancelled_raises_already_terminal(orch_ctx):
         await cancel_job(job.id)
 
 
+# req: designs/orchestration/cancel-and-clear
 async def test_cancel_nonexistent_job_raises_not_found(orch_ctx):
     """Test that cancelling a non-existent job raises JobNotFound."""
     with pytest.raises(JobNotFound, match="999999999"):
@@ -164,7 +166,7 @@ async def test_claim_skips_cancelled_job_tasks(orch_ctx):
     assert task is None
 
 
-# req: user_guide/orchestration/managing_jobs/cancel-job
+# req: user_guide/orchestration/managing_jobs/cancel-job, designs/orchestration/cancel-and-clear
 async def test_cancel_preserves_completed_tasks(orch_ctx):
     """Test that completed tasks are preserved when a job is cancelled."""
     worker = await register_execution_worker()
@@ -191,6 +193,7 @@ async def test_cancel_preserves_completed_tasks(orch_ctx):
     assert statuses == [TASK_COMPLETED, TASK_PENDING_CANCELLED_CLEANUP]
 
 
+# req: designs/orchestration/cancel-detection
 async def test_check_run_aborted_on_cancel(orch_ctx):
     """A cancelled job aborts its runs before the background worker settles them."""
     job = await create_job("check_cancelled", SIMPLE_TASK)

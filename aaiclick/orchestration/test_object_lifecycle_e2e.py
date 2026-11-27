@@ -290,6 +290,7 @@ async def _run_and_verify(pipeline_fn):
 # --- Tests ---
 
 
+# req: designs/orchestration/lifecycle-refs, designs/orchestration/pin-lifecycle
 async def test_single_consumer(orch_ctx):
     """A → B: one pin for the single consumer, one unpin."""
     events = await _run_and_verify(single_consumer_pipeline)
@@ -298,6 +299,7 @@ async def test_single_consumer(orch_ctx):
     assert len(pins) >= 1
 
 
+# req: designs/orchestration/pin-lifecycle
 async def test_fan_out(orch_ctx):
     """A → (B, C) → D: produce() result pinned for both double() and add_ten()."""
     events = await _run_and_verify(fan_out_pipeline)
@@ -306,6 +308,7 @@ async def test_fan_out(orch_ctx):
     assert len(pins) >= 2
 
 
+# req: designs/orchestration/pin-lifecycle
 async def test_chain(orch_ctx):
     """A → B → C: each link gets its own pin."""
     events = await _run_and_verify(chain_pipeline)
@@ -314,6 +317,7 @@ async def test_chain(orch_ctx):
     assert len(pins) >= 2
 
 
+# req: designs/orchestration/pin-lifecycle
 async def test_diamond(orch_ctx):
     """A → (B, C) → D: diamond with per-consumer pins."""
     events = await _run_and_verify(diamond_pipeline)
@@ -325,6 +329,7 @@ async def test_diamond(orch_ctx):
     assert len(pins) >= 5
 
 
+# req: designs/orchestration/view-lifecycle
 async def test_view_concat_lifecycle(orch_ctx):
     """View created mid-loop does not prematurely decref the underlying table.
 
@@ -340,6 +345,7 @@ async def test_view_concat_lifecycle(orch_ctx):
     await _run_and_verify(view_concat_pipeline)
 
 
+# req: designs/orchestration/pin-fanout-edges
 async def test_group_consumer(orch_ctx):
     """(M1, M2) in G, G >> B: each member's table is pinned for B and released by B."""
     events = await _run_and_verify(group_consumer_pipeline)
@@ -347,18 +353,21 @@ async def test_group_consumer(orch_ctx):
     assert len(pins) == 2
 
 
+# req: designs/orchestration/pin-fanout-edges
 async def test_ordering_edge_releases_pin(orch_ctx):
     """A pin held for a consumer that never deserializes the table is released when it starts."""
     events = await _run_and_verify(ordering_edge_pipeline)
     assert len(_pin_inserts(events)) == 1
 
 
+# req: designs/orchestration/child-pins
 async def test_map_children_pinned(orch_ctx):
     """One pin for produce → expander, source and output pins for the single child, and the finalize output pin."""
     events = await _run_and_verify(map_pipeline)
     assert len(_pin_inserts(events)) == 4
 
 
+# req: designs/orchestration/child-pins
 async def test_run_ref_outlives_collected_object(orch_ctx):
     """A table its task no longer references keeps the run ref until task_scope
     exit. A parent hands its children tables it drops on return; the run ref

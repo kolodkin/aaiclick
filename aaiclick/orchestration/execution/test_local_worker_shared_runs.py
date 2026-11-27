@@ -63,6 +63,7 @@ async def test_local_worker_handles_failure(drained):
     assert failed.error is not None
 
 
+# req: designs/task_interface/where-it-runs
 async def test_local_worker_executes_shell_task(drained):
     """A shell task runs on the in-process worker (log content is pinned in
     test_execution.py — here only the dispatch through the worker loop)."""

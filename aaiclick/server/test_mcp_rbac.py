@@ -27,6 +27,7 @@ def _principal(*, role: Role = ROLE_ADMIN, scope: ScopeLevel = SCOPE_ADMIN):
 # --- authorize_tool ------------------------------------------------------
 
 
+# req: designs/auth/mcp-tool-tags
 @pytest.mark.parametrize(
     ("principal", "tags"),
     [
@@ -40,6 +41,7 @@ def test_authorize_tool_allows(enabled, principal, tags):
     authorize_tool(principal, tags)
 
 
+# req: designs/auth/mcp-tool-tags
 @pytest.mark.parametrize(
     ("principal", "tags"),
     [
@@ -52,14 +54,21 @@ def test_authorize_tool_forbids(enabled, principal, tags):
         authorize_tool(principal, tags)
 
 
-# req: user_guide/lineage/local-mode-no-credential, architecture/security/auth-scope, architecture/backends/backend-capabilities
+# req: designs/auth/mcp-fail-closed
+def test_a_tool_needs_its_highest_tag(enabled):
+    """A tool tagged both ``read`` and ``admin`` is an admin tool: a mistag fails closed."""
+    with pytest.raises(Forbidden):
+        authorize_tool(_principal(role="viewer", scope="read"), {TAG_READ, TAG_ADMIN})
+
+
+# req: user_guide/lineage/local-mode-no-credential, architecture/security/auth-scope, architecture/backends/backend-capabilities, designs/auth/mcp-local-open
 def test_authorize_tool_local_mode_is_admin():
     """Local mode's synthetic principal (kind "none") acts as admin."""
     synthetic = Principal(user_id=None, role=ROLE_ADMIN, kind="none")
     authorize_tool(synthetic, {TAG_ADMIN})
 
 
-# req: architecture/contracts/mcp-surface
+# req: architecture/contracts/mcp-surface, designs/auth/mcp-tool-tags
 async def test_every_tool_has_exactly_one_rbac_tag():
     tools = await mcp.list_tools(run_middleware=False)
     assert tools and all(len(t.tags & {TAG_READ, TAG_WRITE, TAG_ADMIN}) == 1 for t in tools)
@@ -68,7 +77,7 @@ async def test_every_tool_has_exactly_one_rbac_tag():
 # --- through the HTTP mount ---------------------------------------------
 
 
-# req: user_guide/sandbox/non-admin-sandbox-only, architecture/contracts/mcp-surface
+# req: user_guide/sandbox/non-admin-sandbox-only, architecture/contracts/mcp-surface, designs/auth/mcp-tokens-only
 async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
     member = await api_token_headers(SCOPE_WRITE, role=ROLE_MEMBER)
     admin = await api_token_headers(SCOPE_ADMIN)
@@ -81,6 +90,7 @@ async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
         assert len(names) == len(await mcp.list_tools(run_middleware=False))
 
 
+# req: designs/auth/mcp-tool-tags, designs/auth/mcp-mount-middleware
 async def test_member_can_read_but_not_admin(orch_ctx, enabled):
     """A member reads and makes their own writes; job mutations need admin."""
     member = await api_token_headers(SCOPE_WRITE, role=ROLE_MEMBER)
@@ -97,7 +107,7 @@ async def test_member_can_read_but_not_admin(orch_ctx, enabled):
         assert "'admin' scope required" in result["content"][0]["text"]
 
 
-# req: user_guide/lineage/distributed-bearer-token
+# req: user_guide/lineage/distributed-bearer-token, designs/auth/mcp-mount-middleware, designs/api_server/auth-problem-errors
 async def test_anonymous_gets_401_problem(orch_ctx, enabled):
     async with mcp_http() as client:
         res = await mcp_rpc(client, "tools/list")
@@ -105,7 +115,7 @@ async def test_anonymous_gets_401_problem(orch_ctx, enabled):
     assert res.headers["www-authenticate"] == "Bearer"
 
 
-# req: user_guide/lineage/dropped-tables
+# req: user_guide/lineage/dropped-tables, designs/auth/mcp-tool-tags
 async def test_read_token_cannot_run_job(orch_ctx, enabled):
     """``run_job`` is an admin tool: a read-scoped token is refused even when its owner is an admin."""
     reader = await api_token_headers(SCOPE_READ)
@@ -118,7 +128,7 @@ async def test_read_token_cannot_run_job(orch_ctx, enabled):
     assert "'admin' scope required" in result["content"][0]["text"]
 
 
-# req: user_guide/lineage/local-mode-no-credential, architecture/security/auth-scope, architecture/backends/backend-capabilities
+# req: user_guide/lineage/local-mode-no-credential, architecture/security/auth-scope, architecture/backends/backend-capabilities, designs/auth/mcp-local-open
 async def test_local_mode_needs_no_credential(orch_ctx, monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     async with mcp_http() as client:

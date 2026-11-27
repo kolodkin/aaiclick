@@ -227,7 +227,7 @@ async def server_lends_s3_identity(request, ctx) -> None:
 # =============================================================================
 
 
-# req: user_guide/object/export/export-bucket
+# req: user_guide/object/export/export-bucket, designs/blob_storage/export-to-bucket
 async def test_export_writes_the_file(ctx, store):
     obj = await create_object_from_value(SAMPLE_TABLE)
     url = store.url("export/sample.parquet")
@@ -243,7 +243,7 @@ async def test_export_honors_view_constraints(ctx, store):
     assert store.read_parquet("export/view.parquet") == {"id": [2], "name": ["bob"], "score": [20.0]}
 
 
-# req: user_guide/object/export/export-bucket
+# req: user_guide/object/export/export-bucket, designs/blob_storage/export-to-bucket, designs/blob_storage/azure-collection-handling
 async def test_export_to_existing_key_needs_overwrite(ctx, store):
     url = store.url("export/twice.parquet")
     await (await create_object_from_value([1, 2])).export(url, overwrite=True, connection=store.connection)
@@ -266,7 +266,7 @@ async def test_export_to_bucket_applies_ch_settings(ctx, bucket):
     assert bucket.parquet_compression("export/settings.parquet") == "SNAPPY"
 
 
-# req: user_guide/object/export/export-reserved-bucket-settings
+# req: user_guide/object/export/export-reserved-bucket-settings, designs/blob_storage/azure-collection-handling
 @pytest.mark.parametrize(
     "url, connection, setting",
     [
@@ -301,7 +301,7 @@ async def sample_url(ctx, store) -> str:
     return await obj.export(store.url("open/sample.parquet"), overwrite=True, connection=store.connection)
 
 
-# req: user_guide/object/blob_storage/open-object-from-url, user_guide/object/blob_storage/s3-named-collection, user_guide/object/blob_storage/azure-blob-storage, architecture/security/secrets-never-in-sql, architecture/backends/backend-capabilities
+# req: user_guide/object/blob_storage/open-object-from-url, user_guide/object/blob_storage/s3-named-collection, user_guide/object/blob_storage/azure-blob-storage, architecture/security/secrets-never-in-sql, architecture/backends/backend-capabilities, designs/blob_storage/located-object-rules, designs/blob_storage/azure-rendering
 @pytest.mark.parametrize("extension", [".parquet", ".arrow", ".json", ".jsonl", ".orc", ".avro"])
 async def test_export_open_round_trip(ctx, store, extension):
     obj = await create_object_from_value(SAMPLE_TABLE)
@@ -310,7 +310,7 @@ async def test_export_open_round_trip(ctx, store, extension):
     assert await opened.data() == SAMPLE_TABLE
 
 
-# req: user_guide/object/blob_storage/open-object-from-url-rules
+# req: user_guide/object/blob_storage/open-object-from-url-rules, designs/blob_storage/export-format
 @pytest.mark.parametrize(
     "format, expected",
     [
@@ -327,7 +327,7 @@ async def test_csv_round_trip(ctx, store, format, expected):
     assert await (await open_object_from_url(url, connection=store.connection)).data() == expected
 
 
-# req: user_guide/object/blob_storage/open-object-from-url
+# req: user_guide/object/blob_storage/open-object-from-url, designs/blob_storage/located-object-pointer
 async def test_located_object_filters_and_aggregates_in_place(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, connection=store.connection)
     assert await opened.view(where="score > 15")["score"].sum().data() == 50.25
@@ -339,7 +339,7 @@ async def test_open_selected_columns(ctx, store, sample_url):
     assert await opened.data() == {"id": [1, 2, 3], "name": ["alice", "bob", "charlie"]}
 
 
-# req: user_guide/object/blob_storage/open-object-from-url-rules
+# req: user_guide/object/blob_storage/open-object-from-url-rules, designs/blob_storage/located-object-rules
 @pytest.mark.parametrize("glob", ["*", pytest.param("?", id="question-mark-is-a-glob-not-a-query")])
 async def test_open_glob(ctx, store, glob):
     for part in (1, 2):
@@ -349,7 +349,7 @@ async def test_open_glob(ctx, store, glob):
     assert sorted(await opened.data()) == [1, 2]
 
 
-# req: user_guide/object/blob_storage/open-object-from-url-rules
+# req: user_guide/object/blob_storage/open-object-from-url-rules, designs/blob_storage/located-object-rules
 async def test_open_without_extension_detects_format(ctx, bucket):
     """ClickHouse detects the format from the content when no extension names it."""
     obj = await create_object_from_value(SAMPLE_TABLE)
@@ -358,6 +358,7 @@ async def test_open_without_extension_detects_format(ctx, bucket):
     assert await opened.data() == SAMPLE_TABLE
 
 
+# req: designs/blob_storage/located-object-rules
 async def test_open_unknown_format_is_clickhouse_error(ctx):
     """Format names pass through; ClickHouse rejects one it does not know, before any request."""
     with pytest.raises(Exception, match="Unknown format"):
@@ -370,14 +371,14 @@ async def test_open_url_with_quote_in_key(ctx, store):
     assert await (await open_object_from_url(url, connection=store.connection)).data() == [1, 2, 3]
 
 
-# req: user_guide/object/blob_storage/open-object-from-url-rules
+# req: user_guide/object/blob_storage/open-object-from-url-rules, designs/blob_storage/located-object-rules
 async def test_located_object_rejects_insert(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, connection=store.connection)
     with pytest.raises(ValueError, match="read-only"):
         await opened.insert([4])
 
 
-# req: user_guide/object/blob_storage/open-object-from-url-rules
+# req: user_guide/object/blob_storage/open-object-from-url-rules, designs/blob_storage/located-object-rules
 async def test_located_object_rejects_insert_from_url(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, connection=store.connection)
     with pytest.raises(ValueError, match="read-only"):
@@ -413,6 +414,7 @@ def _located_schema(**overrides) -> Schema:
     return Schema(**(fields | overrides))
 
 
+# req: designs/blob_storage/located-object-rules
 async def test_located_object_cannot_be_named(ctx):
     with pytest.raises(ValueError, match="cannot be named"):
         await create_object(_located_schema(), name="lake_sample")
@@ -451,6 +453,7 @@ async def test_urls_carrying_credentials_are_rejected(ctx, url, match):
         await open_object_from_url(url)
 
 
+# req: designs/blob_storage/azure-rendering
 async def test_located_object_survives_a_task_boundary(ctx, store, sample_url):
     opened = await open_object_from_url(sample_url, connection=store.connection)
     params = await deserialize_task_params({"data": opened._serialize_ref()}, job_id=0)
@@ -494,7 +497,7 @@ def test_parse_az_url(url, expected):
     assert parse_az_url(url) == expected
 
 
-# req: user_guide/object/blob_storage/azure-credentials, architecture/security/secrets-never-in-sql
+# req: user_guide/object/blob_storage/azure-credentials, architecture/security/secrets-never-in-sql, designs/blob_storage/azure-collection-per-backend
 async def test_chdb_missing_env_var(ctx, monkeypatch):
     monkeypatch.setattr(ch_client, "is_chdb", lambda: True)
     monkeypatch.delenv(AZURE_CONNECTION_ENV, raising=False)
@@ -526,6 +529,7 @@ async def test_failed_collection_ddl_keeps_key_out_of_exception(ctx, monkeypatch
     assert "SECRETKEY" not in str(raised.value)
 
 
+# req: designs/blob_storage/azure-collection-handling
 async def test_chdb_defines_collection_once_per_client(ctx, monkeypatch):
     """Efficiency contract: one CREATE + ALTER per client and key, not per call.
     A rotated key is redefined."""
@@ -547,13 +551,14 @@ async def test_chdb_defines_collection_once_per_client(ctx, monkeypatch):
     assert len(statements) == 4
 
 
-# req: user_guide/object/blob_storage/azure-credentials, architecture/security/secrets-never-in-sql
+# req: user_guide/object/blob_storage/azure-credentials, architecture/security/secrets-never-in-sql, designs/blob_storage/azure-collection-per-backend
 async def test_server_needs_connection(ctx, monkeypatch):
     monkeypatch.setattr(ch_client, "is_chdb", lambda: False)
     with pytest.raises(ValueError, match="needs connection"):
         await open_object_from_url("az://c/p.parquet")
 
 
+# req: designs/blob_storage/azure-rendering
 async def test_oplog_and_registry_carry_no_account_key(ctx, container):
     async with task_scope(task_id=7, job_id=70, run_id=700):
         obj = await create_object_from_value(SAMPLE_TABLE)

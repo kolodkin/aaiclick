@@ -9,6 +9,7 @@ import pytest
 from . import cli
 
 
+# req: designs/kubernetes_runner/cli-helper
 async def test_run_captures_stdout():
     rc, out, err = await cli.run(sys.executable, "-c", "print('hello')")
     assert rc == 0
@@ -27,6 +28,7 @@ async def test_run_check_false_returns_returncode():
     assert rc == 2
 
 
+# req: designs/kubernetes_runner/cli-helper
 async def test_run_stream_tees_to_stdout(capsys):
     rc, out, err = await cli.run(sys.executable, "-c", "print('streamed')", stream=True)
     assert rc == 0

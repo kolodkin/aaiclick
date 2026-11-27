@@ -46,6 +46,7 @@ async def retried_run(orch_shared_ctx_no_ch, tmp_path_factory) -> tuple[Job, Tas
     return await _job(job.id), consumer
 
 
+# req: designs/orchestration/pin-lifecycle
 async def test_retry_reads_its_input(retried_run):
     """The retry still finds the producer's table and computes from it."""
     job, consumer = retried_run
@@ -59,6 +60,7 @@ async def test_retry_records_both_attempts(retried_run):
     assert [r.status for r in await get_task_runs(consumer.id)] == [TASK_FAILED, TASK_COMPLETED]
 
 
+# req: designs/orchestration/pin-lifecycle
 async def test_success_releases_input_pins(retried_run):
     _, consumer = retried_run
     async with get_sql_session() as session:
