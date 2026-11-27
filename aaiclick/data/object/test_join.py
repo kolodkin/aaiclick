@@ -435,3 +435,15 @@ async def test_join_with_name_temp_scope(ctx):
     assert joined.table.startswith("t_join_named_temp_")
     rows = await joined.data(orient="records")
     assert rows == [{"id": 1, "v": 10, "w": 100}]
+
+
+# req: user_guide/ingest/join-order
+async def test_join_result_orders_on_request(ctx):
+    """A join result has no row order of its own; ``data(order_by=...)`` and ``.view(order_by=...)`` give one."""
+    users = await create_object_from_value({"id": [3, 1, 2], "name": ["C", "A", "B"]})
+    orders = await create_object_from_value({"id": [2, 3, 1], "total": [20, 30, 10]})
+    joined = await users.join(orders, on="id")
+
+    expected = {"id": [1, 2, 3], "name": ["A", "B", "C"], "total": [10, 20, 30]}
+    assert await joined.data(order_by="id") == expected
+    assert await joined.view(order_by="total").data() == expected

@@ -8,7 +8,7 @@ The full ``ObjectDetail`` API surface is exercised by
 import pytest
 from pydantic import ValidationError
 
-from .models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ColumnInfo, Schema
+from .models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ColumnInfo, QueryStats, Schema
 
 
 def test_schema_round_trip_with_fieldtype():
@@ -45,3 +45,19 @@ def test_column_info_with_fieldtype_returns_copy():
     promoted = info.with_fieldtype(FIELDTYPE_ARRAY)
     assert promoted.fieldtype == FIELDTYPE_ARRAY
     assert info.fieldtype == FIELDTYPE_SCALAR  # frozen — original untouched
+
+
+# req: user_guide/object/query-stats-fields
+def test_query_stats_from_http_summary():
+    """Pure function: the clickhouse-connect summary mapping is the HTTP column of the field table."""
+    summary = {
+        "read_rows": "10",
+        "read_bytes": "80",
+        "elapsed_ns": "2500000000",
+        "result_rows": "4",
+        "written_rows": "4",
+        "written_bytes": "32",
+    }
+    assert QueryStats.from_clickhouse_summary(summary) == QueryStats(
+        read_rows=10, read_bytes=80, elapsed_s=2.5, result_rows=4, written_rows=4, written_bytes=32
+    )

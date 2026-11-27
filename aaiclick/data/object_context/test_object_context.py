@@ -40,12 +40,32 @@ async def test_create_object_allows_user_column_named_aai_id(ctx):
     assert "label" in names
 
 
+# req: user_guide/object/create-object-rejects-view-schema
 async def test_create_object_rejects_view_schema(ctx):
     """A ``ViewSchema`` says how to read a table, not what table to create."""
     obj = await create_object_from_value({"a": [1, 2]})
 
     with pytest.raises(TypeError, match="not a ViewSchema"):
         await create_object(obj.rename({"a": "x"}).schema)
+
+
+# req: user_guide/object_context/quoted-column-names
+async def test_column_names_needing_quotes_work_end_to_end(ctx):
+    """A column name with a space, or a SQL keyword, survives ingest, reads, operators, concat, insert and join."""
+    obj = await create_object_from_value({"my col": [1, 2, 2], "select": [10, 20, 30]})
+
+    assert await obj.data(order_by="`select` DESC") == {"my col": [2, 2, 1], "select": [30, 20, 10]}
+    assert sorted(await (obj["my col"] + obj["select"]).data()) == [11, 22, 32]
+    assert await obj["select"].sum().data() == 60
+    assert sorted((await (await obj.concat(obj)).data())["select"]) == [10, 10, 20, 20, 30, 30]
+
+    target = await create_object_from_value({"my col": [0], "select": [0]})
+    await target.insert(obj)
+    assert sorted((await target.data())["select"]) == [0, 10, 20, 30]
+
+    other = await create_object_from_value({"my col": [1, 2], "order": [5, 6]})
+    joined = await obj.join(other, on="my col")
+    assert await joined.data(order_by="`select`") == {"my col": [1, 2, 2], "select": [10, 20, 30], "order": [5, 6, 6]}
 
 
 # Context-manager lifecycle (objects become stale after context exits)

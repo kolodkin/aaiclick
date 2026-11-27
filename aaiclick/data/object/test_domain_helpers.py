@@ -237,6 +237,17 @@ async def test_with_multi_if_sql_conditions_and_results(ctx):
     assert data["final_price"] == [0.0, 160.0, 50.0, 80.0]
 
 
+# req: user_guide/object/multi-if-uint8-condition
+async def test_with_multi_if_bare_numeric_condition_rejected(ctx):
+    """ClickHouse rejects a bare Int64 condition; ``col = 1`` is the UInt8 form that works."""
+    obj = await create_object_from_value({"is_member": [0, 1]})
+    with pytest.raises(Exception, match="Illegal type Int64 of argument"):  # noqa: B017 - chdb and HTTP raise different classes
+        await obj.with_multi_if([("is_member", "'y'")], default="'n'", alias="m").data()
+
+    view = obj.with_multi_if([("is_member = 1", "'y'")], default="'n'", alias="m")
+    assert (await view.data())["m"] == ["n", "y"]
+
+
 # req: user_guide/object/with-multi-if
 async def test_with_multi_if_empty_branches(ctx):
     """with_multi_if() requires at least one branch."""

@@ -202,7 +202,7 @@ async def test_field_spec_nullable_admits_none_in_records(ctx):
     assert data == {"a": [1, 2], "score": [0.5, None]}
 
 
-# req: user_guide/object_context/field-specs
+# req: user_guide/object_context/field-specs, user_guide/ingest/nested-ingest-strictness
 @pytest.mark.parametrize(
     "value, fields, expected",
     [
@@ -235,6 +235,7 @@ async def test_field_spec_nullable_admits_none(ctx, value, fields, expected):
     assert await obj.data() == expected
 
 
+# req: user_guide/ingest/nested-ingest-strictness
 @pytest.mark.parametrize(
     "value, fields",
     [

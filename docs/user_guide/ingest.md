@@ -110,6 +110,7 @@ await create_object_from_url(
 
 ## Type inference
 
+<!-- req: column-types-skip-inference -->
 The loader discovers column types with `DESCRIBE (SELECT … FROM url(…) LIMIT 0)`.
 Pass `column_types=` to skip that round-trip — useful for headerless CSV/TSV,
 where ClickHouse may fail to infer numeric types from zero rows.
@@ -235,6 +236,7 @@ Outer-join SQL is emitted with `SETTINGS join_use_nulls = 1` so misses materiali
 - **Key types**: compared via the same type-compatibility rule as `concat` (`String` ↔ `FixedString` OK, `String` ↔ `Int64` not).
 <!-- req: join-low-cardinality -->
 - **LowCardinality / Array**: preserved; `LowCardinality(String)` on the outer side becomes `LowCardinality(Nullable(String))`. Join keys themselves must be scalar.
+<!-- req: join-order -->
 - **Order**: none intrinsic — pass `data(order_by=...)` or `.view(order_by=...)`.
 
 ## Examples

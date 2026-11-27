@@ -11,7 +11,10 @@ fields a backend supports and tolerate ``None`` elsewhere (see the availability
 matrix in ``docs/user_guide/object.md``).
 """
 
+import pytest
+
 from aaiclick import QueryStats, create_object_from_value
+from aaiclick.backend import is_chdb
 from aaiclick.data.object_context import get_ch_client
 from aaiclick.testing import list_ch_tables
 
@@ -78,6 +81,16 @@ async def test_copy_stats_populated(ctx):
     _assert_scanned(cs, 40)
     # written_rows is HTTP-only; chdb leaves it None.
     assert cs.written_rows is None or cs.written_rows == 40
+
+
+# req: user_guide/object/query-stats-fields
+@pytest.mark.skipif(not is_chdb(), reason="the chdb column of the field table")
+async def test_chdb_stats_fill_scan_fields_only(ctx):
+    """chdb fills ``read_rows`` / ``read_bytes`` / ``elapsed_s`` and leaves the result and write counts ``None``."""
+    obj = await create_object_from_value(list(range(40)))
+    stats = await (await obj.copy()).stats()
+    _assert_scanned(stats, 40)
+    assert (stats.result_rows, stats.written_rows, stats.written_bytes) == (None, None, None)
 
 
 # req: user_guide/object/stats

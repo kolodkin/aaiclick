@@ -13,6 +13,7 @@ async with object_context():
 # obj is now stale — using it raises RuntimeError
 ```
 
+<!-- req: object-context-decorator -->
 As a decorator it wraps a whole async function (the parentheses are required —
 `object_context` is a factory):
 
@@ -31,6 +32,7 @@ both. URLs and setup: [Deployment — Deployment Modes](deployment.md#deployment
 
 # Object Lifecycle and Staleness
 
+<!-- req: stale-on-context-exit -->
 Objects become **stale** when the context exits; every async method checks first.
 
 !!! warning "Create and consume Objects within the same `object_context()` block"
@@ -112,7 +114,9 @@ A dict routes to parallel arrays (one row per element) only when **all** values
 are lists; a mixed dict is a single record whose lists become `Array(T)`
 columns (`{"id": 1, "tags": ["a"]}` → `id` Int64, `tags` Array(String)).
 
-Column names are backtick-quoted in generated SQL.
+<!-- req: quoted-column-names -->
+Column names are backtick-quoted in generated SQL, except where `copy()` and
+`group_by()` write their result: a name that needs quoting fails there.
 
 # Supported Data Types
 

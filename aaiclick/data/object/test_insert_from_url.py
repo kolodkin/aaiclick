@@ -935,3 +935,31 @@ async def test_url_exhausts_retries_on_persistent_503(ctx, flaky_server):
         )
     # 3 attempts, each failing on its first upstream GET.
     assert handler.request_count == 3
+
+
+# req: user_guide/ingest/column-types-skip-inference
+@pytest.mark.skipif(
+    not is_chdb(),
+    reason="The real ClickHouse server issues Range requests the minimal flaky stub does not implement.",
+)
+@pytest.mark.parametrize(
+    "column_types, requests, id_type",
+    [
+        pytest.param(None, 2, "Int64", id="inferred-by-describe"),
+        pytest.param({"id": ColumnInfo("Int32"), "price": ColumnInfo("Float32")}, 1, "Int32", id="given-types"),
+    ],
+)
+async def test_column_types_skip_describe(ctx, flaky_server, column_types, requests, id_type):
+    """``column_types=`` sets the types and drops the DESCRIBE fetch, leaving only the INSERT read."""
+    base, handler = flaky_server
+    handler.fail_count = 0
+    obj = await create_object_from_url(
+        f"{base}/sample.parquet",
+        columns=["id", "price"],
+        format="Parquet",
+        limit=5,
+        column_types=column_types,
+    )
+    assert handler.request_count == requests
+    assert obj.schema.columns["id"].type == id_type
+    assert (await obj.data())["id"] == [1, 2, 3, 4, 5]

@@ -9,7 +9,7 @@ Flattens to columns: a (Int64), x.y.z (Int64)
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import FIELDTYPE_DICT, ORIENT_DICT, ORIENT_RECORDS, ColumnInfo, Schema
+from aaiclick.data.models import FIELDTYPE_DICT, ORIENT_DICT, ORIENT_RECORDS, ColumnInfo, Computed, Schema
 from aaiclick.data.object_context import create_object
 
 # =============================================================================
@@ -141,6 +141,16 @@ async def test_explicit_schema_dotted_column_round_trip(ctx):
     data = await obj.data()
 
     assert data == {"a": {"b": 1}}
+
+
+# req: user_guide/ingest/nested-ingest-strictness
+async def test_view_dotted_column_names_reconstruct(ctx):
+    """A View that renames to, or computes, dotted names re-nests them on ``data()``."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4]})
+
+    assert await obj.rename({"a": "m.a", "b": "m.b"}).data() == {"m": [{"a": 1, "b": 3}, {"a": 2, "b": 4}]}
+    computed = obj.with_columns({"n.s": Computed("Int64", "a + b")})
+    assert await computed.data() == {"a": [1, 2], "b": [3, 4], "n": [{"s": 4}, {"s": 6}]}
 
 
 # =============================================================================

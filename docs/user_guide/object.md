@@ -271,6 +271,7 @@ daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_dai
 yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
 ```
 
+<!-- req: await-only-for-object -->
 `await` is only needed to get the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining operators (`(a + b) + c`, `obj.abs().sum()`) needs no `await` of the intermediate.
 
 ## `.as_(name, scope=...)`
@@ -300,6 +301,7 @@ totals = await orders.group_by("category").sum("amount", name="totals", scope="g
 # → p_totals
 ```
 
+<!-- req: lazy-forwards-name-scope -->
 On a `LazyOperator` they forward to the materialized delegate, so
 `(a + b).copy(name=..., scope=...)` and `(a + b).join(b, name=..., scope=...)` work.
 
@@ -333,6 +335,7 @@ LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 
 ## Avoid: concurrent await of the same instance
 
+<!-- req: concurrent-await-race -->
 `asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
 
 # Data Retrieval
@@ -370,6 +373,7 @@ print(stats.elapsed_s)   # server-side wall time
 
 `QueryStats` is a frozen value type (exported from `aaiclick`). Every field is best-effort — a backend fills what it can surface and leaves the rest `None`:
 
+<!-- req: query-stats-fields -->
 | Field           | Meaning                                  | clickhouse-connect (HTTP) | chdb                |
 |-----------------|------------------------------------------|---------------------------|---------------------|
 | `read_rows`     | rows ClickHouse scanned                  | summary                   | `storage_rows_read` |
@@ -740,6 +744,7 @@ SQL, so `AND` / `OR` / `NOT` / `IN` compose in a condition, and a result may be 
 or an expression.
 
 !!! warning "Conditions must be `UInt8`"
+    <!-- req: multi-if-uint8-condition -->
     ClickHouse rejects a bare numeric column with `Illegal type Int64 of argument (condition)`.
     Write `is_member = 1`, not `is_member`.
 
@@ -791,6 +796,7 @@ await sorted_copy.data()  # returns rows sorted by amount DESC
 
 The result carries the `INSERT … SELECT` [stats()](#stats).
 
+<!-- req: create-object-rejects-view-schema -->
 `Schema` = "what a table is" and `ViewSchema` = "how to read it"; the registry never sees the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/object_context.md#schema-storage).
 
 !!! warning "`copy()` is not serialized across workers"

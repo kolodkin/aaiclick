@@ -3,6 +3,7 @@
 See ``docs/user_guide/object.md`` — "Lazy Operator Results".
 """
 
+import asyncio
 import operator
 
 import pytest
@@ -168,7 +169,7 @@ async def test_lazy_never_awaited_creates_no_table(ctx):
         _ = lazy.table
 
 
-# req: user_guide/object/lazy-invariants
+# req: user_guide/object/lazy-invariants, user_guide/object/await-only-for-object
 async def test_data_auto_materializes(ctx):
     """Calling .data() on an unawaited lazy materializes and returns rows."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -184,7 +185,7 @@ async def test_data_auto_materializes(ctx):
     assert lazy.table == cached_table
 
 
-# req: user_guide/object/lazy-invariants
+# req: user_guide/object/lazy-invariants, user_guide/object/await-only-for-object
 async def test_result_auto_materializes(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -339,6 +340,7 @@ async def test_aggregation_as_scope_job(ctx):
     assert await result.data() == 25.0
 
 
+# req: user_guide/object/await-only-for-object
 async def test_aggregation_data_auto_materializes(ctx):
     """The user's request: ``await obj.sum().data()`` works directly — no
     double-await needed (LazyOperator.data() materializes then reads)."""
@@ -680,3 +682,55 @@ async def test_array_map_as_named(ctx):
     result = await a.array_map(10, "*").as_("scaled")
     assert result.table.startswith("t_scaled_")
     assert sorted(await result.data()) == [10, 20, 30]
+
+
+# req: user_guide/object/await-only-for-object
+async def test_markdown_and_chains_need_no_intermediate_await(ctx):
+    """Reading a lazy as markdown, or chaining off it, needs no ``await`` of the intermediate."""
+    a = await create_object_from_value([-1, 2, -3], aai_id=True)
+    assert "| value |" in await (a * 2).markdown()
+    assert await a.abs().sum().data() == 6
+    assert await ((a + a) + a).data() == [-3, 6, -9]
+
+
+# req: user_guide/object/lazy-forwards-name-scope
+async def test_lazy_copy_forwards_name_and_scope(ctx):
+    """``(a + b).copy(name=..., scope=...)`` reaches the materialized delegate."""
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([10, 20, 30], aai_id=True)
+
+    named = await (a + b).copy(name="lazy_copy")
+    assert named.table.startswith("t_lazy_copy_")
+    assert await named.data() == [11, 22, 33]
+
+    await delete_persistent_object("lazy_copy_global", scope="global")
+    try:
+        pinned = await (a + b).copy(name="lazy_copy_global", scope="global")
+        assert pinned.table == "p_lazy_copy_global"
+    finally:
+        await delete_persistent_object("lazy_copy_global", scope="global")
+
+
+# req: user_guide/object/lazy-forwards-name-scope
+async def test_lazy_join_forwards_name(ctx):
+    """``(a + b).join(other, name=...)`` names the join result."""
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([10, 20, 30], aai_id=True)
+    other = await create_object_from_value({"value": [11, 22], "w": [1, 2]})
+
+    joined = await (a + b).join(other, on="value", name="lazy_join")
+    assert joined.table.startswith("t_lazy_join_")
+
+
+# req: user_guide/object/concurrent-await-race
+async def test_concurrent_await_of_one_lazy_materializes_twice(ctx):
+    """Two tasks awaiting one unmaterialized lazy both materialize it: two tables."""
+
+    async def materialize(lazy: LazyOperator) -> Object:
+        return await lazy
+
+    a = await create_object_from_value([1, 2, 3])
+    lazy = a + a
+    first, second = await asyncio.gather(materialize(lazy), materialize(lazy))
+    assert first.table != second.table
+    assert lazy.table in {first.table, second.table}
