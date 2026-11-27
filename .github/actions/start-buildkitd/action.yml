@@ -17,9 +17,6 @@ runs:
         [registry."localhost:5000"]
           http = true
           insecure = true
-        [registry."host.docker.internal:5000"]
-          http = true
-          insecure = true
         TOML
         docker run -d --name buildkitd --privileged --network host \
           -v /tmp/buildkit:/etc/buildkit \
