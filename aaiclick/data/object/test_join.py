@@ -408,6 +408,7 @@ async def test_join_self_join_aliases(ctx):
 # =============================================================================
 
 
+# req: user_guide/object/materializing-ops-name-scope
 async def test_join_with_name_global_scope(ctx):
     """join(name=..., scope='global') routes through the named-table path."""
     left = await create_object_from_value({"id": [1, 2], "v": [10, 20]})
@@ -423,6 +424,7 @@ async def test_join_with_name_global_scope(ctx):
         await delete_persistent_object("join_named_global", scope="global")
 
 
+# req: user_guide/object/materializing-ops-name-scope
 async def test_join_with_name_temp_scope(ctx):
     """join(name=...) defaults to temp_named scope (t_<name>_<id>)."""
     left = await create_object_from_value({"id": [1], "v": [10]})

@@ -121,6 +121,7 @@ async def test_clean_task_run_then_cleanup_drops_table(bg_db):
     assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
 
 
+# req: user_guide/object_context/preservation-modes
 async def test_cleanup_full_mode_skips_drop(bg_db):
     """Tables belonging to a FULL-mode job are preserved by cleanup."""
     await insert_job(bg_db, 777, preservation_mode="FULL")
@@ -137,6 +138,7 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     mock_ch().command.assert_not_called()
 
 
+# req: user_guide/object_context/preservation-modes
 async def test_cleanup_none_mode_drops(bg_db):
     """Tables belonging to a NONE-mode job are dropped as normal."""
     await insert_job(bg_db, 888, preservation_mode="NONE")
@@ -246,6 +248,7 @@ async def test_drop_tables_gives_up_after_consecutive_failures(bg_db):
     assert await _table_names(bg_db, "table_context_refs") == {f"t_{i}" for i in range(5)}
 
 
+# req: user_guide/object_context/persistent-tables-outlive-refcount
 async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     """``p_*`` and ``j_<id>_*`` tables are exempt from refcount-based cleanup."""
     await insert_context_ref(bg_db, "p_user_catalog", 100)
@@ -262,6 +265,7 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     assert "t_scratch" not in remaining, "Temp table was not cleaned up"
 
 
+# req: user_guide/object_context/persistent-tables-outlive-refcount
 async def test_delete_job_data_exempts_persistent_tables(orch_ctx, bg_db):
     """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never ``p_*``."""
     job_id = 555

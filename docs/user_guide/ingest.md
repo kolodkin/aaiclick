@@ -12,6 +12,7 @@ Unions any number of sources (`obj.concat(a, b, c)`, or standalone `concat(a, b,
 
 <!-- req: concat-union -->
 - **Union**: row order is undefined (see [Row Order](#row-order)); source `aai_id` values are copied, so reads of an `aai_id` result follow creation order, not argument order, and `concat(obj, obj)` duplicates ids
+<!-- req: concat-nullable-promotion -->
 - **Nullable promotion**: if any source has nullable columns, the result column is promoted to `Nullable`
 <!-- req: concat-compatible-types -->
 - **Compatible types**: all sources must have matching column names and compatible ClickHouse types

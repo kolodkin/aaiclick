@@ -31,6 +31,7 @@ DT_MILLIS = datetime(2024, 3, 10, 8, 15, 30, 123000, tzinfo=UTC)
 # =============================================================================
 
 
+# req: user_guide/object_context/datetime-utc
 @pytest.mark.parametrize(
     "value",
     [

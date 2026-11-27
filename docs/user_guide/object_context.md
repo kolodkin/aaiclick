@@ -116,9 +116,11 @@ Column names are backtick-quoted in generated SQL.
 
 # Supported Data Types
 
+<!-- req: inferred-types -->
 `create_object_from_value()` maps `int` → `Int64`, `float` → `Float64`, `bool` →
-`UInt8`, `str` → `LowCardinality(String)`, `datetime` → `DateTime64(3, 'UTC')`.
+`Bool`, `str` → `String`, `datetime` → `DateTime64(3, 'UTC')`.
 
+<!-- req: datetime-utc -->
 For explicit schemas use `ColumnInfo("DateTime64(3, 'UTC')")`. DateTime64 values
 return as timezone-aware `datetime(tzinfo=utc)`.
 
@@ -181,6 +183,7 @@ background worker does the cleanup. Full design:
 
 # Preservation Modes
 
+<!-- req: preservation-modes -->
 A `Job`'s `preservation_mode` controls which tables survive cleanup after it
 completes; task execution is identical in both modes.
 
