@@ -344,7 +344,7 @@ async def test_multiple_concat_keeps_all_rows(ctx):
     assert sorted(data) == [1, 2, 3, 4, 5, 6]
 
 
-# req: user_guide/ingest/concat-union, architecture/data_model/no-implicit-order
+# req: user_guide/ingest/concat-union
 async def test_concat_multi_arg_row_set(ctx):
     """Multi-arg concat keeps every row; order is undefined (concat is a union)."""
     obj1 = await create_object_from_value([1, 2])
@@ -356,7 +356,7 @@ async def test_concat_multi_arg_row_set(ctx):
     assert sorted(data) == [1, 2, 3, 4, 5, 6]
 
 
-# req: user_guide/ingest/concat-union, architecture/data_model/no-implicit-order
+# req: user_guide/ingest/concat-union
 async def test_concat_same_source_twice_preserves_all_rows(ctx):
     """Concatenating the same source twice produces the full row set."""
     obj = await create_object_from_value([1, 2])
@@ -366,7 +366,7 @@ async def test_concat_same_source_twice_preserves_all_rows(ctx):
     assert sorted(data) == [1, 1, 2, 2]
 
 
-# req: user_guide/ingest/concat-union, architecture/data_model/no-implicit-order
+# req: user_guide/ingest/concat-union
 async def test_concat_copies_aai_id_reads_in_creation_order(ctx):
     """concat copies source aai_id values, so reads follow id (creation) order,
     not argument order — concat is a union, not an orderer."""

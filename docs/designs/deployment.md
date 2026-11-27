@@ -54,11 +54,9 @@ which renders `.Chart.AppVersion`.
 
 Two paths, production first:
 
-1. **`auth.existingSecret`**: a Secret managed outside Helm (External Secrets
-   Operator, Sealed Secrets, Vault, `kubectl`) with keys `jwt-secret`,
-   `admin-password`, `sql-url`, `ch-url` (plus `pg-password`, `ch-password`
-   with `devDependencies`). The chart renders no credentials at all, so none
-   sit in `values.yaml` or the release history.
+1. **`auth.existingSecret`** ([how to](../user_guide/deployment.md#kubernetes-mode)):
+   the chart renders no credentials at all, so none sit in `values.yaml` or
+   the release history.
 2. **Generated**: otherwise the chart renders `<release>-credentials`. Each
    value is the one set in values, else the one stored in that Secret
    (`lookup`, so `helm upgrade` keeps it), else random (`randAlphaNum 48` for

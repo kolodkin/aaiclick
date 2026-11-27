@@ -66,5 +66,9 @@ untagged.
 
 - Docs: the `markdown-style` skill. Unbuilt behavior goes in
   `docs/designs/future.md`, not on a layer page.
+- One fact, one layer: state it at the highest layer it belongs to (what a
+  user can observe goes in `user_guide/`), and have lower layers link up and
+  add only their own detail — the rule behind it in `architecture/`, the
+  mechanism in `designs/`. A repeated sentence across layers is a bug.
 - Tests: the `python-testing-style` skill; fixtures and the chdb session
   constraint are in `docs/contributor/testing.md`.

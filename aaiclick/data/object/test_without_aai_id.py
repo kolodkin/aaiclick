@@ -62,14 +62,14 @@ async def test_partial_aai_id_one_sided_still_requires_order_by(ctx):
     assert "aai_id" in result.schema.columns
 
 
-# req: user_guide/ingest/row-order, architecture/data_model/no-implicit-order
+# req: user_guide/ingest/row-order
 async def test_view_order_by_value_recovers_value_order(ctx):
     """Without aai_id, callers can still recover sorted-by-value order."""
     obj = await create_object_from_value([3, 1, 2])
     assert await obj.view(order_by="value").data() == [1, 2, 3]
 
 
-# req: user_guide/ingest/row-order, architecture/data_model/no-implicit-order
+# req: user_guide/ingest/row-order
 async def test_data_without_constraints_is_unordered(ctx):
     """Without aai_id and without an explicit order_by, ``data()`` makes no
     ordering guarantee — but the multiset of values is preserved."""

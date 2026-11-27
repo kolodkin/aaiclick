@@ -23,19 +23,15 @@ Processes never talk to each other: claiming, heartbeats and cancellation pollin
 **Implementation**: `aaiclick/backend.py`
 
 <!-- req: deployment-modes -->
-Two independent environment variables pick the mode:
+The two modes and their URLs are in [Deployment](../user_guide/deployment.md#deployment-modes).
+What changes inside the system between them:
 
-| Aspect                 | Local (default)                            | Distributed                                                   |
-|------------------------|--------------------------------------------|---------------------------------------------------------------|
-| **Data backend**       | chdb (embedded ClickHouse)                 | ClickHouse server                                             |
-| **SQL backend**        | SQLite via aiosqlite                       | PostgreSQL via asyncpg                                        |
-| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`            | `clickhouse://user:pass@host:8123/database`                   |
-| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database`           |
-| **Setup**              | `python -m aaiclick setup`                 | Provision servers + `python -m aaiclick migrate upgrade head` |
-| **Schema**             | `create_all`, no revision chain            | Alembic revision chain                                        |
-| **Task claiming**      | Sequential SELECT + UPDATE                 | Atomic CTE with `FOR UPDATE SKIP LOCKED`                      |
-| **Table lifecycle**    | `LocalLifecycleHandler` (in-process task)  | `OrchLifecycleHandler` (SQL refcounts)                        |
-| **Detection**          | `is_chdb()` / `is_sqlite()` return `True`  | Both return `False`                                           |
+| Aspect              | Local (chdb + SQLite)                     | Distributed (ClickHouse + PostgreSQL)    |
+|---------------------|-------------------------------------------|------------------------------------------|
+| **Detection**       | `is_local()`: CH URL `chdb://` and SQL URL `sqlite` | otherwise                      |
+| **Schema**          | `create_all`, no revision chain           | Alembic revision chain                   |
+| **Task claiming**   | Sequential SELECT + UPDATE                | Atomic CTE with `FOR UPDATE SKIP LOCKED` |
+| **Table lifecycle** | `LocalLifecycleHandler` (in-process task) | `OrchLifecycleHandler` (SQL refcounts)   |
 
 **One migration chain, not two.** Alembic revisions target PostgreSQL only — they use plain `ALTER` of constraints, which SQLite cannot run without alembic's batch (copy-and-move) mode. Supporting both would mean writing, reviewing and testing every revision twice for a local database meant to be thrown away. Local SQLite is built by `create_all` and recreated, not migrated, when it falls behind (`aaiclick setup --force`).
 
@@ -43,26 +39,21 @@ The cost: locally there is no `alembic_version` row to answer *is this database 
 
 Accepted limit: anything a revision does that `create_all` would not (a backfill, a data repair) is invisible — local databases are recreated, so there is nothing to backfill.
 
-`is_local()` is `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` with `sqlite`; local mode needs `python -m aaiclick setup`, distributed mode `python -m aaiclick migrate upgrade head`.
-
 ## Worker runner
 
 **Implementation**: `aaiclick/orchestration/execution/runner_env.py`
 
 <!-- req: worker-runner -->
-An execution worker launches container tasks through one **runner**, read once from `AAICLICK_RUNNER`. It is a property of the worker's deployment, not the job: the compose stack ships the `aaiclick-docker` worker with the host socket mounted, the helm chart the `aaiclick-kubectl` worker with a ServiceAccount, and a claimed task runs on whatever its worker has.
-
-| `AAICLICK_RUNNER` | Container tasks run as                  | Extra worker requirements                      |
-|-------------------|-----------------------------------------|------------------------------------------------|
-| unset             | not at all — container tasks fail       | none                                           |
-| `docker`          | sibling containers on the worker daemon | Docker daemon + CLI                            |
-| `kubernetes`      | Pods in the cluster                     | `kubectl` (+ buildkitd & registry for `build`) |
+The runner a task gets ([Runners — Runner modes](../user_guide/orchestration/runners.md#runner-modes))
+is a property of the worker's deployment, read once from `AAICLICK_RUNNER`, not
+of the job: the compose stack ships the `aaiclick-docker` worker with the host
+socket mounted, the helm chart the `aaiclick-kubectl` worker with a
+ServiceAccount, and a claimed task runs on whatever its worker has.
 
 - Tasks without an image (`tasks.image_source IS NULL`) run as a host subprocess on every worker.
 - A `kubernetes` worker runs the concurrent reconciler of `kubernetes_runner.md` instead of the serial loop.
 - No auto-detection: `aaiclick-kubectl` inherits the docker CLI, so an installed binary says nothing.
 - `execution-worker start` validates the value and rejects `kubernetes` with `AAICLICK_LOCAL_BUILD` (the cluster cannot pull from the worker's daemon).
-- Container tasks need the distributed backends: a container or Pod reaches ClickHouse + PostgreSQL over the network, and embedded chdb or a SQLite file cannot be shared into it. `run_job` rejects a resolved image source under `is_local()`.
 
 # Execution layers
 

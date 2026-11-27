@@ -85,7 +85,7 @@ async def test_enabled_bad_signature_unauthorized(orch_ctx, enabled, anon_client
     assert Problem.model_validate(res.json()).code is ProblemCode.UNAUTHORIZED
 
 
-# req: user_guide/access/token-never-outranks-owner, architecture/security/role-ceiling, designs/auth/token-ownership, designs/auth/token-capped-by-owner
+# req: user_guide/access/token-never-outranks-owner, architecture/security/role-ceiling, designs/auth/token-capped-by-owner
 async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
     """An ``aaic_`` credential is looked up in the DB and carries the owner's
     current role and the token's scope."""
@@ -121,7 +121,7 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
         await auth.resolve_principal(authorization="Bearer aaic_not-a-real-token")
 
 
-# req: architecture/security/principal-resolution, designs/auth/scope-ladder
+# req: architecture/security/principal-resolution, architecture/security/scope-ladder
 @pytest.mark.parametrize(
     "held, required",
     [
@@ -135,7 +135,7 @@ def test_check_scope_admits_down_the_ladder(held, required):
     auth.check_scope(principal, required)
 
 
-# req: architecture/security/principal-resolution, designs/auth/scope-ladder
+# req: architecture/security/principal-resolution, architecture/security/scope-ladder
 @pytest.mark.parametrize(
     "held, required",
     [

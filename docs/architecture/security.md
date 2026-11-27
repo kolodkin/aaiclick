@@ -70,7 +70,7 @@ change, not a constraint migration. `audit_log` lives in `aaiclick/audit/` — s
 | `name`         | `String`                              | Free-text label (`"ci-deploy"`)                                  |
 | `prefix`       | `String`                              | First 12 chars of the secret, for display                        |
 | `token_hash`   | `String`, unique, indexed             | `sha256(secret)`                                                 |
-| `scope`        | `String`                              | `ScopeLevel` literal — see [The scope ladder](../designs/auth.md#the-scope-ladder) |
+| `scope`        | `String`                              | `ScopeLevel` literal — see [The scope ladder](#roles) |
 | `expires_at`   | `datetime \| None`                    | `None` → never expires                                           |
 | `last_used_at` | `datetime \| None`                    | Refreshed at most once a minute                                  |
 | `revoked_at`   | `datetime \| None`                    |                                                                  |
@@ -122,26 +122,27 @@ administers — jobs, objects, tasks, users, workers, audit. A test in
 
 **Implementation**: `aaiclick/auth/models.py`
 
+What each role may do: [Access — Roles](../user_guide/access.md#roles).
+
 <!-- req: role-ceiling -->
-| Role     | Scope   | Holds                                                          |
-|----------|---------|----------------------------------------------------------------|
-| `viewer` | `read`  | Every read                                                     |
-| `member` | `write` | Reads, plus saving and deleting dashboards                     |
-| `admin`  | `admin` | The installation — jobs, objects, users, workers, setup, audit |
+Authority is a property of the user: one `users.role` column, bridged to a
+scope level by `ROLE_SCOPES` (`viewer` → `read`, `member` → `write`, `admin` →
+`admin`). Every principal — session or token — is checked against that level;
+a token's level is the lower of its own scope and its owner's current role.
 
-Authority is a property of the user: one `users.role` column, bridged to the
-scope ladder by `ROLE_SCOPES`. Delegation is capped at what the delegator holds
-— an admin mints any scope and invites any role; a member mints up to `write`
-and cannot invite. A user created without an explicit role is a `viewer`.
+<!-- req: scope-ladder -->
+The levels are ordered; each admits itself and everything below, and each
+mirrors one REST guard:
 
-Every role may submit to the sandbox from a signed-in session
-(`require_session` in `aaiclick/server/routers/sandbox.py`); see
-`docs/user_guide/sandbox.md`.
+| Level   | Admits, plus everything below                                                                                      | REST guard                |
+|---------|--------------------------------------------------------------------------------------------------------------------|---------------------------|
+| `read`  | every read, including `POST /viewer/query` and dashboard runs                                                      | `require_principal` alone |
+| `write` | dashboard saves and deletes                                                                                        | `require_write`           |
+| `admin` | everything else — run / cancel jobs, register, clear tasks, delete / purge objects, users, workers, setup, migrate | `require_admin`           |
 
 Local mode has no credential, so a synthetic admin stands in: `role="admin"`
 with `user_id=None`. That is why account routes needing a real user row answer
-`422` there. The first admin comes from the startup seed or the CLI — see
-[CLI & Admin Bootstrap](../designs/auth.md#cli-admin-bootstrap).
+`422` there.
 
 # Credentials
 

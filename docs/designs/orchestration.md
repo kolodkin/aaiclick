@@ -143,8 +143,10 @@ Atomically claims the oldest pending task whose dependencies are all satisfied, 
 Queries live in `jobs/`; cancel and clear in `execution/claiming.py`.
 
 <!-- req: cancel-and-clear -->
-- **Cancel** atomically cancels a job and all its non-terminal tasks; a missing job raises `JobNotFound`, an already-terminal one `JobAlreadyTerminal`.
-- **Clear** (Airflow-style) resets a task and all its transitive downstream tasks to PENDING for re-run. Upstream tasks and their output tables are untouched; a terminal job is reactivated to RUNNING. Each reset bumps `run_epoch`, so an in-flight worker's late writes are rejected.
+What cancel and clear do: [Managing Jobs](../user_guide/orchestration/managing_jobs.md).
+Cancel updates the job and every non-terminal task in one transaction; clear
+bumps each reset task's `run_epoch`, so an in-flight worker's late writes are
+rejected.
 
 <!-- req: cancel-detection -->
 Workers detect cancellation by polling task status. **Known limitation**: CPU-bound tasks don't interrupt until they yield.
@@ -159,16 +161,11 @@ Catalog of known jobs, separate from runs. Each entry stores entrypoint, optiona
 ## Preservation Config Precedence
 
 <!-- req: preservation-precedence -->
-`preservation_mode` resolves through four levels (`factories.py`):
-
-| Level | Source                                               | Wins when                            |
-|-------|------------------------------------------------------|--------------------------------------|
-| 1     | Explicit `run_job(...)` / `create_job(...)` argument | The caller passes a non-`None` value |
-| 2     | `RegisteredJob.preservation_mode`                    | The registered job carries a default |
-| 3     | `AAICLICK_DEFAULT_PRESERVATION_MODE` env var         | Set in environment                   |
-| 4     | `"NONE"`                                             | Hardcoded fallback                   |
-
-`None` at any level inherits from the next; an explicit mode ends the chain. Scheduled runs get the level-2 default; manual runs (`run_job()`, CLI) can override at level 1.
+`factories.py` resolves `preservation_mode` through the chain in
+[Running Jobs — Preservation modes](../user_guide/orchestration/running_jobs.md#preservation-modes);
+`create_job()` follows it like `run_job()`. `None` at a level falls through to
+the next. Scheduled runs take the registration's default; manual runs can
+override it.
 
 ## run_job
 
@@ -204,7 +201,7 @@ Worker and server commands are user-facing: [Managing Jobs — Workers](../user_
 ## reduce()
 
 <!-- req: reduce-layers -->
-The callback receives an input partition and a pre-allocated output Object and writes via `output.insert()`. All layer Objects and tasks are created at once; each layer depends on the previous.
+The callback contract is in [Parallel Operators](../user_guide/orchestration/parallel_operators.md). All layer Objects and tasks are created at once; each layer depends on the previous.
 
 ```
 Layer 0  input=N      tasks=⌈N/P⌉   → layer_0_obj

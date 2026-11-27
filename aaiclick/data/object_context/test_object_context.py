@@ -12,7 +12,7 @@ from aaiclick.data.object_context import delete_object, get_ch_client
 # DDL and registry persistence
 
 
-# req: user_guide/object_context/no-implicit-order-column, architecture/data_model/no-implicit-order
+# req: user_guide/object_context/no-implicit-order-column
 async def test_create_object_emits_no_aai_id_column(ctx):
     obj = await create_object_from_value([1.0, 2.0, 3.0])
     ch_client = get_ch_client()

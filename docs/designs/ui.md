@@ -16,14 +16,7 @@ Home lists no `@task` command — tasks are reached through a job, or by typing 
 
 ## Ids and Names
 
-**Decision**: a link the UI makes always carries an id; a name is only ever
-typed, and then means "the latest".
-
-| Typed                           | Opens                                   |
-|---------------------------------|-----------------------------------------|
-| `@job <name>`, `cancel <name>`  | the latest run of that name             |
-| `@job <ref> task <name>`        | that run's latest task of that name     |
-| `@job <ref> data <object>`      | that run's object                       |
+Behaviour: [UI — The prompt](../user_guide/ui.md#the-prompt).
 
 - **Why ids in links**: a job name is shared by every rerun, so a name link
   silently moves to a newer run. Table rows, tabs, chips, Cancel and the
@@ -31,10 +24,6 @@ typed, and then means "the latest".
   its id on the first click.
 - **Why names when typed**: nobody types a snowflake. A name is the short
   way to "what did the last run do".
-- **Dropdown**: job and task rows read `name (short id)` — the id's last 6
-  digits — and insert the full id, so same-named runs can be told apart.
-- **Name-only things**: registered jobs, objects and dashboards have no id;
-  their name is their identity (`run nightly_etl`, `@data orders`).
 
 ## Prompt dropdown
 
@@ -45,14 +34,9 @@ views commit directly. After `<command> ` the dropdown lists that command's
 values:
 
 <!-- req: dropdown-sources -->
-| Prefix                                          | Lists                | Narrowing     | Picked row inserts  |
-|-------------------------------------------------|----------------------|---------------|---------------------|
-| `@task`                                         | tasks, newest first  | name contains | `@task <id>`        |
-| `@job`, `cancel`                                | jobs, newest first   | name contains | `<cmd> <id>`        |
-| `run`, `enable`, `disable`, `unregister`        | registered jobs      | name contains | `<cmd> <name>`      |
-| `@data` (+ `persistent`), `@job <id> data`      | objects of the scope | name prefix   | `<cmd> … <name>`    |
-| `@dashboard`                                    | dashboards           | name contains | `@dashboard <name>` |
-| `@sandbox`                                      | sandbox files        | —             | `@sandbox <id>`     |
+Each prefix's source ([UI — The prompt](../user_guide/ui.md#the-prompt)) narrows
+by `name contains`, except objects, which narrow by name prefix, and sandbox
+files, which do not narrow.
 
 <!-- req: dropdown-paging -->
 - Paged sources load 50 rows at a time as the list scrolls; objects and dashboards come in one page.
@@ -77,44 +61,13 @@ One registry, `src/components/commands.ts`, feeds Home, the prompt dropdown and 
 
 **Implementation**: `src/views/Jobs.tsx`
 
-Jobs, newest `created_at` first.
-
-| Column   | Source field | Notes                                    |
-|----------|--------------|------------------------------------------|
-| Name     | `name`       | Clickable — sets prompt to `@job <id>`   |
-| Status   | `status`     | Colored badge                            |
-| Progress | computed     | `completed_tasks / total_tasks`          |
-| Created  | `created_at` | Relative time (e.g., "2m ago")           |
-| Duration | computed     | `started_at` to `completed_at` or now    |
-
-Status badges, shared by jobs and tasks: `PENDING` gray, `RUNNING` blue,
-`COMPLETED` green, `FAILED` red, `CANCELLED` yellow.
+Columns and badges: [UI — Jobs and registered jobs](../user_guide/ui.md#jobs-and-registered-jobs). Progress and duration are computed client-side from `completed_tasks / total_tasks` and `started_at` / `completed_at`.
 
 ## Job Detail (`@job <id>`)
 
 **Implementation**: `src/views/JobDetail.tsx`
 
-**Job header**: name, status badge, created/started/completed times, error (if any).
-
-**Tasks table**:
-
-| Column     | Source field | Notes                                   |
-|------------|--------------|-----------------------------------------|
-| Name       | `name`       | Clickable — sets prompt to `@task <id>` |
-| Status     | `status`     | Colored badge                           |
-| Entrypoint | `entrypoint` |                                         |
-| Attempt    | `attempt`    | `attempt / max_retries`                 |
-| Started    | `started_at` | Relative time                           |
-| Duration   | computed     | `started_at` to `completed_at` or now   |
-
-A Table / Graph / Timings / Duration / Data toggle switches the body. The
-prompt carries the mode — `@job <id> graph`, `timings`, `duration`, `data` —
-so the view stays shareable as a URL.
-
-**Data** (`@job <id> data [<item>]`) is the job's task inputs, results and
-objects — see "Data" below for the listing. A row opens `@job <id> data
-<item>`: the object view, or a task value by its address, under the same job
-header.
+What the header, tasks table and tabs show: [UI — Job detail](../user_guide/ui.md#job-detail). The prompt carries the tab (`@job <id> graph`, …), so a view is a URL.
 
 <!-- req: graph-layout-edges -->
 **Graph**: one edge per dependency, so a `Group` dependency is a single edge
@@ -162,30 +115,12 @@ task's own inputs and result, each row opening in the job's Data tab.
 
 **Implementation**: `src/components/ScopeData.tsx`
 
-**Prompt**: `@data` (or `@data persistent`) lists the persistent objects —
-name, rows, size, created; `@data <object>` opens one.
+What the listing and object view show: [UI — Data](../user_guide/ui.md#data). The job and task Data tabs share this body; a job scope lists its tasks' values before its objects (`viewer.md` — "Task Values"), and opening a task row renders the stored JSON as one cell of the same `ResultsTable`, with no paging or pickers.
 
-The job and task Data tabs share this body: a scope's listing, or one item
-of it. A job scope lists its tasks' inputs and results before its objects
-(`viewer.md` — "Task Values"):
-
-- **Columns**: Kind (`object` / `value` / `ref`) and Value / Target. Value /
-  Target is a value's JSON preview, or a ref's type tag and what it points
-  at — a link when it can be opened. On a phone the column is hidden and the
-  value sits under the name.
-- **Chips** filter the rows: job (its own kwargs and result), tasks,
-  objects, all.
-- **A cut page** says "Showing N of M rows".
-- **Opening a task row** shows its header (kind, task, direction, points-to)
-  and the stored JSON as one cell of the same `ResultsTable`, with no paging
-  or pickers.
-
-The object view is QueryView's explorer over one object: a header, then
-Refresh, Limit (applied on blur or Enter) and Previous / Next, the kernel's
-Fields and Order by pickers (fed from `GET /objects/{name}[?job=…]`), and
-the rows in its `ResultsTable`. Fields only hide columns; an order-by change
-re-runs `POST /viewer/query` at once, the previous page staying dimmed
-meanwhile. A value past the cell width opens in the kernel's cell popup.
+The object view is QueryView's explorer over one object: its pickers are fed
+from `GET /objects/{name}[?job=…]`; an order-by change re-runs
+`POST /viewer/query` at once, the previous page staying dimmed meanwhile; a
+value past the cell width opens in the kernel's cell popup.
 
 ## Dashboard (`@dashboard [name]`)
 

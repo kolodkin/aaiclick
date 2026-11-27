@@ -57,7 +57,7 @@ async def test_refresh_token_round_trips(orch_ctx):
         assert row.token_hash == "h"
 
 
-# req: designs/auth/scope-ladder
+# req: architecture/security/scope-ladder
 @pytest.mark.parametrize(
     "held, required, expected",
     [

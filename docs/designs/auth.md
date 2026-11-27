@@ -15,14 +15,12 @@ the enforced (distributed) case:
 
 The variables and their defaults are user-facing: [Access — Configuration](../user_guide/access.md#configuration).
 
-!!! warning "Distributed without a secret is a hard error"
-    <!-- req: mode-derived-gating -->
-    In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the template's
-    `change-me-...` placeholder, the server refuses to start. In local mode auth
-    is disabled, every request is allowed, and the server logs a single startup
-    `WARNING`. `local start` binds `127.0.0.1` by default, and the server answers
-    only allowed `Host` headers — see [DNS Rebinding](../user_guide/dns_rebinding.md).
-    `--host 0.0.0.0` opens the server to the network with no auth.
+<!-- req: mode-derived-gating -->
+The lifespan enforces it at startup: distributed mode calls
+`require_jwt_secret()` and `require_no_placeholder_credentials()` and refuses to
+start without a real secret; local mode allows every request and
+`warn_if_open()` logs one `WARNING`. What a user sees:
+[Access — Configuration](../user_guide/access.md#configuration).
 
 # Module Layout
 
@@ -119,46 +117,26 @@ token dead.
 
 **Implementation**: `aaiclick/internal_api/api_tokens.py`
 
-Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
-that should hold neither a password nor a refresh token.
+What a user does with tokens, and the rules they follow:
+[Access — API tokens](../user_guide/access.md#api-tokens). The scope ladder:
+[Security — Roles](../architecture/security.md#roles).
 
 <!-- req: token-format -->
-- **Format**: `aaic_` + 43 URL-safe random characters. The prefix lets the
-  resolver route the credential without a JWT parse attempt, and lets secret
-  scanners recognise it. Only `sha256(secret)` is stored; the raw secret is
-  returned exactly once, in the create response.
+- **Storage**: only `sha256(secret)` is stored. The `aaic_` prefix (then 43
+  URL-safe random characters) lets the resolver route the credential without a
+  JWT parse attempt, and lets secret scanners recognise it.
 <!-- req: token-expiry -->
-- **Expiry**: optional `expires_at` (an aware value is normalized to naive
-  UTC); `None` never expires. The SPA form defaults to 90 days.
-<!-- req: token-ownership -->
-- **Ownership**: tokens belong to their minter; disabling the user disables
-  every token. A token cannot mint or revoke tokens (`403`) — token management
-  needs a real session, so a leaked token cannot bootstrap a permanent foothold.
+- **Expiry**: an aware `expires_at` is normalized to naive UTC; `None` never expires.
 - **MFA**: not applied to tokens — that is the point of them. Minting one
   requires a session, which MFA already protected.
 
-## The scope ladder
-
-<!-- req: scope-ladder -->
-A token carries one of three ordered levels and admits its own level plus every
-level beneath it. `read` is the default at every mint site.
-
-| Level   | Admits, plus everything below                                                                                      | REST guard it mirrors     |
-|---------|--------------------------------------------------------------------------------------------------------------------|---------------------------|
-| `read`  | every read, including `POST /viewer/query` and dashboard runs                                                      | `require_principal` alone |
-| `write` | a member's own mutations — dashboards                                                                              | `require_write`           |
-| `admin` | everything else — run / cancel jobs, register, clear tasks, delete / purge objects, users, workers, setup, migrate | `require_admin`           |
-
 <!-- req: mint-ceiling -->
-A caller mints at or below `ROLE_SCOPES[their role]`; above the ceiling is `422`
-naming the caller's own level.
+A mint above `ROLE_SCOPES[caller's role]` answers `422` naming the caller's own level.
 
-!!! important "A token never outranks its owner"
-    <!-- req: token-capped-by-owner -->
-    The ceiling applies at mint **and** on every request: a token holds the
-    lower of its own scope and its owner's current role. Demote the owner from
-    admin to viewer and an outstanding `admin` token drops to `read` at once.
-    Disabling the owner stops it outright.
+<!-- req: token-capped-by-owner -->
+The owner cap is enforced on every request, not only at mint: principal
+resolution reads the owner's current role and takes the lower of it and the
+token's scope.
 
 <!-- req: token-routes -->
 | Route                      | Guard   | Purpose                                                                  |
@@ -166,11 +144,6 @@ naming the caller's own level.
 | `GET /auth/tokens`         | session | The caller's tokens (`ApiTokenView`, no secret)                          |
 | `POST /auth/tokens`        | session | `{name, scope, expires_at}` → `ApiTokenCreated` (includes `token`, once) |
 | `DELETE /auth/tokens/{id}` | session | Revoke (`204`; another user's token is `404`)                            |
-
-CLI (in-process, admin-equivalent): `aaiclick token create <username> --name <n>
-[--scope read|write|admin] [--expires-days N]`, `token list <username>`,
-`token revoke <id>`. The SPA's `@tokens` offers only the levels the signed-in
-user may mint.
 
 # MCP Surface
 
@@ -180,7 +153,7 @@ user may mint.
 With auth enabled, `/mcp` takes **API tokens only** — a session JWT there is
 `401`. The surface is for unattended clients, an API token is their credential,
 and the restriction gives every MCP principal a real level to gate on. Each
-tool's tag *is* the level it needs on [the scope ladder](#the-scope-ladder), and
+tool's tag *is* the level it needs on [the scope ladder](../architecture/security.md#roles), and
 `tools/list` only shows what the caller may call.
 
 <!-- req: mcp-tool-tags -->
@@ -279,12 +252,6 @@ There is no self-service "email me a link" flow — mail delivery is not
 implemented (`docs/designs/future.md`). The SPA's **Forgot password?** link
 tells the user to ask an administrator.
 
-!!! warning "Admin lockout has no in-app recovery"
-    Minting a link needs an admin, so a deployment whose only admin loses
-    their password must recover through the CLI on a host with database
-    access (`aaiclick user passwd <user_id>`). Keep a second admin, or keep
-    that step in the runbook.
-
 ## Invites
 
 **Implementation**: `aaiclick/internal_api/invites.py`
@@ -304,8 +271,7 @@ able to create for itself — the same reason token management and every `/users
 route are session-only.
 
 <!-- req: invite-cli-unrestricted -->
-CLI: `aaiclick user invite <username> [--role viewer|member|admin] [--email]`;
-the in-process CLI is admin-equivalent and caps against nothing.
+The in-process `user invite` CLI is admin-equivalent and caps against nothing.
 
 !!! note "Its own module and its own router"
     `password_reset` already imports `users`, so composing the two there would

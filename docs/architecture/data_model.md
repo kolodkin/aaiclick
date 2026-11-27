@@ -34,10 +34,6 @@ Three `TaskStatus` values are set by the background sweep, not the worker:
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; each side is `'task'` or `'group'`, so all four combinations are supported.
 - **ExecutionWorker** — a worker process with heartbeat and task counters.
 
-## Task Parameter Serialization
-
-Task kwargs and results are JSON: plain values are data; a dict carrying the reserved key `_aaiclick_type` is a ref (`upstream`, `object`, `native`, …) or a returned task DAG (`task`, `group`, `task_result`). Vocabulary, handles and return-value rules: `docs/designs/task_interface.md`; `aaiclick/data/object/refs.py` is the single source of truth.
-
 # Storage
 
 ## Databases
@@ -113,24 +109,6 @@ registry row — only `copy()` does.
 # Table Naming and Scopes
 
 <!-- req: table-name-prefixes -->
-Every ClickHouse table an Object owns carries its scope in its name, so Python
-and SQL cleanup tell scopes apart by prefix alone (`aaiclick/data/scope.py`):
-
-| Scope        | Table name                | Lifetime                   |
-|--------------|---------------------------|----------------------------|
-| `temp`       | `t_<snowflake_id>`        | the owning context or task |
-| `temp_named` | `t_<name>_<snowflake_id>` | the owning context or task |
-| `job`        | `j_<job_id>_<name>`       | the owning job's TTL       |
-| `global`     | `p_<name>`                | until deleted              |
-
-`p_*` and `j_*` tables are persistent: refcount cleanup never drops them; job
-TTL cleanup drops `j_*` with its job.
-
-# Row Order
-
-<!-- req: no-implicit-order -->
-No table has an implicit order column: an insert imposes no row order, and a
-read is ordered only by its own `ORDER BY`. An Object created with
-`aai_id=True` adds an `aai_id` `UInt64` column with
-`DEFAULT generateSnowflakeID()`, which records creation order; `concat` and
-`insert` copy it like any other column and never regenerate it.
+A table's scope is recorded only in its name ([ObjectContext — Scopes](../user_guide/object_context.md#scopes-temp-temp_named-job-global)):
+Python and SQL cleanup tell scopes apart by prefix alone, with no registry
+lookup (`aaiclick/data/scope.py`).

@@ -120,7 +120,7 @@ async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
     assert (await app_client.get(f"{API_PREFIX}/auth/me", headers=token_header)).status_code == 401
 
 
-# req: user_guide/access/api-tokens, designs/auth/token-ownership, designs/auth/scope-ladder, designs/api_server/auth-problem-errors
+# req: user_guide/access/api-tokens, architecture/security/scope-ladder, designs/api_server/auth-problem-errors
 async def test_read_token_cannot_write_or_manage_tokens(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
     session = await login(app_client, "alice")
@@ -176,7 +176,7 @@ async def test_password_reset_routes(orch_ctx, enabled, anon_client, app_client)
     assert again.status_code == 401
 
 
-# req: user_guide/access/api-tokens, designs/auth/scope-ladder, designs/api_server/route-guards
+# req: user_guide/access/api-tokens, architecture/security/scope-ladder, designs/api_server/route-guards
 async def test_write_token_cannot_reach_an_admin_route(orch_ctx, app_client, enabled):
     """The ladder, not the HTTP verb, is what separates write from admin."""
     user = await users.create_user(CreateUserRequest(username="w", password="pw", role="admin"))
