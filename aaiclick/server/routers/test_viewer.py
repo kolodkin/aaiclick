@@ -77,7 +77,7 @@ async def test_read_token_runs_post_reads_but_cannot_write(orch_ctx, app_client,
     assert denied.status_code == 403 and denied.json()["code"] == "forbidden"
 
 
-# req: designs/viewer/surfaces
+# req: designs/viewer/surfaces, user_guide/access/roles, architecture/security/role-ceiling
 async def test_viewer_role_reads_and_runs_but_only_members_save(orch_ctx, enabled, app_client):
     await users.create_user(CreateUserRequest(username="vic", password="pw", role="viewer"))
     await users.create_user(CreateUserRequest(username="mia", password="pw", role="member"))

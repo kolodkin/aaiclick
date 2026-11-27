@@ -8,7 +8,6 @@ from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
 
 
-# req: architecture/data_model/db-models
 async def test_engine_rejects_child_row_without_parent(orch_ctx_no_ch):
     """A task referencing a job that does not exist is a FK violation on every backend."""
     async with get_sql_session() as session:

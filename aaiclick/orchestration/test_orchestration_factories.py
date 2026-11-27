@@ -57,6 +57,7 @@ def bare_named_job() -> None:
     pass
 
 
+# req: architecture/data_model/db-models
 async def test_create_task_unique_ids(orch_ctx):
     """Test that each task gets a unique snowflake ID."""
     task1 = create_task("mymodule.task1")
@@ -113,6 +114,7 @@ async def test_create_job_with_task(orch_ctx):
     assert db_task.kwargs == {"param": "value"}
 
 
+# req: architecture/data_model/db-models
 async def test_create_job_unique_ids(orch_ctx):
     """Test that each job gets a unique snowflake ID."""
     job1 = await create_job("job1", "mymodule.task1")

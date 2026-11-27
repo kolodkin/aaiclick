@@ -69,7 +69,7 @@ async def test_list_tasks_newest_first(orch_ctx):
     assert page.total == 2
 
 
-# req: user_guide/orchestration/managing_jobs/inspect-jobs, architecture/data_model/db-models
+# req: user_guide/orchestration/managing_jobs/inspect-jobs
 @pytest.mark.parametrize(
     "filter_kwargs",
     [

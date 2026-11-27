@@ -140,6 +140,6 @@ opens one. See [Sandbox](sandbox.md).
 
 <!-- req: role-gated-controls -->
 In distributed mode the header shows the signed-in user (opens `@account`)
-and a sign-out control. Actions a viewer may not take (run, cancel, register,
-enable / disable) are shown **disabled with a tooltip**, not hidden. Account
+and a sign-out control. Admin-only actions (run, cancel, register, enable / disable) are shown to
+viewers and members **disabled with a tooltip**, not hidden. Account
 and admin views: [Access](access.md#account-pages).

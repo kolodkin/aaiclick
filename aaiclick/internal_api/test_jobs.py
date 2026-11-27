@@ -117,7 +117,7 @@ async def test_get_job_not_found_raises(orch_ctx, ref):
         await jobs.get_job(ref)
 
 
-# req: user_guide/orchestration/managing_jobs/inspect-jobs, architecture/data_model/db-models
+# req: user_guide/orchestration/managing_jobs/inspect-jobs
 async def test_job_stats_structure(orch_ctx):
     created = await create_job("stats_job", _SAMPLE_TASK)
 

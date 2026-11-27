@@ -1,7 +1,8 @@
 """The data examples print what their ``# →`` comments say.
 
 Each ``print(...)  # → <expected>`` line in an example is an acceptance
-check: the printed text must contain ``<expected>``. ``...`` in the
+check: the printed text must contain ``<expected>`` as a whole value
+(not inside a longer number or word). ``...`` in the
 expected text matches anything (ids, table names, timings, a row order that
 is undefined).
 """
@@ -68,7 +69,8 @@ async def run_and_capture(module: ModuleType) -> dict[int, str]:
 
 def _matches(text: str, expected: str) -> bool:
     pattern = ".*".join(re.escape(part) for part in expected.split("..."))
-    return re.search(pattern, text, re.S) is not None
+    # the value stands alone: "1" must not match inside "10", "5.5" inside "5.55"
+    return re.search(rf"(?<![\w.]){pattern}(?![\w.])", text, re.S) is not None
 
 
 async def check_example(module: ModuleType) -> list[str]:
@@ -96,13 +98,15 @@ def _load(path: Path):
     ("comment", "expected"),
     [
         pytest.param("# → 3", 1, id="wrong-comment"),
-        pytest.param("# → 2", 0, id="right-comment"),
+        pytest.param("# → 12", 0, id="right-comment"),
         pytest.param("# → ...", 0, id="wildcard"),
+        pytest.param("# → 1", 1, id="value-prefix-is-not-a-match"),
+        pytest.param("# → 2.0", 1, id="value-is-not-a-substring"),
     ],
 )
 async def test_check_example_reports_a_wrong_comment(tmp_path, comment, expected):
     src = tmp_path / "fake_example.py"
-    src.write_text(f"async def amain():\n    print('total:', 2)  {comment}\n")
+    src.write_text(f"async def amain():\n    print('total:', 12, 2.05)  {comment}\n")
     assert len(await check_example(_load(src))) == expected
 
 

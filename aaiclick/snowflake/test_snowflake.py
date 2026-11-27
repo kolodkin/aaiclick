@@ -112,6 +112,7 @@ def test_bulk_vs_individual_generation():
     assert individual_ids == sorted(individual_ids)
 
 
+# req: architecture/data_model/db-models
 def test_snowflake_id_structure():
     """Test that snowflake IDs have the correct structure."""
     id_val = get_snowflake_id()

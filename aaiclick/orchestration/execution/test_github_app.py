@@ -146,7 +146,7 @@ async def test_other_remotes_get_no_token(app_env, api, remote):
     assert api.calls == []
 
 
-# req: user_guide/orchestration/runners/github-app-clone, designs/orchestration/buildkitd-builds
+# req: user_guide/orchestration/runners/github-app-clone, designs/orchestration/private-repo-split
 async def test_token_request_is_scoped_to_the_repo_read_only(app_env, api, private_key):
     await git_auth_env("https://github.com/o/r.git")
 
@@ -213,7 +213,7 @@ def _break_pem_is_garbage(pem):
     pem.write_text("not a key")
 
 
-# req: designs/orchestration/buildkitd-builds
+# req: designs/orchestration/private-repo-split
 @pytest.mark.parametrize(
     "break_it, match",
     [
@@ -236,7 +236,7 @@ def _http_error(code: int, body: bytes) -> urllib.error.HTTPError:
     return urllib.error.HTTPError("https://api.github.com/x", code, "x", Message(), io.BytesIO(body))
 
 
-# req: user_guide/orchestration/runners/github-app-clone, designs/orchestration/buildkitd-builds
+# req: user_guide/orchestration/runners/github-app-clone, designs/orchestration/private-repo-split
 @pytest.mark.parametrize(
     "make_replies, warning",
     [

@@ -114,7 +114,7 @@ HTTP method says nothing about scope — `POST /viewer/query` and a dashboard ru
 are reads, open to a `read` token.
 
 The guard a route declares is the one scope gate: `require_write` for a
-member's own mutations, `require_admin` for everything else that mutates or
+member's mutations (dashboards), `require_admin` for everything else that mutates or
 administers — jobs, objects, tasks, users, workers, audit. A test in
 `aaiclick/server/test_app.py` fails any non-safe route without a guard.
 
@@ -126,7 +126,7 @@ administers — jobs, objects, tasks, users, workers, audit. A test in
 | Role     | Scope   | Holds                                                          |
 |----------|---------|----------------------------------------------------------------|
 | `viewer` | `read`  | Every read                                                     |
-| `member` | `write` | Reads, plus their own dashboards                               |
+| `member` | `write` | Reads, plus saving and deleting dashboards                     |
 | `admin`  | `admin` | The installation — jobs, objects, users, workers, setup, audit |
 
 Authority is a property of the user: one `users.role` column, bridged to the

@@ -38,7 +38,7 @@ their own password from `@account`; doing so needs the current one.
 | Role     | May                                                                     |
 |----------|-------------------------------------------------------------------------|
 | `viewer` | Every read: jobs, tasks, logs, objects, dashboards                      |
-| `member` | Reads, plus their own dashboards                                        |
+| `member` | Reads, plus saving and deleting dashboards                              |
 | `admin`  | Everything: run, cancel and register jobs, objects, users, workers, audit |
 
 A user created without a role is a `viewer`. Every role may submit to the
