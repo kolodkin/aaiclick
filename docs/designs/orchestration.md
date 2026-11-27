@@ -5,39 +5,11 @@ Topology, deployment modes, execution layers and DB models: `docs/architecture/t
 
 Internal design reference, not published on the docs site. User guide: [docs/user_guide/orchestration/](../user_guide/orchestration/index.md).
 
-# Basic Example
-
-```python
-from aaiclick.orchestration import job, task, job_test, TaskResult
-
-@task
-async def add(a: int, b: int) -> int:
-    return a + b
-
-@task
-async def multiply(x: int, y: int) -> int:
-    return x * y
-
-@job("pipeline")
-def pipeline(x: int, y: int):
-    sum_result = add(a=x, b=y)      # no dependency between tasks → run in parallel
-    product = multiply(x=x, y=y)
-    return TaskResult(tasks=[sum_result, product])
-
-job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
-```
-
-Full example: `aaiclick/orchestration/examples/orchestration_basic.py`.
-
 # Decorators
 
 **Implementation**: `aaiclick/orchestration/decorators.py`
 
-Airflow-style TaskFlow API: passing a Task result as an argument creates an upstream dependency.
-
-- **`@task`** — `name` (default: function name), `max_retries` (default `0`). A failure with retries left resets the task to PENDING with `attempt` incremented.
-- **`@job`** — `@job("name")`, `@job(name="name")` or bare `@job`. Manages `orch_context()` and commits all tasks to SQL.
-- **`job_test` / `ajob_test`** — run a `Job`, or a `@job` factory plus its kwargs, synchronously (`execution/debug.py`).
+`@task`, `@job` and `job_test` / `ajob_test` are user API: [Tasks and Jobs](../user_guide/orchestration/tasks_and_jobs.md). A failure with retries left resets the task to `PENDING` with `attempt` incremented.
 
 # Runners & Entry Types
 
@@ -115,18 +87,6 @@ After the cache check, a `build` preflights the builder (`docker buildx inspect 
 - A checked-in `Dockerfile` wins; an explicit `dockerfile=` path that is absent or resolves outside the checkout fails.
 - The image key is unchanged — the fallback is a build-time detail, so a cached image keeps the base version of the worker that built it until the SHA changes (mixed-version fleets are unsupported anyway).
 - This lets a repo of submitted job files (the sandbox) build without a platform-authored Dockerfile: the sandbox calls `run_job` with only `git_remote` / `git_sha` (`docs/user_guide/sandbox.md`).
-
-## Shell entry type
-
-A `shell` task runs a literal argv (`command`, a list) instead of a Python `entrypoint`; success is **exit code 0**. Its stdout and stderr stream live into `task_logs` on every runner (see [Task Logs](#task-logs)).
-
-Inputs and result travel as `in.json` / `out.json` under `AAICLICK_IO_DIR` — the Task Interface, which also lets a shell task spawn children. `docs/designs/task_interface.md` covers the vocabulary, the file data plane, its transport per runner, and the env a container receives (`command_env` + `AAICLICK_IO_DIR` only, never the runner env).
-
-```python
-run_job(name, entry_type="shell", command=["python", "main.py"], command_env={"K": "v"})
-```
-
-The CLI (`--entry-type shell --command ... --command-env K=v`) and REST/MCP (`RunJobRequest`) take the same fields.
 
 # Task Execution
 
@@ -372,15 +332,18 @@ Host-side following is the default for every container entry type except `module
 
 `AAICLICK_TASK_LOGS` (where output goes) is in the [user guide](../user_guide/orchestration/managing_jobs.md#task-logs).
 
-# Configuration
+## Run registration
 
-| Variable              | Default                               | Description                               |
-|-----------------------|---------------------------------------|-------------------------------------------|
-| `AAICLICK_LOCAL_ROOT` | `~/.aaiclick`                         | Base directory for all local-mode state   |
-| `AAICLICK_SQL_URL`    | `sqlite+aiosqlite:///{root}/local.db` | SQLAlchemy async URL for orchestration DB |
-| `AAICLICK_CH_URL`     | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops    |
+Each attempt is a `task_runs` row keyed by a snowflake `run_id`, opened by a
+shared helper in `aaiclick/orchestration/execution/runner.py` that shell
+vehicles call at launch. Shell log rows carry a real `run_id`, so task-log
+reads (latest `task_runs` row by default) work for them unchanged.
 
-`is_local()` is `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` with `sqlite`.
+## Flushing from the worker parent
 
-- **Setup (local)**: `python -m aaiclick setup`
-- **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` (`aaiclick/orchestration/migrate.py`)
+The worker parent runs `orch_context()` but never queries ClickHouse, so it
+never opens the chdb session its children need. Shell tasks therefore run
+inside the same spawned task child module tasks use, which opens its own
+`orch_context` and streams inline — one code path for local (chdb) and
+distributed (remote CH). A run killed mid-flight keeps everything flushed up
+to the last 2 s tick.

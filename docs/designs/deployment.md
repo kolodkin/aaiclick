@@ -153,69 +153,6 @@ edited. It refuses rather than warns, because a log line nobody reads leaves
 a public secret in use. Superset does the same for its shipped `CHANGE_ME`
 secret key.
 
-# Release pipeline
-
-**Implementation**: `.github/workflows/publish.yaml`
-
-```
-build ──► build-rc-images ──► merge-rc-images ──► gates (parallel) ──► publish (PyPI) ──► promote-images ──► publish-chart
-```
-
-## build-rc-images — per-platform matrix
-
-The three images are FROM-chained (`aaiclick` → `aaiclick-docker` →
-`aaiclick-kubectl`), so they cannot build in parallel per image. They
-parallelize per platform instead, the larger win — a QEMU-emulated arm64 leg
-would otherwise dominate build time:
-
-- Matrix over `platform: [amd64, arm64]`; arm64 runs on the native
-  `ubuntu-24.04-arm` runner. Each leg serves the wheel artifact from a local
-  pypiserver, builds the three images natively in FROM order (the base
-  through `.github/actions/build-base-image`), and pushes per-arch digests to
-  GHCR.
-- A merge job (matrix over the three images) assembles each multi-arch
-  `vX.Y.Z-rc` manifest with `docker buildx imagetools create`.
-
-The wheel baked into the rc images is the same file later uploaded to PyPI.
-
-## Gates — all parallel, all required
-
-Every gate depends only on `build` + `merge-rc-images` (or `build` alone for
-the local-only gate), so they run concurrently.
-
-| Gate                    | Shape                                                                                                                                                                                                                                                 |
-|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| test-package-local      | chdb + SQLite, no infra                                                                                                                                                                                                                               |
-| test-package            | Data/orch matrix; infra from `deploy/compose` (`env.init.sh`, full stack up, waiting for `migrate` to exit 0) instead of `services:` blocks                                                                                                           |
-| test-compose-e2e        | `deploy/compose` + `env.init.sh`, `AAICLICK_IMAGE_TAG` set to `-rc`, `docker compose up`, wait for server health, then `docker compose exec` into the server to register/run a job via the CLI and poll `job list --json`                            |
-| test-helm-e2e           | k3s cluster with the `-rc` images side-loaded (`k3s ctr images import`), `helm install` of `deploy/helm/aaiclick`, a port-forwarded server-health smoke, a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`), then `helm upgrade` must leave the credentials Secret unchanged |
-| test-package-docker-e2e | `_docker-e2e-reusable.yaml`; `base_image` is the `-rc` base, so git builds without a Dockerfile layer on the promoted digest                                                                                                                          |
-
-## promote-images
-
-After PyPI publish succeeds, `docker buildx imagetools create -t vX.Y.Z -t
-latest <image>:vX.Y.Z-rc` per image (matrix over the three names) — no
-rebuild, no wait-for-PyPI polling. A final step deletes the `-rc` tags on
-success; failed releases keep them for debugging.
-
-## publish-chart
-
-After `promote-images`, so the chart never names an image tag that does not
-exist yet: `helm package deploy/helm/aaiclick --version X.Y.Z --app-version
-vX.Y.Z`, then `helm push` to `oci://ghcr.io/kolodkin/charts`.
-
-# Testing
-
-- `test_e2e/compose/test_env_init.py` runs `env.init.sh` as a user would
-  (PR CI, "Misc local" group).
-- `deploy/helm/check.sh` lints the chart and asserts on renders: generated
-  Secret, `existingSecret`, external URLs, image tags, the no-database
-  failure, a stable checksum. The PR `chart` job runs it; helm templates are
-  not YAML before rendering, so they get no Python tests.
-- `test_e2e/compose/` drives the reference stack in CI: server health, an
-  execution worker registered, and a job round trip via `docker compose exec`
-  into the server.
-
 # References
 
 Checked 2026-11-14 against each project's default branch; versions are the

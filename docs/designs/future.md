@@ -332,6 +332,9 @@ An MCP client can already do Tier 2 by hand: `run_job` with
 tables. Missing is a one-call `request_full_replay` that re-runs the original
 job with its recorded kwargs, returns the new job's handle, and reports input
 drift (row counts, old vs new). Design: `docs/designs/lineage.md` (Tier 2).
+Planned shape: `request_full_replay(reason: str) -> ReplayHandle` with
+`ReplayHandle(original_job_id, replayed_job_id, drift: dict[str, int])` and
+`replay_timeout` / `replay_failed` error kinds.
 
 **When to revisit**: when Tier 1's static reasoning demonstrably fails on
 real questions — a bug whose explanation lives only in an intermediate table

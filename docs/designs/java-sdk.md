@@ -102,37 +102,3 @@ public class Pipeline {
 ```
 
 Image contract, submission and the `-parameters` requirement: [Task API: Java](../user_guide/task_api_java.md#packaging-and-submission).
-
-# Testing
-
-The shim's only I/O is two files, so the suite is infra-free: each test gets
-a temp dir, writes `in.json`, runs the shim and reads `out.json`.
-
-The docker-runner e2e covers what the unit suite cannot: a `jvm` task between
-two Python tasks, each in its own container — the real `docker create` /
-`docker cp` handoff of `in.json` into a JVM image, the host resolving an
-upstream Python result into it, `out.json` read back, and a Python consumer
-of the jvm return value. The fixture image (`test_e2e/fixtures/jvm_task/`)
-builds the SDK from the checkout, so the shim under test is the commit's.
-
-# Publishing
-
-**Implementation**: `.github/workflows/publish.yaml`
-
-`aaiclick-task-api` publishes to Maven Central via the Central Publisher
-Portal on the **same tag** as the Python package — lockstep versioning; the
-compatibility contract is a release's file data plane and task semantics.
-
-- Namespace `io.github.kolodkin` auto-verifies against the GitHub account.
-- The parent POM uses the CI-friendly `${revision}` version
-  (flatten-maven-plugin); the publish job passes `-Drevision=X.Y.Z` from the
-  tag.
-- The `release` profile adds GPG signing plus sources/javadoc jars and the
-  `central-publishing-maven-plugin`.
-- Secrets: `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` (portal
-  token), `MAVEN_GPG_PRIVATE_KEY` / `MAVEN_GPG_PASSPHRASE`.
-- De-risk with a one-time `0.0.x` dry-run publish (manual
-  `workflow_dispatch`) before the first real lockstep release.
-- The Java leg runs after the PyPI upload, so the release is gated on
-  `mvn verify` at the release version first: a broken jar blocks the
-  irreversible upload instead of orphaning a tagged Python release.

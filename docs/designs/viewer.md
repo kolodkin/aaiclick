@@ -202,15 +202,3 @@ Local mode (`python -m aaiclick local start`) runs the API and workers in one
 process, so the viewer's ClickHouse access nests into the runtime context and
 the chdb lock is not an issue; distributed mode runs it inside the API server
 over clickhouse-connect. Nothing in the viewer is per-process.
-
-# Testing
-
-- chdb: `query_object` over persistent and job objects — fields, `where`,
-  ordering, paging, CSV, the `where` guard, unknown objects and jobs;
-  dashboard round-trips; `run_dashboard` / `run_queries` column orientation.
-- Routers: routes, 404 / 422 problems, 401 without a token in distributed
-  mode.
-- Vitest (`npm test`): the kernel's own tests, prompt parsing, the adapter.
-- Playwright (seeded before the server starts): `@data` lists, orders and
-  pages the seeded object, `@dashboard` renders the saved dashboard and
-  re-runs it through `setParams`.

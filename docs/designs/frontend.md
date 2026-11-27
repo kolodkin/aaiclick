@@ -336,36 +336,3 @@ fallback. Retiring the poll for a pushed per-line envelope would need a change
 source `/events` does not have, and only pays off once a running task's log
 volume makes the 2 s fetch expensive. Earlier attempts of a retried task are
 kept in ClickHouse but not yet reachable from the UI — see `future.md`.
-
-# Testing
-
-**Implementation**: `test_e2e/web/`
-
-| Layer                | Tool                | Where                                                                     |
-|----------------------|---------------------|---------------------------------------------------------------------------|
-| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
-| Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
-| Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
-| End-to-end (browser) | Playwright (Python) | `test_e2e/web/`, pytest                                                   |
-
-**One test body, both modes.** Tests create jobs in-process through the
-orchestration API (the same pattern as `seed.py`), never through REST: no
-credentials are needed under distributed-mode auth, and whichever worker the
-mode runs executes the job. The live-update tests therefore run against both
-transports — `LocalTransport` locally, Postgres `LISTEN`/`NOTIFY` in the `UI e2e
-dist` job — and the distributed run is the only place the full chain
-`pg_notify` → SSE frame → browser DOM is exercised end to end.
-
-`shot("name")` saves a numbered full-page PNG to `test-results/shots/` (reset
-per run, gitignored).
-
-**Why Playwright Python**: an e2e test exercises the browser, FastAPI,
-orchestrator and DB together. `test_e2e/web/` shares the pytest harness with
-`test_e2e/docker/` rather than running a parallel Node runner.
-
-!!! warning "E2E suites don't run in default `pytest`"
-    `test_e2e/<suite>/` is excluded from the default `pytest` testpaths and
-    only runs when the path is passed explicitly or in a dedicated CI workflow.
-    The `UI e2e dist` job in `.github/workflows/_test-reusable.yaml` runs
-    `test_e2e/web/` on every PR against the distributed (Postgres + ClickHouse)
-    backend.

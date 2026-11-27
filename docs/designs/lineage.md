@@ -72,10 +72,9 @@ evidence for the price of one run.
 
 !!! warning "Input drift"
     A Tier 2 run re-executes input tasks, which may re-fetch from external
-    sources whose data has changed since the original run. The agent
-    compares input row counts against the original job's persistent `p_*`
-    tables and flags any delta, so the user can tell "the pipeline broke"
-    from "the source data changed".
+    sources whose data has changed since the original run; compare input
+    row counts against the original job's persistent `p_*` tables before
+    blaming the pipeline.
 
 # Preservation Mode
 
@@ -102,10 +101,6 @@ async def lineage_schema(table: str, target_table: str, ...) -> TableSchema:
 async def lineage_query(sql: str, target_table: str, row_limit: int = 100, ...) -> QueryResult:
     """Read-only SELECT over tables of the graph, capped at `row_limit` rows."""
 
-async def request_full_replay(reason: str) -> ReplayHandle:  # planned (future.md)
-    """Re-run the original job with its kwargs and `preservation_mode="FULL"`,
-    wait, and return a handle onto the new job's graph. `reason` is logged so
-    the user can see why the agent escalated."""
 ```
 
 ClickHouse parses `lineage_query`'s SQL (`EXPLAIN AST`) and the check reads
@@ -138,16 +133,6 @@ raises `SandboxError` with a `kind` (`not_select`, `out_of_scope`,
 `invalid_argument`), mapped to `Invalid`; a target with no lineage, or a
 failing `DESCRIBE`, maps to `NotFound`. MCP surfaces both as a tool error
 carrying the message.
-
-Tier 2 adds one type, with `replay_timeout` / `replay_failed` as its error
-kinds:
-
-```python
-class ReplayHandle(NamedTuple):
-    original_job_id: int
-    replayed_job_id: int
-    drift: dict[str, int]  # per-input delta: new_rows - original_rows
-```
 
 # Why Not Sampling
 

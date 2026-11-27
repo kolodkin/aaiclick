@@ -1,4 +1,4 @@
-# See docs/designs/deployment.md — "Release pipeline", "Gates — all parallel, all required".
+# See docs/contributor/release.md — "Release pipeline", "Gates — all parallel, all required".
 name: Release
 
 # Repeated steps (GHCR login, artifact downloads, uv install) and matrices

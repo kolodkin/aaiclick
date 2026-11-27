@@ -276,35 +276,3 @@ container `resources` here, `docker run` flags on docker
 Both are resolved on the **worker at dispatch** — the runner is picked from the
 task and the worker, never from the job (a `NULL` `image_source` is a host
 subprocess) — and handed to the Pod coroutines.
-
-# End-to-end test
-
-`test_e2e/kubernetes/` mirrors `test_e2e/docker/`: the same `sample_job` fixture
-and git-daemon publishing, driven through the `register-job` → `run-job` CLI,
-with the reconciler running in-process. The reusable workflow
-`_kubernetes-e2e-reusable.yaml` follows `_docker-e2e-reusable.yaml` with a
-**k3s** cluster (the production distribution, so NetworkPolicy is enforced)
-plus the same Postgres / ClickHouse services. A `kubernetes_e2e` marker gates the suite;
-collection skips it unless `kubectl cluster-info` succeeds.
-
-Three tests cover the concurrent worker: a fan-out whose peak number of live
-Pods, sampled while it runs, is above one; a worker stopped mid-run whose module
-and shell Pods the next worker adopts (one attempt each, shell log intact across
-the restart); and a job no node can fit that fails on the not-started deadline
-while another job completes beside it.
-
-!!! note "k3s networking recipe"
-    - **Services**: Postgres, ClickHouse, pypiserver and the registry run as
-      pods from `test_e2e/kubernetes/chart`. k3s runs on the runner itself, so
-      each NodePort answers on `localhost`; `--service-node-port-range` is
-      widened so every nodePort equals the standard port.
-    - **Registry**: the image tag `localhost:5000/aaiclick-job:<sha>[-<dockerfile>]`
-      is pushed by a host-network buildkitd over loopback and pulled by the
-      node's containerd over plain HTTP via a `/etc/rancher/k3s/registries.yaml`
-      mirror.
-    - **Pod → DBs**: one DSN serves pods (Service name via CoreDNS) and the
-      runner (`/etc/hosts` alias → `127.0.0.1` → NodePort).
-    - **Build → test pypi**: `host.docker.internal` + `--add-host=…:host-gateway`,
-      same as the docker e2e.
-    - **Local dev**: k3s is Linux-only; on macOS run the same cluster with
-      [k3d](https://k3d.io).

@@ -72,20 +72,3 @@ secret reaches aaiclick's SQL, the operation log or `schema_doc`;
   `azure_create_new_file_on_insert` are reserved, as for S3.
 - **Not supported**: the server's own managed / workload identity —
   `docs/designs/future.md` — "Blob Storage Support".
-
-# Testing
-
-`aaiclick/data/object/test_blob.py` runs against an in-process moto server on
-both backends; a remote ClickHouse reaches it through
-`AAICLICK_TEST_FILESERVER_HOST`. On a remote server the module probes
-`system.settings` and skips unless the profile opts in, so it runs in the
-dedicated `Blob storage dist` CI job — which starts ClickHouse with the
-`users.d` file mounted and fails on a skip — and skips in the jobs that use
-stock service containers. `claudeai/run.sh` uses the same `users.d` file and
-starts a real MinIO for manual checks.
-
-Its `store` fixture runs the shared export / open tests against S3 and Azure.
-Azure uses Azurite, Microsoft's Azure Storage emulator: started with `npx`
-locally (chdb, connection string in the env), or the container the
-`Blob storage dist` job runs, whose ClickHouse mounts `docker/clickhouse/test/`
-to define and grant the `azurite_test` collection.

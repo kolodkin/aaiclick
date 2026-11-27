@@ -43,6 +43,8 @@ The cost: locally there is no `alembic_version` row to answer *is this database 
 
 Accepted limit: anything a revision does that `create_all` would not (a backfill, a data repair) is invisible — local databases are recreated, so there is nothing to backfill.
 
+`is_local()` is `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` with `sqlite`; local mode needs `python -m aaiclick setup`, distributed mode `python -m aaiclick migrate upgrade head`.
+
 ## Worker runner
 
 **Implementation**: `aaiclick/orchestration/execution/runner_env.py`
