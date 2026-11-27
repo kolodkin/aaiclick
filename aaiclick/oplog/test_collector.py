@@ -113,7 +113,12 @@ async def _insert_into(a: Object, b: Object) -> Object:
 @pytest.mark.parametrize(
     "build, operation, expected",
     [
-        pytest.param(lambda a, b: a.view(order_by="value") + b.view(order_by="value"), "+", {"left": "a", "right": "b"}, id="binary"),
+        pytest.param(
+            lambda a, b: a.view(order_by="value") + b.view(order_by="value"),
+            "+",
+            {"left": "a", "right": "b"},
+            id="binary",
+        ),
         pytest.param(lambda a, b: a + 5, "+", {"left": "a"}, id="binary-literal-left-out"),
         pytest.param(lambda a, b: a.isin(b), "isin", {"source": "a", "other": "b"}, id="isin"),
         pytest.param(lambda a, b: a.copy(), "copy", {"source": "a"}, id="copy"),

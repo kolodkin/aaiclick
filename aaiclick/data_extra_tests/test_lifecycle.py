@@ -22,6 +22,7 @@ from aaiclick import (
     create_object,
     create_object_from_value,
 )
+from aaiclick.data.models import ENGINE_MEMORY, ENGINE_MERGE_TREE
 from aaiclick.data.object_context import (
     delete_object,
     get_ch_client,
@@ -29,7 +30,6 @@ from aaiclick.data.object_context import (
     get_engine,
     object_context,
 )
-from aaiclick.data.models import ENGINE_MEMORY, ENGINE_MERGE_TREE
 from aaiclick.data.object_context.lifecycle import LocalLifecycleHandler
 
 
