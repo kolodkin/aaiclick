@@ -52,6 +52,7 @@ def test_sink_finalize_after_drain_flushes_partials():
 # capture_task_output / read_task_logs round trips through ClickHouse
 
 
+# req: user_guide/orchestration/task-logs
 @pytest.mark.parametrize(
     "emit, stream",
     [
@@ -71,6 +72,7 @@ async def test_capture_task_output_stream(orch_ctx, emit, stream):
     assert any(line.text == "Hello, world!" and line.stream == stream for line in lines)
 
 
+# req: user_guide/orchestration/task-logs
 async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     """Completed lines are readable from task_logs while the task body is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)

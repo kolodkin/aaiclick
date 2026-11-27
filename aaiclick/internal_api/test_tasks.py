@@ -35,6 +35,7 @@ async def test_get_task_not_found_raises(orch_ctx):
         await tasks.get_task(999_999_999)
 
 
+# req: user_guide/orchestration/clear-task
 async def test_clear_task_returns_view(orch_ctx):
     job = await create_job("clear_task_job", _SAMPLE_TASK)
     task = (await get_tasks_for_job(job.id))[0]
@@ -68,6 +69,7 @@ async def test_list_tasks_newest_first(orch_ctx):
     assert page.total == 2
 
 
+# req: user_guide/orchestration/inspect-jobs
 @pytest.mark.parametrize(
     "filter_kwargs",
     [

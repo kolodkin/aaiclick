@@ -288,6 +288,7 @@ async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
     return {row[0] for row in result.result_rows}
 
 
+# req: user_guide/orchestration/task-logs
 async def test_delete_job_data_purges_ch_log_tables(orch_ctx, bg_db):
     """``_delete_job_data`` synchronously deletes the job's operation_log and task_logs rows, and no other job's."""
     job_id, other_job_id = 556, 557

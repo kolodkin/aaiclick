@@ -56,6 +56,7 @@ async def test_wait_returns_immediately_when_job_already_terminal():
     assert stats.await_count == 1
 
 
+# req: user_guide/orchestration/job-wait
 async def test_wait_polls_until_job_reaches_terminal_status():
     with _patch_stats(
         make_job_stats("RUNNING", _tasks("RUNNING")),
@@ -68,6 +69,7 @@ async def test_wait_polls_until_job_reaches_terminal_status():
     assert stats.await_count == 3
 
 
+# req: user_guide/orchestration/job-wait-exit-status
 async def test_wait_treats_cancelled_as_terminal():
     """A cancelled job must end the loop — otherwise the CLI hangs until timeout."""
     with _patch_stats(make_job_stats("CANCELLED", _tasks("CANCELLED"))):
@@ -82,6 +84,7 @@ async def test_wait_raises_timeout_when_job_never_finishes():
             await wait_for_job(1, timeout=0.0, poll_interval=0)
 
 
+# req: user_guide/orchestration/job-wait-exit-status
 async def test_on_change_fires_only_when_status_counts_change():
     """A loop that reported every tick would bury a piped CI log in hundreds of
     identical tables."""
@@ -115,6 +118,7 @@ async def test_timeout_carries_the_stats_for_diagnosis():
     assert [t.entrypoint for t in exc.value.stats.tasks] == ["mod.stuck"]
 
 
+# req: user_guide/orchestration/job-wait
 async def test_wait_resolves_a_real_job_through_the_internal_api(orch_ctx):
     """Guards the seam the mocked tests cannot: ref resolution and the real
     ``JobStatsView`` shape coming back from a DB round-trip."""

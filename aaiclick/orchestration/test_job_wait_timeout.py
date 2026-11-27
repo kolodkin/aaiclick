@@ -5,6 +5,7 @@ import pytest
 from aaiclick.orchestration.env import DEFAULT_JOB_WAIT_TIMEOUT, ENV_JOB_WAIT_TIMEOUT, job_wait_timeout
 
 
+# req: user_guide/orchestration/job-wait-exit-status
 def test_defaults_to_one_hour_when_env_unset(monkeypatch):
     monkeypatch.delenv(ENV_JOB_WAIT_TIMEOUT, raising=False)
     assert job_wait_timeout() == DEFAULT_JOB_WAIT_TIMEOUT == 3600.0

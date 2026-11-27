@@ -6,6 +6,7 @@ from aaiclick.testing import make_job_stats
 from aaiclick.view_models import SetupResult, SetupStep
 
 
+# req: user_guide/orchestration/job-wait-exit-status
 def test_render_job_failure_shows_full_error_not_the_table_truncation(capsys):
     """``render_job_stats`` clips errors to 60 chars for its table; the final
     failure message must not, or the traceback is unusable."""

@@ -28,6 +28,7 @@ def pipeline(x: int, y: int):
 job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
 ```
 
+<!-- req: result-argument-dependency -->
 Passing one task's result as another task's argument creates the dependency.
 Full script: [Examples: Orchestration Basics](../examples/orchestration_basic.md);
 guided walk-through: [tutorial chapter](../tutorial/orchestration.md).
@@ -38,6 +39,7 @@ guided walk-through: [tutorial chapter](../tutorial/orchestration.md).
 
 Wraps an async function into a task.
 
+<!-- req: task-decorator -->
 | Parameter     | Default       | Description                                            |
 |---------------|---------------|--------------------------------------------------------|
 | `name`        | function name | Task display name                                      |
@@ -48,18 +50,21 @@ serialized and handed to downstream tasks.
 
 ## @job
 
+<!-- req: job-decorator -->
 Wraps a workflow function into a job. Use `@job("name")`, `@job(name="name")`,
 or bare `@job` (the function name becomes the job name). Calling the decorated
 function creates the job and its tasks.
 
 ## Dynamic tasks
 
+<!-- req: dynamic-tasks -->
 A task may itself return child tasks to register them at runtime — the graph
 grows while the job runs. Return `tasks_list(a, b)` (or a plain list, `[a, b]`)
 for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
 returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
 
+<!-- req: dynamic-task-data -->
 When `data` is one of the returned tasks, consumers of the parent wait for that
 task. So when the data is something the children produce, return it through a
 task that depends on them: `map()`, `foreach()` and `reduce()` return a
@@ -74,6 +79,7 @@ Any other `data` is readable as soon as the parent completes.
 
 ## Explicit dependencies
 
+<!-- req: explicit-dependencies -->
 When no data flows between two tasks, order them with `>>` (or `<<`): `a >> b`
 runs `b` after `a`, `[a, b] >> c` fans in, and `a >> [b, c]` fans out. Chains
 read left to right: `first >> group >> last`. `b.depends_on(a)` records the
@@ -84,6 +90,7 @@ put `# pyright: reportUnusedExpression=false` at the top of files that define jo
 
 ## Groups
 
+<!-- req: groups -->
 A `Group` bundles tasks that belong together. `group.add_task(t)` makes `t` a
 member, and a returned Group registers its members with it. Dependencies work
 on the whole group: `a >> group` runs every member after `a`, and
@@ -119,6 +126,7 @@ mode the mutating REST endpoints require admin scope, from a session or an API t
 
 ## Run a job
 
+<!-- req: run-job -->
 If a registered job matches `name`, the run links to it and merges `kwargs`
 over its `default_kwargs`; otherwise the job runs standalone — registration is
 not a prerequisite.
@@ -143,6 +151,7 @@ not a prerequisite.
     python -m aaiclick run-job crawl --set url=https://example.com --set depth=3 --set force=true
     ```
 
+    <!-- req: run-job-set-kwargs -->
     `--set` beats `--kwargs`, which beats the registration's `default_kwargs`.
     A value that is not valid JSON stays a string.
 
@@ -154,6 +163,7 @@ not a prerequisite.
       -d '{"name": "crawl", "kwargs": {"url": "https://example.com"}}'
     ```
 
+    <!-- req: run-job-rest-name -->
     A dotted `name` (e.g. `"myapp.pipelines.crawl"`) is used as the entrypoint
     directly; a bare name reuses the registered job's entrypoint.
 
@@ -163,6 +173,7 @@ All three surfaces also accept `preservation_mode` and the runner fields —
 
 ## Wait for completion
 
+<!-- req: job-wait -->
 `run-job` returns as soon as the job is queued. `--progress` blocks until it
 reaches a terminal status; `job wait` does the same for an already-submitted job,
 by id or name:
@@ -172,6 +183,7 @@ python -m aaiclick run-job crawl --set url=https://example.com --progress
 python -m aaiclick job wait crawl --timeout 900
 ```
 
+<!-- req: job-wait-exit-status -->
 Both re-print the task table whenever the status counts change and exit
 **non-zero** on failure, cancellation, or timeout (`--timeout`, default
 `AAICLICK_JOB_WAIT_TIMEOUT`, 3600 s — a timeout stops watching while the job
@@ -179,6 +191,7 @@ keeps running), so `set -e` scripts and CI stop on a failed run. Failures print 
 and its `task get` command; `--json` emits the final stats as one parseable
 document, with diagnostics on stderr.
 
+<!-- req: wait-dotted-run-by-name -->
 The wait follows the returned job id, so an unregistered dotted entrypoint
 blocks and reports the same way.
 
@@ -190,13 +203,14 @@ python -m aaiclick job wait crawl
 ```
 
 !!! warning "A bare name that was never registered is not an entrypoint"
-    With no `crawl` registration, `run-job crawl` falls back to the name itself
-    as the entrypoint and the task fails on the worker with `Invalid entrypoint
-    format: crawl. Expected 'module.function'`. `--progress` surfaces that in
-    the same command.
+    <!-- req: bare-name-needs-registration -->
+    With no `crawl` registration, `run-job crawl` is rejected before anything
+    is queued: `No registered job named 'crawl'; register it or pass a dotted
+    entrypoint`.
 
 ## Register a job
 
+<!-- req: register-job -->
 The catalog of known jobs, separate from individual runs. Each entry stores an
 entrypoint, optional cron schedule, default kwargs, preservation-mode default,
 runner defaults, and enabled flag. `name` defaults to the last dotted segment
@@ -232,6 +246,7 @@ of `entrypoint`.
       -d '{"name": "crawl", "entrypoint": "myapp.pipelines.crawl", "schedule": "0 8 * * *", "default_kwargs": {"depth": 3}}'
     ```
 
+<!-- req: register-job-runner -->
 Where a job runs is set here too: nothing → a subprocess on the worker;
 `--image python:3.12` → a container from that image; `--build` → a container
 built from your repo at the submitted commit (`--git-remote` / `--dockerfile`
@@ -239,10 +254,12 @@ modify it, `--git-sha` per run). Python and REST use `image` / `build`.
 Container vs Pod is the worker's `AAICLICK_RUNNER` — see
 [Deployment](deployment.md).
 
+<!-- req: job-name-rule -->
 Job names follow the object name rule: letters, digits and `_`, not starting
 with a digit, at most 128 characters. Others fail with HTTP 422; names
 registered before the rule keep running.
 
+<!-- req: register-job-replace -->
 Registering an existing name fails (HTTP 409). Pass `--replace` (Python
 `replace=True`, REST/MCP `"replace": true`) to overwrite it — e.g. after a
 signature change leaves stale `default_kwargs`. Every field is replaced: omitting `--schedule`
@@ -250,6 +267,7 @@ clears the schedule, and `enabled` resets to true.
 
 ## Enable, disable, unregister, list registrations
 
+<!-- req: manage-registrations -->
 === "Python"
 
     ```python
@@ -288,6 +306,7 @@ clears the schedule, and `enabled` resets to true.
 
 ## Cron scheduling
 
+<!-- req: cron-scheduling -->
 The background worker launches a registered job with a `schedule` (standard
 cron expression) and `enabled=True` when its next run is due, using the
 registration's `default_kwargs` and defaults; manual `run_job()` calls can
@@ -299,6 +318,7 @@ override them per run.
 after the run ([ObjectContext — Preservation Modes](object_context.md#preservation-modes)).
 The effective mode resolves by precedence:
 
+<!-- req: preservation-mode-precedence -->
 | Level | Source                                       | Wins when                            |
 |-------|----------------------------------------------|--------------------------------------|
 | 1     | Explicit `run_job(...)` argument             | The caller passes a non-`None` value |
@@ -322,6 +342,7 @@ Two independent dials control how a task runs:
 | **docker**               | Container via the worker's Docker daemon | Docker daemon + CLI (`AAICLICK_DOCKER_BIN`)            |
 | **kubernetes**           | Pod in a cluster                         | `kubectl` (+ Docker & `AAICLICK_REGISTRY` for `build`) |
 
+<!-- req: container-runners-need-distributed -->
 `docker` and `kubernetes` require the distributed backends: a container or Pod
 reaches shared ClickHouse + PostgreSQL over the network, but embedded chdb and a
 local SQLite file cannot be shared into it. `subprocess` works in either mode.
@@ -337,6 +358,7 @@ subprocess even inside a docker/kubernetes job:
 | `build`    | Your git repo, built into an image at a specific SHA | by a `build-image` task in the job graph |
 | `prebuilt` | `image="python:3.12"` run verbatim                   | never                                    |
 
+<!-- req: image-source -->
 Pass `image=` (`run_job` / `run-job --image`, or `register-job --image` for a
 default) to select a prebuilt image — mutually exclusive with the git build
 fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job`
@@ -346,6 +368,7 @@ their parent's image unless they declare their own
 shell or jvm task may only return children built from its own repo or a
 prefix in the worker's `AAICLICK_CHILD_BUILD_REMOTES`.
 
+<!-- req: build-flag-defaults -->
 | Flag           | Default                          | Auto-sets |
 |----------------|----------------------------------|-----------|
 | `--image`      | none                             | —         |
@@ -359,10 +382,12 @@ commit. The working tree is read only when no remote is given or registered.
 Image fields require a docker or kubernetes job, and kubernetes settings a
 kubernetes job; setting either on another runner is an error, not a no-op.
 
+<!-- req: build-image-task -->
 Each distinct image gets one `build-image` task that every task on that image
 depends on; it is an ordinary task in the job graph (retries, logs, UI). The
 worker running it picks one of two mutually exclusive build modes:
 
+<!-- req: build-modes -->
 | Env var                    | Mode     | What the build task does                                                              |
 |----------------------------|----------|---------------------------------------------------------------------------------------|
 | `AAICLICK_REGISTRY=<host>` | registry | Skips if the registry has the image, else builds and pushes; every worker pulls it    |
@@ -371,6 +396,7 @@ worker running it picks one of two mutually exclusive build modes:
 Either way the build runs on the buildkitd at `AAICLICK_BUILDKIT_ADDR`, not on
 the worker's daemon, so Dockerfile steps never see the worker's credentials.
 
+<!-- req: build-mode-required -->
 Setting both, or neither, fails the build task with an error naming the two
 variables. Kubernetes `build` sources need registry mode: the cluster cannot
 pull from a worker's daemon.
@@ -419,6 +445,7 @@ runtime requirements, see [Container Images](container_images.md).
 
 ## Resources
 
+<!-- req: job-resources -->
 `resources` is a per-job dict (`register-job` default, overridable per
 `run_job`) shaped for the deployment's one runner; mixed docker / kubernetes
 fleets are not supported.
@@ -431,6 +458,7 @@ run_job(name, image="python:3.12", resources={"cpus": "1.5", "memory": "512m"})
 run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})
 ```
 
+<!-- req: docker-resource-flags -->
 - **Docker** accepts resource flags only (`cpus`, `memory`, `gpus`, …); any
   other key fails the task with the allowed list. `0` means unlimited, and
   `memory` alone allows swap: set `memory-swap` to the same value to forbid it.
@@ -439,6 +467,7 @@ run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory"
 
 ## Shell tasks
 
+<!-- req: shell-tasks -->
 A `shell` task runs a literal argv (`command`, a list) instead of importing a
 Python entrypoint. Success is **exit code 0**; stdout/stderr land in the normal
 per-task log. The command reads its kwargs
@@ -464,6 +493,7 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 `map`, `foreach` and `reduce` fan a computation out over partitions of an
 `Object`:
 
+<!-- req: parallel-operators -->
 - `map(cbk, obj, partition=5000)` — partitions the Object and creates one
   child task per partition; `cbk(row, *args, **kwargs)` is applied to each row
   (a value for single-column Objects, a `dict` for multi-column ones) and its
@@ -478,18 +508,21 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
   `output.insert()`. The callback must be homomorphic: output schema equals
   input schema.
 
+<!-- req: operator-result -->
 All three accept a `Task` or an `Object` as input and return the expander
 `Task`. Its result is the output Object (`None` for `foreach`), produced by a
 finalize task that runs after every partition task, so a consumer sees it
 filled. See [Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 !!! warning "Callbacks must be module-level functions"
+    <!-- req: module-level-callbacks -->
     A worker imports the callback by path, and the same holds for any function
     passed as a task argument. A lambda, nested function, bound method or
     `functools.partial` raises `TypeError` when the task is created; pass
     extra values through `args` / `kwargs` instead.
 
 !!! warning "Output schema equals input schema"
+    <!-- req: operator-output-schema -->
     Both operators allocate the output from the input's schema, and ClickHouse
     casts returned values to it on insert: a `map()` callback returning `2.5`
     for an integer column stores `2`. Map over a float column, or convert in
@@ -500,6 +533,7 @@ filled. See [Examples: Orchestration Operators](../examples/orchestration_operat
 
 ## Inspect jobs
 
+<!-- req: inspect-jobs -->
 === "Python"
 
     ```python
@@ -530,6 +564,7 @@ filled. See [Examples: Orchestration Operators](../examples/orchestration_operat
 
 ## Cancel a job
 
+<!-- req: cancel-job -->
 Atomically cancels the job and all its non-terminal tasks. Workers detect
 cancellation by polling task status; a CPU-bound task won't interrupt until it
 yields.
@@ -557,6 +592,7 @@ yields.
 
 ## Re-run tasks (clear)
 
+<!-- req: clear-task -->
 `clear_task` resets a task and all its transitive downstream tasks to PENDING
 for re-run (Airflow-style "clear task"); upstream tasks and their results are
 untouched, and a finished job is reactivated.
@@ -579,6 +615,7 @@ untouched, and a finished job is reactivated.
 
 # Task Logs
 
+<!-- req: task-logs -->
 Task stdout/stderr streams into the ClickHouse `task_logs` table while the
 task runs (flushed every ~2 s), so a long task can be tailed live, from one
 place, whichever host, container, or Pod ran it. Only stdout/stderr are captured: `logging` records appear only
@@ -590,6 +627,7 @@ the job's retention lifecycle. Fetch them via
 
 ## Worker logs
 
+<!-- req: worker-logs -->
 Every long-running command (`local start`, `execution-worker start`,
 `background start`) writes timestamped `INFO` lines to stderr. The execution
 worker logs `executing task` before each task and `completed task` (or the

@@ -20,6 +20,7 @@ PREBUILT = dump_image_source(ImagePrebuilt(image_tag="ghcr.io/example/pipeline:1
 OBJECT_REF = {"_aaiclick_type": "object", "table": "t_1"}
 
 
+# req: user_guide/orchestration/image-source
 def test_stamp_inherited_image_fills_only_undeclared():
     declared = create_task("m.f1")
     declared.image_source = BUILD_B
@@ -121,6 +122,7 @@ async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int
     return list(builds), {(d.previous_id, d.next_id) for d in deps}
 
 
+# req: user_guide/orchestration/build-image-task
 async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     job_id = (await create_job("j", "m.entry")).id
@@ -140,6 +142,7 @@ async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, mon
     assert (by_sha["b" * 40], t3.id) in edges
 
 
+# req: user_guide/orchestration/build-image-task
 async def test_commit_tasks_reuses_existing_build_task_in_job(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     job_id = (await create_job("j", "m.entry")).id

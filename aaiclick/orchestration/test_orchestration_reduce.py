@@ -89,6 +89,7 @@ def reduce_view_pipeline(values: list, where: str, partition_size: int):
 # --- Tests ---
 
 
+# req: user_guide/orchestration/parallel-operators
 @pytest.mark.parametrize(
     "pipeline, pipeline_kwargs, expected",
     [
@@ -119,6 +120,7 @@ async def test_reduce_empty_raises(orch_ctx):
     assert "reduce() of empty sequence" in (j.error or "")
 
 
+# req: user_guide/orchestration/dynamic-task-data, user_guide/orchestration/operator-result
 async def test_reduce_consumer_sees_filled_result(orch_ctx):
     """A consumer of reduce() runs after every layer, not after the expander alone."""
     j = await reduce_consumer(values=[1, 2, 3, 4, 5], partition_size=2)

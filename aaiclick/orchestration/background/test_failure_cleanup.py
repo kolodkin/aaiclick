@@ -84,6 +84,7 @@ async def run_failure_cleanup() -> None:
     await run_cleanup_pass(BackgroundWorker._process_failure_cleanup)
 
 
+# req: user_guide/orchestration/task-decorator
 async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
     """PENDING_FAILURE_CLEANUP task with retries → PENDING with incremented attempt."""
     await insert_job(bg_db, 1000)
@@ -113,6 +114,7 @@ async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
     assert await get_run_refs(bg_db, "t_intermediate") == set()
 
 
+# req: user_guide/orchestration/task-decorator
 async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
     """PENDING_FAILURE_CLEANUP task with no retries → FAILED."""
     await insert_job(bg_db, 1000)

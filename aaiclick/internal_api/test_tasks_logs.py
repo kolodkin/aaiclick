@@ -33,6 +33,7 @@ async def test_logs_unavailable_when_task_never_ran(orch_ctx):
     assert result.lines == []
 
 
+# req: user_guide/orchestration/task-logs
 async def test_logs_read_from_clickhouse(orch_ctx):
     job = await create_job("logs_ch", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
@@ -119,6 +120,7 @@ async def test_logs_unknown_attempt_raises(orch_ctx, run_ids, attempt):
         await get_task_logs(task.id, attempt=attempt)
 
 
+# req: user_guide/orchestration/task-logs
 async def test_logs_tail_returns_last_n_in_order(orch_ctx):
     job = await create_job("logs_tail", simple_task)
     task = (await get_tasks_for_job(job.id))[0]

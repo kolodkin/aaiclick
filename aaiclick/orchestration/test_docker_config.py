@@ -34,6 +34,7 @@ def test_image_key_stable_and_distinguishes_fields():
     assert image_key(a) != image_key(c)  # dockerfile matters
 
 
+# req: user_guide/orchestration/build-modes
 @pytest.mark.parametrize(
     "registry, local_build, expected",
     [
@@ -48,6 +49,7 @@ def test_get_build_mode(monkeypatch, registry, local_build, expected):
     assert get_build_mode() == expected
 
 
+# req: user_guide/orchestration/build-mode-required
 @pytest.mark.parametrize(
     "registry, local_build, match",
     [
@@ -64,6 +66,7 @@ def test_get_build_mode_rejects_ambiguous_env(monkeypatch, registry, local_build
         get_build_mode()
 
 
+# req: user_guide/orchestration/build-flag-defaults
 @pytest.mark.parametrize(
     "registered, kwargs, expected",
     [
@@ -137,6 +140,7 @@ async def test_resolve_image_source(monkeypatch, registered, kwargs, expected):
     assert await resolve_image_source(registered, **kwargs) == expected
 
 
+# req: user_guide/orchestration/build-flag-defaults
 async def test_resolve_image_source_known_remote_never_reads_working_tree(monkeypatch):
     """A sandbox URL names a repo the submitter's cwd need not contain: the
     scheduler or an API server has no working tree at all."""
@@ -175,11 +179,13 @@ def remote_repo(tmp_path):
     return str(repo), main_sha, feature_sha
 
 
+# req: user_guide/orchestration/build-flag-defaults
 async def test_resolve_remote_head_default_branch(remote_repo):
     url, main_sha, _ = remote_repo
     assert await resolve_remote_head(url, None) == RemoteHead(sha=main_sha, branch="main")
 
 
+# req: user_guide/orchestration/build-flag-defaults
 async def test_resolve_remote_head_named_branch(remote_repo):
     url, _, feature_sha = remote_repo
     assert await resolve_remote_head(url, "feature") == RemoteHead(sha=feature_sha, branch="feature")
@@ -213,6 +219,7 @@ def test_compute_image_tag(monkeypatch, dockerfile, suffix):
     assert compute_image_tag(source) == f"aaiclick-job:{'b' * 40}{suffix}"
 
 
+# req: user_guide/orchestration/docker-resource-flags
 @pytest.mark.parametrize(
     "resources, expected",
     [
@@ -225,6 +232,7 @@ def test_resource_flags(resources, expected):
     assert resource_flags(resources) == expected
 
 
+# req: user_guide/orchestration/docker-resource-flags
 @pytest.mark.parametrize(
     "resources, match",
     [
@@ -239,6 +247,7 @@ def test_resource_flags_rejects(resources, match):
         resource_flags(resources)
 
 
+# req: user_guide/orchestration/build-modes
 def test_get_buildkit_addr(monkeypatch):
     monkeypatch.setenv("AAICLICK_BUILDKIT_ADDR", "tcp://buildkitd:1234")
     assert get_buildkit_addr() == "tcp://buildkitd:1234"
@@ -247,6 +256,7 @@ def test_get_buildkit_addr(monkeypatch):
         get_buildkit_addr()
 
 
+# req: user_guide/orchestration/image-source
 def test_check_child_build_remote_trusts_parent_repo_any_scheme(monkeypatch):
     """The parent's own repo came from a trusted submitter, so its scheme is not
     second-guessed — only listed prefixes are held to https/git@."""

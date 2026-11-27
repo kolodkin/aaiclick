@@ -92,6 +92,7 @@ async def test_get_job_by_numeric_string(orch_ctx):
     assert detail.id == created.id
 
 
+# req: user_guide/orchestration/wait-dotted-run-by-name
 async def test_get_job_by_name_returns_latest(orch_ctx):
     older = await create_job("twice", _SAMPLE_TASK)
     newer = await create_job("twice", _SAMPLE_TASK)
@@ -116,6 +117,7 @@ async def test_get_job_not_found_raises(orch_ctx, ref):
         await jobs.get_job(ref)
 
 
+# req: user_guide/orchestration/inspect-jobs
 async def test_job_stats_structure(orch_ctx):
     created = await create_job("stats_job", _SAMPLE_TASK)
 
@@ -132,6 +134,7 @@ async def test_job_stats_not_found_raises(orch_ctx):
         await jobs.job_stats(0)
 
 
+# req: user_guide/orchestration/cancel-job
 async def test_cancel_job_transitions_to_cancelled(orch_ctx):
     created = await create_job("to_cancel", _SAMPLE_TASK)
 
@@ -141,6 +144,7 @@ async def test_cancel_job_transitions_to_cancelled(orch_ctx):
     assert view.completed_at is not None
 
 
+# req: user_guide/orchestration/cancel-job
 async def test_cancel_job_terminal_raises_conflict(orch_ctx):
     created = await create_job("double_cancel", _SAMPLE_TASK)
 
@@ -155,6 +159,7 @@ async def test_cancel_job_not_found_raises(orch_ctx):
         await jobs.cancel_job(0)
 
 
+# req: user_guide/orchestration/run-job
 async def test_run_job_creates_job_with_kwargs(orch_ctx):
     request = RunJobRequest(name="myapp.run_simple", kwargs={"x": 1})
 
@@ -170,6 +175,7 @@ async def test_run_job_creates_job_with_kwargs(orch_ctx):
     assert task.kwargs == {"x": 1}
 
 
+# req: user_guide/orchestration/run-job-rest-name, user_guide/orchestration/wait-dotted-run-by-name
 async def test_run_job_dotted_name_splits_entrypoint(orch_ctx):
     request = RunJobRequest(name="myapp.pipelines.daily_etl")
 
@@ -180,6 +186,7 @@ async def test_run_job_dotted_name_splits_entrypoint(orch_ctx):
     assert detail.tasks[0].entrypoint == "myapp.pipelines.daily_etl"
 
 
+# req: user_guide/orchestration/run-job-rest-name
 async def test_run_job_bare_name_resolves_registered_entrypoint(orch_ctx):
     """A bare name must look up the registered job's entrypoint, not reuse the name."""
     await register_job(name="my_pipeline", entrypoint=_SAMPLE_TASK)
@@ -190,6 +197,7 @@ async def test_run_job_bare_name_resolves_registered_entrypoint(orch_ctx):
     assert detail.tasks[0].entrypoint == _SAMPLE_TASK
 
 
+# req: user_guide/orchestration/bare-name-needs-registration
 async def test_run_job_bare_unregistered_name_raises(orch_ctx):
     """An unregistered bare name is rejected instead of queuing a doomed task."""
     with pytest.raises(errors.NotFound):
@@ -215,6 +223,7 @@ async def test_run_job_accepts_a_hyphenated_name(orch_ctx):
     assert view.name == "my-job"
 
 
+# req: user_guide/orchestration/job-name-rule
 async def test_run_job_still_runs_a_registered_name_from_before_the_rule(orch_ctx):
     # Registered before names were checked: written straight to the catalog.
     async with get_sql_session() as session:

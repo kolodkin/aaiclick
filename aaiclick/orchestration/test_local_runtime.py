@@ -154,6 +154,7 @@ async def _scheduled_runs(registered_job_id: int) -> int:
         ).scalar_one()
 
 
+# req: user_guide/orchestration/cron-scheduling
 async def test_local_runtime_creates_a_due_scheduled_run(orch_ctx, monkeypatch):
     """Local mode is one process: the BackgroundWorker polls inside the
     server's ``orch_context``, and the ``orch_context`` its schedule pass

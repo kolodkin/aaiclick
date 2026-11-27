@@ -14,6 +14,7 @@ from aaiclick.orchestration.registered_jobs import register_job
 from ...datetime_utils import utc_now
 
 
+# req: user_guide/orchestration/cron-scheduling
 async def test_check_schedules_creates_job(orch_ctx):
     """A due registered job should produce a Job + Task carrying the
     registration's config (preservation mode), not the column defaults."""
@@ -114,6 +115,7 @@ async def test_check_schedules_optimistic_lock_prevents_duplicates(orch_ctx):
     assert count == 1
 
 
+# req: user_guide/orchestration/cron-scheduling
 @pytest.mark.parametrize(
     "registration",
     [

@@ -61,6 +61,7 @@ def unimportable_callable_pipeline(kind: str, call: str):
     return [data, CALLS[call](UNIMPORTABLE[kind], data)]
 
 
+# req: user_guide/orchestration/module-level-callbacks
 @pytest.mark.parametrize("kind", list(UNIMPORTABLE))
 @pytest.mark.parametrize(
     "call, arg",
@@ -83,6 +84,7 @@ def callable_kwarg_pipeline(fn):
     return call_fn(fn=fn)
 
 
+# req: user_guide/orchestration/module-level-callbacks
 async def test_unimportable_callable_job_kwarg_raises_on_submit(orch_ctx):
     with pytest.raises(TypeError, match="Argument 'fn' got .* a module-level function is required"):
         await callable_kwarg_pipeline(fn=lambda row: row)

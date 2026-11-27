@@ -5,6 +5,7 @@ from ..models import JOB_COMPLETED, JOB_PENDING
 from .queries import count_jobs, get_job, list_jobs
 
 
+# req: user_guide/orchestration/inspect-jobs
 async def test_get_job(orch_ctx):
     """Test retrieving a job by ID."""
     job = await create_job("test_get_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
@@ -33,6 +34,7 @@ async def test_list_jobs_basic(orch_ctx):
     assert "list_basic_b" in names
 
 
+# req: user_guide/orchestration/inspect-jobs
 async def test_list_jobs_filter_by_status(orch_ctx):
     """Test filtering jobs by status."""
     await create_job("status_filter", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
@@ -46,6 +48,7 @@ async def test_list_jobs_filter_by_status(orch_ctx):
     assert "status_filter" not in completed_names
 
 
+# req: user_guide/orchestration/inspect-jobs
 async def test_list_jobs_filter_by_name_like(orch_ctx):
     """Test filtering jobs by name pattern."""
     await create_job("etl_pipeline_daily", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
@@ -57,6 +60,7 @@ async def test_list_jobs_filter_by_name_like(orch_ctx):
     assert "ml_training_run" not in names
 
 
+# req: user_guide/orchestration/inspect-jobs
 async def test_list_jobs_limit_and_offset(orch_ctx):
     """Test pagination with limit and offset."""
     for i in range(5):

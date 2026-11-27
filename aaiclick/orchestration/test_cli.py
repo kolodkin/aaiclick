@@ -31,6 +31,7 @@ def _assert_worker_line_on_stderr(capsys) -> None:
     assert stamp[:4].isdigit(), stamp
 
 
+# req: user_guide/orchestration/worker-logs
 def test_configure_logging_prints_worker_info_lines(capsys, restore_aaiclick_logger):
     """Python's WARNING default drops the worker's INFO lines; the standalone
     loops write them to stderr, timestamped."""
@@ -38,6 +39,7 @@ def test_configure_logging_prints_worker_info_lines(capsys, restore_aaiclick_log
     _assert_worker_line_on_stderr(capsys)
 
 
+# req: user_guide/orchestration/worker-logs
 def test_local_log_config_prints_worker_info_lines(capsys, restore_aaiclick_logger):
     """The same lines reach stderr when layered onto uvicorn's config, whose
     own loggers are kept."""

@@ -93,6 +93,7 @@ def test_parse_image_source_rejects_unknown_type():
         parse_image_source({"type": "carrier-pigeon"})
 
 
+# req: user_guide/orchestration/docker-resource-flags
 def test_validate_resources_rejects_non_mapping():
     with pytest.raises(ValueError, match="resources must be a mapping"):
         validate_resources([{"cpus": "1"}])

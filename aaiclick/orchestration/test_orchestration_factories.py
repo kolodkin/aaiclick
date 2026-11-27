@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select
 
-from aaiclick.orchestration.decorators import job
+from aaiclick.orchestration.decorators import TaskFactory, job, task
 from aaiclick.orchestration.execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from aaiclick.orchestration.factories import create_container_job, create_job, create_task
 from aaiclick.orchestration.jobs import get_task
@@ -29,6 +29,31 @@ from aaiclick.orchestration.runner_config import (
 
 @job("kwarg_named_like_job_field")
 def _job_with_colliding_kwargs(run_type: str, registered_job_id: int) -> None:
+    pass
+
+
+@task
+def default_named_task() -> None:
+    pass
+
+
+@task(name="custom_task", max_retries=2)
+def custom_named_task() -> None:
+    pass
+
+
+@job("positional_job")
+def _positional_job() -> None:
+    pass
+
+
+@job(name="keyword_job")
+def _keyword_job() -> None:
+    pass
+
+
+@job
+def bare_named_job() -> None:
     pass
 
 
@@ -125,11 +150,13 @@ def test_create_task_jvm_rejects_callable():
         create_task(lambda: None, entry_type="jvm")
 
 
+# req: user_guide/orchestration/image-source
 def test_create_task_image_kwarg_sets_prebuilt_source():
     t = create_task("m.f", image="ghcr.io/x/y:1")
     assert t.image_source == {"type": "prebuilt", "image_tag": "ghcr.io/x/y:1"}
 
 
+# req: user_guide/orchestration/image-source
 def test_create_task_git_kwargs_set_build_source():
     t = create_task("m.f", git_remote="https://example.com/r.git", git_sha="a" * 40, dockerfile="Dockerfile.gpu")
     assert t.image_source is not None
@@ -167,6 +194,7 @@ async def _task_entrypoints(job_id: int) -> list[str]:
     return [t.entrypoint for t in rows]
 
 
+# req: user_guide/orchestration/build-image-task
 async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     source = ImagePrebuilt(image_tag="python:3.12")
     job = await create_container_job(
@@ -176,6 +204,7 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     assert job.resources is None
 
 
+# req: user_guide/orchestration/job-resources
 async def test_container_job_snapshots_resources(orch_ctx_no_ch):
     source = ImagePrebuilt(image_tag="python:3.12")
     job = await create_container_job(
@@ -184,6 +213,7 @@ async def test_container_job_snapshots_resources(orch_ctx_no_ch):
     assert job.resources == {"limits": {"cpu": "1"}}
 
 
+# req: user_guide/orchestration/build-image-task
 async def test_build_job_injects_build_task_without_registry(orch_ctx_no_ch, monkeypatch):
     """Submission never reads the build env: the build task is in the graph
     either way and the worker picks registry vs local when it runs."""
@@ -194,6 +224,7 @@ async def test_build_job_injects_build_task_without_registry(orch_ctx_no_ch, mon
     assert sorted(await _task_entrypoints(job.id)) == sorted([IMAGE_BUILD_ENTRYPOINT, "mod.fn"])
 
 
+# req: user_guide/orchestration/image-source
 async def test_create_container_job_stamps_entry_and_injects_build_task(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     source = ImageBuild(git_remote="https://example.com/r.git", git_sha="c" * 40)
@@ -228,3 +259,34 @@ def test_create_task_rejects_image_with_empty_git_remote():
     """An empty string is still a set build field: image and the build side stay exclusive."""
     with pytest.raises(ValueError, match="mutually exclusive"):
         create_task("m.f", image="python:3.12", git_remote="")
+
+
+# req: user_guide/orchestration/task-decorator
+@pytest.mark.parametrize(
+    "factory, name, max_retries",
+    [
+        pytest.param(default_named_task, "default_named_task", 0, id="defaults"),
+        pytest.param(custom_named_task, "custom_task", 2, id="explicit"),
+    ],
+)
+def test_task_decorator_sets_name_and_max_retries(factory: TaskFactory, name: str, max_retries: int):
+    created = factory()
+    assert (created.name, created.max_retries) == (name, max_retries)
+
+
+# req: user_guide/orchestration/job-decorator
+@pytest.mark.parametrize(
+    "factory, name",
+    [
+        pytest.param(_positional_job, "positional_job", id="positional"),
+        pytest.param(_keyword_job, "keyword_job", id="keyword"),
+        pytest.param(bare_named_job, "bare_named_job", id="bare"),
+    ],
+)
+async def test_job_decorator_forms_name_the_created_job(orch_ctx_no_ch, factory, name):
+    """Calling the decorated function creates the job with its entry task."""
+    created = await factory()
+
+    assert created.name == name
+    (entry,) = await get_tasks_for_job(created.id)
+    assert entry.entrypoint == factory.entrypoint

@@ -60,6 +60,7 @@ _NODE_KINDS = [
 ]
 
 
+# req: user_guide/orchestration/explicit-dependencies, user_guide/orchestration/groups
 @pytest.mark.parametrize("make_next, next_type", _NODE_KINDS)
 @pytest.mark.parametrize("make_previous, previous_type", _NODE_KINDS)
 async def test_rshift_persists_dependency(orch_ctx, make_previous, make_next, previous_type, next_type):
@@ -73,6 +74,18 @@ async def test_rshift_persists_dependency(orch_ctx, make_previous, make_next, pr
     assert await _persisted_edges() == {(previous.id, previous_type, next_.id, next_type)}
 
 
+# req: user_guide/orchestration/result-argument-dependency
+async def test_task_argument_persists_dependency(orch_ctx):
+    """Passing a task as another task's argument makes the consumer depend on it."""
+    job = await create_job("test_argument_job", simple_task)
+    upstream = produce(value=1)
+    consumer = produce(value=upstream)
+
+    await commit_tasks(consumer, job_id=job.id)
+    assert await _persisted_edges() == {(upstream.id, DEPENDENCY_TASK, consumer.id, DEPENDENCY_TASK)}
+
+
+# req: user_guide/orchestration/explicit-dependencies
 async def test_lshift_persists_dependency(orch_ctx):
     """``A << B`` means A depends on B and returns the left operand."""
     job = await create_job("test_lshift_job", simple_task)
@@ -84,6 +97,7 @@ async def test_lshift_persists_dependency(orch_ctx):
     assert await _persisted_edges() == {(task2.id, DEPENDENCY_TASK, task1.id, DEPENDENCY_TASK)}
 
 
+# req: user_guide/orchestration/explicit-dependencies
 async def test_fanout_persists_dependency_per_target(orch_ctx):
     """``A >> [B, C, D]`` means B, C and D all depend on A."""
     job = await create_job("test_fanout_job", simple_task)
@@ -96,6 +110,7 @@ async def test_fanout_persists_dependency_per_target(orch_ctx):
     assert await _persisted_edges() == {(source.id, DEPENDENCY_TASK, t.id, DEPENDENCY_TASK) for t in targets}
 
 
+# req: user_guide/orchestration/explicit-dependencies
 async def test_fanin_persists_dependency_per_source(orch_ctx):
     """``[A, B, C] >> D`` means D depends on A, B and C."""
     job = await create_job("test_fanin_job", simple_task)
@@ -108,6 +123,7 @@ async def test_fanin_persists_dependency_per_source(orch_ctx):
     assert await _persisted_edges() == {(s.id, DEPENDENCY_TASK, sink.id, DEPENDENCY_TASK) for s in sources}
 
 
+# req: user_guide/orchestration/explicit-dependencies
 async def test_commit_tasks_persists_upstream_graph(orch_ctx):
     """commit_tasks() on only the terminal task of a ``>>`` chain persists every upstream task and edge.
 
@@ -145,6 +161,7 @@ async def test_same_upstream_in_several_kwargs_runs(orch_ctx):
         assert await get_job_result(j) == 63
 
 
+# req: user_guide/orchestration/groups
 async def test_commit_tasks_persists_group_members(orch_ctx):
     """A group reached through ``group >> consumer`` is committed with its members.
 

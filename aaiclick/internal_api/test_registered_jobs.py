@@ -70,6 +70,7 @@ async def test_list_registered_jobs_name_like_and_pagination(orch_ctx):
     assert {rj.id for rj in first.items}.isdisjoint({rj.id for rj in second.items})
 
 
+# req: user_guide/orchestration/register-job
 async def test_register_job_returns_view_and_persists(orch_ctx):
     request = RegisterJobRequest(
         name="new_reg",
@@ -90,6 +91,7 @@ async def test_register_job_returns_view_and_persists(orch_ctx):
     assert [rj.name for rj in page.items] == ["new_reg"]
 
 
+# req: user_guide/orchestration/register-job-replace
 async def test_register_job_duplicate_raises_conflict(orch_ctx):
     request = RegisterJobRequest(name="dup_reg", entrypoint=_VALID_ENTRYPOINT)
 
@@ -165,6 +167,7 @@ async def test_disable_job_missing_raises_not_found(orch_ctx):
         await registered_jobs.disable_job("ghost_job")
 
 
+# req: user_guide/orchestration/manage-registrations
 async def test_unregister_job_keeps_past_runs_unlinked(orch_ctx):
     await _register_job_impl(name="to_unregister", entrypoint="myapp.to_unregister")
     run = await _run_job_impl("to_unregister", "myapp.to_unregister")
@@ -194,12 +197,14 @@ async def test_register_job_build_skips_host_entrypoint_validation(orch_ctx):
     assert view.name == "built_reg"
 
 
+# req: user_guide/orchestration/job-name-rule
 @pytest.mark.parametrize("name", ["my job", "etl.v2", "9lives", "a%b", "-etl"])
 async def test_register_job_rejects_an_invalid_name(orch_ctx, name):
     with pytest.raises(errors.Invalid):
         await registered_jobs.register_job(RegisterJobRequest(name=name, entrypoint=_VALID_ENTRYPOINT))
 
 
+# req: user_guide/orchestration/job-name-rule
 async def test_register_job_rejects_an_over_long_name(orch_ctx):
     with pytest.raises(errors.Invalid):
         await registered_jobs.register_job(RegisterJobRequest(name="a" * 129, entrypoint=_VALID_ENTRYPOINT))
