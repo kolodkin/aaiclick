@@ -191,7 +191,7 @@ def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
 # --- Execution tests ---
 
 
-# req: user_guide/orchestration/parallel-operators, user_guide/orchestration/operator-result
+# req: user_guide/orchestration/parallel_operators/parallel-operators, user_guide/orchestration/parallel_operators/operator-result
 @pytest.mark.parametrize(
     "pipeline, pipeline_kwargs, expected",
     [
@@ -215,7 +215,7 @@ async def test_foreach_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
             assert await get_job_result(j) == {"done": None, "rows": expected}
 
 
-# req: user_guide/orchestration/parallel-operators, user_guide/orchestration/operator-result, user_guide/orchestration/operator-output-schema
+# req: user_guide/orchestration/parallel_operators/parallel-operators, user_guide/orchestration/parallel_operators/operator-result, user_guide/orchestration/parallel_operators/operator-output-schema
 @pytest.mark.parametrize(
     "pipeline, expected",
     [

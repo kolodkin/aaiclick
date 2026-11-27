@@ -271,7 +271,7 @@ registration default → `None`), exposed on the Python API, `RegisterJobRequest
 and `RunJobRequest`, and checked to be a mapping at submission. It rides on the
 job's dispatch record, not the Pod config, and is runner-shaped: the Pod
 container `resources` here, `docker run` flags on docker
-([Resources](../user_guide/orchestration.md#resources)).
+([Resources](../user_guide/orchestration/runners.md#resources)).
 
 Both are resolved on the **worker at dispatch** — the runner is picked from the
 task and the worker, never from the job (a `NULL` `image_source` is a host

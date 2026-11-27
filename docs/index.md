@@ -58,7 +58,7 @@ python -m aaiclick setup
 ```
 
 - [Getting Started](getting_started.md) — installation, setup, environment variables
-- [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
+- [Orchestration](user_guide/orchestration/index.md) — `@task` and `@job` decorators, workers
 - [Object API](user_guide/object/index.md) — operators, aggregations, views, group by
 - [Examples](examples/orchestration_basic.md) — runnable scripts for every feature
 

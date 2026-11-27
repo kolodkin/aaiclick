@@ -411,7 +411,7 @@ async def test_resolve_plain_kwargs_rejects_other_jobs_task(orch_ctx):
         await resolve_plain_kwargs({"x": upstream_ref(src.id)}, src.job_id + 1)
 
 
-# req: user_guide/task_interface/vocabulary, user_guide/orchestration/group-kwarg
+# req: user_guide/task_interface/vocabulary, user_guide/orchestration/tasks_and_jobs/group-kwarg
 async def test_group_results_resolve_only_within_job(orch_ctx):
     group = Group(id=get_snowflake_id(), name="g")
     src = await _completed_task(native_ref(1), group)
@@ -471,7 +471,7 @@ async def test_serialize_task_result_none(orch_ctx):
     assert serialize_task_result(None, job_id=2) is None
 
 
-# req: user_guide/task_api_python/inputs-and-results, user_guide/orchestration/task-return-values
+# req: user_guide/task_api_python/inputs-and-results, user_guide/orchestration/tasks_and_jobs/task-return-values
 async def test_task_object_result_round_trips(orch_ctx):
     """An Object returned by a task is stored as a reference and read back as data."""
     job = await object_result_job()
@@ -529,7 +529,7 @@ async def test_task_lazy_result_is_materialized(orch_ctx, pipeline):
         assert await result.data() == [11, 22, 33]
 
 
-# req: user_guide/task_api_python/inputs-and-results, user_guide/orchestration/task-return-values
+# req: user_guide/task_api_python/inputs-and-results, user_guide/orchestration/tasks_and_jobs/task-return-values
 @pytest.mark.parametrize(
     "value",
     [
@@ -627,7 +627,7 @@ async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
     )
 
 
-# req: user_guide/task_interface/io-contract, user_guide/orchestration/shell-tasks
+# req: user_guide/task_interface/io-contract, user_guide/orchestration/runners/shell-tasks
 async def test_run_job_tasks_shell_task(orch_ctx):
     """A shell entry task runs in-process and flushes its output inline to CH."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo shell line"])
@@ -642,7 +642,7 @@ async def test_run_job_tasks_shell_task(orch_ctx):
     assert [line.text for line in logs.lines] == ["shell line"]
 
 
-# req: user_guide/task_interface/io-contract, user_guide/orchestration/shell-tasks
+# req: user_guide/task_interface/io-contract, user_guide/orchestration/runners/shell-tasks
 async def test_run_job_tasks_failing_shell_task(orch_ctx):
     """A shell task's nonzero exit fails the job; output is still flushed."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo boom; exit 3"])
@@ -772,7 +772,7 @@ async def test_shell_task_invalid_out_json_fails_task(orch_ctx):
 # Dict-returned DAGs (the JSON form of task_result / task / group)
 
 
-# req: user_guide/task_interface/spawn-group, user_guide/orchestration/group-kwarg
+# req: user_guide/task_interface/spawn-group, user_guide/orchestration/tasks_and_jobs/group-kwarg
 async def test_run_job_tasks_dict_return_group_results(orch_ctx):
     job = await create_job("dict_return_group", create_task(spawn_group, {"n": 1}, name="dict_return_group"))
     await run_job_tasks(job)
@@ -939,7 +939,7 @@ async def test_run_job_tasks_dict_return_bad_dicts_fail_parent(orch_ctx, entry, 
 # job_test() tests
 
 
-# req: user_guide/orchestration/testing-jobs
+# req: user_guide/orchestration/tasks_and_jobs/testing-jobs
 async def test_job_test_simple(orch_ctx):
     """Test job_test() executes a simple task synchronously.
 
@@ -1136,7 +1136,7 @@ async def test_register_returned_tasks_flat_shapes(orch_ctx, shape):
         assert len(result.scalars().all()) == 4
 
 
-# req: user_guide/orchestration/dynamic-list-only
+# req: user_guide/orchestration/tasks_and_jobs/dynamic-list-only
 @pytest.mark.parametrize(
     "build_payload",
     [
@@ -1155,7 +1155,7 @@ async def test_register_returned_tasks_rejects_nesting(orch_ctx, build_payload):
         await register_returned_tasks(payload, parent_task_id=1, job_id=1, parent_entry_type="module")
 
 
-# req: user_guide/orchestration/dynamic-list-only
+# req: user_guide/orchestration/tasks_and_jobs/dynamic-list-only
 async def test_register_returned_tasks_list_mixing_tasks_and_data(orch_ctx):
     """Mixing Tasks with data in a list is rejected rather than silently dropped."""
     job = await create_job("reg_mixed_test", "mod.func")

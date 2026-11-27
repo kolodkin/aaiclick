@@ -98,7 +98,7 @@ running buildx, so it holds no git credentials — only a token with
   move to GitHub secrets.
 
 Until then, a private GitHub repo builds with a GitHub App key on the worker
-(`docs/user_guide/orchestration.md`, "Image source").
+(`docs/user_guide/orchestration/runners.md`, "Image source").
 
 ## Objects in Non-Python Tasks
 

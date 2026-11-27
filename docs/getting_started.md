@@ -125,7 +125,7 @@ The REST API docs are at <http://127.0.0.1:5255/api/v0/docs>.
 
 # Next Steps
 
-- [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
+- [Orchestration](user_guide/orchestration/index.md) — `@task` and `@job` decorators, workers
 - [Deployment](user_guide/deployment.md) — local vs distributed backends, environment variables, compose and Helm
 - [Object API](user_guide/object/index.md) — operators, aggregations, views, group by
 - [ObjectContext](user_guide/object_context.md) — lifecycle, persistent objects, data operations without orchestration

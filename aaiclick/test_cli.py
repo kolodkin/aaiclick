@@ -68,7 +68,7 @@ def test_parse_command_env_rejects_missing_equals():
         _parse_command_env(["bad"])
 
 
-# req: user_guide/orchestration/shell-tasks
+# req: user_guide/orchestration/runners/shell-tasks
 async def test_run_job_persists_shell_flags(orch_ctx):
     await run_cli(
         "run-job",
@@ -87,7 +87,7 @@ async def test_run_job_persists_shell_flags(orch_ctx):
     assert task.command_env == {"K": "v"}
 
 
-# req: user_guide/orchestration/image-source
+# req: user_guide/orchestration/runners/image-source
 async def test_run_job_rejects_image_with_build(orch_ctx, capsys):
     """``--image`` and ``--build`` reach ``run_job`` together: the CLI reports
     the refusal and exits 1 instead of a traceback."""
@@ -98,7 +98,7 @@ async def test_run_job_rejects_image_with_build(orch_ctx, capsys):
     assert "mutually exclusive" in capsys.readouterr().err
 
 
-# req: user_guide/orchestration/register-job-runner
+# req: user_guide/orchestration/running_jobs/register-job-runner
 def test_register_job_build_flag_parses():
     args = build_parser().parse_args(["register-job", "m.f", "--build", "--git-remote", "git@x:r.git"])
     assert args.build is True
@@ -127,7 +127,7 @@ async def test_cli_debug_env_reraises_for_the_traceback(monkeypatch):
         await run_cli("run-job", "j", "--command-env", "bad")
 
 
-# req: user_guide/orchestration/register-job, user_guide/orchestration/register-job-runner
+# req: user_guide/orchestration/running_jobs/register-job, user_guide/orchestration/running_jobs/register-job-runner
 async def test_register_job_persists_image(orch_ctx, capsys):
     await run_cli("register-job", "myapp.jobs.etl", "--image", "myrepo/img:1")
 
@@ -204,7 +204,7 @@ async def test_run_internal_api_provides_a_sql_session():
     assert await _run_internal_api(_uses_sql_session())
 
 
-# req: user_guide/orchestration/run-job-set-kwargs
+# req: user_guide/orchestration/running_jobs/run-job-set-kwargs
 @pytest.mark.parametrize(
     "pairs, expected",
     [
@@ -234,7 +234,7 @@ def test_parse_set_kwargs_rejects_missing_equals():
         _parse_set_kwargs(["bad"])
 
 
-# req: user_guide/orchestration/run-job-set-kwargs
+# req: user_guide/orchestration/running_jobs/run-job-set-kwargs
 async def test_run_job_set_takes_precedence_over_kwargs_json(orch_ctx):
     """Documented precedence: default_kwargs < --kwargs < --set."""
     await run_cli("run-job", "m.j", "--kwargs", '{"corpus_size": 10, "keep": 1}', "--set", "corpus_size=300")
@@ -248,7 +248,7 @@ async def test_register_job_set_merges_into_default_kwargs(orch_ctx):
     assert (await _only_registered_job()).default_kwargs == {"corpus_size": 300}
 
 
-# req: user_guide/orchestration/register-job-replace
+# req: user_guide/orchestration/running_jobs/register-job-replace
 async def test_register_job_replace_overwrites_existing(orch_ctx):
     await run_cli("register-job", _VALID_ENTRYPOINT, "--kwargs", '{"x": 5, "y": 6}', "--schedule", "0 8 * * *")
 
@@ -281,7 +281,7 @@ async def _seed_job(job_status: JobStatus | None, entrypoint: str, *, task_error
     return job.id
 
 
-# req: user_guide/orchestration/job-wait-exit-status
+# req: user_guide/orchestration/running_jobs/job-wait-exit-status
 async def test_job_wait_exits_nonzero_and_reports_the_failed_task(orch_ctx, capsys):
     """CI and ``set -e`` scripts key off the exit code; the operator keys off
     knowing which task blew up."""
@@ -294,14 +294,14 @@ async def test_job_wait_exits_nonzero_and_reports_the_failed_task(orch_ctx, caps
     assert "exploding_task" in capsys.readouterr().out
 
 
-# req: user_guide/orchestration/job-wait
+# req: user_guide/orchestration/running_jobs/job-wait
 async def test_job_wait_returns_cleanly_when_job_completed(orch_ctx):
     job_id = await _seed_job(JOB_COMPLETED, "mod.ok")
 
     await run_cli("job", "wait", str(job_id))
 
 
-# req: user_guide/orchestration/job-wait-exit-status
+# req: user_guide/orchestration/running_jobs/job-wait-exit-status
 async def test_job_wait_timeout_exits_nonzero(orch_ctx, capsys):
     job_id = await _seed_job(None, "mod.stuck_task")
 
@@ -312,7 +312,7 @@ async def test_job_wait_timeout_exits_nonzero(orch_ctx, capsys):
     assert "did not reach a terminal" in capsys.readouterr().err
 
 
-# req: user_guide/orchestration/bare-name-needs-registration
+# req: user_guide/orchestration/running_jobs/bare-name-needs-registration
 async def test_run_job_bare_unregistered_name_is_rejected(orch_ctx, capsys):
     with pytest.raises(SystemExit) as exc_info:
         await run_cli("run-job", "crawl")
@@ -323,7 +323,7 @@ async def test_run_job_bare_unregistered_name_is_rejected(orch_ctx, capsys):
         assert (await session.execute(select(Job))).first() is None
 
 
-# req: user_guide/orchestration/job-wait
+# req: user_guide/orchestration/running_jobs/job-wait
 async def test_run_job_does_not_block_without_progress(orch_ctx):
     """``run-job`` stays fire-and-forget by default."""
     with patch("aaiclick.__main__.cli_wait.wait_for_job") as waiter:
@@ -332,7 +332,7 @@ async def test_run_job_does_not_block_without_progress(orch_ctx):
     waiter.assert_not_called()
 
 
-# req: user_guide/orchestration/job-wait-exit-status
+# req: user_guide/orchestration/running_jobs/job-wait-exit-status
 async def test_job_wait_json_output_stays_parseable_on_failure(orch_ctx, capsys):
     """``--json`` must emit exactly one JSON document — a trailing human-readable
     failure block would break ``jq`` consumers."""
@@ -344,7 +344,7 @@ async def test_job_wait_json_output_stays_parseable_on_failure(orch_ctx, capsys)
     json.loads(capsys.readouterr().out)
 
 
-# req: user_guide/orchestration/job-wait-exit-status
+# req: user_guide/orchestration/running_jobs/job-wait-exit-status
 async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(orch_ctx, capsys):
     """Under --json nothing has streamed progress, so the timeout still has to
     name the stuck task — on stderr, leaving stdout parseable."""
@@ -481,7 +481,7 @@ async def test_background_start_does_not_validate_worker_runner(monkeypatch, cap
     assert "distributed backends" in err
 
 
-# req: user_guide/orchestration/inspect-jobs
+# req: user_guide/orchestration/managing_jobs/inspect-jobs
 async def test_task_list_prints_the_jobs_task(orch_ctx, capsys):
     job = await run_job("cli_task_list", _VALID_ENTRYPOINT)
 

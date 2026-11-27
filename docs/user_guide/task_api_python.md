@@ -41,4 +41,4 @@ Kwargs arrive deserialized: upstream results as values, `Object` / `View` /
 `null`, `Object` / `View` → a table ref, `BaseModel` → `pydantic`, anything
 else → `native`.
 
-More: [Orchestration](orchestration.md).
+More: [Orchestration](orchestration/index.md).

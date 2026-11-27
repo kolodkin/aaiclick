@@ -21,7 +21,7 @@ def add_pipeline(a: int, b: int):
     return task_result(data=total, tasks=[total])
 
 
-# req: user_guide/orchestration/testing-jobs
+# req: user_guide/orchestration/tasks_and_jobs/testing-jobs
 async def test_ajob_test_accepts_job_factory(orch_ctx):
     """A @job factory is created with the given kwargs, then run."""
     j = await ajob_test(add_pipeline, a=3, b=4)

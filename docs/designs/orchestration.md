@@ -1,7 +1,7 @@
 aaiclick Orchestration Backend Specification
 ---
 
-Internal design reference, not published on the docs site. User guide: [docs/user_guide/orchestration.md](../user_guide/orchestration.md).
+Internal design reference, not published on the docs site. User guide: [docs/user_guide/orchestration/](../user_guide/orchestration/index.md).
 
 # Basic Example
 
@@ -323,7 +323,7 @@ python -m aaiclick background start
 !!! warning "`execution-worker start`/`background start` require distributed backends"
     In local mode, use `local start` instead.
 
-Job and registry commands: [user guide](../user_guide/orchestration.md).
+Job and registry commands: [user guide](../user_guide/orchestration/index.md).
 
 # Orchestration Operators
 

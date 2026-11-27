@@ -21,7 +21,7 @@ Compose and Kubernetes are the distributed modes:
 
 - Every component reads `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` for shared
   servers; the worker's `AAICLICK_RUNNER` (`docker` or `kubernetes`) decides
-  where a task runs — see [Orchestration — Runner modes](orchestration.md#runner-modes).
+  where a task runs — see [Orchestration — Runner modes](orchestration/runners.md#runner-modes).
 <!-- req: internal-database -->
 - Internal tables (task logs, oplog, migrations) live in `<db>_internal`
   beside the `AAICLICK_CH_URL` database. The user running
@@ -128,8 +128,8 @@ docker compose exec server python -m aaiclick run-job my_pipeline --progress
 | `.env`: `AAICLICK_ADMIN_PASSWORD`                           | Seed admin password                                                                                                       |
 | `.env`: `AAICLICK_PG_PASSWORD`                              | PostgreSQL password, read by the service and every URL — use URL-safe characters (letters, digits, `-`, `_`)              |
 | `.env`: `AAICLICK_CH_PASSWORD`                              | ClickHouse password, same rule                                                                                            |
-| `worker.AAICLICK_REGISTRY`, `worker.AAICLICK_BUILDKIT_ADDR` | Preset to the stack's registry and rootless `buildkitd` — [Image source](orchestration.md#image-source-docker-kubernetes) |
-| `worker.AAICLICK_GITHUB_APP_ID`, `_PEM_FILE`                | Commented out: GitHub App key for private-repo builds — [Image source](orchestration.md#image-source-docker-kubernetes)   |
+| `worker.AAICLICK_REGISTRY`, `worker.AAICLICK_BUILDKIT_ADDR` | Preset to the stack's registry and rootless `buildkitd` — [Image source](orchestration/runners.md#image-source-docker-kubernetes) |
+| `worker.AAICLICK_GITHUB_APP_ID`, `_PEM_FILE`                | Commented out: GitHub App key for private-repo builds — [Image source](orchestration/runners.md#image-source-docker-kubernetes)   |
 | `server.AAICLICK_SANDBOX`                                   | Git remote that enables the [sandbox](sandbox.md) page                                                                    |
 
 Build steps run on `buildkitd`, never on the worker's Docker daemon, but can

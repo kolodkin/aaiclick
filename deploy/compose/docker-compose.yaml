@@ -126,7 +126,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Private GitHub repos for --build: mount a GitHub App key and uncomment
-      # the two AAICLICK_GITHUB_APP_* lines below (docs/user_guide/orchestration.md).
+      # the two AAICLICK_GITHUB_APP_* lines below (docs/user_guide/orchestration/runners.md).
       # - ./secrets/github-app.pem:/run/secrets/github-app.pem:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
