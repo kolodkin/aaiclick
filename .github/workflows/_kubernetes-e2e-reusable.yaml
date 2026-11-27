@@ -177,11 +177,6 @@ jobs:
       - name: Dump cluster diagnostics on failure
         if: failure()
         run: |
-          echo "===== DEBUG host ====="
-          uname -a; cat /etc/os-release | head -3; sudo dmesg | tail -60 || true
-          sudo journalctl -u k3s --no-pager | grep -iE "error|warn|apparmor|denied" | tail -40 || true
-          echo "===== DEBUG postgres pod processes ====="
-          kubectl exec deploy/aaiclick-postgres -- sh -c 'cat /proc/1/limits; for p in /proc/[0-9]*; do echo "$p [$(cat $p/wchan)] $(tr "\0" " " < $p/cmdline)"; done; ls -la "$PGDATA"' || true
           echo "===== pods / events ====="
           kubectl get pods -A -o wide || true
           kubectl get events --sort-by=.lastTimestamp || true
