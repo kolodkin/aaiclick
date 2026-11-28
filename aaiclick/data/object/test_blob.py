@@ -12,6 +12,7 @@ Shared behavior runs once per backend through the ``store`` fixture:
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import io
 import os
@@ -106,10 +107,8 @@ class Container:
         service = BlobServiceClient.from_connection_string(_connection_string(endpoint))
         self._client = service.get_container_client(_CONTAINER)
         # xdist workers sharing one Azurite race to create it.
-        try:
+        with contextlib.suppress(ResourceExistsError):
             self._client.create_container()
-        except ResourceExistsError:
-            pass
 
     def url(self, path: str) -> str:
         return f"az://{_CONTAINER}/{path}"
@@ -200,8 +199,8 @@ def store(request) -> Bucket | Container:
 
 
 @pytest.fixture(autouse=True)
-async def server_lends_s3_identity(request, ctx) -> None:
-    """Skip S3 tests on a remote ClickHouse that cannot reach the bucket: one
+async def server_reaches_store(request, ctx) -> None:
+    """Skip blob tests on a remote ClickHouse that cannot reach the store: one
     whose profile does not lend its S3 identity to queries
     (docker/clickhouse/users.d/s3.xml), or, through a collection, one that does
     not define ``s3_test`` (docker/clickhouse/test/). Azure tests skip the same
@@ -211,9 +210,12 @@ async def server_lends_s3_identity(request, ctx) -> None:
     store = callspec.params.get("store") if callspec is not None else None
     if is_chdb():
         return
-    collection = {"s3_collection": _S3_CONNECTION, "azure": _CONNECTION}.get(store)
-    if collection is None and "container" in request.fixturenames:
+    # The autouse fixture runs before ``store`` resolves ``container``, so check both.
+    collection = None
+    if store == "azure" or "container" in request.fixturenames:
         collection = _CONNECTION
+    elif store == "s3_collection":
+        collection = _S3_CONNECTION
     if collection is not None:
         result = await get_ch_client().query(
             f"SELECT count() FROM system.named_collections WHERE name = '{collection}'"
