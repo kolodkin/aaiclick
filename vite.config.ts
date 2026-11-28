@@ -23,5 +23,6 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.{ts,tsx}"],
+    coverage: { include: ["src/**"], reportsDirectory: "tmp/vitest-coverage", reporter: ["text", "html"] },
   },
 });

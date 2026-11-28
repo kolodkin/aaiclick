@@ -1,8 +1,8 @@
 name: coverage-nightly
 
-# Coverage for the whole suite on the local backend (chdb + SQLite), kept off
-# the per-PR jobs, which it slowed. Publishes the HTML report as an artifact
-# and the per-file table in the run summary.
+# Coverage, kept off the per-PR jobs, which it slowed: the Python suite on the
+# local backend (chdb + SQLite) and the SPA's vitest suite. Each publishes its
+# HTML report as an artifact and its numbers in the run summary.
 
 on:
   schedule:
@@ -23,7 +23,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  coverage:
+  python:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -53,7 +53,7 @@ jobs:
         if: ${{ !cancelled() && hashFiles('.coverage') != '' }}
         run: |
           {
-            echo "## Coverage: $(uv run coverage report --format=total)%"
+            echo "## Python coverage: $(uv run coverage report --format=total)%"
             echo
             uv run coverage report --format=markdown --skip-covered --sort=cover
           } >> "$GITHUB_STEP_SUMMARY"
@@ -62,6 +62,46 @@ jobs:
         if: ${{ !cancelled() && hashFiles('tmp/htmlcov/index.html') != '' }}
         uses: actions/upload-artifact@v6
         with:
-          name: coverage-html
+          name: coverage-python-html
           path: tmp/htmlcov
+          retention-days: 14
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run SPA unit tests with coverage
+        run: |
+          set -o pipefail
+          npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=html | tee tmp-vitest.log
+
+      - name: Add coverage to summary
+        if: ${{ !cancelled() && hashFiles('tmp-vitest.log') != '' }}
+        run: |
+          {
+            echo "## Frontend coverage"
+            echo
+            echo '```'
+            sed -n '/Coverage summary/,$p' tmp-vitest.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() && hashFiles('tmp/vitest-coverage/index.html') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-frontend-html
+          path: tmp/vitest-coverage
           retention-days: 14
