@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Start (or `stop`) the local distributed-backend services the CI test jobs
 # use: ClickHouse on :8123, PostgreSQL on :5432, MinIO (S3) on :9100 and
-# Azurite (Azure Blob) on :10000, then
-# apply migrations. Each claudeai/setup_<svc>.sh reuses a running server,
-# installs under .cache/ when missing, then starts it. Processes do not
-# survive a container resume, so run this each session.
+# Azurite (Azure Blob) on :10000, then apply migrations. Each
+# claudeai/setup_<svc>.sh reuses a running server, installs under .cache/ when
+# missing, then starts it. Processes do not survive a container resume, so run
+# this each session.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_guard.sh"
