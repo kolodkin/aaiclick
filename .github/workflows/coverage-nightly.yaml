@@ -1,0 +1,67 @@
+name: coverage-nightly
+
+# Coverage for the whole suite on the local backend (chdb + SQLite), kept off
+# the per-PR jobs, which it slowed. Publishes the HTML report as an artifact
+# and the per-file table in the run summary.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+concurrency:
+  group: coverage-nightly
+  cancel-in-progress: false
+
+env:
+  # See _test-reusable.yaml: dorny/test-reporter@v2 still ships Node.js 20.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.11"
+          sync-args: "--extra test --extra server"
+
+      - name: Setup local backend
+        run: uv run python -m aaiclick setup
+
+      - name: Start Azurite
+        uses: ./.github/actions/start-azurite
+
+      # pytest's testpaths (aaiclick/) is every local-backend group at once.
+      - name: Run tests with coverage
+        uses: ./.github/actions/run-pytest
+        with:
+          command: uv run pytest -n auto -v --cov=aaiclick --cov-report=html:tmp/htmlcov --cov-report=
+          report-name: "Pytest Results (Coverage)"
+
+      - name: Add coverage to summary
+        if: ${{ !cancelled() && hashFiles('.coverage') != '' }}
+        run: |
+          {
+            echo "## Coverage: $(uv run coverage report --format=total)%"
+            echo
+            uv run coverage report --format=markdown --skip-covered --sort=cover
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() && hashFiles('tmp/htmlcov/index.html') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-html
+          path: tmp/htmlcov
+          retention-days: 14

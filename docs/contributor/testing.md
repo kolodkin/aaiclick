@@ -149,6 +149,16 @@ follow; the `python-testing-style` skill holds the details and examples.
    `__init__.py`, the default `prepend` import mode can't collect two of the
    same name. `importlib` mode would, but breaks the bare `from job_wait import …`.
 
+# Coverage
+
+Off in the per-PR jobs. `coverage-nightly.yaml` runs the whole suite on the
+local backend with `--cov` and publishes the per-file table in the run
+summary and the HTML report as the `coverage-html` artifact. Locally:
+
+```bash
+uv run pytest -n auto --cov=aaiclick --cov-report=html
+```
+
 # Deployment tests
 
 - `test_e2e/compose/test_env_init.py` runs `env.init.sh` as a user would
