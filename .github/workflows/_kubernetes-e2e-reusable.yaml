@@ -35,8 +35,7 @@ on:
 
 jobs:
   e2e:
-    # shortcut: pinned, ubuntu-26.04 (Docker 29) breaks the HTTP CI registry and Postgres readiness; unpin once ported
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 60
 
     env:
