@@ -4,10 +4,12 @@ Viewers get the controls disabled with an explanatory tooltip rather than
 hidden — see ``src/components/AdminButton.tsx`` and the role matrix in
 ``docs/designs/auth.md``.
 
-Both the role probe (``/auth/me``) and the list call are stubbed, so the
-assertions are about the SPA's gating alone and hold in either backend mode:
-local mode would otherwise always report the synthetic admin, and distributed
-mode would 401 the stubbed session out to the login screen.
+The role probe (``/auth/me``) and the list call are stubbed, and every other
+API call is aborted, so the assertions are about the SPA's gating alone and
+hold in either backend mode: local mode would otherwise always report the
+synthetic admin, and in distributed mode any unstubbed call (the shell's
+``/events`` and ``/sandbox/config``) carries no token, 401s, and drops the
+stubbed session to the login screen mid-test.
 
 Run with::
 
@@ -44,6 +46,10 @@ def _stub_session(page, role: str, user_id: int | None = 1) -> None:
     ``user_id=None`` mimics local mode's synthetic admin, which has no user row."""
     username = f"{role}_user" if user_id is not None else None
     me = {"id": user_id, "username": username, "role": role, "mfa_enabled": False}
+    # Registered first so the stubs below take precedence (Playwright runs the
+    # last-registered matching route). An aborted call fails as a network error,
+    # which the SPA tolerates; a 401 would sign the stubbed session out.
+    page.route("**/api/v0/**", lambda route: route.abort())
     page.route(
         "**/api/v0/auth/me",
         lambda route: route.fulfill(
