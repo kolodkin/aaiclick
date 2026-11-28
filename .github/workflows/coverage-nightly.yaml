@@ -42,11 +42,11 @@ jobs:
       - name: Start Azurite
         uses: ./.github/actions/start-azurite
 
-      # pytest's testpaths (aaiclick/) is every local-backend group at once.
+      # Every test file the per-PR local groups run (aaiclick/test_ci_paths.py).
       - name: Run tests with coverage
         uses: ./.github/actions/run-pytest
         with:
-          command: uv run pytest -n auto -v --cov=aaiclick --cov-report=html:tmp/htmlcov --cov-report=
+          command: uv run pytest aaiclick/ test_e2e/compose/test_env_init.py -n auto -v --cov=aaiclick --cov-report=html:tmp/htmlcov --cov-report=
           report-name: "Pytest Results (Coverage)"
 
       - name: Add coverage to summary
