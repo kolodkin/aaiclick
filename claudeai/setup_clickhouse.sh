@@ -5,6 +5,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_guard.sh"
+. "$here/_stop.sh"
 # The server's S3 identity is the AWS pair env.sh exports (MinIO's), lent to
 # queries by users.d/s3.xml.
 . "$here/env.sh"
@@ -15,12 +16,7 @@ pidfile="$dir/clickhouse.pid"
 up() { curl -fs localhost:8123/ping >/dev/null; }
 
 if [ "${1:-}" = "stop" ]; then
-  if [ -f "$pidfile" ] && pid="$(cat "$pidfile")" && kill "$pid" 2>/dev/null; then
-    # Wait for the exit, so a start right after does not see the dying server as up.
-    for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-  fi
-  rm -f "$pidfile"
-  echo "[clickhouse] stopped"
+  stop_pidfile clickhouse "$pidfile"
   exit 0
 fi
 
@@ -48,6 +44,12 @@ fi
 # image: users.xml plus users.d/, which gets the same S3 profile file the CI
 # blob job mounts (docker/clickhouse/users.d/s3.xml).
 cp "$here/../docker/clickhouse/users.d/s3.xml" "$dir/users.d/s3.xml"
+# The CI blob job's test collections (s3_test, azurite_test), with Azurite on
+# localhost instead of the Docker host.
+mkdir -p "$dir/config.d"
+cp "$here/../docker/clickhouse/test/users.d/named-collections.xml" "$dir/users.d/named-collections.xml"
+sed 's/host\.docker\.internal/127.0.0.1/' "$here/../docker/clickhouse/test/config.d/named-collections.xml" \
+  >"$dir/config.d/named-collections.xml"
 cat >"$dir/config.xml" <<XML
 <clickhouse>
   <logger><level>warning</level><console>1</console></logger>

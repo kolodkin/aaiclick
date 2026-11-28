@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Start (or `stop`) the local distributed-backend services the CI test jobs
-# use: ClickHouse on :8123, PostgreSQL on :5432 and MinIO (S3) on :9100, then
-# apply migrations. Each claudeai/setup_<svc>.sh reuses a running server,
-# installs under .cache/ when missing, then starts it. Processes do not
-# survive a container resume, so run this each session.
+# use: ClickHouse on :8123, PostgreSQL on :5432, MinIO (S3) on :9100 and
+# Azurite (Azure Blob) on :10000, then apply migrations. Each
+# claudeai/setup_<svc>.sh reuses a running server, installs under .cache/ when
+# missing, then starts it. Processes do not survive a container resume, so run
+# this each session.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_guard.sh"
 . "$here/env.sh"
 
 # One entry per claudeai/setup_<svc>.sh; stopped in reverse order.
-services=(clickhouse postgres minio)
+services=(clickhouse postgres minio azurite)
 
 case "${1:-start}" in
   stop)
@@ -22,7 +23,12 @@ case "${1:-start}" in
   *) echo "usage: $0 [start|stop]" >&2; exit 2 ;;
 esac
 
-for svc in "${services[@]}"; do "$here/setup_$svc.sh"; done
+# Independent, so start them together; each logs with its own [svc] prefix.
+pids=()
+for svc in "${services[@]}"; do "$here/setup_$svc.sh" & pids+=($!); done
+failed=0
+for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+[ "$failed" = 0 ] || { echo "[run] error: a service failed to start; see its [svc] error above" >&2; exit 1; }
 
 cache="$here/../.cache"
 mkdir -p "$cache"

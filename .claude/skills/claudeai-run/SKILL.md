@@ -1,6 +1,6 @@
 ---
 name: claudeai-run
-description: Start the local ClickHouse, PostgreSQL and MinIO (S3) services the distributed-backend and blob-storage tests need by running claudeai/run.sh. Use at the start of a new session, whenever the services are down (e.g. after a container suspend/resume), or when a test or spike needs an S3 endpoint.
+description: Start the local ClickHouse, PostgreSQL, MinIO (S3) and Azurite (Azure Blob) services the distributed-backend and blob-storage tests need by running claudeai/run.sh. Use at the start of a new session, whenever the services are down (e.g. after a container suspend/resume), or when a test or spike needs an S3 or Azure endpoint.
 disable-model-invocation: true
 ---
 
@@ -41,16 +41,31 @@ the CI services in `.github/workflows/_test-reusable.yaml`:
 3. **MinIO** — `:9100` (`minioadmin`/`minioadmin`, bucket `aaiclick-test`);
    built from source by `claudeai/setup_minio.sh` (~2 min once — MinIO no
    longer publishes binaries, images or `mc`)
-4. **Migrations** — `aaiclick migrate upgrade head` against both
+4. **Azurite** — `:10000` (Azure Blob emulator, dev account `devstoreaccount1`);
+   ClickHouse gets the `s3_test` / `azurite_test` named collections from
+   `docker/clickhouse/test/`
+5. **Migrations** — `aaiclick migrate upgrade head` against both
 
 Prints `[run] all services up` on success. A failure exits non-zero with a
 `[<svc>] error:` line pointing at its log under `.cache/`.
 
 ## Use
 
+`env.sh` is all or nothing: it points tests at every service, Azurite included,
+so run `claudeai/run.sh` first each session. With it sourced, a stopped service
+fails its tests instead of falling back (e.g. `test_blob.py` no longer starts
+its own Azurite).
+
 ```bash
-source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET, AWS_*
+source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET, AWS_*, AAICLICK_TEST_AZURITE_ENDPOINT
 uv run --frozen --extra test pytest aaiclick/
+```
+
+Blob tests on both backends (S3 via in-process moto, Azure via the shared Azurite):
+
+```bash
+uv run --frozen --extra test pytest aaiclick/data/object/test_blob.py
+env -u AAICLICK_CH_URL -u AAICLICK_SQL_URL uv run --frozen --extra test pytest aaiclick/data/object/test_blob.py
 ```
 
 Blob URLs carry no credentials: ClickHouse and chdb read `AWS_ACCESS_KEY_ID` /
@@ -72,7 +87,7 @@ claudeai/run.sh stop
 
 `run.sh` installs whatever binary or cluster is missing (fresh container). To
 start over, stop the services, delete `.cache/clickhouse`,
-`.cache/postgres` or `.cache/minio`, then re-run.
+`.cache/postgres`, `.cache/minio` or `.cache/azurite`, then re-run.
 
 Per-service logs: `.cache/clickhouse.log`, `.cache/postgres/postgres.log`,
-`.cache/minio.log`, `.cache/migrate.log`.
+`.cache/minio.log`, `.cache/azurite.log`, `.cache/migrate.log`.

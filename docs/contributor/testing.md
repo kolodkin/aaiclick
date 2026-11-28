@@ -253,7 +253,9 @@ Its `store` fixture runs the shared export / open tests against S3 and Azure.
 Azure uses Azurite, Microsoft's Azure Storage emulator: started with `npx`
 locally (chdb, connection string in the env), or the container the
 `Blob storage dist` job runs, whose ClickHouse mounts `docker/clickhouse/test/`
-to define and grant the `azurite_test` collection.
+to define and grant the `azurite_test` collection. `claudeai/run.sh` starts
+Azurite on `:10000` and loads the same collections, so the module runs on
+both backends in a cloud session.
 
 # Viewer tests
 
