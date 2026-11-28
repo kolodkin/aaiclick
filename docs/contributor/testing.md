@@ -157,8 +157,8 @@ one's numbers in the run summary and HTML report as an artifact
 (`coverage-python-html`, `coverage-frontend-html`). Locally:
 
 ```bash
-uv run pytest -n auto --cov=aaiclick --cov-report=html
-npx vitest run --coverage    # HTML in tmp/vitest-coverage/
+uv run pytest -n auto --cov --cov-report=html   # HTML in tmp/htmlcov/
+npx vitest run --coverage                         # HTML in tmp/vitest-coverage/
 ```
 
 # Deployment tests

@@ -46,7 +46,7 @@ jobs:
       - name: Run tests with coverage
         uses: ./.github/actions/run-pytest
         with:
-          command: uv run pytest aaiclick/ test_e2e/compose/test_env_init.py -n auto -v --cov=aaiclick --cov-report=html:tmp/htmlcov --cov-report=
+          command: uv run pytest aaiclick/ test_e2e/compose/test_env_init.py -n auto -v --cov --cov-report=html
           report-name: "Pytest Results (Coverage)"
 
       - name: Add coverage to summary
@@ -82,13 +82,15 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Install Chromium for the browser tests
-        run: npx playwright install --with-deps chromium
+      - name: Setup Playwright Chromium
+        uses: ./.github/actions/setup-playwright
+        with:
+          cli: npx playwright
 
       - name: Run SPA tests with coverage
         run: |
           set -o pipefail
-          npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=html | tee tmp-vitest.log
+          npx vitest run --coverage | tee tmp-vitest.log
 
       - name: Add coverage to summary
         if: ${{ !cancelled() && hashFiles('tmp-vitest.log') != '' }}

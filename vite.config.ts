@@ -25,7 +25,7 @@ export default defineConfig({
       provider: "v8",
       include: ["src/**"],
       reportsDirectory: "tmp/vitest-coverage",
-      reporter: ["text", "html"],
+      reporter: ["text-summary", "html"],
     },
     projects: [
       {
