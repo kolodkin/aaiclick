@@ -36,12 +36,10 @@ if [ ! -x "$dir/node_modules/.bin/azurite-blob" ]; then
   echo "[azurite] installed azurite@$version"
 fi
 
-# setsid + exec keep $! the server's own pid and detach it from this shell.
-(
-  exec setsid "$dir/node_modules/.bin/azurite-blob" --blobHost 127.0.0.1 --blobPort 10000 \
-    --location "$dir/data" --loose --skipApiVersionCheck </dev/null >"$cache/azurite.log" 2>&1
-) &
+nohup "$dir/node_modules/.bin/azurite-blob" --blobHost 127.0.0.1 --blobPort 10000 \
+  --location "$dir/data" --loose --skipApiVersionCheck >"$cache/azurite.log" 2>&1 &
 echo $! >"$pidfile"
+disown
 for _ in $(seq 1 30); do up && break; sleep 1; done
 up || { echo "[azurite] error: not ready; see $cache/azurite.log" >&2; exit 1; }
 echo "[azurite] up on :10000"
