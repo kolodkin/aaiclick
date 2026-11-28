@@ -22,6 +22,13 @@ Technical Debt
   - **Workaround**: `"ignore:The 'u' type code is deprecated:DeprecationWarning"`.
   - **Debt**: Upstream can't simply swap to `'w'` — that typecode was added in 3.13 and raises `ValueError: bad typecode` on 3.10–3.12. Drop the filter once `clickhouse-connect` ships a wheel that drops sub-3.13 support or version-gates the typecode. Track at [ClickHouse/clickhouse-connect](https://github.com/ClickHouse/clickhouse-connect).
 
+# k3s AppArmor on ubuntu-26.04
+
+- **Site**: `setup-k3s` in `.github/actions/setup-k3s/action.yaml`
+  - **Issue**: On `ubuntu-26.04`, processes in a k3s pod run under the stacked label `cri-containerd.apparmor.d//&unconfined`. containerd's profile only allows signals from its own unstacked label, so the kernel denies signals between a pod's processes (`apparmor="DENIED" operation="signal"`). Postgres hangs on start and logs nothing. Any k3s node on 26.04 hits this, not just CI.
+  - **Workaround**: Set `kernel.apparmor_restrict_unprivileged_unconfined=0` on the host before installing k3s. This lifts the restriction for the whole host.
+  - **Debt**: Pin k3s to the first release whose containerd profile allows stacked peers, then drop the sysctl. Track at [k3s-io/k3s](https://github.com/k3s-io/k3s).
+
 # GitHub Actions
 
 - **Site**: `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` in `.github/workflows/_test-reusable.yaml` (also set in `project-example.yaml`)
