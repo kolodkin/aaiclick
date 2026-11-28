@@ -19,6 +19,7 @@ runs:
       run: |
         # ubuntu-26.04 stacks unconfined onto containerd's AppArmor profile, which then
         # denies signals between a pod's own processes (Postgres hangs on start).
+        # shortcut: lifts the restriction host-wide, drop once k3s ships a profile that allows stacked peers
         if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined ]; then
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
         fi
