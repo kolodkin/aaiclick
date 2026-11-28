@@ -12,14 +12,14 @@ unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
 Bring it back as one nightly job, outside the per-PR jobs, that publishes the
 report where it is read (HTML artifact, or a coverage service with PR diffs).
 
-# Changelog
-
-`docs/changelog.md` — version history in Keep a Changelog format. Introduce
-with the v1.0.0 release.
-
 # Deferred
 
 Items deferred until preconditions are met.
+
+## Changelog
+
+Deferred until the v1.0.0 release. `docs/changelog.md` — version history in
+Keep a Changelog format.
 
 ## Sharded Joins
 
