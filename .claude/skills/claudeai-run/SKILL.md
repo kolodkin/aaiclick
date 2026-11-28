@@ -51,6 +51,11 @@ Prints `[run] all services up` on success. A failure exits non-zero with a
 
 ## Use
 
+`env.sh` is all or nothing: it points tests at every service, Azurite included,
+so run `claudeai/run.sh` first each session. With it sourced, a stopped service
+fails its tests instead of falling back (e.g. `test_blob.py` no longer starts
+its own Azurite).
+
 ```bash
 source claudeai/env.sh   # AAICLICK_CH_URL, AAICLICK_SQL_URL, AAICLICK_JWT_SECRET, AWS_*, AAICLICK_TEST_AZURITE_ENDPOINT
 uv run --frozen --extra test pytest aaiclick/
