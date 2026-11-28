@@ -82,7 +82,10 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Run SPA unit tests with coverage
+      - name: Install Chromium for the browser tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run SPA tests with coverage
         run: |
           set -o pipefail
           npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=html | tee tmp-vitest.log

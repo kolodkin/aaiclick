@@ -93,7 +93,10 @@ jobs:
       - name: Check formatting with Prettier
         run: npm run format:check
 
-      - name: Run SPA unit tests
+      - name: Install Chromium for the browser tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run SPA tests
         run: npm test
 
   test-local:

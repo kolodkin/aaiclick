@@ -177,12 +177,18 @@ npx vitest run --coverage    # HTML in tmp/vitest-coverage/
 
 **Implementation**: `test_e2e/web/`
 
-| Layer                | Tool                | Where                                                                     |
-|----------------------|---------------------|---------------------------------------------------------------------------|
-| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
-| Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
-| Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
-| End-to-end (browser) | Playwright (Python) | `test_e2e/web/`, pytest                                                   |
+| Layer                | Tool                       | Where                                                                       |
+|----------------------|----------------------------|-----------------------------------------------------------------------------|
+| Static type check    | `tsc --noEmit`             | `npm run check` — CI gate for every frontend task                           |
+| Formatting           | Prettier                   | `npm run format:check` — CI gate; `npm run format` rewrites                 |
+| Unit tests           | vitest (node)              | `npm test` — `src/**/*.test.ts(x)`: pure logic, no DOM                      |
+| Component tests      | vitest browser, Playwright | `npm test` — `src/**/*.browser.test.tsx`: one component in Chromium, no API |
+| End-to-end (browser) | Playwright (Python)        | `test_e2e/web/`, pytest                                                     |
+
+Component tests render with `vitest-browser-react` and drive real events, focus
+and layout: what the node project cannot see. `npm test` runs both projects;
+`--project unit` or `--project browser` picks one. Chromium comes from
+`npx playwright install chromium`.
 
 **One test body, both modes.** Tests create jobs in-process through the
 orchestration API (the same pattern as `seed.py`), never through REST: no

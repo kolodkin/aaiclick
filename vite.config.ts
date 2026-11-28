@@ -21,8 +21,33 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "node",
-    include: ["src/**/*.test.{ts,tsx}"],
     coverage: { include: ["src/**"], reportsDirectory: "tmp/vitest-coverage", reporter: ["text", "html"] },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "unit",
+          environment: "node",
+          include: ["src/**/*.test.{ts,tsx}"],
+          exclude: ["src/**/*.browser.test.{ts,tsx}"],
+        },
+      },
+      {
+        // Component tests: render in real Chromium through Playwright.
+        extends: true,
+        test: {
+          name: "browser",
+          include: ["src/**/*.browser.test.{ts,tsx}"],
+          browser: {
+            enabled: true,
+            provider: "playwright",
+            headless: true,
+            instances: [{ browser: "chromium" }],
+            // Failure screenshots; the default lands beside the test, under src/.
+            screenshotDirectory: "tmp/vitest-screenshots",
+          },
+        },
+      },
+    ],
   },
 });
