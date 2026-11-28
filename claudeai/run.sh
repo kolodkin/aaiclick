@@ -23,7 +23,12 @@ case "${1:-start}" in
   *) echo "usage: $0 [start|stop]" >&2; exit 2 ;;
 esac
 
-for svc in "${services[@]}"; do "$here/setup_$svc.sh"; done
+# Independent, so start them together; each logs with its own [svc] prefix.
+pids=()
+for svc in "${services[@]}"; do "$here/setup_$svc.sh" & pids+=($!); done
+failed=0
+for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+[ "$failed" = 0 ] || { echo "[run] error: a service failed to start; see its [svc] error above" >&2; exit 1; }
 
 cache="$here/../.cache"
 mkdir -p "$cache"
