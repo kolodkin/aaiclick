@@ -12,19 +12,6 @@ unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
 Bring it back as one nightly job, outside the per-PR jobs, that publishes the
 report where it is read (HTML artifact, or a coverage service with PR diffs).
 
-# k3s AppArmor on ubuntu-26.04
-
-On `ubuntu-26.04`, the processes in a k3s pod run under a stacked AppArmor
-label (`cri-containerd.apparmor.d//&unconfined`). The profile only allows
-signals from its own unstacked label, so signals between a pod's processes
-are denied. Postgres then hangs on start without logging anything.
-`setup-k3s` works around it by setting
-`kernel.apparmor_restrict_unprivileged_unconfined=0` on the whole host.
-
-Any user running k3s on 26.04 nodes hits the same hang. Track the
-k3s/containerd fix, pin k3s to the first release that has it, and drop the
-sysctl. Until then, note the workaround in the Kubernetes runner docs.
-
 # Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce
