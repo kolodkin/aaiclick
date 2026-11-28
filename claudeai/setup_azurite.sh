@@ -6,6 +6,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_guard.sh"
+. "$here/_stop.sh"
 
 cache="$here/../.cache"
 dir="$cache/azurite"
@@ -13,12 +14,7 @@ pidfile="$dir/azurite.pid"
 up() { (exec 3<>/dev/tcp/127.0.0.1/10000) 2>/dev/null; }
 
 if [ "${1:-}" = "stop" ]; then
-  if [ -s "$pidfile" ] && pid="$(cat "$pidfile")" && kill "$pid" 2>/dev/null; then
-    # Wait for the exit, so a start right after does not see the dying server as up.
-    for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-  fi
-  rm -f "$pidfile"
-  echo "[azurite] stopped"
+  stop_pidfile azurite "$pidfile"
   exit 0
 fi
 

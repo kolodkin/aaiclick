@@ -6,6 +6,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_guard.sh"
+. "$here/_stop.sh"
 # MinIO's root credentials are the AWS pair the tests use.
 . "$here/env.sh"
 creds="$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY"
@@ -16,12 +17,7 @@ pidfile="$dir/minio.pid"
 up() { curl -fs localhost:9100/minio/health/live >/dev/null; }
 
 if [ "${1:-}" = "stop" ]; then
-  if [ -f "$pidfile" ] && pid="$(cat "$pidfile")" && kill "$pid" 2>/dev/null; then
-    # Wait for the exit, so a start right after does not see the dying server as up.
-    for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-  fi
-  rm -f "$pidfile"
-  echo "[minio] stopped"
+  stop_pidfile minio "$pidfile"
   exit 0
 fi
 
