@@ -149,6 +149,18 @@ follow; the `python-testing-style` skill holds the details and examples.
    `__init__.py`, the default `prepend` import mode can't collect two of the
    same name. `importlib` mode would, but breaks the bare `from job_wait import …`.
 
+# Coverage
+
+Off in the per-PR jobs. `coverage-nightly.yaml` runs the Python suite (local
+backend) and the SPA's vitest suite with coverage. Each posts its numbers to
+the run summary and its HTML report as an artifact (`coverage-python-html`,
+`coverage-frontend-html`). Locally:
+
+```bash
+uv run pytest -n auto --cov --cov-report=html   # HTML in tmp/htmlcov/
+npx vitest run --coverage                         # HTML in tmp/vitest-coverage/
+```
+
 # Deployment tests
 
 - `test_e2e/compose/test_env_init.py` runs `env.init.sh` as a user would
@@ -165,12 +177,18 @@ follow; the `python-testing-style` skill holds the details and examples.
 
 **Implementation**: `test_e2e/web/`
 
-| Layer                | Tool                | Where                                                                     |
-|----------------------|---------------------|---------------------------------------------------------------------------|
-| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
-| Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
-| Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
-| End-to-end (browser) | Playwright (Python) | `test_e2e/web/`, pytest                                                   |
+| Layer                | Tool                       | Where                                                                       |
+|----------------------|----------------------------|-----------------------------------------------------------------------------|
+| Static type check    | `tsc --noEmit`             | `npm run check` — CI gate for every frontend task                           |
+| Formatting           | Prettier                   | `npm run format:check` — CI gate; `npm run format` rewrites                 |
+| Unit tests           | vitest (node)              | `npm test` — `src/**/*.test.ts(x)`: pure logic, no DOM                      |
+| Component tests      | vitest browser, Playwright | `npm test` — `src/**/*.browser.test.tsx`: one component in Chromium, no API |
+| End-to-end (browser) | Playwright (Python)        | `test_e2e/web/`, pytest                                                     |
+
+Component tests render with `vitest-browser-react` and drive real events, focus
+and layout: what the node project cannot see. `npm test` runs both projects;
+`--project unit` or `--project browser` picks one. Chromium comes from
+`npx playwright install chromium`.
 
 **One test body, both modes.** Tests create jobs in-process through the
 orchestration API (the same pattern as `seed.py`), never through REST: no

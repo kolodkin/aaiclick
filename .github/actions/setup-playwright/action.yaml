@@ -1,0 +1,33 @@
+name: Setup Playwright Chromium
+description: >-
+  Install Chromium for Playwright, with the browser build cached per
+  Playwright version. On a cache hit only the OS deps are installed.
+
+inputs:
+  cli:
+    description: "Command that runs the Playwright CLI, e.g. \"uv run playwright\" or \"npx playwright\"."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Playwright version
+      id: pw-version
+      shell: bash
+      run: echo "version=$(${{ inputs.cli }} --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: pw-chromium-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
+    - name: Install Chromium for Playwright
+      shell: bash
+      run: |
+        if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+          ${{ inputs.cli }} install-deps chromium
+        else
+          ${{ inputs.cli }} install --with-deps chromium
+        fi

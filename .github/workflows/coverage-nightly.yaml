@@ -1,0 +1,111 @@
+name: coverage-nightly
+
+# Coverage, kept off the per-PR jobs, which it slowed.
+# See docs/contributor/testing.md — "Coverage".
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+concurrency:
+  group: coverage-nightly
+  cancel-in-progress: false
+
+env:
+  # See _test-reusable.yaml: dorny/test-reporter@v2 still ships Node.js 20.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.11"
+          sync-args: "--extra test --extra server"
+
+      - name: Setup local backend
+        run: uv run python -m aaiclick setup
+
+      - name: Start Azurite
+        uses: ./.github/actions/start-azurite
+
+      # Every test file the per-PR local groups run (aaiclick/test_ci_paths.py).
+      - name: Run tests with coverage
+        uses: ./.github/actions/run-pytest
+        with:
+          command: uv run pytest aaiclick/ test_e2e/compose/test_env_init.py -n auto -v --cov --cov-report=html
+          report-name: "Pytest Results (Coverage)"
+
+      - name: Add coverage to summary
+        if: ${{ !cancelled() && hashFiles('.coverage') != '' }}
+        run: |
+          {
+            echo "## Python coverage: $(uv run coverage report --format=total)%"
+            echo
+            uv run coverage report --format=markdown --skip-covered --sort=cover
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() && hashFiles('tmp/htmlcov/index.html') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-python-html
+          path: tmp/htmlcov
+          retention-days: 14
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Setup Playwright Chromium
+        uses: ./.github/actions/setup-playwright
+        with:
+          cli: npx playwright
+
+      - name: Run SPA tests with coverage
+        run: |
+          set -o pipefail
+          npx vitest run --coverage | tee tmp-vitest.log
+
+      - name: Add coverage to summary
+        if: ${{ !cancelled() && hashFiles('tmp-vitest.log') != '' }}
+        run: |
+          {
+            echo "## Frontend coverage"
+            echo
+            echo '```'
+            sed -n '/Coverage summary/,$p' tmp-vitest.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() && hashFiles('tmp/vitest-coverage/index.html') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-frontend-html
+          path: tmp/vitest-coverage
+          retention-days: 14

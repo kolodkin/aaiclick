@@ -181,3 +181,13 @@ filterwarnings = [
     # clickhouse-connect 'u' type code DeprecationWarning — see docs/contributor/technical_debt.md
     "ignore:The 'u' type code is deprecated:DeprecationWarning",
 ]
+
+[tool.coverage.run]
+source = ["aaiclick"]
+# Tests sit beside the code under aaiclick/; keep them out of the total.
+omit = ["*/test_*.py", "*/conftest.py"]
+# The mp runner executes tasks in spawned children; measure them too.
+patch = ["subprocess"]
+
+[tool.coverage.html]
+directory = "tmp/htmlcov"

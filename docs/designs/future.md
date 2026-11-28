@@ -3,23 +3,14 @@ Future Plans
 
 Planned work across aaiclick, ordered by priority.
 
-# Coverage Reporting
-
-Coverage is off by default: its CI log table went unread and it slowed every
-unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
-`python-testing-style` zero-lines-lost check).
-
-Bring it back as one nightly job, outside the per-PR jobs, that publishes the
-report where it is read (HTML artifact, or a coverage service with PR diffs).
-
-# Changelog
-
-`docs/changelog.md` — version history in Keep a Changelog format. Introduce
-with the v1.0.0 release.
-
 # Deferred
 
 Items deferred until preconditions are met.
+
+## Changelog
+
+Deferred until the v1.0.0 release. `docs/changelog.md` — version history in
+Keep a Changelog format.
 
 ## Sharded Joins
 
