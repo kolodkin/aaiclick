@@ -151,10 +151,10 @@ follow; the `python-testing-style` skill holds the details and examples.
 
 # Coverage
 
-Off in the per-PR jobs. `coverage-nightly.yaml` runs the Python suite on the
-local backend and the SPA's vitest suite with coverage, and publishes each
-one's numbers in the run summary and HTML report as an artifact
-(`coverage-python-html`, `coverage-frontend-html`). Locally:
+Off in the per-PR jobs. `coverage-nightly.yaml` runs the Python suite (local
+backend) and the SPA's vitest suite with coverage. Each posts its numbers to
+the run summary and its HTML report as an artifact (`coverage-python-html`,
+`coverage-frontend-html`). Locally:
 
 ```bash
 uv run pytest -n auto --cov --cov-report=html   # HTML in tmp/htmlcov/

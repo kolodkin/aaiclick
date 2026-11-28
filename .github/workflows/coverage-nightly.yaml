@@ -1,8 +1,7 @@
 name: coverage-nightly
 
-# Coverage, kept off the per-PR jobs, which it slowed: the Python suite on the
-# local backend (chdb + SQLite) and the SPA's vitest suite. Each publishes its
-# HTML report as an artifact and its numbers in the run summary.
+# Coverage, kept off the per-PR jobs, which it slowed.
+# See docs/contributor/testing.md — "Coverage".
 
 on:
   schedule:
