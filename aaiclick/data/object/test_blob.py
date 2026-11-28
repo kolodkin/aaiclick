@@ -26,6 +26,7 @@ from typing import NamedTuple
 import boto3
 import pyarrow.parquet as pq
 import pytest
+from azure.core.exceptions import ResourceExistsError
 from azure.storage.blob import BlobServiceClient
 from moto.server import ThreadedMotoServer
 from sqlalchemy import text
@@ -104,8 +105,11 @@ class Container:
     def __init__(self, endpoint: str):
         service = BlobServiceClient.from_connection_string(_connection_string(endpoint))
         self._client = service.get_container_client(_CONTAINER)
-        if not self._client.exists():
+        # xdist workers sharing one Azurite race to create it.
+        try:
             self._client.create_container()
+        except ResourceExistsError:
+            pass
 
     def url(self, path: str) -> str:
         return f"az://{_CONTAINER}/{path}"
@@ -200,18 +204,22 @@ async def server_lends_s3_identity(request, ctx) -> None:
     """Skip S3 tests on a remote ClickHouse that cannot reach the bucket: one
     whose profile does not lend its S3 identity to queries
     (docker/clickhouse/users.d/s3.xml), or, through a collection, one that does
-    not define ``s3_test`` (docker/clickhouse/test/). chdb uses our env either
-    way, and tests that never reach a bucket run everywhere."""
+    not define ``s3_test`` (docker/clickhouse/test/). Azure tests skip the same
+    way without ``azurite_test``. chdb uses our env either way, and tests that
+    never reach a bucket run everywhere."""
     callspec = getattr(request.node, "callspec", None)
     store = callspec.params.get("store") if callspec is not None else None
     if is_chdb():
         return
-    if store == "s3_collection":
+    collection = {"s3_collection": _S3_CONNECTION, "azure": _CONNECTION}.get(store)
+    if collection is None and "container" in request.fixturenames:
+        collection = _CONNECTION
+    if collection is not None:
         result = await get_ch_client().query(
-            f"SELECT count() FROM system.named_collections WHERE name = '{_S3_CONNECTION}'"
+            f"SELECT count() FROM system.named_collections WHERE name = '{collection}'"
         )
         if result.result_rows[0][0] == 0:
-            pytest.skip(f"ClickHouse defines no {_S3_CONNECTION} named collection")
+            pytest.skip(f"ClickHouse defines no {collection} named collection")
         return
     if "bucket" not in request.fixturenames and store != "s3":
         return
